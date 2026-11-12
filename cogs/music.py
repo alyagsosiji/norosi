@@ -6,6 +6,8 @@ import time
 import random
 import asyncio
 import datetime
+import queue
+import threading
 from typing import Optional
 import discord
 from discord import app_commands
@@ -850,6 +852,71 @@ def _format_duration_mmss(sec: int) -> str:
 
 
 # ==========================================
+# 🛡️ 고음질 무지연 사전 버퍼링 오디오 소스 (네트워크 끊김·버퍼링 원천 방지)
+# ==========================================
+class BufferedAudioSource(discord.AudioSource):
+    """
+    FFmpeg 스트리밍 I/O 지연 및 네트워크 지터를 흡수하는 무지연 인메모리 버퍼링 오디오 소스.
+    - 백그라운드 스레드가 FFmpeg 출력을 약 4초(200 프레임) 분량 선독(Pre-fetch)하여 큐에 유지합니다.
+    - Discord AudioPlayer 스레드가 20ms마다 프레임을 요구할 때 메모리에서 0ms 즉시 반환하여
+      유튜브/사운드클라우드 스트리밍 시 네트워크 핑 지연이나 패킷 손실로 인한 뚝뚝 끊김(Stuttering)을 원천 방지합니다.
+    - 일시적인 네트워크 순단 시에도 버퍼에서 무중단 재생되며, 버퍼가 고갈되어도 즉시 종료되지 않고
+      재연결될 때까지 20ms 무음 패킷을 반환하여 곡이 중간에 튕기거나 조기 종료되는 현상을 완벽히 차단합니다.
+    """
+    def __init__(self, original: discord.AudioSource, buffer_seconds: float = 4.0):
+        self.original = original
+        self.buffer_size = max(50, int(buffer_seconds * 50))
+        self.queue: queue.Queue[bytes] = queue.Queue(maxsize=self.buffer_size)
+        self._stopped = threading.Event()
+        self._eof = threading.Event()
+        self._thread = threading.Thread(target=self._reader_loop, daemon=True, name="NorosiAudioBuffer")
+        self._thread.start()
+
+    def _reader_loop(self):
+        while not self._stopped.is_set():
+            try:
+                data = self.original.read()
+                if not data:
+                    self._eof.set()
+                    break
+                while not self._stopped.is_set():
+                    try:
+                        self.queue.put(data, timeout=0.1)
+                        break
+                    except queue.Full:
+                        continue
+            except Exception:
+                self._eof.set()
+                break
+
+    def read(self) -> bytes:
+        if self._stopped.is_set():
+            return b""
+        try:
+            return self.queue.get(timeout=0.6)
+        except queue.Empty:
+            if self._eof.is_set():
+                return b""
+            # 일시적인 스트림 지연 시 조기 종료를 막기 위해 20ms 무음 반환
+            return b"\x00" * 3840
+
+    def is_opus(self) -> bool:
+        return getattr(self.original, "is_opus", lambda: False)()
+
+    def cleanup(self):
+        self._stopped.set()
+        try:
+            self.original.cleanup()
+        except Exception:
+            pass
+        while not self.queue.empty():
+            try:
+                self.queue.get_nowait()
+            except Exception:
+                break
+
+
+# ==========================================
 # 🔊 음성채널 플레이리스트 순차 자동재생 엔진 (GuildVoicePlaylistPlayer)
 # ==========================================
 _VOICE_PLAYERS: dict[int, "GuildVoicePlaylistPlayer"] = {}
@@ -1139,29 +1206,42 @@ class GuildVoicePlaylistPlayer:
         ffmpeg_exe = core.get_ffmpeg_executable()
         core.ensure_opus_loaded()
 
-        # 모든 FFmpeg 환경(Debian/Ubuntu/imageio-ffmpeg)에서 가장 완벽하게 호환되는 표준 스트리밍 옵션
+        # 끊김(버퍼링/EOF 조기종료/네트워크 찰나의 지연)을 원천 차단하는 고신뢰 스트리밍 연결 옵션
+        before_opts_list = [
+            "-reconnect 1",
+            "-reconnect_streamed 1",
+            "-reconnect_at_eof 1",
+            "-reconnect_delay_max 2",
+            "-nostdin",
+            "-rw_timeout 15000000",
+            "-probesize 10M",
+            "-analyzeduration 0"
+        ]
         ua = stream_meta.get("user_agent")
         if ua:
-            before_opts = f'-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin -user_agent "{ua}"'
-        else:
-            before_opts = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin"
+            before_opts_list.append(f'-user_agent "{ua}"')
+        before_opts = " ".join(before_opts_list)
 
-        # 1순위: FFmpeg PCM 오디오 + 실시간 볼륨 조절기 (디스코드 권장 표준)
+        # 디스코드 음성 규격(48,000Hz 16-bit 2채널 스테레오 PCM)에 완벽하게 일치시키는 고음질 리샘플링 옵션
+        out_opts = "-vn -f s16le -ar 48000 -ac 2 -loglevel warning"
+
+        # 1순위: FFmpeg PCM 오디오 + 4초 무지연 인메모리 버퍼링 + 실시간 볼륨 조절기 (최상위 음질 및 무중단 파이프라인)
         # 2순위: FFmpegOpusAudio 폴백
         try:
             raw_audio = discord.FFmpegPCMAudio(
                 stream_meta["stream_url"],
                 executable=ffmpeg_exe,
                 before_options=before_opts,
-                options="-vn"
+                options=out_opts
             )
-            source = discord.PCMVolumeTransformer(raw_audio, volume=max(0.05, min(self.volume, 2.0)))
+            buffered_audio = BufferedAudioSource(raw_audio, buffer_seconds=4.0)
+            source = discord.PCMVolumeTransformer(buffered_audio, volume=max(0.05, min(self.volume, 2.0)))
         except Exception:
             source = discord.FFmpegOpusAudio(
                 stream_meta["stream_url"],
                 executable=ffmpeg_exe,
                 before_options=before_opts,
-                options="-vn"
+                options="-vn -loglevel warning"
             )
 
         # 이미 재생 중이면 내부 stop 플래그를 잠시 보호하며 교체

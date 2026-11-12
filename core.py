@@ -4111,13 +4111,13 @@ def resolve_voice_stream_sync(track: dict) -> tuple[dict | None, str | None]:
         add_candidate(f"ytsearch3:{base_query} audio")
 
     ydl_opts = {
-        "format": "bestaudio/best",
+        "format": "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best",
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
         "nocheckcertificate": True,
         "ignoreerrors": True,
-        "socket_timeout": 8,
+        "socket_timeout": 12,
         "default_search": "ytsearch",
         "logger": _QuietYdlLogger(),
         "extractor_args": {
@@ -4146,7 +4146,8 @@ def resolve_voice_stream_sync(track: dict) -> tuple[dict | None, str | None]:
                         formats = cur_entry.get("formats") or []
                         audio_formats = [f for f in formats if f.get("url") and f.get("acodec") != "none"]
                         if audio_formats:
-                            stream_url = audio_formats[-1].get("url")
+                            audio_formats.sort(key=lambda f: f.get("abr") or f.get("tbr") or 0, reverse=True)
+                            stream_url = audio_formats[0].get("url")
                         elif formats and formats[-1].get("url"):
                             stream_url = formats[-1].get("url")
 
