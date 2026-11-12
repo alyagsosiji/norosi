@@ -1,13 +1,17 @@
 """
 norosi Bot - 올인원 마스터 대시보드 (All-in-One Master Dashboard) Cog
 - 7대 핵심 기능 영역(홈, 가챠, 일정, 음악, 역할·관리, 게임, 통계)을 탭(Tab)으로 자유롭게 오가는 슈퍼 컨트롤 타워
-- 명령어 타이핑 없이 드롭다운 및 대화형 버튼 조작으로 68개 모든 기능을 100% 원클릭 조작
+- 명령어 타이핑 없이 드롭다운 및 대화형 버튼 조작으로 69개 모든 기능을 100% 원클릭 조작
+- 철저한 관리자 권한 검사(서버 관리자/역할 관리자/봇 소유자) 및 비인가 접근 사전 방어
+- 봇의 필수 권한(Manage Roles 등) 미부여 시 사전 안내 및 상호작용 오류(Interaction Failed) 원천 차단
 - 슬래시 커맨드: /대시보드, /메뉴
 - 일반 명령어: !대시보드, !메뉴
 """
 
 import asyncio
 import datetime
+import random
+import time
 from typing import Optional, List, Dict, Any
 
 import discord
@@ -16,6 +20,145 @@ from discord.ext import commands
 
 import core
 from cogs import dday, gacha, music, roles, stats, logger
+
+
+# ==========================================
+# 📝 대시보드 전용 모달: 빠른 D-Day 등록
+# ==========================================
+class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 등록"):
+    d_name = discord.ui.TextInput(
+        label="D-Day 일정 이름",
+        placeholder="예: 기말고사, 프로세카 이벤트 마감, 생일, 기념일",
+        required=True,
+        max_length=50
+    )
+    d_date = discord.ui.TextInput(
+        label="목표 날짜 (YYYY-MM-DD)",
+        placeholder="예: 2026-11-20",
+        required=True,
+        max_length=10
+    )
+    d_start = discord.ui.TextInput(
+        label="진행률 시작일 (YYYY-MM-DD, 비워두면 오늘)",
+        placeholder="예: 2026-11-01 (은하수 잔디 진행률 0% 기준일)",
+        required=False,
+        max_length=10
+    )
+    d_emoji = discord.ui.TextInput(
+        label="대표 이모지 (기본: 🌠)",
+        placeholder="예: 🌠, 🔥, 🎶, 🎯, 🎂",
+        required=False,
+        default="🌠",
+        max_length=5
+    )
+
+    def __init__(self, dashboard_view: "MasterDashboardView"):
+        super().__init__()
+        self.dashboard_view = dashboard_view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        target_val = self.d_date.value.strip()
+        start_val = self.d_start.value.strip() or core.get_today_str()
+        try:
+            target_dt = datetime.datetime.strptime(target_val, "%Y-%m-%d").date()
+            start_dt = datetime.datetime.strptime(start_val, "%Y-%m-%d").date()
+        except ValueError:
+            await core.safe_send_response(interaction, "❌ 날짜 형식은 `YYYY-MM-DD` (예: `2026-11-20`)로 입력해 주세요.", ephemeral=True)
+            return
+
+        if start_dt > target_dt:
+            start_val = min(core.get_today_str(), target_val)
+
+        await core.safe_defer(interaction, ephemeral=True)
+        data = await asyncio.to_thread(core.load_data)
+        name_val = self.d_name.value.strip()
+        emoji_val = (self.d_emoji.value.strip() or "🌠")
+
+        existing = data.setdefault("ddays", {}).get(name_val, {})
+        data["ddays"][name_val] = {
+            "date": target_val,
+            "repeat": existing.get("repeat", False),
+            "start_date": start_val,
+            "emoji": emoji_val,
+            "channel_id": existing.get("channel_id"),
+            "category_id": existing.get("category_id")
+        }
+        await asyncio.to_thread(core.save_data, data)
+
+        # 봇의 채널 업데이트 스케줄러 동기화
+        if hasattr(self.dashboard_view.bot, "update_all_dday_channels"):
+            try:
+                await self.dashboard_view.bot.update_all_dday_channels()
+            except Exception:
+                pass
+
+        diff, diff_str = core.get_dday_info(target_val)
+        await interaction.followup.send(
+            f"🎉 **새 D-Day 일정이 성공적으로 등록되었습니다!**\n"
+            f"• **일정:** {emoji_val} **`{name_val}`**\n"
+            f"• **목표일:** `{target_val}` (**`{diff_str}`**)\n"
+            f"• 대시보드의 `[🔄 새로고침]` 버튼을 누르면 현황판에 즉시 반영됩니다.",
+            ephemeral=True
+        )
+
+
+# ==========================================
+# ⏱️ 대시보드 전용 모달: 뽀모도로 타이머 설정
+# ==========================================
+class DashboardPomodoroModal(core.SafeModal, title="⏳ 뽀모도로 집중모드 타이머 설정"):
+    focus_time = discord.ui.TextInput(
+        label="집중 시간 (분 단위, 1~180분)",
+        placeholder="기본값: 25",
+        default="25",
+        required=True,
+        max_length=3
+    )
+    rest_time = discord.ui.TextInput(
+        label="휴식 시간 (분 단위, 1~60분)",
+        placeholder="기본값: 5",
+        default="5",
+        required=True,
+        max_length=2
+    )
+    sets_count = discord.ui.TextInput(
+        label="반복 세트 수 (1~10세트)",
+        placeholder="기본값: 1",
+        default="1",
+        required=True,
+        max_length=2
+    )
+
+    def __init__(self, bot: commands.Bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            f_min = int(self.focus_time.value.strip())
+            r_min = int(self.rest_time.value.strip())
+            s_cnt = int(self.sets_count.value.strip())
+        except ValueError:
+            await core.safe_send_response(interaction, "❌ 시간과 세트 수는 정수 숫자로만 입력해 주세요.", ephemeral=True)
+            return
+
+        f_min = max(1, min(180, f_min))
+        r_min = max(1, min(60, r_min))
+        s_cnt = max(1, min(10, s_cnt))
+
+        dday_cog = self.bot.get_cog("D-Day & 라이프")
+        if dday_cog and hasattr(dday_cog, "pomodoro_cmd"):
+            choice_start = app_commands.Choice(name="🔥 집중모드 시작", value="start")
+            await dday_cog.pomodoro_cmd.callback(
+                dday_cog,
+                interaction,
+                동작=choice_start,
+                집중시간=f_min,
+                휴식시간=r_min,
+                세트수=s_cnt,
+                음성채널=None
+            )
+        else:
+            await core.safe_send_response(interaction, "❌ 집중모드 모듈을 찾을 수 없습니다. `/집중모드` 명령어를 이용해 주세요.", ephemeral=True)
 
 
 # ==========================================
@@ -116,6 +259,49 @@ class MasterDashboardView(core.SafeView):
             return False
         return True
 
+    async def check_admin_permission(self, interaction: discord.Interaction, action_name: str = "이 작업", require_roles_perm: bool = False) -> bool:
+        """
+        관리자 권한 엄격 검사 헬퍼:
+        1) 서버 채널 여부 검사
+        2) 사용자 관리 권한(Administrator, Manage Roles, Manage Guild) 또는 봇 소유자 여부 검사
+        3) 봇의 필수 권한(Manage Roles 등) 여부 검사
+        """
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await core.safe_send_response(
+                interaction,
+                f"❌ **{action_name}**(은)는 개인 DM이 아닌 **디스코드 서버 채널** 내에서만 실행하실 수 있습니다.",
+                ephemeral=True
+            )
+            return False
+
+        # 봇 소유자 특권 허용
+        is_owner = await self.bot.is_bot_owner_user(interaction.user)
+        user_perms = interaction.user.guild_permissions
+        is_admin = is_owner or user_perms.administrator or user_perms.manage_guild or (require_roles_perm and user_perms.manage_roles)
+
+        if not is_admin:
+            role_hint = "역할 관리(Manage Roles) 또는 " if require_roles_perm else ""
+            await core.safe_send_response(
+                interaction,
+                f"🚨 **관리자 권한 부족:** **{action_name}**(은)는 서버의 **{role_hint}관리자(Administrator)** 또는 **서버 관리(Manage Server)** 권한이 있는 멤버만 조작할 수 있습니다.",
+                ephemeral=True
+            )
+            return False
+
+        # 봇 자신의 권한 확인 (역할 배정 작업인 경우)
+        if require_roles_perm and interaction.guild.me:
+            bot_perms = interaction.guild.me.guild_permissions
+            if not bot_perms.administrator and not bot_perms.manage_roles:
+                await core.safe_send_response(
+                    interaction,
+                    "⚠️ **봇 권한 부족:** 봇에게 **역할 관리(Manage Roles)** 권한이 부여되어 있지 않아 역할을 지급하거나 버튼을 만들 수 없습니다.\n"
+                    "👉 서버 설정 > [역할] 메뉴에서 `norosi` 봇 역할에 **'역할 관리'** 권한을 체크해 주세요!",
+                    ephemeral=True
+                )
+                return False
+
+        return True
+
     def refresh_components(self):
         """현재 선택된 탭에 맞춰 상단 드롭다운 및 하단 기능 버튼들을 실시간 재구성"""
         self.clear_items()
@@ -138,7 +324,7 @@ class MasterDashboardView(core.SafeView):
         elif self.current_tab == "stats":
             self._setup_stats_buttons()
 
-        # 공통 새로고침 버튼
+        # 공통 새로고침 버튼 (우측 하단 배치)
         btn_refresh = discord.ui.Button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=2)
         btn_refresh.callback = self._on_refresh_clicked
         self.add_item(btn_refresh)
@@ -184,7 +370,7 @@ class MasterDashboardView(core.SafeView):
         btn_dup.callback = self._on_dup_convert_clicked
         self.add_item(btn_dup)
 
-        btn_deck = discord.ui.Button(label="🎴 덱 편성 & 강화", style=discord.ButtonStyle.primary, row=2)
+        btn_deck = discord.ui.Button(label="🎴 덱 편성 현황", style=discord.ButtonStyle.primary, row=2)
         btn_deck.callback = self._on_deck_edit_clicked
         self.add_item(btn_deck)
 
@@ -493,22 +679,32 @@ class MasterDashboardView(core.SafeView):
         total_roles = sum(len(c.get("roles", [])) for c in guild_rr.values())
 
         is_admin = False
+        is_bot_ready = False
         if self.guild and isinstance(self.user, discord.Member):
-            is_admin = self.user.guild_permissions.administrator or self.user.guild_permissions.manage_roles
+            is_admin = (
+                self.user.guild_permissions.administrator or
+                self.user.guild_permissions.manage_roles or
+                self.user.guild_permissions.manage_guild
+            )
+            if self.guild.me:
+                is_bot_ready = self.guild.me.guild_permissions.manage_roles or self.guild.me.guild_permissions.administrator
 
-        admin_badge = "✅ **관리자 권한 보유** (모든 설정 조작 가능)" if is_admin else "⚠️ **일반 멤버** (일부 기능 제한)"
+        admin_badge = "✅ **관리자 권한 보유** (모든 설정 조작 가능)" if is_admin else "⚠️ **일반 멤버** (관리자 전용 기능 조작 제한)"
+        bot_badge = "✅ **정상 가동 중** (Manage Roles 보유)" if is_bot_ready else "⚠️ **권한 부족** (봇에게 '역할 관리' 권한 필요)"
 
         embed = discord.Embed(
             title="🎭 역할 & 공지 & 서버 관리 대시보드",
             description=(
                 "사진 스타일 맞춤 역할 버튼 제작, 이모지 반응역할 및 스마트 공지를 관리합니다.\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"• **🛡️ 관리 권한 확인:** {admin_badge}\n"
+                f"• **🛡️ 내 관리 권한:** {admin_badge}\n"
+                f"• **🤖 봇 역할 권한:** {bot_badge}\n"
                 f"• **📜 등록된 반응역할/버튼 패널:** **`{total_panels}개`**\n"
                 f"• **🏷️ 자동 배정 중인 역할 총합:** **`{total_roles}개`**\n"
                 "• **✨ 추천 기능:**\n"
                 "  - **`[🚀 사진 스타일 역할버튼 제작]`** : 제목/본문/버튼이름/이모지를 자유롭게 넣어 깔끔한 버튼 발행\n"
                 "  - **`[🎭 반응역할 종합 스튜디오]`** : 단계별 빌더 및 기존 공지글 바인딩\n"
+                "  - **`[📢 스마트 공지 발송]`** : 공지 채널에 알림 임베드 즉시 전송\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             ),
             color=discord.Color.from_rgb(88, 101, 242),
@@ -538,18 +734,27 @@ class MasterDashboardView(core.SafeView):
 
     def build_stats_embed(self) -> discord.Embed:
         g = self.guild
-        member_cnt = g.member_count if g else 1
-        created_str = g.created_at.strftime("%Y-%m-%d") if g else "알수없음"
+        member_cnt = getattr(g, "member_count", None) or 1
+        member_str = f"{member_cnt:,}" if isinstance(member_cnt, int) else str(member_cnt)
+        if g and getattr(g, "created_at", None):
+            try:
+                created_str = g.created_at.strftime("%Y-%m-%d")
+            except Exception:
+                created_str = str(g.created_at)[:10]
+        else:
+            created_str = "알수없음"
+
+        g_name = getattr(g, "name", "개인 DM")
 
         embed = discord.Embed(
             title="📊 서버 통계 & 분석 & 건의 대시보드",
             description=(
-                f"**{g.name if g else '개인 DM'}** 서버의 실시간 활동 지표 및 봇 상태입니다.\n\n"
+                f"**{g_name}** 서버의 실시간 활동 지표 및 봇 상태입니다.\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"• **👥 서버 멤버 수:** 총 **`{member_cnt:,}명`**\n"
+                f"• **👥 서버 멤버 수:** 총 **`{member_str}명`**\n"
                 f"• **📅 서버 개설일:** `{created_str}`\n"
                 f"• **🪪 내 가입 순번/역할:** 아래 `[🪪 내 상세 유저정보]` 버튼으로 확인\n"
-                f"• **🤖 봇 Uptime & 호스트:** 아래 `[🤖 봇 호스트 상태]` 버튼으로 확인\n"
+                f"• **🤖 봇 Uptime & 호스트:** 아래 `[🤖 봇 호스트 상태]` 버튼으로 확인 (관리자 전용)\n"
                 f"• **📬 건의함:** 개발자에게 익명 또는 공개로 아이디어 건의\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             ),
@@ -560,260 +765,406 @@ class MasterDashboardView(core.SafeView):
         return embed
 
     # ----------------------------------------------------
-    # 버튼 콜백 핸들러들
+    # 버튼 콜백 핸들러들 (철저한 예외 방어 & 권한 검사)
     # ----------------------------------------------------
     async def _on_refresh_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        self.data = await asyncio.to_thread(core.load_data)
-        self.refresh_components()
-        await interaction.edit_original_response(embed=self.build_current_embed(), view=self)
+        try:
+            await core.safe_defer(interaction)
+            self.data = await asyncio.to_thread(core.load_data)
+            self.refresh_components()
+            await interaction.edit_original_response(embed=self.build_current_embed(), view=self)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"⚠️ 새로고침 중 오류 발생: {e}", ephemeral=True)
 
     # 홈 / 가챠 관련
     async def _on_attendance_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        embed, file, view = await dday.execute_and_build_attendance_response(interaction, self.bot)
-        self.data = await asyncio.to_thread(core.load_data)
-        self.refresh_components()
         try:
-            await interaction.message.edit(embed=self.build_current_embed(), view=self)
-        except Exception:
-            pass
-        if file:
-            await interaction.followup.send(embed=embed, file=file, view=view)
-        else:
-            await interaction.followup.send(embed=embed, view=view)
+            await core.safe_defer(interaction)
+            embed, file, view = await dday.execute_and_build_attendance_response(interaction, self.bot)
+            self.data = await asyncio.to_thread(core.load_data)
+            self.refresh_components()
+            try:
+                await interaction.message.edit(embed=self.build_current_embed(), view=self)
+            except Exception:
+                pass
+            if file:
+                await interaction.followup.send(embed=embed, file=file, view=view)
+            else:
+                await interaction.followup.send(embed=embed, view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 출석체크 처리 중 오류: {e}", ephemeral=True)
 
     async def _on_pull_10_clicked(self, interaction: discord.Interaction):
-        repull_view = gacha.GachaPullAgainView(interaction.user)
-        await repull_view._handle_repull(interaction, 10)
+        try:
+            repull_view = gacha.GachaPullAgainView(interaction.user)
+            await repull_view._handle_repull(interaction, 10)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 가챠 실행 중 오류: {e}", ephemeral=True)
 
     async def _on_pull_1_clicked(self, interaction: discord.Interaction):
-        repull_view = gacha.GachaPullAgainView(interaction.user)
-        await repull_view._handle_repull(interaction, 1)
+        try:
+            repull_view = gacha.GachaPullAgainView(interaction.user)
+            await repull_view._handle_repull(interaction, 1)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 가챠 실행 중 오류: {e}", ephemeral=True)
 
     async def _on_my_inventory_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        g_key = str(interaction.guild_id or 0)
-        u_key = str(interaction.user.id)
-        user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
-        view = gacha.MyInventoryView(interaction.user, list(user_cards_dict.values()), items_per_page=5, guild_id=interaction.guild_id or 0)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        try:
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            g_key = str(interaction.guild_id or 0)
+            u_key = str(interaction.user.id)
+            user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+            view = gacha.MyInventoryView(interaction.user, list(user_cards_dict.values()), items_per_page=5, guild_id=interaction.guild_id or 0)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 보관함 조회 중 오류: {e}", ephemeral=True)
 
     async def _on_dup_convert_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        g_key = str(interaction.guild_id or 0)
-        u_key = str(interaction.user.id)
-        user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+        try:
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            g_key = str(interaction.guild_id or 0)
+            u_key = str(interaction.user.id)
+            user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
 
-        converted_crystals = 0
-        converted_cards_count = 0
-        for card_id, card_info in list(user_cards_dict.items()):
-            cnt = card_info.get("count", 1)
-            is_locked = card_info.get("locked", False)
-            if cnt > 1 and not is_locked:
-                excess = cnt - 1
-                rarity = card_info.get("rarity", "")
-                rate = core.DUPLICATE_CRYSTAL_RATES.get(rarity, 20)
-                converted_crystals += excess * rate
-                converted_cards_count += excess
-                card_info["count"] = 1
+            converted_crystals = 0
+            converted_cards_count = 0
+            for card_id, card_info in list(user_cards_dict.items()):
+                cnt = card_info.get("count", 1)
+                is_locked = card_info.get("locked", False)
+                if cnt > 1 and not is_locked:
+                    excess = cnt - 1
+                    rarity = card_info.get("rarity", "")
+                    rate = core.DUPLICATE_CRYSTAL_RATES.get(rarity, 20)
+                    converted_crystals += excess * rate
+                    converted_cards_count += excess
+                    card_info["count"] = 1
 
-        if converted_cards_count == 0:
-            await interaction.followup.send("ℹ️ 환전 가능한 중복 카드가 없습니다. (잠금🔒 카드는 제외됩니다)", ephemeral=True)
-            return
+            if converted_cards_count == 0:
+                await interaction.followup.send("ℹ️ 환전 가능한 중복 카드가 없습니다. (잠금🔒 카드는 제외됩니다)", ephemeral=True)
+                return
 
-        profile = core.ensure_user_profile(data, u_key, interaction.user.display_name)
-        profile["crystals"] = profile.get("crystals", 0) + converted_crystals
-        await asyncio.to_thread(core.save_data, data)
+            profile = core.ensure_user_profile(data, u_key, interaction.user.display_name)
+            profile["crystals"] = profile.get("crystals", 0) + converted_crystals
+            await asyncio.to_thread(core.save_data, data)
 
-        await interaction.followup.send(
-            f"🎉 **중복 카드 일괄 환전 완료!**\n"
-            f"• 중복 카드 `{converted_cards_count}장` 변환 → **`+{converted_crystals:,}💎`** 획득!\n"
-            f"• 현재 보유 크리스탈: **`{profile['crystals']:,}개`**",
-            ephemeral=True
-        )
+            await interaction.followup.send(
+                f"🎉 **중복 카드 일괄 환전 완료!**\n"
+                f"• 중복 카드 `{converted_cards_count}장` 변환 → **`+{converted_crystals:,}💎`** 획득!\n"
+                f"• 현재 보유 크리스탈: **`{profile['crystals']:,}개`**",
+                ephemeral=True
+            )
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 중복 환전 중 오류: {e}", ephemeral=True)
 
     async def _on_deck_edit_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        profile = core.ensure_user_profile(data, interaction.user.id, interaction.user.display_name)
-        g_key = str(interaction.guild_id or 0)
-        u_key = str(interaction.user.id)
-        user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
-        view = gacha.DeckEditView(interaction.user, profile, user_cards_dict)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        try:
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            profile = core.ensure_user_profile(data, interaction.user.id, interaction.user.display_name)
+            deck_ids = profile.get("deck", [])
+            g_key = str(interaction.guild_id or 0)
+            u_key = str(interaction.user.id)
+            user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+
+            deck_cards_lines = []
+            for slot_idx, cid in enumerate(deck_ids, start=1):
+                cinfo = user_cards_dict.get(cid, {})
+                cname = cinfo.get("char_name", "미상")
+                cprefix = cinfo.get("prefix", "")
+                rlabel = cinfo.get("rarity_label", "★1")
+                deck_cards_lines.append(f"**슬롯 {slot_idx} (리더)**: {rlabel} [{cprefix}] **{cname}** (`{cid}`)" if slot_idx == 1 else f"**슬롯 {slot_idx}**: {rlabel} [{cprefix}] {cname} (`{cid}`)")
+
+            if not deck_cards_lines:
+                desc = "현재 편성된 덱이 없습니다.\n채팅창에 **`/덱편성`** 명령어를 입력하여 보유한 카드 중 원하는 5장을 선택해 덱을 꾸며보세요!"
+            else:
+                desc = "현재 구성된 5인 유닛 덱 목록입니다:\n\n" + "\n".join(deck_cards_lines) + "\n\n💡 덱 멤버를 바꾸거나 순서를 변경하시려면 **`/덱편성`** 명령어를 사용해 주세요!"
+
+            embed = discord.Embed(
+                title=f"🎴 {interaction.user.display_name}님의 5인 유닛 덱 현황",
+                description=desc,
+                color=discord.Color.from_rgb(235, 69, 158),
+                timestamp=datetime.datetime.now(core.KST)
+            )
+            embed.set_footer(text="/덱편성 명령어로 보유 카드 자동완성을 통해 간편하게 변경할 수 있습니다.")
+            await interaction.followup.send(embed=embed)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 덱 정보 조회 중 오류: {e}", ephemeral=True)
 
     async def _on_pokedex_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        g_key = str(interaction.guild_id or 0)
-        u_key = str(interaction.user.id)
-        user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
-        view = gacha.GachaPokedexView(interaction.user, user_cards_dict)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        try:
+            await core.safe_defer(interaction)
+            guild_id = interaction.guild_id or 0
+            stats_data = await asyncio.to_thread(core.get_card_pokedex_stats, guild_id, interaction.user.id)
+            view = gacha.CardPokedexView(interaction.user, stats_data, guild_id=guild_id, initial_tab="char_rates")
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 카드 도감 로드 중 오류: {e}", ephemeral=True)
 
     async def _on_gacha_rank_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        init_scope = "guild" if interaction.guild else "global"
-        view = gacha.GachaRankingView(interaction, data, initial_scope=init_scope, initial_sort="unique")
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        try:
+            gacha_cog = self.bot.get_cog("카드/가챠")
+            if gacha_cog and hasattr(gacha_cog, "gacha_ranking_cmd"):
+                await gacha_cog.gacha_ranking_cmd.callback(gacha_cog, interaction)
+            else:
+                await core.safe_send_response(interaction, "🏆 가챠 랭킹은 `/가챠랭킹` 명령어로 확인하실 수 있습니다.", ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 랭킹 조회 중 오류: {e}", ephemeral=True)
 
     async def _on_todo_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        profile = core.ensure_user_profile(data, interaction.user.id, interaction.user.display_name)
-        core.ensure_user_todo_today(profile)
-        await asyncio.to_thread(core.save_data, data)
-        view = dday.TodoTrackerView(interaction.user, profile)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        try:
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            profile = core.ensure_user_profile(data, interaction.user.id, interaction.user.display_name)
+            core.ensure_user_todo_today(profile)
+            await asyncio.to_thread(core.save_data, data)
+            view = dday.TodoTrackerView(interaction.user, profile)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 목표 체크 중 오류: {e}", ephemeral=True)
 
     # 일정 / D-Day 관련
     async def _on_add_dday_clicked(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(dday.DDayAddModal(self.bot))
+        try:
+            await interaction.response.send_modal(DashboardDDayAddModal(self))
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ D-Day 등록 모달 열기 실패: {e}", ephemeral=True)
 
     async def _on_dday_list_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        ddays_dict = data.get("ddays", {})
-        embed = dday.build_dday_list_embed(ddays_dict)
-        await interaction.followup.send(embed=embed)
+        try:
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            ddays_dict = data.get("ddays", {})
+            view = dday.DDayListBoardView(ddays_dict, self.bot)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ D-Day 목록 조회 중 오류: {e}", ephemeral=True)
 
     async def _on_birthday_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        bdays = data.get("birthdays", {})
-        now = datetime.datetime.now(core.KST)
-        embed = dday.build_birthday_board_embed(bdays, now.month)
-        await interaction.followup.send(embed=embed)
+        try:
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            view = dday.BirthdayBoardView(interaction.user, interaction.guild, data)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 생일 전광판 조회 중 오류: {e}", ephemeral=True)
 
     async def _on_pomodoro_clicked(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(dday.PomodoroSettingsModal())
+        try:
+            key = (interaction.guild_id or 0, interaction.user.id)
+            if key in core.ACTIVE_POMODORO_TASKS:
+                task_info = core.ACTIVE_POMODORO_TASKS.pop(key, None)
+                if task_info:
+                    task_info["task"].cancel()
+                    v_ch = task_info.get("voice_channel")
+                    if v_ch:
+                        for member in v_ch.members:
+                            if not member.bot:
+                                try:
+                                    await member.edit(mute=False, reason="집중모드 수동 중지")
+                                except Exception:
+                                    pass
+                await core.safe_send_response(interaction, "⏹️ **실행 중이던 뽀모도로 집중모드가 중지되었으며 음소거가 해제되었습니다!**", ephemeral=True)
+                return
+
+            await interaction.response.send_modal(DashboardPomodoroModal(self.bot))
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 뽀모도로 모달 열기 실패: {e}", ephemeral=True)
 
     async def _on_partner_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        profile = core.ensure_user_profile(data, interaction.user.id, interaction.user.display_name)
-        partner_id = profile.get("partner_id")
-        partner_member = interaction.guild.get_member(partner_id) if (interaction.guild and partner_id) else None
-        view = dday.PartnerStudioView(interaction.user, partner_member, profile)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        try:
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            profile = core.ensure_user_profile(data, interaction.user.id, interaction.user.display_name)
+            partner_id = profile.get("partner_id")
+            partner_member = interaction.guild.get_member(partner_id) if (interaction.guild and partner_id) else None
+            view = dday.PartnerStudioView(interaction.user, partner_member, profile)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 파트너 스튜디오 조회 중 오류: {e}", ephemeral=True)
 
     async def _on_forecast_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        now = datetime.datetime.now(core.KST)
-        view = dday.EventForecastView(interaction.user, now.year, now.month)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        try:
+            await core.safe_defer(interaction)
+            now = datetime.datetime.now(core.KST)
+            view = dday.EventForecastView(interaction.user, now.year, now.month)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 미래시 조회 중 오류: {e}", ephemeral=True)
 
     # 음악 관련
     async def _on_playlist_studio_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        view = music.PlaylistStudioView(interaction.user, data)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        try:
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            view = music.PlaylistStudioView(interaction.user, interaction.user, data)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 플레이리스트 스튜디오 오류: {e}", ephemeral=True)
 
     async def _on_music_now_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        view = music.MusicRecommendView(self.bot, interaction.user)
-        embed = await view.build_recommend_embed()
-        await interaction.followup.send(embed=embed, view=view)
+        try:
+            await core.safe_defer(interaction)
+            view = music.MusicRecommendView(self.bot, interaction.user)
+            embed = await view.build_recommend_embed()
+            await interaction.followup.send(embed=embed, view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 음악 선곡 중 오류: {e}", ephemeral=True)
 
     async def _on_audio_test_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        music_cog = self.bot.get_cog("음악")
-        if music_cog and hasattr(music_cog, "slash_audio_test"):
-            await music_cog.slash_audio_test.callback(music_cog, interaction)
-        else:
-            await interaction.followup.send("🔊 440Hz 오디오 자가진단은 `/오디오테스트` 명령어로 실행할 수 있습니다.", ephemeral=True)
+        try:
+            voice_state = interaction.user.voice if isinstance(interaction.user, discord.Member) else None
+            if not voice_state or not voice_state.channel:
+                await core.safe_send_response(
+                    interaction,
+                    "❌ 먼저 오디오를 테스트할 **음성채널**에 입장하신 뒤 버튼을 눌러주세요!",
+                    ephemeral=True
+                )
+                return
 
-    # 관리자 관련
+            music_cog = self.bot.get_cog("음악")
+            if music_cog and hasattr(music_cog, "audio_test_cmd"):
+                await music_cog.audio_test_cmd.callback(music_cog, interaction)
+            else:
+                await core.safe_send_response(interaction, "🔊 440Hz 오디오 자가진단은 `/오디오테스트` 명령어로 실행할 수 있습니다.", ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 오디오 테스트 실행 중 오류: {e}", ephemeral=True)
+
+    # 관리자 관련 (철저한 권한 검사 적용)
     async def _on_quick_role_btn_clicked(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(roles.QuickRoleButtonModal(target_channel=interaction.channel))
+        try:
+            if not await self.check_admin_permission(interaction, action_name="사진 스타일 역할버튼 제작", require_roles_perm=True):
+                return
+            await interaction.response.send_modal(roles.QuickRoleButtonModal(target_channel=interaction.channel))
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 역할 버튼 제작 모달 열기 실패: {e}", ephemeral=True)
 
     async def _on_role_studio_clicked(self, interaction: discord.Interaction):
-        if not interaction.guild or not isinstance(interaction.user, discord.Member):
-            await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
-            return
-        studio = roles.ReactionRoleStudioView(interaction.guild, interaction.user)
-        await core.safe_send_response(interaction, embed=studio.build_dashboard_embed(), view=studio, ephemeral=True)
+        try:
+            if not await self.check_admin_permission(interaction, action_name="반응역할 종합 스튜디오", require_roles_perm=True):
+                return
+            studio = roles.ReactionRoleStudioView(interaction.guild, interaction.user)
+            await core.safe_send_response(interaction, embed=studio.build_dashboard_embed(), view=studio, ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 반응역할 스튜디오 열기 실패: {e}", ephemeral=True)
 
     async def _on_announcement_clicked(self, interaction: discord.Interaction):
-        if not interaction.guild or not isinstance(interaction.user, discord.Member):
-            await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
-            return
-        if not interaction.user.guild_permissions.administrator and not interaction.user.guild_permissions.manage_guild:
-            await core.safe_send_response(interaction, "❌ 관리자 또는 서버 관리 권한이 필요합니다.", ephemeral=True)
-            return
-        await interaction.response.send_modal(logger.AnnouncementModal(interaction.channel))
+        try:
+            if not await self.check_admin_permission(interaction, action_name="스마트 공지 발송", require_roles_perm=False):
+                return
+            await interaction.response.send_modal(logger.AnnouncementModal(interaction.channel))
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 공지 발송 모달 열기 실패: {e}", ephemeral=True)
 
     async def _on_inactive_audit_clicked(self, interaction: discord.Interaction):
-        if not interaction.guild or not isinstance(interaction.user, discord.Member):
-            await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
-            return
-        if not interaction.user.guild_permissions.administrator:
-            await core.safe_send_response(interaction, "❌ 서버 관리자만 비활성 유저 감사를 실행할 수 있습니다.", ephemeral=True)
-            return
-        await interaction.response.send_modal(logger.InactiveAuditModal(self.bot))
+        try:
+            if not await self.check_admin_permission(interaction, action_name="비활성 유저 감사", require_roles_perm=False):
+                return
+            await interaction.response.send_modal(logger.InactiveAuditModal(self.bot))
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 비활성 유저 감사 모달 열기 실패: {e}", ephemeral=True)
 
     # 게임 관련
     async def _on_recruit_clicked(self, interaction: discord.Interaction):
-        if not interaction.guild:
-            await core.safe_send_response(interaction, "❌ 서버 채널에서만 모집할 수 있습니다.", ephemeral=True)
-            return
-        await interaction.response.send_modal(dday.RecruitModal())
+        try:
+            if not interaction.guild:
+                await core.safe_send_response(interaction, "❌ 서버 채널에서만 모집할 수 있습니다.", ephemeral=True)
+                return
+            await interaction.response.send_modal(stats.RecruitModal())
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 파티 모집 모달 열기 실패: {e}", ephemeral=True)
 
     async def _on_word_chain_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        dday_cog = self.bot.get_cog("D-Day & 라이프")
-        if dday_cog and hasattr(dday_cog, "word_chain_cmd"):
-            await dday_cog.word_chain_cmd.callback(dday_cog, interaction)
-        else:
-            await interaction.followup.send("🔤 `/끝말잇기` 명령어로 즉시 단어 대결을 시작할 수 있습니다!")
+        try:
+            await core.safe_defer(interaction)
+            first_word = random.choice(["세카이", "음악", "별자리", "피아노", "출석", "콘서트", "하늘", "무지개", "기차", "바다"])
+            view = stats.WordChainGameView(interaction.user, None, first_word)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 끝말잇기 시작 중 오류: {e}", ephemeral=True)
 
     async def _on_roulette_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        dday_cog = self.bot.get_cog("D-Day & 라이프")
-        if dday_cog and hasattr(dday_cog, "russian_roulette_cmd"):
-            await dday_cog.russian_roulette_cmd.callback(dday_cog, interaction)
-        else:
-            await interaction.followup.send("🔫 `/러시안룰렛` 명령어로 스릴 만점 생존 게임을 시작할 수 있습니다!")
+        try:
+            await core.safe_defer(interaction)
+            view = stats.RussianRouletteView(interaction.user, bullets=1, bet_crystals=0)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 러시안룰렛 시작 중 오류: {e}", ephemeral=True)
 
     async def _on_weather_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        dday_cog = self.bot.get_cog("D-Day & 라이프")
-        if dday_cog and hasattr(dday_cog, "weather_cmd"):
-            await dday_cog.weather_cmd.callback(dday_cog, interaction, "서울")
-        else:
-            await interaction.followup.send("🌤️ `/날씨 지역:서울` 명령어로 실시간 기상 정보를 확인하세요!")
+        try:
+            await core.safe_defer(interaction)
+            w_info, err = await asyncio.to_thread(core.fetch_accurate_weather_sync, "서울")
+            if err or not w_info:
+                await interaction.followup.send(f"❌ **날씨 조회 실패:** {err}", ephemeral=True)
+                return
+            view = stats.WeatherRefreshView("서울", w_info)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 날씨 조회 중 오류: {e}", ephemeral=True)
 
     async def _on_remind_clicked(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(dday.ReminderModal())
+        try:
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            view = dday.ReminderHubView(interaction.user, interaction.channel_id, interaction.guild_id, data)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 알림 예약 허브 로드 중 오류: {e}", ephemeral=True)
 
     # 통계 관련
     async def _on_server_stats_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        if not interaction.guild:
-            await interaction.followup.send("❌ 서버 채널에서만 조회 가능합니다.", ephemeral=True)
-            return
-        embed = stats.build_server_stats_embed(interaction.guild)
-        await interaction.followup.send(embed=embed)
+        try:
+            if not interaction.guild:
+                await core.safe_send_response(interaction, "❌ 서버 채널에서만 조회 가능합니다.", ephemeral=True)
+                return
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            embed = stats.build_server_stats_embed(interaction.guild, data)
+            await interaction.followup.send(embed=embed)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 서버 통계 생성 중 오류: {e}", ephemeral=True)
 
     async def _on_user_info_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        embed = stats.build_user_info_embed(interaction.user, interaction.guild, data)
-        await interaction.followup.send(embed=embed)
+        try:
+            stats_cog = self.bot.get_cog("통계 및 분석")
+            if stats_cog and hasattr(stats_cog, "user_profile_info_cmd"):
+                await stats_cog.user_profile_info_cmd.callback(stats_cog, interaction, interaction.user)
+            else:
+                await core.safe_send_response(interaction, "🪪 내 정보는 `/유저정보` 명령어로 확인하실 수 있습니다.", ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 유저 정보 조회 중 오류: {e}", ephemeral=True)
 
     async def _on_bot_status_clicked(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        embed = stats.build_bot_status_embed(self.bot, data)
-        await interaction.followup.send(embed=embed)
+        try:
+            # 봇 상태는 관리자/소유자 전용
+            is_owner = await self.bot.is_bot_owner_user(interaction.user)
+            is_admin = False
+            if interaction.guild and isinstance(interaction.user, discord.Member):
+                is_admin = interaction.user.guild_permissions.administrator or interaction.user.guild_permissions.manage_guild
+
+            if not (is_owner or is_admin):
+                await core.safe_send_response(
+                    interaction,
+                    "🚨 **권한 부족:** 봇 호스트 상태 및 시스템 리소스 모니터링은 **서버 관리자(Manage Server)** 또는 **봇 소유자**만 열람할 수 있습니다.",
+                    ephemeral=True
+                )
+                return
+
+            stats_cog = self.bot.get_cog("통계 및 분석")
+            if stats_cog and hasattr(stats_cog, "host_system_stats_cmd"):
+                await stats_cog.host_system_stats_cmd.callback(stats_cog, interaction)
+            else:
+                await core.safe_send_response(interaction, "🤖 봇 상태는 `/봇상태` 명령어로 확인하실 수 있습니다.", ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 봇 상태 조회 중 오류: {e}", ephemeral=True)
 
     async def _on_suggestion_clicked(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(stats.SuggestionModal())
+        try:
+            await interaction.response.send_modal(stats.SuggestionSubmitModal(bot=self.bot, is_anonymous=False))
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 건의함 모달 열기 실패: {e}", ephemeral=True)
 
 
 # ==========================================
