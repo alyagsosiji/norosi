@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+.env
+.env.local
+ddays_data.json
+*.log
+.DS_Store
+.idea/
+.vscode/
+proseka_kr_cache.json

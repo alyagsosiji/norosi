@@ -1,0 +1,17 @@
+[Unit]
+Description=norosi Discord Bot (24/7 Background Service)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/norosi
+EnvironmentFile=-/home/ubuntu/norosi/.env
+ExecStart=/home/ubuntu/norosi/venv/bin/python3 /home/ubuntu/norosi/bot.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
