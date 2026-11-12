@@ -799,26 +799,28 @@ class LoggerCog(commands.Cog):
         if not ext_host:
             ext_host = f"http://<서버IP>:{core.PORT}"
 
-        bot_webhook_url = f"{ext_host.rstrip('/')}/api/github/webhook?channel_id={target_ch.id}"
-        primary_url = discord_webhook_url or bot_webhook_url
+        bot_webhook_url = f"{ext_host.rstrip('/')}/api/github/webhook"
+        primary_url = bot_webhook_url if "http" in ext_host and "<" not in ext_host else (discord_webhook_url or bot_webhook_url)
 
+        total_linked = len(core.get_github_webhook_configs(data))
         embed = discord.Embed(
             title="🚀 GitHub 업데이트 알림 연동 완료",
             description=(
                 f"• 📢 **수신 채널:** {target_ch.mention} (`#{target_ch.name}`)\n"
-                f"• 👥 **멘션 역할:** {역할멘션.mention if 역할멘션 else '지정 안함'}\n\n"
+                f"• 👥 **멘션 역할:** {역할멘션.mention if 역할멘션 else '지정 안함'}\n"
+                f"• 🌐 **전체 연동 서버:** 총 {total_linked}개 서버 채널에 실시간 동시 전파됩니다.\n\n"
                 f"### 📋 GitHub 등록용 Webhook URL\n"
                 f"```{primary_url}```\n"
                 f"👉 깃허브 저장소 > **Settings** > **Webhooks** > **[Add webhook]**에서\n"
-                f"**Payload URL**에 위 주소를 붙여넣고 Content type을 `application/json`으로 저장하면 즉시 연동됩니다!"
+                f"**Payload URL**에 위 주소를 붙여넣고 Content type을 `application/json`으로 저장하면 연동된 **모든 서버 채널**에 동시 공지됩니다!"
             ),
             color=discord.Color.from_rgb(46, 204, 113),
             timestamp=datetime.datetime.now(core.KST)
         )
-        if discord_webhook_url and bot_webhook_url != discord_webhook_url:
-            embed.set_footer(text=f"norosi 커스텀 웹훅: {bot_webhook_url}")
+        if discord_webhook_url and discord_webhook_url != primary_url:
+            embed.set_footer(text=f"디스코드 개별 채널 웹훅: {discord_webhook_url}")
         else:
-            embed.set_footer(text="코드 푸시 및 Actions 배포 완료 시 실시간 알림이 발송됩니다.")
+            embed.set_footer(text=f"총 {total_linked}개 연동 서버 채널 동시 방송 모드 활성화됨")
 
         view = GithubWebhookView(interaction.user, target_ch, self.bot, 역할멘션)
         await core.safe_send_response(interaction, embed=embed, view=view)

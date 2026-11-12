@@ -180,21 +180,24 @@ class NorosiBot(commands.Bot):
             data = core.get_cached_data()
             configs = core.get_github_webhook_configs(data)
 
-            # 대상 채널 탐색: 1순위 Query 파라미터 / 2순위 서버별 등록 설정
-            target_channel_ids = []
+            # 대상 채널 및 멘션 역할 탐색: 연동된 모든 서버 채널에 동시 전파
+            target_channels_with_roles = []
+            seen_channel_ids = set()
+
+            for gid, cfg in configs.items():
+                if cfg.get("enabled", True) and cfg.get("channel_id"):
+                    cid = cfg["channel_id"]
+                    if cid not in seen_channel_ids:
+                        target_channels_with_roles.append((cid, cfg.get("role_id")))
+                        seen_channel_ids.add(cid)
+
+            # Query 파라미터(channel_id)가 명시된 경우에도 포함 (중복 방지)
             q_cid = request.query.get("channel_id")
             if q_cid and q_cid.isdigit():
-                target_channel_ids.append(int(q_cid))
-            else:
-                q_gid = request.query.get("guild_id")
-                if q_gid and str(q_gid) in configs:
-                    cfg = configs[str(q_gid)]
-                    if cfg.get("enabled", True) and cfg.get("channel_id"):
-                        target_channel_ids.append(cfg["channel_id"])
-                else:
-                    for gid, cfg in configs.items():
-                        if cfg.get("enabled", True) and cfg.get("channel_id"):
-                            target_channel_ids.append(cfg["channel_id"])
+                q_cid_int = int(q_cid)
+                if q_cid_int not in seen_channel_ids:
+                    target_channels_with_roles.append((q_cid_int, None))
+                    seen_channel_ids.add(q_cid_int)
 
             embed = None
             role_mention = None
@@ -302,10 +305,11 @@ class NorosiBot(commands.Bot):
                 embed.description = "\n".join(desc_lines)
                 embed.set_footer(text="GitHub Actions CI/CD • norosi 자동 배포")
 
-            if embed and target_channel_ids:
-                for cid in set(target_channel_ids):
+            if embed and target_channels_with_roles:
+                for cid, role_id in target_channels_with_roles:
                     ch = await self.resolve_channel(cid)
                     if ch:
+                        role_mention = f"<@&{role_id}>" if role_id else None
                         try:
                             await ch.send(content=role_mention, embed=embed)
                         except Exception as send_err:
@@ -314,7 +318,7 @@ class NorosiBot(commands.Bot):
             return web.json_response({
                 "status": "success",
                 "event": event,
-                "dispatched_channels": len(target_channel_ids)
+                "dispatched_channels": len(target_channels_with_roles)
             })
         except Exception as e:
             print(f"⚠️ [handle_github_webhook 예외] {e}", flush=True)
@@ -404,13 +408,30 @@ class NorosiBot(commands.Bot):
 
     @tasks.loop(seconds=3.0)
     async def terminal_log_dispatch_loop(self):
-        """3초마다 VM 터미널 출력 큐를 확인하여 지정된 디스코드 채널로 안전하게 묶음 전송 (레이트 리밋 방어 탑재)"""
+        """3초마다 VM 터미널 출력 큐를 확인하여 지정된 모든 서버 채널로 안전하게 묶음 전송 (레이트 리밋 방어 탑재)"""
         if not self.terminal_log_queue or self.terminal_log_queue.empty():
             return
 
         data = core.get_cached_data()
-        log_ch_id = data.get("settings", {}).get("terminal_log_channel_id")
-        if not log_ch_id:
+        target_channel_ids = set()
+
+        # 1. 서버별 등록된 터미널 로그 채널 목록 수집
+        t_channels = data.get("settings", {}).get("terminal_log_channels", {})
+        if isinstance(t_channels, dict):
+            for cid in t_channels.values():
+                if cid and str(cid).isdigit():
+                    target_channel_ids.add(int(cid))
+        elif isinstance(t_channels, (list, set)):
+            for cid in t_channels:
+                if cid and str(cid).isdigit():
+                    target_channel_ids.add(int(cid))
+
+        # 2. 레거시 단일 설정 채널 ID도 포함
+        legacy_id = data.get("settings", {}).get("terminal_log_channel_id")
+        if legacy_id and str(legacy_id).isdigit():
+            target_channel_ids.add(int(legacy_id))
+
+        if not target_channel_ids:
             # 채널이 지정되지 않은 상태면 큐가 쌓이지 않도록 비움
             while not self.terminal_log_queue.empty():
                 try:
@@ -419,8 +440,13 @@ class NorosiBot(commands.Bot):
                     break
             return
 
-        channel = await self.resolve_channel(log_ch_id)
-        if not channel:
+        resolved_channels = []
+        for cid in list(target_channel_ids):
+            ch = await self.resolve_channel(cid)
+            if ch:
+                resolved_channels.append(ch)
+
+        if not resolved_channels:
             return
 
         # 큐에서 쌓인 모든 로그 텍스트를 청크 단위로 추출
@@ -466,15 +492,17 @@ class NorosiBot(commands.Bot):
         for idx, msg in enumerate(messages_to_send):
             if not msg.strip():
                 continue
-            try:
-                await channel.send(f"```log\n{msg.strip()}\n```")
-            except discord.HTTPException as he:
-                if he.status == 429:
-                    self._orig_stderr.write(f"[TerminalLogger] 채널 전송 429 감지(일시대기): {he}\n")
-                else:
-                    self._orig_stderr.write(f"[TerminalLogger] 전송 HTTP 오류: {he}\n")
-            except Exception as e:
-                self._orig_stderr.write(f"[TerminalLogger] 전송 실패: {e}\n")
+            payload = f"```log\n{msg.strip()}\n```"
+            for ch in resolved_channels:
+                try:
+                    await ch.send(payload)
+                except discord.HTTPException as he:
+                    if he.status == 429:
+                        self._orig_stderr.write(f"[TerminalLogger] 채널 {ch.id} 전송 429 감지(일시대기): {he}\n")
+                    else:
+                        self._orig_stderr.write(f"[TerminalLogger] 채널 {ch.id} 전송 HTTP 오류: {he}\n")
+                except Exception as e:
+                    self._orig_stderr.write(f"[TerminalLogger] 채널 {ch.id} 전송 실패: {e}\n")
 
             if idx < len(messages_to_send) - 1:
                 await asyncio.sleep(1.1)
@@ -1355,26 +1383,34 @@ async def set_terminal_log_channel_slash(interaction: discord.Interaction, 채�
     await core.safe_defer(interaction, ephemeral=True)
     data = await asyncio.to_thread(core.load_data)
 
+    g_key = str(interaction.guild_id) if interaction.guild_id else "global"
+    t_channels = data.setdefault("settings", {}).setdefault("terminal_log_channels", {})
+
     if 채널 is None:
-        data.setdefault("settings", {})["terminal_log_channel_id"] = None
+        t_channels.pop(g_key, None)
+        if not t_channels:
+            data.setdefault("settings", {})["terminal_log_channel_id"] = None
         await asyncio.to_thread(core.save_data, data)
-        await interaction.followup.send("🛑 **VM 서버 터미널 로그 실시간 채널 전송이 해제(비활성화)되었습니다.**", ephemeral=True)
-        print(f"ℹ️ [System] {interaction.user}에 의해 터미널 로그 채널 전송이 비활성화되었습니다.", flush=True)
+        await interaction.followup.send(f"🛑 **현재 서버({interaction.guild.name if interaction.guild else '글로벌'})의 VM 서버 터미널 로그 채널 전송이 해제되었습니다.**", ephemeral=True)
+        print(f"ℹ️ [System] {interaction.user}에 의해 {interaction.guild}의 터미널 로그 채널 전송이 비활성화되었습니다.", flush=True)
     else:
+        t_channels[g_key] = 채널.id
         data.setdefault("settings", {})["terminal_log_channel_id"] = 채널.id
         await asyncio.to_thread(core.save_data, data)
         embed = discord.Embed(
             title="🖥️ VM 서버 터미널 실시간 로그 채널 지정 완료!",
             description=(
                 f"이제부터 VM 서버 터미널(`stdout` / `stderr` / `logging`)로 출력되는 모든 로그가 {채널.mention} 채널에도 실시간으로 기록됩니다.\n\n"
-                "• **전송 주기:** `2초` 단위 버퍼링 묶음 전송 (도배 및 Rate Limit 완벽 방어)\n"
+                f"• **현재 채널:** {채널.mention} (`#{채널.name}`)\n"
+                f"• **전체 연동 서버:** 총 {len(t_channels)}개 서버 채널에 실시간 동시 전송 중\n"
+                "• **전송 주기:** `3초` 단위 버퍼링 묶음 전송 (도배 및 Rate Limit 완벽 방어)\n"
                 "• **해제 방법:** `/터미널로그채널` 명령어를 채널 옵션 없이 실행"
             ),
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST)
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
-        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{채널.name} (ID: {채널.id})로 지정되었습니다.", flush=True)
+        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{채널.name} (ID: {채널.id}, 서버: {interaction.guild})로 지정되었습니다. (총 {len(t_channels)}개 서버 동시 전송)", flush=True)
 
 
 @bot.command(name="터미널로그", aliases=["터미널로그채널", "서버터미널", "vm로그", "콘솔로그"])
@@ -1386,15 +1422,21 @@ async def set_terminal_log_channel_prefix(ctx: commands.Context, channel: Option
         return
 
     data = await asyncio.to_thread(core.load_data)
+    g_key = str(ctx.guild.id) if ctx.guild else "global"
+    t_channels = data.setdefault("settings", {}).setdefault("terminal_log_channels", {})
+
     if channel is None:
-        data.setdefault("settings", {})["terminal_log_channel_id"] = None
+        t_channels.pop(g_key, None)
+        if not t_channels:
+            data.setdefault("settings", {})["terminal_log_channel_id"] = None
         await asyncio.to_thread(core.save_data, data)
-        await ctx.send("🛑 **VM 서버 터미널 로그 채널 기록이 비활성화되었습니다.** (특정 채널에 켜려면 `!터미널로그 #채널` 입력)")
+        await ctx.send(f"🛑 **현재 서버({ctx.guild.name if ctx.guild else '글로벌'})의 VM 서버 터미널 로그 채널 기록이 비활성화되었습니다.** (특정 채널에 켜려면 `!터미널로그 #채널` 입력)")
     else:
+        t_channels[g_key] = channel.id
         data.setdefault("settings", {})["terminal_log_channel_id"] = channel.id
         await asyncio.to_thread(core.save_data, data)
-        await ctx.send(f"🖥️ **VM 서버 터미널 로그 채널 지정 완료:** 이제부터 터미널 출력이 {channel.mention} 채널에 실시간으로 기록됩니다!")
-        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{channel.name} (ID: {channel.id})로 지정되었습니다.", flush=True)
+        await ctx.send(f"🖥️ **VM 서버 터미널 로그 채널 지정 완료:** 이제부터 터미널 출력이 {channel.mention} 채널에 실시간으로 기록됩니다! (총 {len(t_channels)}개 서버 채널 동시 전송)")
+        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{channel.name} (ID: {channel.id}, 서버: {ctx.guild})로 지정되었습니다. (총 {len(t_channels)}개 서버 동시 전송)", flush=True)
 
 
 # ==========================================
