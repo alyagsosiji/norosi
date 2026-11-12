@@ -37,25 +37,37 @@ def _build_reaction_role_embed(
     description: str,
     roles_list: list[dict],
     mode: str = "multiple",
-    guild: Optional[discord.Guild] = None
+    guild: Optional[discord.Guild] = None,
+    show_role_list: Optional[bool] = None,
+    color: Optional[discord.Color] = None
 ) -> discord.Embed:
-    """반응역할 안내 임베드를 예쁘고 깔끔하게 빌드"""
-    color = discord.Color.from_rgb(88, 101, 242) if mode == "multiple" else discord.Color.from_rgb(235, 69, 158)
-    mode_text = "자유 선택 (여러 개 가능)" if mode == "multiple" else "단일 선택 (하나만 선택 가능)"
+    """반응역할 안내 임베드를 예쁘고 깔끔하게 빌드 (첨부 사진 스타일 완벽 지원)"""
+    # 디스코드 다크 테마/블러플 배경에 어울리는 색상 (기본 다크 슬레이트 0x2b2d31 또는 블러플)
+    embed_color = color or discord.Color.from_rgb(43, 45, 49)
+
+    # 사용자가 제목에 직접 넣은 이모지/포맷을 100% 보존 (접두사 임의 추가 방지)
+    clean_title = (title or "역할 선택 안내").strip()
 
     embed = discord.Embed(
-        title=f"🎭 {title}",
-        description=description or "아래 이모지를 클릭하여 원하는 역할을 부여받거나 해제하세요!",
-        color=color,
+        title=clean_title,
+        description=description or "아래 버튼을 눌러 원하는 역할을 획득하거나 해제하세요!",
+        color=embed_color,
         timestamp=datetime.datetime.now(core.KST)
     )
 
-    if roles_list:
+    # 사용자가 직접 본문(description)을 상세하게 작성한 경우(첨부 사진 스타일),
+    # 불필요한 역할 목록 필드를 표시하지 않고 깔끔하게 본문만 노출
+    should_show_list = show_role_list
+    if should_show_list is None:
+        # 본문이 없거나 아주 짧을 때만 보조 목록 필드 출력
+        should_show_list = not description or len(description.strip()) < 15
+
+    if should_show_list and roles_list:
         lines = []
         for r_entry in roles_list:
-            emoji_disp = r_entry.get("emoji", "✨")
+            emoji_disp = r_entry.get("button_emoji") or r_entry.get("emoji", "✨")
             role_id = r_entry.get("role_id")
-            role_name = r_entry.get("role_name", "역할")
+            role_name = r_entry.get("button_label") or r_entry.get("role_name", "역할")
             desc = r_entry.get("description", "").strip()
 
             role_mention = f"<@&{role_id}>" if role_id else f"`@{role_name}`"
@@ -67,18 +79,7 @@ def _build_reaction_role_embed(
             value="\n".join(lines),
             inline=False
         )
-    else:
-        embed.add_field(
-            name="📋 역할 배정 목록",
-            value="*(아직 등록된 역할-이모지 매핑이 없습니다)*",
-            inline=False
-        )
 
-    footer_mode = "💡 이모지를 누르면 역할이 지급되며, 다시 누르면 회수됩니다."
-    if mode == "unique":
-        footer_mode = "💡 단일 선택 모드: 다른 이모지를 누르면 이전 역할은 자동으로 해제됩니다."
-
-    embed.set_footer(text=f"모드: {mode_text} • {footer_mode}")
     return embed
 
 
@@ -86,14 +87,33 @@ def _build_reaction_role_embed(
 # 🔘 하이브리드 영구 버튼 View (이모지 외 버튼 클릭으로도 수령 지원)
 # ==========================================
 class PersistentRoleButton(discord.ui.Button):
-    def __init__(self, role_id: int, emoji_str: str, label: str):
+    def __init__(
+        self,
+        role_id: int,
+        label: str = "역할",
+        emoji_str: Optional[str] = None,
+        style: discord.ButtonStyle = discord.ButtonStyle.primary,
+        custom_id: Optional[str] = None
+    ):
+        clean_label = (label or "역할").strip()[:80]
+
+        # 유니코드 및 커스텀 이모지 완벽 지원
+        button_emoji = None
+        if emoji_str:
+            e_obj, _, _ = core.parse_emoji_for_reaction(emoji_str)
+            if isinstance(e_obj, (discord.PartialEmoji, discord.Emoji)):
+                button_emoji = e_obj
+            elif isinstance(e_obj, str) and e_obj.strip():
+                button_emoji = e_obj.strip()
+
+        btn_cid = custom_id or f"rr_btn_{role_id}"
         super().__init__(
-            label=label[:80],
-            style=discord.ButtonStyle.secondary,
-            emoji=emoji_str if not emoji_str.startswith("<") else None,
-            custom_id=f"rr_btn_{role_id}"
+            label=clean_label,
+            style=style,
+            emoji=button_emoji,
+            custom_id=btn_cid
         )
-        self.role_id = role_id
+        self.role_id = int(role_id)
 
     async def callback(self, interaction: discord.Interaction):
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
@@ -114,17 +134,36 @@ class PersistentRoleButton(discord.ui.Button):
             await core.safe_send_response(interaction, reason, ephemeral=True)
             return
 
+        # 단일 선택 모드(unique) 체크
+        data = await asyncio.to_thread(core.load_data)
+        mid_s = str(interaction.message.id) if interaction.message else ""
+        panel_cfg = data.get("reaction_roles", {}).get(mid_s, {})
+        is_unique_mode = panel_cfg.get("mode") == "unique"
+
         # 역할 토글 (있으면 제거, 없으면 지급)
         if role in member.roles:
             try:
                 await member.remove_roles(role, reason="반응역할 버튼 조작으로 회수")
-                await core.safe_send_response(interaction, f"➖ **{role.mention}** 역할이 해제되었습니다.", ephemeral=True)
+                await core.safe_send_response(interaction, f"➖ **{role.name}** 역할이 해제되었습니다.", ephemeral=True)
             except discord.Forbidden:
                 await core.safe_send_response(interaction, "🚨 봇에게 역할을 회수할 권한이 없습니다.", ephemeral=True)
         else:
+            # 단일 선택 모드일 때 동일 패널 내 다른 역할들 자동 회수
+            if is_unique_mode:
+                other_role_ids = [
+                    int(r["role_id"]) for r in panel_cfg.get("roles", [])
+                    if int(r.get("role_id", 0)) != self.role_id
+                ]
+                roles_to_remove = [r for r in member.roles if r.id in other_role_ids]
+                if roles_to_remove:
+                    try:
+                        await member.remove_roles(*roles_to_remove, reason="단일 선택 모드: 다른 역할 선택으로 자동 회수")
+                    except Exception:
+                        pass
+
             try:
                 await member.add_roles(role, reason="반응역할 버튼 조작으로 지급")
-                await core.safe_send_response(interaction, f"✅ **{role.mention}** 역할이 지급되었습니다!", ephemeral=True)
+                await core.safe_send_response(interaction, f"✅ **{role.name}** 역할이 지급되었습니다!", ephemeral=True)
             except discord.Forbidden:
                 await core.safe_send_response(interaction, "🚨 봇에게 역할을 지급할 권한이 없습니다.", ephemeral=True)
 
@@ -133,14 +172,38 @@ class PersistentReactionRoleView(discord.ui.View):
     """메시지 하단에 표시되는 역할 토글 버튼 뷰"""
     def __init__(self, roles_list: list[dict]):
         super().__init__(timeout=None)
-        # 최대 25개 버튼까지 지원 (디스코드 최대 제한)
+        style_map = {
+            "primary": discord.ButtonStyle.primary,
+            "blurple": discord.ButtonStyle.primary,
+            "파랑": discord.ButtonStyle.primary,
+            "보라": discord.ButtonStyle.primary,
+            "secondary": discord.ButtonStyle.secondary,
+            "grey": discord.ButtonStyle.secondary,
+            "gray": discord.ButtonStyle.secondary,
+            "회색": discord.ButtonStyle.secondary,
+            "success": discord.ButtonStyle.success,
+            "green": discord.ButtonStyle.success,
+            "초록": discord.ButtonStyle.success,
+            "danger": discord.ButtonStyle.danger,
+            "red": discord.ButtonStyle.danger,
+            "빨강": discord.ButtonStyle.danger,
+        }
         for r_entry in roles_list[:25]:
             rid = r_entry.get("role_id")
             if not rid:
                 continue
-            emo = r_entry.get("emoji", "✨")
-            rname = r_entry.get("role_name", "역할")
-            self.add_item(PersistentRoleButton(role_id=rid, emoji_str=emo, label=rname))
+            btn_label = r_entry.get("button_label") or r_entry.get("role_name") or "역할"
+            btn_emoji = r_entry.get("button_emoji") or r_entry.get("emoji")
+            style_val = str(r_entry.get("style", "primary")).lower()
+            btn_style = style_map.get(style_val, discord.ButtonStyle.primary)
+
+            self.add_item(PersistentRoleButton(
+                role_id=int(rid),
+                label=btn_label,
+                emoji_str=btn_emoji,
+                style=btn_style,
+                custom_id=f"rr_btn_{rid}"
+            ))
 
 
 # ==========================================
@@ -183,20 +246,34 @@ class ReactionRolePanelModal(core.SafeModal, title="➕ 새 반응역할 패널 
         await core.safe_send_response(interaction, embed=embed, view=builder_view, ephemeral=True)
 
 
-class AddRoleMappingModal(core.SafeModal, title="➕ 역할 및 이모지 매핑 추가"):
+class AddRoleMappingModal(core.SafeModal, title="➕ 역할 및 버튼/이모지 매핑 추가"):
     m_role = discord.ui.TextInput(
         label="지급할 역할 이름 또는 역할 ID",
         placeholder="예: 공지알림 또는 역할 ID 숫자",
         max_length=50
     )
+    m_btn_label = discord.ui.TextInput(
+        label="버튼 이름 (버튼에 표시될 텍스트)",
+        placeholder="예: [ 이용자 ] 또는 이용자 (비워두면 역할 이름)",
+        required=False,
+        max_length=50
+    )
     m_emoji = discord.ui.TextInput(
-        label="클릭할 이모지 (기본 또는 커스텀 이모지)",
-        placeholder="예: 📢 또는 🔥 또는 <:emoji:12345678>",
+        label="버튼/반응 이모지 (선택 사항)",
+        placeholder="예: 🌑 또는 <:emoji:12345678> (비워둘 수 있음)",
+        required=False,
         max_length=100
+    )
+    m_style = discord.ui.TextInput(
+        label="버튼 색상 (보라 / 초록 / 회색 / 빨강)",
+        placeholder="보라 (기본값)",
+        default="보라",
+        required=False,
+        max_length=10
     )
     m_desc = discord.ui.TextInput(
         label="역할 한 줄 설명 (선택 사항)",
-        placeholder="예: 서버 주요 공지사항 알림을 받습니다.",
+        placeholder="예: 서버 규정을 숙지한 주민 역할입니다.",
         required=False,
         max_length=100
     )
@@ -247,24 +324,30 @@ class AddRoleMappingModal(core.SafeModal, title="➕ 역할 및 이모지 매핑
             await core.safe_send_response(interaction, reason, ephemeral=True)
             return
 
-        # 이모지 파싱
-        emoji_obj, emoji_disp, emoji_id = core.parse_emoji_for_reaction(self.m_emoji.value.strip(), guild)
-        if not emoji_obj:
-            await core.safe_send_response(interaction, "❌ 올바른 이모지를 입력해 주세요.", ephemeral=True)
-            return
+        # 이모지 파싱 (비어있을 수 있음)
+        emoji_input = self.m_emoji.value.strip()
+        emoji_obj, emoji_disp, emoji_id = None, "", None
+        if emoji_input:
+            emoji_obj, emoji_disp, emoji_id = core.parse_emoji_for_reaction(emoji_input, guild)
 
         # 중복 검사
         if any(r["role_id"] == target_role.id for r in self.builder_view.roles_list):
             await core.safe_send_response(interaction, f"⚠️ 이미 목록에 등록된 역할입니다: `{target_role.name}`", ephemeral=True)
             return
-        if any(r["emoji"] == emoji_disp for r in self.builder_view.roles_list):
+        if emoji_disp and any(r["emoji"] == emoji_disp for r in self.builder_view.roles_list):
             await core.safe_send_response(interaction, f"⚠️ 이미 사용 중인 이모지입니다: {emoji_disp}", ephemeral=True)
             return
 
+        btn_label = self.m_btn_label.value.strip() or target_role.name
+        btn_style = self.m_style.value.strip() or "보라"
+
         self.builder_view.roles_list.append({
             "emoji": emoji_disp,
-            "emoji_name": emoji_obj.name if hasattr(emoji_obj, "name") else str(emoji_obj),
+            "emoji_name": emoji_obj.name if hasattr(emoji_obj, "name") else str(emoji_obj or ""),
             "emoji_id": emoji_id,
+            "button_emoji": emoji_disp,
+            "button_label": btn_label,
+            "style": btn_style,
             "role_id": target_role.id,
             "role_name": target_role.name,
             "description": self.m_desc.value.strip()
@@ -273,6 +356,156 @@ class AddRoleMappingModal(core.SafeModal, title="➕ 역할 및 이모지 매핑
         await interaction.response.edit_message(
             embed=self.builder_view.build_builder_embed(),
             view=self.builder_view
+        )
+
+
+class QuickRoleButtonModal(core.SafeModal, title="🚀 역할 버튼 패널 생성 (사진 스타일)"):
+    m_title = discord.ui.TextInput(
+        label="패널 제목",
+        placeholder="예: 🌑 | 어두운 세상의 주민 되기",
+        default="🌑 | 어두운 세상의 주민 되기",
+        max_length=100
+    )
+    m_desc = discord.ui.TextInput(
+        label="본문 내용 (줄바꿈 가능)",
+        placeholder="예:\n⚠️ 본 역할 획득 시 서버 내 규정을 모두 숙지하신 것으로 간주합니다.\n\n✅ 아래 [ 이용자 ] 버튼을 눌러 이 어두운 세상의 주민이 되어주세요!",
+        default="⚠️ 본 역할 획득 시 서버 내 규정을 모두 숙지하신 것으로 간주합니다.\n\n✅ 아래 [ 이용자 ] 버튼을 눌러 이 어두운 세상의 주민이 되어주세요!",
+        style=discord.TextStyle.paragraph,
+        max_length=1500
+    )
+    m_role = discord.ui.TextInput(
+        label="지급할 역할 이름 또는 ID",
+        placeholder="예: 이용자 또는 역할 ID",
+        max_length=50
+    )
+    m_btn_label = discord.ui.TextInput(
+        label="버튼에 표시될 이름 (버튼 텍스트)",
+        placeholder="예: [ 이용자 ] 또는 이용자 (비워두면 역할 이름)",
+        default="[ 이용자 ]",
+        required=False,
+        max_length=50
+    )
+    m_emoji = discord.ui.TextInput(
+        label="버튼 이모지 (선택 사항)",
+        placeholder="예: 🌑 또는 <:emoji:12345678> (비워둘 수 있음)",
+        required=False,
+        max_length=100
+    )
+
+    def __init__(self, target_channel: Optional[discord.TextChannel] = None):
+        super().__init__()
+        self.target_channel = target_channel
+
+    async def on_submit(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        if not guild:
+            await core.safe_send_response(interaction, "❌ 서버에서만 실행 가능합니다.", ephemeral=True)
+            return
+
+        out_channel = self.target_channel or interaction.channel
+        if not isinstance(out_channel, discord.TextChannel):
+            await core.safe_send_response(interaction, "❌ 텍스트 채널에서만 패널을 발행할 수 있습니다.", ephemeral=True)
+            return
+
+        role_query = self.m_role.value.strip()
+        target_role: Optional[discord.Role] = None
+
+        if role_query.isdigit():
+            target_role = guild.get_role(int(role_query))
+        if not target_role:
+            m_r = re.match(r"^<@&(\d+)>$", role_query)
+            if m_r:
+                target_role = guild.get_role(int(m_r.group(1)))
+        if not target_role:
+            target_role = discord.utils.get(guild.roles, name=role_query)
+        if not target_role:
+            target_role = next((r for r in guild.roles if role_query.lower() in r.name.lower()), None)
+
+        if not target_role:
+            await core.safe_send_response(
+                interaction,
+                f"❌ `{role_query}` 역할을 찾을 수 없습니다. 정확한 역할 이름 또는 ID를 확인해 주세요.",
+                ephemeral=True
+            )
+            return
+
+        # 봇 권한 서열 검사
+        bot_member = guild.me or await guild.fetch_member(interaction.client.user.id)
+        can_assign, reason = core.check_role_assignable(bot_member, target_role)
+        if not can_assign:
+            await core.safe_send_response(interaction, reason, ephemeral=True)
+            return
+
+        # 이모지 파싱
+        emoji_input = self.m_emoji.value.strip()
+        emoji_obj, emoji_disp, emoji_id = None, "", None
+        if emoji_input:
+            emoji_obj, emoji_disp, emoji_id = core.parse_emoji_for_reaction(emoji_input, guild)
+
+        btn_label = self.m_btn_label.value.strip() or target_role.name
+
+        roles_list = [{
+            "emoji": emoji_disp,
+            "emoji_name": emoji_obj.name if hasattr(emoji_obj, "name") else str(emoji_obj or ""),
+            "emoji_id": emoji_id,
+            "button_emoji": emoji_disp,
+            "button_label": btn_label,
+            "style": "primary",
+            "role_id": target_role.id,
+            "role_name": target_role.name,
+            "description": ""
+        }]
+
+        # 사진 스타일 임베드 빌드 (불필요한 필드 없이 제목과 본문만 깔끔하게 노출)
+        panel_embed = _build_reaction_role_embed(
+            title=self.m_title.value.strip(),
+            description=self.m_desc.value.strip(),
+            roles_list=roles_list,
+            mode="multiple",
+            guild=guild,
+            show_role_list=False
+        )
+
+        persistent_view = PersistentReactionRoleView(roles_list)
+
+        try:
+            panel_msg = await out_channel.send(embed=panel_embed, view=persistent_view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 메시지 발행 실패: `{e}`", ephemeral=True)
+            return
+
+        # 이모지가 입력된 경우 리액션도 추가
+        if emoji_obj:
+            try:
+                await panel_msg.add_reaction(emoji_obj)
+            except Exception:
+                pass
+
+        # DB 저장
+        data = await asyncio.to_thread(core.load_data)
+        core.save_reaction_role_entry(
+            data=data,
+            message_id=panel_msg.id,
+            guild_id=guild.id,
+            channel_id=out_channel.id,
+            roles=roles_list,
+            title=self.m_title.value.strip(),
+            description=self.m_desc.value.strip(),
+            mode="multiple",
+            creator_id=interaction.user.id
+        )
+        await asyncio.to_thread(core.save_data, data)
+
+        await core.safe_send_response(
+            interaction,
+            (
+                f"🎉 **역할 버튼 패널이 성공적으로 발행되었습니다!**\n\n"
+                f"• **게시 채널:** {out_channel.mention}\n"
+                f"• **역할:** {target_role.mention}\n"
+                f"• **버튼 라벨:** `{btn_label}`\n"
+                f"• **메시지 링크:** [👉 발행된 메시지 바로가기]({panel_msg.jump_url})"
+            ),
+            ephemeral=True
         )
 
 
@@ -712,7 +945,8 @@ class ReactionRoleStudioView(core.SafeView):
                 f"• 🛡️ 배정 중인 역할 총합: **`{total_roles}개`**\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 "**💡 주요 기능 안내:**\n"
-                "• **`[➕ 새 패널 발행]`** : 안내 임베드 + 이모지 자동 추가로 30초 만에 새 반응역할 패널 발행\n"
+                "• **`[🚀 사진 스타일 버튼 패널]`** : 제목/본문/버튼이름/이모지를 자유롭게 넣어 깔끔한 버튼 패널 즉시 제작\n"
+                "• **`[➕ 새 패널 발행]`** : 단계별 빌더를 통해 다중 역할 안내 임베드 패널 발행\n"
                 "• **`[🔗 기존 메시지 연결]`** : 이미 작성된 공지나 규칙 글에 이모지 역할 추가\n"
                 "• **`[📋 등록 목록 & 관리]`** : 현재 서버에 띄워진 반응역할 확인 및 원클릭 해제\n"
                 "• **`[🛡️ 봇 권한 상태 점검]`** : 봇 역할 위치와 권한 오류를 사전 진단"
@@ -723,11 +957,15 @@ class ReactionRoleStudioView(core.SafeView):
         embed.set_footer(text="서버 관리자 및 역할 관리 권한자 전용 • norosi Role Engine")
         return embed
 
-    @discord.ui.button(label="➕ 새 반응역할 패널 발행", style=discord.ButtonStyle.success, emoji="➕", row=0)
+    @discord.ui.button(label="🚀 사진 스타일 버튼 패널", style=discord.ButtonStyle.primary, emoji="🚀", row=0)
+    async def quick_button_panel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(QuickRoleButtonModal())
+
+    @discord.ui.button(label="➕ 새 패널 발행", style=discord.ButtonStyle.success, emoji="➕", row=0)
     async def create_panel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(ReactionRolePanelModal(self))
 
-    @discord.ui.button(label="🔗 기존 메시지에 연결", style=discord.ButtonStyle.primary, emoji="🔗", row=0)
+    @discord.ui.button(label="🔗 기존 메시지에 연결", style=discord.ButtonStyle.secondary, emoji="🔗", row=0)
     async def attach_existing_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(AttachExistingMessageModal(self))
 
@@ -809,6 +1047,178 @@ class Roles(commands.Cog, name="역할"):
         await ctx.send(embed=studio.build_dashboard_embed(), view=studio)
 
     # ----------------------------------------------------
+    # 사진 스타일 역할 버튼 패널 생성 (/역할버튼제작, /역할버튼생성)
+    # ----------------------------------------------------
+    @app_commands.command(name="역할버튼제작", description="[관리자 전용] 팝업 창에서 제목, 본문, 버튼 이름과 이모지를 직접 적어 역할 버튼을 발행합니다.")
+    @app_commands.describe(채널="패널을 발행할 채널 (선택, 기본: 현재 채널)")
+    async def slash_create_role_button_modal(
+        self,
+        interaction: discord.Interaction,
+        채널: Optional[discord.TextChannel] = None
+    ):
+        """[관리자 전용] 첨부 사진과 같은 형태의 역할 버튼 패널을 모달 대화창으로 간편 제작"""
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+
+        if not _is_admin_user(interaction.user, interaction.guild, self.bot):
+            await core.safe_send_response(
+                interaction,
+                "❌ 이 명령어는 **서버 관리자** 또는 **'역할 관리' 권한**을 보유한 멤버만 실행할 수 있습니다.",
+                ephemeral=True
+            )
+            return
+
+        target_ch = 채널 or interaction.channel
+        await interaction.response.send_modal(QuickRoleButtonModal(target_channel=target_ch))
+
+    @app_commands.command(name="역할버튼생성", description="[관리자 전용] 제목, 본문, 버튼 이름과 이모지를 직접 지정하여 역할 버튼 패널을 즉시 발행합니다.")
+    @app_commands.describe(
+        제목="패널 제목 (예: 🌑 | 어두운 세상의 주민 되기)",
+        본문="패널 본문 안내 문구 (줄바꿈 가능)",
+        역할="버튼 클릭 시 지급/회수할 디스코드 역할",
+        버튼이름="버튼에 표시될 텍스트 (예: [ 이용자 ] 또는 이용자, 비워두면 역할 이름)",
+        버튼이모지="버튼에 붙일 이모지 (예: 🌑, 선택 사항)",
+        버튼색상="버튼 색상 (보라, 초록, 회색, 빨강 중 선택, 기본: 보라)",
+        채널="패널을 게시할 텍스트 채널 (선택, 기본: 현재 채널)",
+        단일선택="다른 버튼 클릭 시 이전 역할 자동 해제 여부 (기본: 아니오)",
+        역할2="두 번째 역할 (선택)",
+        버튼이름2="두 번째 버튼 텍스트 (선택)",
+        버튼이모지2="두 번째 버튼 이모지 (선택)",
+        역할3="세 번째 역할 (선택)",
+        버튼이름3="세 번째 버튼 텍스트 (선택)",
+        버튼이모지3="세 번째 버튼 이모지 (선택)"
+    )
+    async def slash_create_custom_role_button(
+        self,
+        interaction: discord.Interaction,
+        제목: str,
+        본문: str,
+        역할: discord.Role,
+        버튼이름: Optional[str] = None,
+        버튼이모지: Optional[str] = None,
+        버튼색상: Optional[str] = "보라",
+        채널: Optional[discord.TextChannel] = None,
+        단일선택: bool = False,
+        역할2: Optional[discord.Role] = None,
+        버튼이름2: Optional[str] = None,
+        버튼이모지2: Optional[str] = None,
+        역할3: Optional[discord.Role] = None,
+        버튼이름3: Optional[str] = None,
+        버튼이모지3: Optional[str] = None
+    ):
+        guild = interaction.guild
+        if not guild:
+            await core.safe_send_response(interaction, "❌ 서버에서만 사용 가능합니다.", ephemeral=True)
+            return
+
+        if not _is_admin_user(interaction.user, guild, self.bot):
+            await core.safe_send_response(
+                interaction,
+                "❌ 이 명령어는 **서버 관리자** 또는 **'역할 관리' 권한**을 보유한 멤버만 실행할 수 있습니다.",
+                ephemeral=True
+            )
+            return
+
+        await core.safe_defer(interaction, ephemeral=True)
+
+        target_ch = 채널 or interaction.channel
+        if not isinstance(target_ch, discord.TextChannel):
+            await interaction.edit_original_response(content="❌ 텍스트 채널에서만 패널을 발행할 수 있습니다.")
+            return
+
+        bot_member = guild.me or await guild.fetch_member(interaction.client.user.id)
+
+        items = [
+            (역할, 버튼이름, 버튼이모지, 버튼색상),
+            (역할2, 버튼이름2, 버튼이모지2, "보라"),
+            (역할3, 버튼이름3, 버튼이모지3, "보라"),
+        ]
+
+        roles_list = []
+        for r_obj, b_label, b_emo, b_style in items:
+            if not r_obj:
+                continue
+            can_assign, reason = core.check_role_assignable(bot_member, r_obj)
+            if not can_assign:
+                await interaction.edit_original_response(content=f"⚠️ `{r_obj.name}` 검증 실패: {reason}")
+                return
+
+            emoji_obj, emoji_disp, emoji_id = None, "", None
+            if b_emo:
+                emoji_obj, emoji_disp, emoji_id = core.parse_emoji_for_reaction(b_emo, guild)
+
+            clean_label = (b_label or "").strip() or r_obj.name
+
+            roles_list.append({
+                "emoji": emoji_disp,
+                "emoji_name": emoji_obj.name if hasattr(emoji_obj, "name") else str(emoji_obj or ""),
+                "emoji_id": emoji_id,
+                "button_emoji": emoji_disp,
+                "button_label": clean_label,
+                "style": b_style or "보라",
+                "role_id": r_obj.id,
+                "role_name": r_obj.name,
+                "description": ""
+            })
+
+        if not roles_list:
+            await interaction.edit_original_response(content="❌ 유효한 역할이 지정되지 않았습니다.")
+            return
+
+        mode_val = "unique" if 단일선택 else "multiple"
+        panel_embed = _build_reaction_role_embed(
+            title=제목,
+            description=본문,
+            roles_list=roles_list,
+            mode=mode_val,
+            guild=guild,
+            show_role_list=False
+        )
+        persistent_view = PersistentReactionRoleView(roles_list)
+
+        try:
+            panel_msg = await target_ch.send(embed=panel_embed, view=persistent_view)
+        except Exception as e:
+            await interaction.edit_original_response(content=f"❌ 메시지 발행 실패: `{e}`")
+            return
+
+        # 이모지가 지정된 경우 리액션 추가
+        for r_entry in roles_list:
+            if r_entry.get("emoji"):
+                e_obj, _, _ = core.parse_emoji_for_reaction(r_entry["emoji"], guild)
+                try:
+                    if e_obj:
+                        await panel_msg.add_reaction(e_obj)
+                        await asyncio.sleep(0.3)
+                except Exception:
+                    pass
+
+        # DB 저장
+        data = await asyncio.to_thread(core.load_data)
+        core.save_reaction_role_entry(
+            data=data,
+            message_id=panel_msg.id,
+            guild_id=guild.id,
+            channel_id=target_ch.id,
+            roles=roles_list,
+            title=제목,
+            description=본문,
+            mode=mode_val,
+            creator_id=interaction.user.id
+        )
+        await asyncio.to_thread(core.save_data, data)
+
+        await interaction.edit_original_response(
+            content=(
+                f"🎉 **역할 버튼 패널이 성공적으로 발행되었습니다!**\n"
+                f"• 채널: {target_ch.mention}\n"
+                f"• 배정 역할 수: `{len(roles_list)}개`\n"
+                f"• 바로가기: [👉 메시지로 이동]({panel_msg.jump_url})"
+            )
+        )
+
+    # ----------------------------------------------------
     # 단축 생성 명령어 (/반응역할생성)
     # ----------------------------------------------------
     @app_commands.command(name="반응역할생성", description="[관리자 전용] 지정 채널에 새 반응역할 안내 패널을 즉시 발행합니다.")
@@ -819,8 +1229,10 @@ class Roles(commands.Cog, name="역할"):
         단일선택="하나의 역할만 선택 가능하게 할지 여부 (기본: 아니오)",
         역할1="첫 번째로 지급할 역할",
         이모지1="첫 번째 역할의 클릭 이모지 (예: 📢 또는 🔥)",
+        버튼이름1="첫 번째 버튼 이름 (선택, 비워두면 역할 이름)",
         역할2="두 번째 역할 (선택)",
         이모지2="두 번째 이모지 (선택)",
+        버튼이름2="두 번째 버튼 이름 (선택)",
         역할3="세 번째 역할 (선택)",
         이모지3="세 번째 이모지 (선택)",
         역할4="네 번째 역할 (선택)",
@@ -837,8 +1249,10 @@ class Roles(commands.Cog, name="역할"):
         이모지1: str,
         설명: str = "아래 이모지를 클릭하여 원하는 역할을 자유롭게 받으세요!",
         단일선택: bool = False,
+        버튼이름1: Optional[str] = None,
         역할2: Optional[discord.Role] = None,
         이모지2: Optional[str] = None,
+        버튼이름2: Optional[str] = None,
         역할3: Optional[discord.Role] = None,
         이모지3: Optional[str] = None,
         역할4: Optional[discord.Role] = None,
@@ -862,10 +1276,16 @@ class Roles(commands.Cog, name="역할"):
         await core.safe_defer(interaction, ephemeral=True)
 
         bot_member = guild.me or await guild.fetch_member(interaction.client.user.id)
-        pairs = [(역할1, 이모지1), (역할2, 이모지2), (역할3, 이모지3), (역할4, 이모지4), (역할5, 이모지5)]
+        pairs = [
+            (역할1, 이모지1, 버튼이름1),
+            (역할2, 이모지2, 버튼이름2),
+            (역할3, 이모지3, None),
+            (역할4, 이모지4, None),
+            (역할5, 이모지5, None)
+        ]
 
         roles_list = []
-        for r_obj, e_str in pairs:
+        for r_obj, e_str, b_lbl in pairs:
             if not r_obj or not e_str:
                 continue
             can_assign, reason = core.check_role_assignable(bot_member, r_obj)
@@ -880,6 +1300,9 @@ class Roles(commands.Cog, name="역할"):
                 "emoji": e_disp,
                 "emoji_name": e_obj.name if hasattr(e_obj, "name") else str(e_obj),
                 "emoji_id": e_id,
+                "button_emoji": e_disp,
+                "button_label": (b_lbl or "").strip() or r_obj.name,
+                "style": "primary",
                 "role_id": r_obj.id,
                 "role_name": r_obj.name,
                 "description": ""
