@@ -1,0 +1,173 @@
+name: Deploy norosi Bot to GCP VM
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to GCP VM via SSH
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Validate GitHub Secrets
+        env:
+          GCP_HOST: ${{ secrets.GCP_HOST }}
+          GCP_USER: ${{ secrets.GCP_USER }}
+          GCP_SSH_KEY: ${{ secrets.GCP_SSH_KEY }}
+        run: |
+          if [ -z "$GCP_HOST" ]; then
+            echo "❌ [오류] GCP_HOST 시크릿이 설정되지 않았습니다. GitHub Settings > Secrets and variables > Actions > Repository secrets에 GCP VM 외부 IP를 등록해주세요."
+            exit 1
+          fi
+          if [ -z "$GCP_USER" ]; then
+            echo "❌ [오류] GCP_USER 시크릿이 설정되지 않았습니다. GitHub Settings > Secrets and variables > Actions > Repository secrets에 GCP 사용자명을 등록해주세요."
+            exit 1
+          fi
+          if [ -z "$GCP_SSH_KEY" ]; then
+            echo "❌ [오류] GCP_SSH_KEY 시크릿이 설정되지 않았습니다. GitHub Settings > Secrets and variables > Actions > Repository secrets에 SSH 비밀키를 등록해주세요."
+            exit 1
+          fi
+          echo "✅ 필수 GitHub Secrets 3종(GCP_HOST, GCP_USER, GCP_SSH_KEY) 확인 완료!"
+
+      - name: Setup SSH Key & Deploy to GCP VM
+        env:
+          GCP_HOST: ${{ secrets.GCP_HOST }}
+          GCP_USER: ${{ secrets.GCP_USER }}
+          GCP_SSH_KEY: ${{ secrets.GCP_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          # 비밀키 자동 정규화 및 저장 (PEM/OpenSSH 텍스트, Base64, CRLF, 하이픈 누락 자동 보정)
+          python3 - << 'EOF'
+          import os, re, base64, pathlib, sys
+
+          raw = os.environ.get("GCP_SSH_KEY", "").strip()
+
+          if raw.startswith(("ssh-rsa", "ssh-ed25519", "ecdsa-sha2")):
+              sys.exit("❌ [오류] GCP_SSH_KEY에 개인키(Private Key)가 아닌 공개키(.pub)가 입력되어 있습니다.")
+
+          if "BEGIN" not in raw:
+              try:
+                  raw = base64.b64decode(re.sub(r"\s+", "", raw)).decode("utf-8", errors="ignore").strip()
+              except Exception:
+                  sys.exit("❌ [오류] GCP_SSH_KEY가 올바른 PEM 형식도 아니고 유효한 Base64 문자열도 아닙니다.")
+
+          raw = raw.replace("\r\n", "\n").replace("\r", "\n")
+          m = re.search(r"(-+BEGIN [^-]+-+)(.*?)(-+END [^-]+-+)", raw, re.DOTALL)
+          if not m:
+              sys.exit("❌ [오류] SSH 개인키의 BEGIN/END 헤더 또는 푸터를 찾을 수 없습니다. 키 전체가 복사되었는지 확인해주세요.")
+
+          header = "-----" + m.group(1).strip().strip("-") + "-----"
+          footer = "-----" + m.group(3).strip().strip("-") + "-----"
+          body_lines = [line.strip() for line in m.group(2).split() if line.strip()]
+          clean_key = header + "\n" + "\n".join(body_lines) + "\n" + footer + "\n"
+
+          key_path = pathlib.Path.home() / ".ssh" / "gcp_deploy_key"
+          key_path.write_text(clean_key, encoding="utf-8")
+          key_path.chmod(0o600)
+          EOF
+
+          # SSH 개인키 유효성 사전 검증
+          if ! ssh-keygen -y -f ~/.ssh/gcp_deploy_key > /dev/null 2>&1; then
+            echo "❌ [오류] SSH 키 형식이 손상되었거나 암호(Passphrase)가 걸려 있습니다. 암호 없는 개인키 전문을 GCP_SSH_KEY에 다시 등록해주세요."
+            exit 1
+          fi
+          echo "✅ SSH 개인키 포맷 검증 완료!"
+
+          # 현재 개인키에서 추출한 정확한 공개키(Public Key) 준비 (권한 거부 시 안내용)
+          DERIVED_PUBKEY="$(ssh-keygen -y -f ~/.ssh/gcp_deploy_key) ${GCP_USER}"
+
+          # 계정 자동 탐색 및 원격 GCP VM SSH 접속 (GCP_USER, ubuntu, debian, admin 순차 시도)
+          set +e
+          TARGET_USERS=()
+          if [ -n "${GCP_USER}" ]; then TARGET_USERS+=("${GCP_USER}"); fi
+          if [ "${GCP_USER}" != "ubuntu" ]; then TARGET_USERS+=("ubuntu"); fi
+          if [ "${GCP_USER}" != "debian" ]; then TARGET_USERS+=("debian"); fi
+          if [ "${GCP_USER}" != "admin" ]; then TARGET_USERS+=("admin"); fi
+
+          ACTIVE_USER=""
+          for CANDIDATE in "${TARGET_USERS[@]}"; do
+            echo "🔍 SSH 계정 연결 테스트: ${CANDIDATE}@${GCP_HOST} ..."
+            if ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=8 -i ~/.ssh/gcp_deploy_key "${CANDIDATE}@${GCP_HOST}" "true" 2>/dev/null; then
+              ACTIVE_USER="${CANDIDATE}"
+              echo "✅ SSH 계정 확인 성공: ${ACTIVE_USER}"
+              break
+            fi
+          done
+
+          if [ -z "$ACTIVE_USER" ]; then
+            ACTIVE_USER="${GCP_USER}"
+          fi
+
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15 -i ~/.ssh/gcp_deploy_key \
+            "${ACTIVE_USER}@${GCP_HOST}" \
+            "bash -c '
+              set -e
+              echo \"==========================================\"
+              echo \"🚀 [1/4] norosi 디렉토리 이동 및 최신 코드 반영...\"
+              echo \"==========================================\"
+              TARGET_DIR=\"\$HOME/norosi\"
+              if [ ! -d \"\$TARGET_DIR\" ]; then
+                TARGET_DIR=\"/home/${ACTIVE_USER}/norosi\"
+              fi
+              if [ ! -d \"\$TARGET_DIR\" ]; then
+                TARGET_DIR=\"/home/ubuntu/norosi\"
+              fi
+              cd \"\$TARGET_DIR\"
+
+              git fetch origin
+              CURRENT_BRANCH=\$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo \"master\")
+              git reset --hard \"origin/\$CURRENT_BRANCH\" 2>/dev/null || git reset --hard origin/master 2>/dev/null || git reset --hard origin/main
+
+              echo \"==========================================\"
+              echo \"📦 [2/4] Python 가상환경 의존성 확인...\"
+              echo \"==========================================\"
+              if [ -d .venv ]; then source .venv/bin/activate; elif [ -d venv ]; then source venv/bin/activate; fi
+              pip install -r requirements.txt --quiet
+
+              echo \"==========================================\"
+              echo \"🔄 [3/4] norosi 서비스 재시작...\"
+              echo \"==========================================\"
+              sudo systemctl restart norosi
+
+              echo \"==========================================\"
+              echo \"✅ [4/4] 봇 가동 상태 확인...\"
+              echo \"==========================================\"
+              sudo systemctl is-active --quiet norosi && echo \"🎉 [배포 성공] norosi 봇 정상 가동!\"
+
+              echo \"==========================================\"
+              echo \"📋 [5/5] 최근 봇 실행 저널 로그 (최근 70줄)...\"
+              echo \"==========================================\"
+              sleep 2
+              sudo journalctl -u norosi -n 70 --no-pager || true
+            '"
+          SSH_EXIT_CODE=$?
+          set -e
+
+          if [ $SSH_EXIT_CODE -ne 0 ]; then
+            echo ""
+            echo "================================================================================"
+            echo "🚨 [원인 안내] SSH 개인키는 정상이나, GCP 서버가 이 키를 허용 목록에서 찾지 못했습니다!"
+            echo "👉 키를 새로 재발급하거나 GitHub Secret을 다시 입력할 필요가 전혀 없습니다."
+            echo "👉 GCP의 데몬이 ~/.ssh/authorized_keys를 덮어썼거나 GCP 콘솔에 등록되지 않은 상태입니다."
+            echo ""
+            echo "🛠️ [영구 해결 방법 - 딱 1번만 설정하면 평생 풀리지 않습니다]"
+            echo "1. Google Cloud Console (Compute Engine > VM 인스턴스) 접속"
+            echo "2. 봇 서버 VM 클릭 > 상단 [수정(Edit)] 클릭"
+            echo "3. 아래로 스크롤하여 [보안 및 액세스] > [SSH 키(SSH Keys)] > [+ 항목 추가] 클릭"
+            echo "4. 아래 줄(ssh-... 로 시작하는 줄 전체)을 그대로 복사해서 붙여넣고 [저장] 클릭:"
+            echo "--------------------------------------------------------------------------------"
+            echo "$DERIVED_PUBKEY"
+            echo "--------------------------------------------------------------------------------"
+            echo "※ 위 한 줄만 GCP 콘솔 [SSH 키]에 저장해 두면 서버 재부팅/시간 경과 후에도 절대 풀리지 않습니다!"
+            echo "================================================================================"
+            exit $SSH_EXIT_CODE
+          fi
