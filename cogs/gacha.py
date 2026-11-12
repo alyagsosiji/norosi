@@ -245,7 +245,7 @@ class GachaPullAgainView(core.SafeView):
         if not can_pull:
             await core.safe_send_response(
                 interaction,
-                content=f"⏳ **뽑기 쿨타임입니다!** `{rem:.1f}초` 후에 다시 눌러주세요. (모든 뽑기 10초 쿨타임 엄격 적용)",
+                content=f"⏳ **봇의 원활한 서비스를 위해, 뽑기 쿨타임입니다!** `{rem:.1f}초` 후에 다시 눌러주세요.",
                 ephemeral=True
             )
             return
