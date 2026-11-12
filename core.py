@@ -1375,7 +1375,8 @@ def build_monthly_event_forecast_calendar(target_year: int, target_month: int):
 DEFAULT_CONFIG = {
     "settings": {
         "dday_alert_channel_id": None,
-        "default_category_id": None
+        "default_category_id": None,
+        "terminal_log_channel_id": None
     },
     "ddays": {},
     "music_prefs": {
@@ -1914,6 +1915,16 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
     for r_item in local_norm.get("reminders", []):
         if isinstance(r_item, dict) and r_item.get("id") not in existing_rem_ids:
             merged["reminders"].append(copy.deepcopy(r_item))
+
+    # 설정값(터미널 로그 채널, 알림 채널 등) 로컬 백업 보존
+    for s_k, s_v in local_norm.get("settings", {}).items():
+        if s_v is not None and not merged.get("settings", {}).get(s_k):
+            merged.setdefault("settings", {})[s_k] = s_v
+
+    # 반응역할(reaction_roles) 로컬 백업 보존
+    for mid_s, rr_cfg in local_norm.get("reaction_roles", {}).items():
+        if mid_s not in merged.get("reaction_roles", {}):
+            merged.setdefault("reaction_roles", {})[mid_s] = copy.deepcopy(rr_cfg)
 
     return normalize_data(merged)
 

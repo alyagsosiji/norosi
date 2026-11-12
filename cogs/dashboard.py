@@ -145,11 +145,11 @@ class DashboardPomodoroModal(core.SafeModal, title="⏳ 뽀모도로 집중모�
         r_min = max(1, min(60, r_min))
         s_cnt = max(1, min(10, s_cnt))
 
-        dday_cog = self.bot.get_cog("D-Day & 라이프")
-        if dday_cog and hasattr(dday_cog, "pomodoro_cmd"):
+        target_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "pomodoro_cmd")), None)
+        if target_cog:
             choice_start = app_commands.Choice(name="🔥 집중모드 시작", value="start")
-            await dday_cog.pomodoro_cmd.callback(
-                dday_cog,
+            await target_cog.pomodoro_cmd.callback(
+                target_cog,
                 interaction,
                 동작=choice_start,
                 집중시간=f_min,
@@ -566,6 +566,13 @@ class MasterDashboardView(core.SafeView):
         embed.set_footer(text="💡 상단 드롭다운에서 가챠, 일정, 음악, 역할, 게임, 통계 대시보드로 이동할 수 있습니다.")
         return embed
 
+    def _find_cog_with_attr(self, attr_name: str):
+        """Cog 클래스 이름에 상관없이 특정 커맨드 핸들러를 보유한 Cog 인스턴스를 안전하게 반환"""
+        for cog in self.bot.cogs.values():
+            if hasattr(cog, attr_name):
+                return cog
+        return None
+
     def build_gacha_embed(self) -> discord.Embed:
         g_key = str(self.guild.id if self.guild else 0)
         u_key = str(self.user.id)
@@ -577,8 +584,9 @@ class MasterDashboardView(core.SafeView):
         total_cards_count = sum(c.get("count", 1) for c in user_cards.values())
         dup_excess = sum(max(0, c.get("count", 1) - 1) for c in user_cards.values() if not c.get("locked", False))
 
-        four_stars = sum(1 for c in user_cards.values() if c.get("rarity") == "rarity_4")
-        birthdays = sum(1 for c in user_cards.values() if c.get("rarity") == "rarity_birthday")
+        # rarity_type 키 정확히 매핑 (기존 "rarity" 오타 수정)
+        four_stars = sum(1 for c in user_cards.values() if c.get("rarity_type") == "rarity_4")
+        birthdays = sum(1 for c in user_cards.values() if c.get("rarity_type") == "rarity_birthday")
 
         deck = profile.get("deck", [])
         deck_str = ", ".join(f"`{cid}`" for cid in deck) if deck else "편성된 덱 없음 (`/덱편성`)"
@@ -643,9 +651,11 @@ class MasterDashboardView(core.SafeView):
         return embed
 
     def build_music_embed(self) -> discord.Embed:
-        pl_data = self.data.get("playlists", {})
-        u_pls = [p for p in pl_data.values() if int(p.get("author_id", 0)) == self.user.id]
-        tot_tracks = sum(len(p.get("tracks", [])) for p in u_pls)
+        # user_profiles[u_key]["playlists"] 에서 정확히 조회하도록 수정
+        u_key = str(self.user.id)
+        profile = core.ensure_user_profile(self.data, u_key, self.user.display_name)
+        u_pls = core.ensure_user_playlists(profile, self.user.display_name)
+        tot_tracks = sum(len(p.get("tracks", [])) for p in u_pls if isinstance(p, dict))
 
         vc_status = "❌ 미연결 (대기 중)"
         if self.guild and self.guild.voice_client:
@@ -822,37 +832,23 @@ class MasterDashboardView(core.SafeView):
 
     async def _on_dup_convert_clicked(self, interaction: discord.Interaction):
         try:
-            await core.safe_defer(interaction)
-            data = await asyncio.to_thread(core.load_data)
-            g_key = str(interaction.guild_id or 0)
-            u_key = str(interaction.user.id)
-            user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
-
-            converted_crystals = 0
-            converted_cards_count = 0
-            for card_id, card_info in list(user_cards_dict.items()):
-                cnt = card_info.get("count", 1)
-                is_locked = card_info.get("locked", False)
-                if cnt > 1 and not is_locked:
-                    excess = cnt - 1
-                    rarity = card_info.get("rarity", "")
-                    rate = core.DUPLICATE_CRYSTAL_RATES.get(rarity, 20)
-                    converted_crystals += excess * rate
-                    converted_cards_count += excess
-                    card_info["count"] = 1
-
-            if converted_cards_count == 0:
+            await core.safe_defer(interaction, ephemeral=True)
+            guild_id = interaction.guild_id or 0
+            res = await asyncio.to_thread(core.execute_duplicate_card_conversion, guild_id, interaction.user.id)
+            if res["converted_count"] == 0:
                 await interaction.followup.send("ℹ️ 환전 가능한 중복 카드가 없습니다. (잠금🔒 카드는 제외됩니다)", ephemeral=True)
                 return
 
-            profile = core.ensure_user_profile(data, u_key, interaction.user.display_name)
-            profile["crystals"] = profile.get("crystals", 0) + converted_crystals
-            await asyncio.to_thread(core.save_data, data)
+            self.data = await asyncio.to_thread(core.load_data)
+            try:
+                await interaction.message.edit(embed=self.build_current_embed(), view=self)
+            except Exception:
+                pass
 
             await interaction.followup.send(
                 f"🎉 **중복 카드 일괄 환전 완료!**\n"
-                f"• 중복 카드 `{converted_cards_count}장` 변환 → **`+{converted_crystals:,}💎`** 획득!\n"
-                f"• 현재 보유 크리스탈: **`{profile['crystals']:,}개`**",
+                f"• 중복 카드 `{res['converted_count']}장` 변환 → **`+{res['gained_crystals']:,}💎`** 획득!\n"
+                f"• 현재 보유 크리스탈: **`{res['current_crystals']:,}개`**",
                 ephemeral=True
             )
         except Exception as e:
@@ -904,8 +900,8 @@ class MasterDashboardView(core.SafeView):
 
     async def _on_gacha_rank_clicked(self, interaction: discord.Interaction):
         try:
-            gacha_cog = self.bot.get_cog("카드/가챠")
-            if gacha_cog and hasattr(gacha_cog, "gacha_ranking_cmd"):
+            gacha_cog = self._find_cog_with_attr("gacha_ranking_cmd")
+            if gacha_cog:
                 await gacha_cog.gacha_ranking_cmd.callback(gacha_cog, interaction)
             else:
                 await core.safe_send_response(interaction, "🏆 가챠 랭킹은 `/가챠랭킹` 명령어로 확인하실 수 있습니다.", ephemeral=True)
@@ -1004,10 +1000,16 @@ class MasterDashboardView(core.SafeView):
             await core.safe_send_response(interaction, f"❌ 플레이리스트 스튜디오 오류: {e}", ephemeral=True)
 
     async def _on_music_now_clicked(self, interaction: discord.Interaction):
+        """MusicRecommendView 인자 불일치 버그 해결: 곡을 먼저 추천받은 후 표준 빌더 호출"""
         try:
             await core.safe_defer(interaction)
-            view = music.MusicRecommendView(self.bot, interaction.user)
-            embed = await view.build_recommend_embed()
+            data = await asyncio.to_thread(core.load_data)
+            prefs = data.get("music_prefs", core.DEFAULT_CONFIG["music_prefs"])
+            track_info, err = await core.get_recommended_music(prefs)
+            if err or not track_info:
+                await interaction.followup.send(f"❌ **음악 선곡 실패:** {err or '추천 곡을 찾을 수 없습니다.'}", ephemeral=True)
+                return
+            embed, view = self.bot.build_music_embed_and_view(track_info, prefs, is_morning=False)
             await interaction.followup.send(embed=embed, view=view)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 음악 선곡 중 오류: {e}", ephemeral=True)
@@ -1023,8 +1025,8 @@ class MasterDashboardView(core.SafeView):
                 )
                 return
 
-            music_cog = self.bot.get_cog("음악")
-            if music_cog and hasattr(music_cog, "audio_test_cmd"):
+            music_cog = self._find_cog_with_attr("audio_test_cmd")
+            if music_cog:
                 await music_cog.audio_test_cmd.callback(music_cog, interaction)
             else:
                 await core.safe_send_response(interaction, "🔊 440Hz 오디오 자가진단은 `/오디오테스트` 명령어로 실행할 수 있습니다.", ephemeral=True)
@@ -1128,8 +1130,8 @@ class MasterDashboardView(core.SafeView):
 
     async def _on_user_info_clicked(self, interaction: discord.Interaction):
         try:
-            stats_cog = self.bot.get_cog("통계 및 분석")
-            if stats_cog and hasattr(stats_cog, "user_profile_info_cmd"):
+            stats_cog = self._find_cog_with_attr("user_profile_info_cmd")
+            if stats_cog:
                 await stats_cog.user_profile_info_cmd.callback(stats_cog, interaction, interaction.user)
             else:
                 await core.safe_send_response(interaction, "🪪 내 정보는 `/유저정보` 명령어로 확인하실 수 있습니다.", ephemeral=True)
@@ -1138,7 +1140,6 @@ class MasterDashboardView(core.SafeView):
 
     async def _on_bot_status_clicked(self, interaction: discord.Interaction):
         try:
-            # 봇 상태는 관리자/소유자 전용
             is_owner = await self.bot.is_bot_owner_user(interaction.user)
             is_admin = False
             if interaction.guild and isinstance(interaction.user, discord.Member):
@@ -1152,8 +1153,8 @@ class MasterDashboardView(core.SafeView):
                 )
                 return
 
-            stats_cog = self.bot.get_cog("통계 및 분석")
-            if stats_cog and hasattr(stats_cog, "host_system_stats_cmd"):
+            stats_cog = self._find_cog_with_attr("host_system_stats_cmd")
+            if stats_cog:
                 await stats_cog.host_system_stats_cmd.callback(stats_cog, interaction)
             else:
                 await core.safe_send_response(interaction, "🤖 봇 상태는 `/봇상태` 명령어로 확인하실 수 있습니다.", ephemeral=True)

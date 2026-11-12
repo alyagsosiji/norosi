@@ -1,7 +1,9 @@
 import os
+import re
 import sys
 import copy
 import time
+import logging
 import asyncio
 import datetime
 import discord
@@ -11,6 +13,93 @@ from typing import Optional, List, Dict, Any, Union
 from aiohttp import web
 import core
 from cogs.music import MusicRecommendView
+
+
+# ==========================================
+# 🖥️ VM 서버 터미널(stdout / stderr / logging) 실시간 디스코드 채널 브릿지
+# ==========================================
+ANSI_ESCAPE_RE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+
+class TerminalStreamTee:
+    """VM 터미널(systemd journal) 출력을 유지하면서 동시에 디스코드 로그 큐로 전달하는 스트림 래퍼"""
+    def __init__(self, original_stream, log_queue: asyncio.Queue, loop: asyncio.AbstractEventLoop, is_stderr: bool = False):
+        self.original_stream = original_stream
+        self.log_queue = log_queue
+        self.loop = loop
+        self.is_stderr = is_stderr
+        self._line_buf = ""
+
+    def write(self, message: str):
+        try:
+            self.original_stream.write(message)
+            self.original_stream.flush()
+        except Exception:
+            pass
+
+        if not message:
+            return
+
+        # 무한 루프 방지: 디스코드 HTTP 전송 자체 에러나 게이트웨이 디버그 메시지는 제외
+        if any(ign in message for ign in ("[TerminalLogger]", "discord.http", "discord.gateway", "discord.webhook")):
+            return
+
+        try:
+            self._line_buf += message
+            if "\n" in self._line_buf or len(self._line_buf) > 500:
+                clean_text = ANSI_ESCAPE_RE.sub("", self._line_buf)
+                self._line_buf = ""
+                if clean_text.strip():
+                    prefix = "⚠️ [STDERR] " if self.is_stderr and "Traceback" in clean_text else ""
+                    self.loop.call_soon_threadsafe(self._safe_put, prefix + clean_text)
+        except Exception:
+            pass
+
+    def _safe_put(self, item: str):
+        try:
+            if self.log_queue.qsize() < 500:
+                self.log_queue.put_nowait(item)
+        except Exception:
+            pass
+
+    def flush(self):
+        try:
+            self.original_stream.flush()
+        except Exception:
+            pass
+
+    def isatty(self):
+        return getattr(self.original_stream, "isatty", lambda: False)()
+
+    def fileno(self):
+        return self.original_stream.fileno()
+
+
+class DiscordQueueLoggingHandler(logging.Handler):
+    """Python logging 모듈(INFO, WARNING, ERROR) 로그를 디스코드 전송 큐로 전달하는 핸들러"""
+    def __init__(self, log_queue: asyncio.Queue, loop: asyncio.AbstractEventLoop):
+        super().__init__(level=logging.INFO)
+        self.log_queue = log_queue
+        self.loop = loop
+        self.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S"))
+
+    def emit(self, record: logging.LogRecord):
+        # discord.http / gateway 의 일반 INFO 로그는 무한 루프 방지를 위해 제외 (WARNING 이상만 기록)
+        if record.name.startswith(("discord.http", "discord.gateway", "discord.client", "aiohttp.access")) and record.levelno < logging.WARNING:
+            return
+        try:
+            msg = ANSI_ESCAPE_RE.sub("", self.format(record))
+            if msg.strip():
+                self.loop.call_soon_threadsafe(self._safe_put, msg + "\n")
+        except Exception:
+            pass
+
+    def _safe_put(self, item: str):
+        try:
+            if self.log_queue.qsize() < 500:
+                self.log_queue.put_nowait(item)
+        except Exception:
+            pass
 
 
 # ==========================================
@@ -31,6 +120,26 @@ class NorosiBot(commands.Bot):
         self.start_time = datetime.datetime.now(core.KST)
         self._commands_synced = False
         self._web_started = False
+
+        # 터미널 로그 브릿지 상태 변수
+        self.terminal_log_queue: Optional[asyncio.Queue] = None
+        self._orig_stdout = sys.stdout
+        self._orig_stderr = sys.stderr
+        self._log_handler: Optional[DiscordQueueLoggingHandler] = None
+        self._terminal_hooked = False
+
+    def setup_terminal_log_capture(self):
+        """VM 터미널로 출력되는 stdout, stderr, logging 스트림을 가로채어 큐에 적재"""
+        if self._terminal_hooked:
+            return
+        loop = asyncio.get_running_loop()
+        self.terminal_log_queue = asyncio.Queue(maxsize=500)
+        sys.stdout = TerminalStreamTee(self._orig_stdout, self.terminal_log_queue, loop, is_stderr=False)
+        sys.stderr = TerminalStreamTee(self._orig_stderr, self.terminal_log_queue, loop, is_stderr=True)
+
+        self._log_handler = DiscordQueueLoggingHandler(self.terminal_log_queue, loop)
+        logging.getLogger().addHandler(self._log_handler)
+        self._terminal_hooked = True
 
     async def is_bot_owner_user(self, user: discord.abc.User) -> bool:
         if not user:
@@ -69,6 +178,9 @@ class NorosiBot(commands.Bot):
             print(f"ℹ️ 웹 서버 시작 건너뜀 (포트 {core.PORT} 점유 중이거나 불필요 환경): {e}", flush=True)
 
     async def setup_hook(self):
+        # 0. VM 터미널 로그 실시간 캡처 활성화
+        self.setup_terminal_log_capture()
+
         print("📦 [1/4] 데이터 캐시 로드 중...", flush=True)
         await asyncio.to_thread(core.load_data)
 
@@ -112,11 +224,10 @@ class NorosiBot(commands.Bot):
         except Exception as e:
             print(f"ℹ️ 반응역할 지속 View 복원 건너뜀: {e}", flush=True)
 
-
         print("📚 [3/4] 프로세카 한섭 DB 백그라운드 캐시 워밍 시작...", flush=True)
         asyncio.create_task(asyncio.to_thread(core.load_proseka_kr_db))
 
-        print("⏰ [4/4] 4대 상주 스케줄러 루프 활성화...", flush=True)
+        print("⏰ [4/4] 상주 스케줄러 및 VM 터미널 로그 브릿지 루프 활성화...", flush=True)
         if not self.midnight_tasks.is_running():
             self.midnight_tasks.start()
         if not self.morning_music_alert.is_running():
@@ -125,13 +236,64 @@ class NorosiBot(commands.Bot):
             self.morning_text_alert.start()
         if not self.custom_music_schedules_loop.is_running():
             self.custom_music_schedules_loop.start()
+        if not self.terminal_log_dispatch_loop.is_running():
+            self.terminal_log_dispatch_loop.start()
 
+    @tasks.loop(seconds=2.0)
+    async def terminal_log_dispatch_loop(self):
+        """2초마다 VM 터미널 출력 큐를 확인하여 지정된 디스코드 채널로 안전하게 묶음 전송"""
+        if not self.terminal_log_queue or self.terminal_log_queue.empty():
+            return
+
+        data = core.get_cached_data()
+        log_ch_id = data.get("settings", {}).get("terminal_log_channel_id")
+        if not log_ch_id:
+            # 채널이 지정되지 않은 상태면 큐가 쌓이지 않도록 비움
+            while not self.terminal_log_queue.empty():
+                try:
+                    self.terminal_log_queue.get_nowait()
+                except Exception:
+                    break
+            return
+
+        channel = await self.resolve_channel(log_ch_id)
+        if not channel:
+            return
+
+        buffer = ""
+        while not self.terminal_log_queue.empty():
+            try:
+                chunk = self.terminal_log_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+            # 코드블록 깨짐 방지
+            safe_chunk = chunk.replace("```", "'''")
+            if len(buffer) + len(safe_chunk) > 1850:
+                if buffer.strip():
+                    try:
+                        await channel.send(f"```log\n{buffer.strip()}\n```")
+                    except Exception as e:
+                        self._orig_stderr.write(f"[TerminalLogger] 전송 실패: {e}\n")
+                buffer = safe_chunk[:1850]
+            else:
+                buffer += safe_chunk
+
+        if buffer.strip():
+            try:
+                await channel.send(f"```log\n{buffer.strip()}\n```")
+            except Exception as e:
+                self._orig_stderr.write(f"[TerminalLogger] 전송 실패: {e}\n")
+
+    @terminal_log_dispatch_loop.before_loop
+    async def before_terminal_log_dispatch(self):
+        await self.wait_until_ready()
 
     async def on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         """슬래시 명령어 처리 중 예외 발생 시 디스코드 타임아웃('응답 안함')을 원천 차단하는 에러 핸들러"""
         cmd_name = interaction.command.name if interaction.command else '알 수 없음'
         print(f"⚠️ [슬래시 커맨드 예외 포착] /{cmd_name}: {error}", flush=True)
-        
+
         if isinstance(error, app_commands.MissingPermissions):
             err_msg = "❌ 이 명령어를 실행할 관리자/서버 권한이 부족합니다."
         elif isinstance(error, app_commands.BotMissingPermissions):
@@ -178,7 +340,6 @@ class NorosiBot(commands.Bot):
             try:
                 print("🔄 [명령어 동기화 시작] 길드 즉시 반영(0초 노출) 및 글로벌 슬래시 명령어 동기화 진행 중...", flush=True)
 
-                # 1. 각 길드에 글로벌 명령어를 복사하여 즉시 0초 반영 (디스코드 전역 캐시 1시간 지연 방지)
                 for guild in self.guilds:
                     try:
                         self.tree.copy_global_to(guild=guild)
@@ -187,17 +348,12 @@ class NorosiBot(commands.Bot):
                     except Exception as ge:
                         print(f"⚠️ [{guild.name}] 길드 즉시 동기화 알림: {ge}", flush=True)
 
-                # 2. 전역(글로벌) 슬래시 명령어 동기화 병행
                 synced_cmds = await self.tree.sync()
                 self._commands_synced = True
                 print(
                     f"✅ [동기화 완료] 슬래시 명령어 총 {len(synced_cmds)}개 전역 및 길드 등록 완료!",
                     flush=True
                 )
-                print(f"📋 등록된 슬래시 명령어 {len(synced_cmds)}종 목록:", flush=True)
-                for idx, cmd in enumerate(synced_cmds, start=1):
-                    print(f"   [{idx:02d}/{len(synced_cmds)}] /{cmd.name} : {cmd.description[:35]}", flush=True)
-
             except Exception as e:
                 print(f"⚠️ 명령어 동기화 오류: {e}", flush=True)
 
@@ -245,6 +401,8 @@ class NorosiBot(commands.Bot):
                 except Exception as e:
                     print(f"전광판 업데이트 오류 ({name}): {e}", flush=True)
 
+    def build_music_embed_and_view(self, track_info: dict, prefs: dict, is_morning: bool = False, custom_title: Optional[str] = None):
+        """추천 음악 임베드 및 MusicRecommendView를 생성하는 헬퍼 메서드 (누락되었던 함수 선언부 복원)"""
         plat = track_info.get("platform", "YouTube")
         p_meta = core.PLAYLIST_PLATFORMS.get(plat, core.PLAYLIST_PLATFORMS["YouTube"])
         r, g, b = p_meta["color"]
@@ -623,7 +781,62 @@ class NorosiBot(commands.Bot):
 bot = NorosiBot()
 
 
-# (글로벌 슬래시 명령어 에러 핸들러는 NorosiBot.setup_hook에서 self.tree.on_error = self.on_app_command_error로 통합 관리됨)
+# ==========================================
+# 🖥️ VM 서버 터미널 로그 수신 채널 지정 명령어 (/터미널로그채널, !터미널로그)
+# ==========================================
+@bot.tree.command(name="터미널로그채널", description="[관리자/봇주] VM 서버 터미널(stdout/stderr)로 출력되는 실시간 로그를 기록할 채널을 지정하거나 해제합니다.")
+@app_commands.describe(채널="터미널 로그를 실시간으로 받아볼 텍스트 채널 (비워두면 전송 해제)")
+@app_commands.default_permissions(administrator=True)
+async def set_terminal_log_channel_slash(interaction: discord.Interaction, 채널: Optional[discord.TextChannel] = None):
+    is_owner = await bot.is_bot_owner_user(interaction.user)
+    is_admin = bool(interaction.guild and isinstance(interaction.user, discord.Member) and interaction.user.guild_permissions.administrator)
+    if not (is_owner or is_admin):
+        await core.safe_send_response(interaction, "❌ 이 명령어는 **봇 소유자** 또는 **서버 관리자**만 사용할 수 있습니다.", ephemeral=True)
+        return
+
+    await core.safe_defer(interaction, ephemeral=True)
+    data = await asyncio.to_thread(core.load_data)
+
+    if 채널 is None:
+        data.setdefault("settings", {})["terminal_log_channel_id"] = None
+        await asyncio.to_thread(core.save_data, data)
+        await interaction.followup.send("🛑 **VM 서버 터미널 로그 실시간 채널 전송이 해제(비활성화)되었습니다.**", ephemeral=True)
+        print(f"ℹ️ [System] {interaction.user}에 의해 터미널 로그 채널 전송이 비활성화되었습니다.", flush=True)
+    else:
+        data.setdefault("settings", {})["terminal_log_channel_id"] = 채널.id
+        await asyncio.to_thread(core.save_data, data)
+        embed = discord.Embed(
+            title="🖥️ VM 서버 터미널 실시간 로그 채널 지정 완료!",
+            description=(
+                f"이제부터 VM 서버 터미널(`stdout` / `stderr` / `logging`)로 출력되는 모든 로그가 {채널.mention} 채널에도 실시간으로 기록됩니다.\n\n"
+                "• **전송 주기:** `2초` 단위 버퍼링 묶음 전송 (도배 및 Rate Limit 완벽 방어)\n"
+                "• **해제 방법:** `/터미널로그채널` 명령어를 채널 옵션 없이 실행"
+            ),
+            color=discord.Color.from_rgb(0, 204, 221),
+            timestamp=datetime.datetime.now(core.KST)
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{채널.name} (ID: {채널.id})로 지정되었습니다.", flush=True)
+
+
+@bot.command(name="터미널로그", aliases=["터미널로그채널", "서버터미널", "vm로그", "콘솔로그"])
+async def set_terminal_log_channel_prefix(ctx: commands.Context, channel: Optional[discord.TextChannel] = None):
+    is_owner = await bot.is_bot_owner_user(ctx.author)
+    is_admin = bool(ctx.guild and isinstance(ctx.author, discord.Member) and ctx.author.guild_permissions.administrator)
+    if not (is_owner or is_admin):
+        await ctx.send("❌ 이 명령어는 **봇 소유자** 또는 **서버 관리자**만 사용할 수 있습니다.", delete_after=5)
+        return
+
+    data = await asyncio.to_thread(core.load_data)
+    if channel is None:
+        data.setdefault("settings", {})["terminal_log_channel_id"] = None
+        await asyncio.to_thread(core.save_data, data)
+        await ctx.send("🛑 **VM 서버 터미널 로그 채널 기록이 비활성화되었습니다.** (특정 채널에 켜려면 `!터미널로그 #채널` 입력)")
+    else:
+        data.setdefault("settings", {})["terminal_log_channel_id"] = channel.id
+        await asyncio.to_thread(core.save_data, data)
+        await ctx.send(f"🖥️ **VM 서버 터미널 로그 채널 지정 완료:** 이제부터 터미널 출력이 {channel.mention} 채널에 실시간으로 기록됩니다!")
+        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{channel.name} (ID: {channel.id})로 지정되었습니다.", flush=True)
 
 
 # ==========================================
@@ -660,7 +873,7 @@ class SyncControlView(core.SafeView):
             embed = discord.Embed(
                 title="⚡ 슬래시 명령어 현재 서버에 0초 즉시 반영 완료!",
                 description=(
-                    f"✅ **현재 서버({self.guild.name if self.guild else '글로벌'})**에 슬래시 명령어 **`{g_cnt}개`**(반응역할 포함)가 0초 만에 즉시 등록되었습니다!\n"
+                    f"✅ **현재 서버({self.guild.name if self.guild else '글로벌'})**에 슬래시 명령어 **`{g_cnt}개`**(반응역할·터미널로그 포함)가 0초 만에 즉시 등록되었습니다!\n"
                     f"👉 글로벌 슬래시 커맨드 총 **`{len(synced_global)}개`**도 전역 등록 완료되었습니다.\n\n"
                     "💡 지금 즉시 채팅창에서 `/`를 누르시면 모든 신규 명령어가 나타납니다!"
                 ),
@@ -780,10 +993,6 @@ class SyncControlView(core.SafeView):
 # ==========================================
 @bot.command(name="sync", aliases=["싱크", "동기화", "재동기화", "명령어동기화", "싱크초기화", "동기화초기화", "중복해결", "중복정리"])
 async def sync_guild_command(ctx: commands.Context, *args):
-    """
-    [봇주 전용] 채팅창에 !sync 또는 !동기화 입력 시 현재 서버에 0초 즉시 슬래시 명령어 반영
-    """
-    # 권한 검사: 봇주(Bot Owner) 전용
     if not await bot.is_bot_owner_user(ctx.author):
         await ctx.send("❌ 이 명령어는 **봇주(Bot Owner)**만 사용할 수 있습니다.", delete_after=5)
         return
@@ -793,13 +1002,10 @@ async def sync_guild_command(ctx: commands.Context, *args):
 
     status_msg = await ctx.send(f"⏳ **[{g_name}]** 슬래시 명령어 동기화 처리 중...")
 
-    # 1. 핫 리로드 요청 (!싱크 리로드 / !sync reload)
     if any(k in mode for k in ("리로드", "reload", "새로고침", "refresh")):
-        reloaded = []
         for ext in list(bot.extensions.keys()):
             try:
                 await bot.reload_extension(ext)
-                reloaded.append(ext)
             except Exception as e:
                 print(f"⚠️ [{ext}] 리로드 실패: {e}", flush=True)
 
@@ -808,7 +1014,6 @@ async def sync_guild_command(ctx: commands.Context, *args):
         is_clean_mode = any(k in mode for k in ("정리", "clean", "삭제", "초기화"))
 
         if is_clean_mode and ctx.guild:
-            # 길드 전용 커맨드 정리 모드
             try:
                 await bot.http.bulk_upsert_guild_commands(app_id, ctx.guild.id, [])
             except Exception:
@@ -820,14 +1025,12 @@ async def sync_guild_command(ctx: commands.Context, *args):
                 pass
             guild_cnt = 0
         elif ctx.guild:
-            # 기본 모드: 현재 서버에 즉시 0초 반영
             bot.tree.copy_global_to(guild=ctx.guild)
             synced_guild = await bot.tree.sync(guild=ctx.guild)
             guild_cnt = len(synced_guild)
         else:
             guild_cnt = 0
 
-        # 글로벌 동기화 병행
         synced_global = await bot.tree.sync()
 
         view = SyncControlView(author=ctx.author, guild=ctx.guild)
@@ -836,14 +1039,13 @@ async def sync_guild_command(ctx: commands.Context, *args):
             description=(
                 f"🎉 **현재 서버에 슬래시 명령어 총 `{guild_cnt}개`가 0초 만에 즉시 반영되었습니다!**\n\n"
                 "📊 **등록 상태:**\n"
-                f"• 🏠 현재 서버({g_name}) 즉시 등록: **`{guild_cnt}개`** *(반응역할 포함 0초 만에 바로 작동)*\n"
-                f"• 🌐 글로벌 전역 명령어: **`{len(synced_global)}개`** *(전역 등록 완료)*\n\n"
+                f"• 🏠 현재 서버({g_name}) 즉시 등록: **`{guild_cnt}개`**\n"
+                f"• 🌐 글로벌 전역 명령어: **`{len(synced_global)}개`**\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 "💡 **지금 바로 채팅창에서 `/`를 눌러 사용해 보세요!**\n"
+                "• `/터미널로그채널` 또는 `!터미널로그 #채널` : VM 터미널 로그 실시간 채널 기록\n"
                 "• `/반응역할` 또는 `!반응역할` : 이모지 반응역할 스튜디오 호출\n"
-                "• `/반응역할생성` : 지정 채널에 새 반응역할 안내 패널 즉시 발행\n"
-                "• `/플레이리스트` 또는 `!플레이리스트` : 플레이리스트 스튜디오 호출\n"
-                "• `/오디오테스트` 또는 `!오디오테스트` : 440Hz 비프음으로 오디오 즉시 자가진단"
+                "• `/플레이리스트` 또는 `!플레이리스트` : 플레이리스트 스튜디오 호출"
             ),
             color=discord.Color.green(),
             timestamp=datetime.datetime.now(core.KST)
@@ -876,7 +1078,7 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
 
 
 # ==========================================
-# Render 배포 시 포트 타임아웃 및 크래시 방지용 안전 실행부
+# Render 및 GCP VM 크래시 방지용 안전 실행부
 # ==========================================
 async def main():
     print("==================================================================", flush=True)
@@ -886,24 +1088,12 @@ async def main():
 
     await bot.start_web_server()
 
-    # 토큰 실시간 확인 (다중 소스, 다중 키, 환경변수 덮어쓰기 지원)
     active_token = core.get_token()
     if not active_token:
         diag = core.get_env_diagnostics()
         print("❌ [치명적 오류] 유효한 DISCORD_TOKEN을 찾을 수 없습니다!", flush=True)
-        print("------------------------------------------------------------------", flush=True)
         print(f"📁 현재 작업 디렉토리 (CWD): {diag.get('cwd')}", flush=True)
-        print(f"📁 스크립트 위치: {diag.get('script_dir')}", flush=True)
-        print(f"🔍 감지된 .env 파일 목록: {diag.get('found_env_files') or '없음 (0개 발견)'}", flush=True)
-        print(f"🔑 .env에서 파싱된 키 목록: {diag.get('parsed_keys') or '없음'}", flush=True)
-        print("------------------------------------------------------------------", flush=True)
-        print("💡 [해결 방법 안내]", flush=True)
-        print("1. 프로젝트 루트(/home/ubuntu/norosi 또는 bot.py가 위치한 폴더)에 .env 파일을 생성하세요.", flush=True)
-        print("2. 파일 내용 예시:\n   DISCORD_TOKEN=your_bot_token_here", flush=True)
-        print("3. 또는 GitHub Secrets에 DISCORD_TOKEN을 등록해 두면 배포 시 자동 주입됩니다.", flush=True)
-        print("⏳ 30초마다 .env 파일을 재검색하여 토큰이 등록되면 자동으로 시작합니다...", flush=True)
-        print("==================================================================", flush=True)
-
+        print(f"🔍 감지된 .env 파일 목록: {diag.get('found_env_files') or '없음'}", flush=True)
         while not active_token:
             await asyncio.sleep(30)
             core._load_env_file()
@@ -918,12 +1108,7 @@ async def main():
         try:
             await bot.start(core.TOKEN)
         except discord.LoginFailure:
-            print(
-                "❌ 치명적 오류: 디스코드 토큰이 유효하지 않습니다! (LoginFailure)\n"
-                "👉 Discord Developer Portal에서 Reset Token 후 .env 파일의 DISCORD_TOKEN을 갱신하세요.",
-                flush=True
-            )
-            # 토큰이 파일에서 수정될 때까지 30초마다 대기하며 자동 재시도
+            print("❌ 치명적 오류: 디스코드 토큰이 유효하지 않습니다! (LoginFailure)", flush=True)
             while True:
                 await asyncio.sleep(30)
                 core._load_env_file()

@@ -67,15 +67,20 @@ class ForceSyncBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        print("📦 [1/3] Cogs 모듈 로드 중...", flush=True)
-        await self.load_extension("cogs.gacha")
-        print("   ✓ cogs.gacha 로드 완료")
-        await self.load_extension("cogs.music")
-        print("   ✓ cogs.music 로드 완료")
-        await self.load_extension("cogs.dday")
-        print("   ✓ cogs.dday 로드 완료")
-        await self.load_extension("cogs.logger")
-        print("   ✓ cogs.logger 로드 완료")
+        print("📦 [1/3] 9대 Cogs 모듈 전체 로드 중...", flush=True)
+        for ext in (
+            "cogs.gacha",
+            "cogs.music",
+            "cogs.dday",
+            "cogs.logger",
+            "cogs.ai",
+            "cogs.stats",
+            "cogs.roles",
+            "cogs.help",
+            "cogs.dashboard",
+        ):
+            await self.load_extension(ext)
+            print(f"   ✓ {ext} 로드 완료")
 
     async def on_ready(self):
         print(f"✅ [2/3] Discord 로그인 성공: {self.user} (ID: {self.user.id})", flush=True)
