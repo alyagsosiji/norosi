@@ -290,11 +290,14 @@ def get_now_datetime_str():
 
 async def safe_defer(interaction: discord.Interaction, ephemeral: bool = False):
     """
-    디스코드 응답 지연(defer) 중복 호출 예외(InteractionResponded) 및 3초 타임아웃을 안전하게 방어하는 헬퍼.
+    디스코드 응답 지연(defer) 중복 호출 예외(InteractionResponded, 40060) 및 3초 타임아웃을 안전하게 방어하는 헬퍼.
     """
     if interaction and getattr(interaction, "response", None) and not interaction.response.is_done():
         try:
             await interaction.response.defer(ephemeral=ephemeral)
+        except (discord.InteractionResponded, discord.HTTPException) as e:
+            if isinstance(e, discord.HTTPException) and getattr(e, "code", None) != 40060:
+                print(f"⚠️ [safe_defer HTTP 예외] {e}", flush=True)
         except Exception:
             pass
 
@@ -304,6 +307,7 @@ async def safe_send_response(interaction: discord.Interaction, embed=None, conte
     interaction 수신/지연(defer) 상태에 맞춰 followup.send 또는 response.send_message를 안전하게 선택하여 전송합니다.
     embed 파라미터에 문자열(str)이 위치인자로 전달된 경우 자동으로 content로 정규화하여
     'str' object has no attribute 'to_dict' 오류를 원천 차단합니다.
+    이미 승인(acknowledged)된 인터랙션에 대해서도 40060 예외를 완벽 방어하여 followup으로 자동 전송합니다.
     """
     if isinstance(embed, str) and content is None:
         content = embed
@@ -330,13 +334,68 @@ async def safe_send_response(interaction: discord.Interaction, embed=None, conte
             return await interaction.followup.send(**kwargs)
         elif interaction and getattr(interaction, "response", None):
             return await interaction.response.send_message(**kwargs)
-    except discord.InteractionResponded:
+    except (discord.InteractionResponded, discord.HTTPException) as e:
+        if isinstance(e, discord.HTTPException) and getattr(e, "code", None) != 40060:
+            print(f"⚠️ [safe_send_response HTTP 예외] {e}", flush=True)
+            return None
         try:
             return await interaction.followup.send(**kwargs)
         except Exception:
             pass
     except Exception as e:
-        print(f"⚠️ [safe_send_response 예외] {e}", flush=True)
+        if "40060" in str(e) or "already been acknowledged" in str(e):
+            try:
+                return await interaction.followup.send(**kwargs)
+            except Exception:
+                pass
+        else:
+            print(f"⚠️ [safe_send_response 예외] {e}", flush=True)
+
+
+async def safe_edit_response(interaction: discord.Interaction, embed=None, content=None, view=None, attachments=None):
+    """
+    interaction 수신/지연(defer) 상태에 맞춰 response.edit_message 또는 edit_original_response / message.edit를
+    안전하게 선택하여 실행합니다. 이미 승인된 경우(40060)에도 완벽 대응합니다.
+    """
+    kwargs = {}
+    if embed is not None:
+        kwargs["embed"] = embed
+    if content is not None:
+        kwargs["content"] = content
+    if view is not None:
+        kwargs["view"] = view
+    if attachments is not None:
+        kwargs["attachments"] = attachments
+
+    try:
+        if interaction and getattr(interaction, "response", None) and interaction.response.is_done():
+            return await interaction.edit_original_response(**kwargs)
+        elif interaction and getattr(interaction, "response", None):
+            return await interaction.response.edit_message(**kwargs)
+    except (discord.InteractionResponded, discord.HTTPException) as e:
+        if isinstance(e, discord.HTTPException) and getattr(e, "code", None) != 40060:
+            print(f"⚠️ [safe_edit_response HTTP 예외] {e}", flush=True)
+            return None
+        try:
+            return await interaction.edit_original_response(**kwargs)
+        except Exception:
+            try:
+                if interaction.message:
+                    return await interaction.message.edit(**kwargs)
+            except Exception:
+                pass
+    except Exception as e:
+        if "40060" in str(e) or "already been acknowledged" in str(e):
+            try:
+                return await interaction.edit_original_response(**kwargs)
+            except Exception:
+                try:
+                    if interaction.message:
+                        return await interaction.message.edit(**kwargs)
+                except Exception:
+                    pass
+        else:
+            print(f"⚠️ [safe_edit_response 예외] {e}", flush=True)
 
 
 SAFE_VIEW_REGISTRY: dict[str, type["SafeView"]] = {}
@@ -389,10 +448,7 @@ class SafeView(discord.ui.View):
         print(f"⚠️ [UI View 버튼 오류] {item}: {error}", flush=True)
         msg = f"⚠️ 버튼 처리 중 오류가 발생했습니다: `{error}`"
         try:
-            if interaction.response.is_done():
-                await interaction.followup.send(msg, ephemeral=True)
-            else:
-                await interaction.response.send_message(msg, ephemeral=True)
+            await safe_send_response(interaction, msg, ephemeral=True)
         except Exception:
             pass
 
@@ -464,10 +520,7 @@ class SafeModal(discord.ui.Modal):
         print(f"⚠️ [UI Modal 입력 오류]: {error}", flush=True)
         msg = f"⚠️ 모달 제출 처리 중 오류가 발생했습니다: `{error}`"
         try:
-            if interaction.response.is_done():
-                await interaction.followup.send(msg, ephemeral=True)
-            else:
-                await interaction.response.send_message(msg, ephemeral=True)
+            await safe_send_response(interaction, msg, ephemeral=True)
         except Exception:
             pass
 

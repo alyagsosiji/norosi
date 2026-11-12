@@ -10,6 +10,7 @@ import discord
 from discord.ext import commands, tasks
 from discord import app_commands
 from typing import Optional, List, Dict, Any, Union
+from collections import OrderedDict
 from aiohttp import web
 import core
 from cogs.music import MusicRecommendView
@@ -121,6 +122,7 @@ class NorosiBot(commands.Bot):
         self.start_time = datetime.datetime.now(core.KST)
         self._commands_synced = False
         self._web_started = False
+        self._handled_interaction_ids: OrderedDict[int, float] = OrderedDict()
 
         # 터미널 로그 브릿지 상태 변수
         self.terminal_log_queue: Optional[asyncio.Queue] = None
@@ -336,12 +338,58 @@ class NorosiBot(commands.Bot):
             err_msg = f"⚠️ `/{cmd_name}` 명령어 처리 중 일시적인 예외가 발생했습니다: `{error}`"
 
         try:
-            if interaction.response.is_done():
-                await interaction.followup.send(err_msg, ephemeral=True)
-            else:
-                await interaction.response.send_message(err_msg, ephemeral=True)
+            await core.safe_send_response(interaction, err_msg, ephemeral=True)
         except Exception as e:
             print(f"❌ [에러 메시지 송신 예외]: {e}", flush=True)
+
+    def is_component_handled_by_view_store(self, interaction: discord.Interaction) -> bool:
+        """
+        discord.py의 내부 ViewStore가 이미 해당 컴포넌트(버튼/셀렉트)를 메모리에서 추적하고 있는지 확인합니다.
+        추적 중이라면 discord.py가 자체 디스패치 루프(_scheduled_task)를 통해 콜백을 안전하게 호출하므로
+        on_interaction에서 중복 실행하지 않고 즉시 위임합니다.
+        """
+        try:
+            vs = getattr(getattr(self, "_connection", None), "_view_store", None)
+            if not vs:
+                return False
+            data = getattr(interaction, "data", {}) or {}
+            custom_id = data.get("custom_id")
+            component_type = data.get("component_type", 2)
+            if not custom_id:
+                return False
+
+            key = (component_type, custom_id)
+            msg = interaction.message
+            msg_id = msg.id if msg else None
+
+            views = getattr(vs, "_views", None)
+            if isinstance(views, dict):
+                if msg_id is not None and key in views.get(msg_id, {}):
+                    return True
+                if key in views.get(None, {}):
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def attach_view_to_message(self, view: discord.ui.View, message_id: Optional[int] = None):
+        """
+        메모리 유실된 뷰를 디스코드 ViewStore에 안전하게 등록합니다.
+        timeout 유무와 무관하게 message_id에 바인딩하여 후속 클릭이 네이티브로 동작하게 합니다.
+        """
+        try:
+            vs = getattr(getattr(self, "_connection", None), "_view_store", None)
+            if vs and message_id is not None:
+                vs.add_view(view, message_id)
+            elif vs:
+                vs.add_view(view, None)
+            else:
+                self.add_view(view, message_id=message_id)
+        except Exception:
+            try:
+                self.add_view(view, message_id=message_id)
+            except Exception:
+                pass
 
     async def on_interaction(self, interaction: discord.Interaction):
         """
@@ -349,9 +397,24 @@ class NorosiBot(commands.Bot):
         코드 반영이나 봇 재시작으로 인해 ViewStore에서 유실된 이전 버튼을 지능적으로 복구·실행합니다.
         """
         if interaction.type == discord.InteractionType.component:
-            # discord.py 내부 _view_store에서 이미 정상 처리된 경우(현재 세션 뷰)는 패스
+            # 1. 이미 응답 완료되었거나 유효하지 않은 인터랙션 즉시 패스
             if interaction.response.is_done():
                 return
+
+            # 2. 동일한 인터랙션 중복 실행 방지 (Snowflake id 기반)
+            i_id = getattr(interaction, "id", None)
+            if i_id:
+                if i_id in self._handled_interaction_ids:
+                    return
+                self._handled_interaction_ids[i_id] = time.time()
+                if len(self._handled_interaction_ids) > 1000:
+                    for _ in range(200):
+                        self._handled_interaction_ids.popitem(last=False)
+
+            # 3. 현재 메모리의 ViewStore가 이미 추적 중인 활성 뷰인 경우 discord.py 내부 디스패처가 처리하도록 위임
+            if self.is_component_handled_by_view_store(interaction):
+                return
+
             await self.handle_persistent_button_fallback(interaction)
 
     async def handle_persistent_button_fallback(self, interaction: discord.Interaction):
@@ -400,12 +463,17 @@ class NorosiBot(commands.Bot):
                                         target_item = child
                                         break
                             if target_item and hasattr(target_item, "callback"):
-                                await target_item.callback(interaction)
-                                if msg:
+                                if hasattr(target_item, "_refresh_state"):
                                     try:
-                                        self.add_view(view, message_id=msg.id)
+                                        target_item._refresh_state(interaction, interaction.data)
                                     except Exception:
                                         pass
+                                try:
+                                    await target_item.callback(interaction)
+                                except Exception as cb_err:
+                                    print(f"⚠️ [norosi 버튼 콜백 실행 예외] {cb_err}", flush=True)
+                                if msg:
+                                    self.attach_view_to_message(view, message_id=msg.id)
                                 return
                     except Exception as e:
                         print(f"⚠️ [norosi 뷰 복구 예외] {view_name}.{item_name}: {e}", flush=True)
@@ -467,11 +535,17 @@ class NorosiBot(commands.Bot):
                         target_btn = view.jump_select
 
                     if target_btn and hasattr(target_btn, "callback"):
-                        await target_btn.callback(interaction)
+                        if hasattr(target_btn, "_refresh_state"):
+                            try:
+                                target_btn._refresh_state(interaction, interaction.data)
+                            except Exception:
+                                pass
                         try:
-                            self.add_view(view, message_id=msg.id)
-                        except Exception:
-                            pass
+                            await target_btn.callback(interaction)
+                        except Exception as cb_err:
+                            print(f"⚠️ [음성 플레이어 콜백 예외] {cb_err}", flush=True)
+                        if msg:
+                            self.attach_view_to_message(view, message_id=msg.id)
                         return
                 except Exception as e:
                     print(f"⚠️ [음성 플레이어 리모컨 구버전 복구 예외] {e}", flush=True)
@@ -487,27 +561,40 @@ class NorosiBot(commands.Bot):
                     if component_type in (3, 5, 6, 7, 8):
                         for child in view.children:
                             if isinstance(child, discord.ui.Select):
-                                await child.callback(interaction)
+                                if hasattr(child, "_refresh_state"):
+                                    try:
+                                        child._refresh_state(interaction, interaction.data)
+                                    except Exception:
+                                        pass
                                 try:
-                                    self.add_view(view, message_id=msg.id)
-                                except Exception:
-                                    pass
+                                    await child.callback(interaction)
+                                except Exception as cb_err:
+                                    print(f"⚠️ [마스터 대시보드 셀렉트 콜백 예외] {cb_err}", flush=True)
+                                if msg:
+                                    self.attach_view_to_message(view, message_id=msg.id)
                                 return
                     elif "새로고침" in clicked_label:
-                        await view._on_refresh_clicked(interaction)
                         try:
-                            self.add_view(view, message_id=msg.id)
-                        except Exception:
-                            pass
+                            await view._on_refresh_clicked(interaction)
+                        except Exception as cb_err:
+                            print(f"⚠️ [마스터 대시보드 새로고침 콜백 예외] {cb_err}", flush=True)
+                        if msg:
+                            self.attach_view_to_message(view, message_id=msg.id)
                         return
                     else:
                         for child in view.children:
                             if getattr(child, "label", None) == clicked_label:
-                                await child.callback(interaction)
+                                if hasattr(child, "_refresh_state"):
+                                    try:
+                                        child._refresh_state(interaction, interaction.data)
+                                    except Exception:
+                                        pass
                                 try:
-                                    self.add_view(view, message_id=msg.id)
-                                except Exception:
-                                    pass
+                                    await child.callback(interaction)
+                                except Exception as cb_err:
+                                    print(f"⚠️ [마스터 대시보드 버튼 콜백 예외] {cb_err}", flush=True)
+                                if msg:
+                                    self.attach_view_to_message(view, message_id=msg.id)
                                 return
                 except Exception as e:
                     print(f"⚠️ [마스터 대시보드 구버전 복구 예외] {e}", flush=True)
@@ -521,11 +608,17 @@ class NorosiBot(commands.Bot):
                     view.message = msg
                     for child in view.children:
                         if getattr(child, "label", None) == clicked_label:
-                            await child.callback(interaction)
+                            if hasattr(child, "_refresh_state"):
+                                try:
+                                    child._refresh_state(interaction, interaction.data)
+                                except Exception:
+                                    pass
                             try:
-                                self.add_view(view, message_id=msg.id)
-                            except Exception:
-                                pass
+                                await child.callback(interaction)
+                            except Exception as cb_err:
+                                print(f"⚠️ [플레이리스트 스튜디오 콜백 예외] {cb_err}", flush=True)
+                            if msg:
+                                self.attach_view_to_message(view, message_id=msg.id)
                             return
                 except Exception as e:
                     print(f"⚠️ [플레이리스트 스튜디오 구버전 복구 예외] {e}", flush=True)
@@ -539,11 +632,17 @@ class NorosiBot(commands.Bot):
                     if component_type in (3, 5, 6, 7, 8):
                         for child in view.children:
                             if isinstance(child, discord.ui.Select):
-                                await child.callback(interaction)
+                                if hasattr(child, "_refresh_state"):
+                                    try:
+                                        child._refresh_state(interaction, interaction.data)
+                                    except Exception:
+                                        pass
                                 try:
-                                    self.add_view(view, message_id=msg.id)
-                                except Exception:
-                                    pass
+                                    await child.callback(interaction)
+                                except Exception as cb_err:
+                                    print(f"⚠️ [도움말 셀렉트 콜백 예외] {cb_err}", flush=True)
+                                if msg:
+                                    self.attach_view_to_message(view, message_id=msg.id)
                                 return
                 except Exception as e:
                     print(f"⚠️ [도움말 구버전 복구 예외] {e}", flush=True)
@@ -557,11 +656,17 @@ class NorosiBot(commands.Bot):
                     view.message = msg
                     for child in view.children:
                         if getattr(child, "label", None) == clicked_label:
-                            await child.callback(interaction)
+                            if hasattr(child, "_refresh_state"):
+                                try:
+                                    child._refresh_state(interaction, interaction.data)
+                                except Exception:
+                                    pass
                             try:
-                                self.add_view(view, message_id=msg.id)
-                            except Exception:
-                                pass
+                                await child.callback(interaction)
+                            except Exception as cb_err:
+                                print(f"⚠️ [통계 대시보드 콜백 예외] {cb_err}", flush=True)
+                            if msg:
+                                self.attach_view_to_message(view, message_id=msg.id)
                             return
                 except Exception as e:
                     print(f"⚠️ [통계 대시보드 구버전 복구 예외] {e}", flush=True)
@@ -574,7 +679,17 @@ class NorosiBot(commands.Bot):
                     view.message = msg
                     for child in view.children:
                         if getattr(child, "label", None) == clicked_label:
-                            await child.callback(interaction)
+                            if hasattr(child, "_refresh_state"):
+                                try:
+                                    child._refresh_state(interaction, interaction.data)
+                                except Exception:
+                                    pass
+                            try:
+                                await child.callback(interaction)
+                            except Exception as cb_err:
+                                print(f"⚠️ [출석체크 콜백 예외] {cb_err}", flush=True)
+                            if msg:
+                                self.attach_view_to_message(view, message_id=msg.id)
                             return
                 except Exception as e:
                     print(f"⚠️ [출석체크 버튼 복구 예외] {e}", flush=True)

@@ -886,7 +886,7 @@ class ReactionRoleListView(core.SafeView):
     async def delete_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         val = select.values[0]
         if val == "NONE":
-            await interaction.response.defer()
+            await core.safe_defer(interaction)
             return
 
         await core.safe_defer(interaction, ephemeral=True)

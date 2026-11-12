@@ -4469,7 +4469,7 @@ class MusicCog(commands.Cog):
             timestamp=datetime.datetime.now(core.KST)
         )
         embed.set_footer(text=f"설정 변경자: {interaction.user.display_name}")
-        await interaction.response.send_message(embed=embed)
+        await core.safe_send_response(interaction, embed=embed)
 
     @app_commands.command(name="배속", description="플레이리스트의 재생 속도(배속)를 조절합니다. (기본: 1.0배속)")
     @app_commands.describe(속도="설정할 재생 속도 (0.5배속 ~ 2.0배속)")
@@ -4501,7 +4501,7 @@ class MusicCog(commands.Cog):
             timestamp=datetime.datetime.now(core.KST)
         )
         embed.set_footer(text=f"설정 변경자: {interaction.user.display_name}")
-        await interaction.response.send_message(embed=embed)
+        await core.safe_send_response(interaction, embed=embed)
 
     # ==========================================
     # 디스코드 캐시 문제와 무관하게 100% 즉시 작동하는 텍스트 접두사 명령어 (Prefix: !)
