@@ -13,8 +13,9 @@ cd "$BOT_DIR"
 echo "📂 작업 디렉토리: $BOT_DIR"
 
 echo "🔄 [1/4] 프라이빗 깃허브 저장소에서 최신 코드 수신 중..."
-git fetch origin main
-git reset --hard origin/main
+git fetch origin
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "master")
+git reset --hard "origin/$CURRENT_BRANCH" 2>/dev/null || git reset --hard origin/master 2>/dev/null || git reset --hard origin/main
 
 echo "📦 [2/4] 가상환경 활성화 및 패키지 점검..."
 if [ -d "venv" ]; then

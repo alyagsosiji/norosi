@@ -1,6 +1,7 @@
 import io
 import asyncio
 import datetime
+from typing import Optional, Union, List, Dict, Any, Tuple
 import discord
 from discord import app_commands
 from discord.ext import commands
