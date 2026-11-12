@@ -165,18 +165,178 @@ class NorosiBot(commands.Bot):
     async def handle_health_check(self, request):
         return web.Response(text="norosi Bot is running 24/7!")
 
+    async def handle_github_webhook(self, request: web.Request):
+        """
+        GitHub 저장소 Push 및 GitHub Actions 배포 성공/실패 이벤트를 수신하여
+        설정된 디스코드 채널에 '🚀 업데이트 완료: [커밋 메시지]' 임베드를 실시간으로 전송합니다.
+        """
+        try:
+            event = request.headers.get("X-GitHub-Event", "push")
+            try:
+                payload = await request.json()
+            except Exception:
+                return web.json_response({"error": "Invalid JSON"}, status=400)
+
+            data = core.get_cached_data()
+            configs = core.get_github_webhook_configs(data)
+
+            # 대상 채널 탐색: 1순위 Query 파라미터 / 2순위 서버별 등록 설정
+            target_channel_ids = []
+            q_cid = request.query.get("channel_id")
+            if q_cid and q_cid.isdigit():
+                target_channel_ids.append(int(q_cid))
+            else:
+                q_gid = request.query.get("guild_id")
+                if q_gid and str(q_gid) in configs:
+                    cfg = configs[str(q_gid)]
+                    if cfg.get("enabled", True) and cfg.get("channel_id"):
+                        target_channel_ids.append(cfg["channel_id"])
+                else:
+                    for gid, cfg in configs.items():
+                        if cfg.get("enabled", True) and cfg.get("channel_id"):
+                            target_channel_ids.append(cfg["channel_id"])
+
+            embed = None
+            role_mention = None
+
+            if event == "ping":
+                zen = payload.get("zen", "Keep it logically awesome.")
+                repo_name = payload.get("repository", {}).get("full_name", "저장소")
+                embed = discord.Embed(
+                    title="🏓 GitHub 웹훅(Webhook) 연결 성공!",
+                    description=(
+                        f"• **연동 저장소:** `{repo_name}`\n"
+                        f"• **GitHub Zen:** *\"{zen}\"*\n\n"
+                        f"✅ 깃허브 푸시(Push) 및 GitHub Actions 배포 알림 수신 준비가 완료되었습니다! 🚀"
+                    ),
+                    color=discord.Color.green(),
+                    timestamp=datetime.datetime.now(core.KST)
+                )
+                embed.set_footer(text="GitHub Webhook Ping • norosi 연동 테스트")
+
+            elif event == "push":
+                repo = payload.get("repository", {}) or {}
+                repo_full = repo.get("full_name", repo.get("name", "norosi"))
+                repo_url = repo.get("html_url", "https://github.com")
+                ref = payload.get("ref", "")
+                branch = ref.split("/")[-1] if "/" in ref else (ref or "master")
+                pusher = payload.get("pusher", {}).get("name", "개발자")
+                sender = payload.get("sender", {})
+                sender_avatar = sender.get("avatar_url", "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png")
+                commits = payload.get("commits", []) or []
+                head_commit = payload.get("head_commit", {}) or (commits[-1] if commits else {})
+
+                raw_msg = head_commit.get("message", "새로운 변경사항 푸시 완료")
+                first_line = raw_msg.strip().split("\n")[0]
+                commit_id = (head_commit.get("id") or "")[:7] or "latest"
+                commit_url = head_commit.get("url", repo_url)
+                compare_url = payload.get("compare", commit_url)
+
+                added_cnt = len(head_commit.get("added", []))
+                modified_cnt = len(head_commit.get("modified", []))
+                removed_cnt = len(head_commit.get("removed", []))
+
+                embed_title = f"🚀 업데이트 완료: {first_line}"
+                if len(embed_title) > 250:
+                    embed_title = embed_title[:247] + "..."
+
+                embed = discord.Embed(
+                    title=embed_title,
+                    url=commit_url,
+                    color=discord.Color.from_rgb(46, 204, 113),  # 상쾌한 에메랄드 그린
+                    timestamp=datetime.datetime.now(core.KST)
+                )
+                desc_lines = [
+                    f"📦 **저장소:** [`{repo_full}`]({repo_url})  ·  🌿 **브랜치:** `{branch}`",
+                    f"👤 **커밋 작성자:** `{pusher}`  ·  🔖 **커밋:** [`{commit_id}`]({commit_url})",
+                    "",
+                    "### 📝 커밋 상세 내용",
+                    f"```{raw_msg[:900]}```",
+                    f"📂 **파일 변경:** `+{added_cnt} 추가` · `~{modified_cnt} 수정` · `-{removed_cnt} 삭제`",
+                    f"🔗 [커밋 비교 및 세부 코드 변경내역 보기 (GitHub)]({compare_url})"
+                ]
+                embed.description = "\n".join(desc_lines)
+                embed.set_thumbnail(url=sender_avatar)
+                embed.set_footer(text=f"GitHub Push Event • 총 {len(commits)}개 커밋 반영 완료 • norosi Live Deploy")
+
+            elif event == "workflow_run":
+                action = payload.get("action", "")
+                if action != "completed":
+                    return web.json_response({"status": "ignored", "action": action})
+
+                wf = payload.get("workflow_run", {}) or {}
+                wf_name = wf.get("name", "Deploy")
+                conclusion = wf.get("conclusion", "success")
+                run_url = wf.get("html_url", "")
+                run_number = wf.get("run_number", 1)
+                head_branch = wf.get("head_branch", "master")
+                head_commit = wf.get("head_commit", {}) or {}
+                commit_msg = head_commit.get("message", "빌드 및 배포")
+                first_line = commit_msg.strip().split("\n")[0]
+
+                if conclusion == "success":
+                    title = f"🎉 GitHub Actions 배포 성공: {wf_name} (#{run_number})"
+                    color = discord.Color.from_rgb(46, 204, 113)
+                    status_badge = "✅ **배포 완료 (Success)**"
+                elif conclusion == "failure":
+                    title = f"🚨 GitHub Actions 배포 실패: {wf_name} (#{run_number})"
+                    color = discord.Color.red()
+                    status_badge = "❌ **배포 실패 (Failed)**"
+                else:
+                    title = f"ℹ️ GitHub Actions 상태 알림: {wf_name} ({conclusion})"
+                    color = discord.Color.gold()
+                    status_badge = f"⚠️ **상태: {conclusion}**"
+
+                embed = discord.Embed(
+                    title=title,
+                    url=run_url,
+                    color=color,
+                    timestamp=datetime.datetime.now(core.KST)
+                )
+                desc_lines = [
+                    f"🚀 **워크플로우:** `{wf_name}`  ·  {status_badge}",
+                    f"🌿 **브랜치:** `{head_branch}`  ·  🔖 **실행 번호:** `#{run_number}`",
+                    f"💬 **트리거 커밋:** `{first_line}`",
+                    f"🔗 [GitHub Actions 빌드/배포 로그 확인하기]({run_url})"
+                ]
+                embed.description = "\n".join(desc_lines)
+                embed.set_footer(text="GitHub Actions CI/CD • norosi 자동 배포")
+
+            if embed and target_channel_ids:
+                for cid in set(target_channel_ids):
+                    ch = await self.resolve_channel(cid)
+                    if ch:
+                        try:
+                            await ch.send(content=role_mention, embed=embed)
+                        except Exception as send_err:
+                            print(f"⚠️ [GitHub 웹훅 메시지 전송 예외] 채널 {cid}: {send_err}", flush=True)
+
+            return web.json_response({
+                "status": "success",
+                "event": event,
+                "dispatched_channels": len(target_channel_ids)
+            })
+        except Exception as e:
+            print(f"⚠️ [handle_github_webhook 예외] {e}", flush=True)
+            return web.json_response({"error": str(e)}, status=500)
+
     async def start_web_server(self):
         if self._web_started:
             return
         try:
             app = web.Application()
             app.router.add_get("/", self.handle_health_check)
+            app.router.add_post("/api/github/webhook", self.handle_github_webhook)
+            app.router.add_post("/github/webhook", self.handle_github_webhook)
+            app.router.add_post("/webhook/github", self.handle_github_webhook)
+            app.router.add_post("/github", self.handle_github_webhook)
+
             runner = web.AppRunner(app)
             await runner.setup()
             site = web.TCPSite(runner, "0.0.0.0", core.PORT)
             await site.start()
             self._web_started = True
-            print(f"✅ norosi 헬스체크 웹 서버 가동 완료 (포트: {core.PORT})", flush=True)
+            print(f"✅ norosi 헬스체크 및 GitHub 웹훅 서버 가동 완료 (포트: {core.PORT})", flush=True)
         except Exception as e:
             print(f"ℹ️ 웹 서버 시작 건너뜀 (포트 {core.PORT} 점유 중이거나 불필요 환경): {e}", flush=True)
 

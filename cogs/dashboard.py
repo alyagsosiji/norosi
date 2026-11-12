@@ -414,6 +414,10 @@ class MasterDashboardView(core.SafeView):
         btn_pomo.callback = self._on_pomodoro_clicked
         self.add_item(btn_pomo)
 
+        btn_hardcore = discord.ui.Button(label="🔥 하드코어 스터디", style=discord.ButtonStyle.success, row=1)
+        btn_hardcore.callback = self._on_hardcore_study_clicked
+        self.add_item(btn_hardcore)
+
         btn_partner = discord.ui.Button(label="💑 파트너 관리", style=discord.ButtonStyle.secondary, row=2)
         btn_partner.callback = self._on_partner_clicked
         self.add_item(btn_partner)
@@ -976,6 +980,48 @@ class MasterDashboardView(core.SafeView):
             await interaction.response.send_modal(DashboardPomodoroModal(self.bot))
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 뽀모도로 모달 열기 실패: {e}", ephemeral=True)
+
+    async def _on_hardcore_study_clicked(self, interaction: discord.Interaction):
+        try:
+            key = (interaction.guild_id or 0, interaction.user.id)
+            if key in core.ACTIVE_HARDCORE_STUDY_TASKS:
+                task_info = core.ACTIVE_HARDCORE_STUDY_TASKS.pop(key, None)
+                if task_info:
+                    task_info["task"].cancel()
+                    v_ch = task_info.get("voice_channel")
+                    if v_ch:
+                        for member in v_ch.members:
+                            if not member.bot:
+                                try:
+                                    await member.edit(mute=False, reason="하드코어 스터디 수동 중지")
+                                except Exception:
+                                    pass
+                    vc = task_info.get("voice_client")
+                    if vc and vc.is_connected():
+                        try:
+                            await vc.disconnect()
+                        except Exception:
+                            pass
+                await core.safe_send_response(interaction, "⏹️ **실행 중이던 하드코어 스터디가 중지되었으며 음소거가 해제되었습니다!**", ephemeral=True)
+                return
+
+            target_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "hardcore_study_cmd")), None)
+            if target_cog:
+                choice_start = app_commands.Choice(name="🔥 하드코어 스터디 시작", value="start")
+                await target_cog.hardcore_study_cmd.callback(
+                    target_cog,
+                    interaction,
+                    동작=choice_start,
+                    목표="정보처리기능사 실기 / AI 코딩",
+                    목표시간=100,
+                    음성채널=None,
+                    음성안내=True,
+                    자동음소거=True
+                )
+            else:
+                await core.safe_send_response(interaction, "❌ 스터디 모듈을 찾을 수 없습니다. `/하드코어스터디` 명령어를 이용해 주세요.", ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 하드코어 스터디 실행 중 오류: {e}", ephemeral=True)
 
     async def _on_partner_clicked(self, interaction: discord.Interaction):
         try:

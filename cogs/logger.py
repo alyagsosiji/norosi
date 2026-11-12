@@ -375,6 +375,61 @@ AUDIT_LOG_ACTION_KOREAN = {
 }
 
 
+class GithubWebhookGuideView(core.SafeView):
+    """깃허브 웹훅 연동 가이드 및 즉시 테스트 알림 전송 뷰"""
+    def __init__(self, author: discord.User, channel: discord.TextChannel, bot: commands.Bot, role: Optional[discord.Role] = None):
+        super().__init__(timeout=300)
+        self.author = author
+        self.channel = channel
+        self.bot = bot
+        self.role = role
+
+    @discord.ui.button(label="🧪 테스트 알림 즉시 발송", style=discord.ButtonStyle.success, emoji="🚀", row=0)
+    async def send_test_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction, ephemeral=True)
+        sample_embed = discord.Embed(
+            title="🚀 업데이트 완료: feat(core): 하드코어 스터디 및 깃허브 실시간 배포 알림 시스템 탑재",
+            url="https://github.com/alyagsosiji/norosi",
+            color=discord.Color.from_rgb(46, 204, 113),
+            timestamp=datetime.datetime.now(core.KST)
+        )
+        sample_embed.description = (
+            f"📦 **저장소:** [`alyagsosiji/norosi`](https://github.com/alyagsosiji/norosi)  ·  🌿 **브랜치:** `master`\n"
+            f"👤 **커밋 작성자:** `{interaction.user.display_name}`  ·  🔖 **커밋:** [`7a9b1c2`](https://github.com/alyagsosiji/norosi)\n\n"
+            "### 📝 커밋 상세 내용\n"
+            "```feat(study): 50분 집중/10분 휴식 음성 안내 사이클 및 보라색 은하수 잔디(🟪) 지급\nfeat(github): 웹훅 연동 실시간 커밋 및 Actions 배포 알림 자동 발송```\n"
+            "📂 **파일 변경:** `+15 추가` · `~4 수정` · `-0 삭제`\n"
+            "🔗 [커밋 비교 및 세부 코드 변경내역 보기 (GitHub)](https://github.com/alyagsosiji/norosi)"
+        )
+        sample_embed.set_thumbnail(url="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png")
+        sample_embed.set_footer(text="GitHub Push Event • norosi Live Deploy • 테스트 알림")
+
+        content = self.role.mention if self.role else None
+        try:
+            await self.channel.send(content=content, embed=sample_embed)
+            await core.safe_send_response(interaction, f"✅ {self.channel.mention} 채널로 **[🚀 업데이트 완료]** 테스트 알림이 성공적으로 발송되었습니다!", ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 테스트 알림 발송 실패 (봇에게 채널 메시지 전송 권한이 있는지 확인해 주세요): {e}", ephemeral=True)
+
+    @discord.ui.button(label="📋 5분 연동 상세 가이드", style=discord.ButtonStyle.primary, emoji="📖", row=0)
+    async def show_guide_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        ext_host = os.getenv("EXTERNAL_URL") or os.getenv("WEBHOOK_HOST") or f"http://<서버IP 또는 도메인>:{core.PORT}"
+        webhook_url = f"{ext_host.rstrip('/')}/api/github/webhook?channel_id={self.channel.id}"
+        guide_text = (
+            "## 🚀 5분 완성 GitHub 웹훅 연동 가이드\n\n"
+            "1️⃣ **깃허브 저장소(GitHub Repo)** 접속 > 상단 **[Settings]** 탭 클릭\n"
+            "2️⃣ 좌측 메뉴에서 **[Webhooks]** 선택 > 우측 상단 **[Add webhook]** 클릭\n"
+            f"3️⃣ **Payload URL**에 아래 URL 복사 붙여넣기:\n"
+            f"   ```{webhook_url}```\n"
+            "4️⃣ **Content type**을 반드시 `application/json`으로 선택\n"
+            "5️⃣ **Which events would you like to trigger this webhook?**에서\n"
+            "   • `Let me select individual events` 선택 후 **Pushes**, **Workflow runs** 체크\n"
+            "6️⃣ 하단 **[Add webhook]** 초록색 버튼 클릭 시 즉시 연동 완료! ✨\n\n"
+            "💡 **디스코드 자체 웹훅 팁:** 디스코드 채널 설정 > 연동 > 웹훅 생성 후 URL 뒤에 `/github`를 붙여 깃허브에 등록해도 작동합니다!"
+        )
+        await core.safe_send_response(interaction, guide_text, ephemeral=True)
+
+
 class LoggerCog(commands.Cog):
     """디스코드 7대 카테고리 시스템 활동 실시간 감지 및 유저 ID 포함 로그 Cog"""
     def __init__(self, bot):
@@ -678,6 +733,153 @@ class LoggerCog(commands.Cog):
         )
         embed = view.build_embed()
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+    @app_commands.command(
+        name="깃허브알림",
+        description="GitHub 푸시(Push) 및 GitHub Actions 배포 결과를 '🚀 업데이트 완료: [커밋 메시지]' 임베드로 공지합니다."
+    )
+    @app_commands.describe(
+        동작="수행할 작업을 선택하세요.",
+        알림채널="(설정 시 필수) GitHub 업데이트 공지 및 배포 결과를 수신할 텍스트 채널",
+        역할멘션="(선택) 업데이트 시 멘션할 역할 (예: @공지, @개발자 등)"
+    )
+    @app_commands.choices(동작=[
+        app_commands.Choice(name="⚙️ 알림 채널 설정 및 5분 연동 가이드", value="set"),
+        app_commands.Choice(name="ℹ️ 현재 연동 상태 및 설정 가이드 확인", value="info"),
+        app_commands.Choice(name="🧪 테스트 알림 전송 (업데이트 임베드 미리보기)", value="test"),
+        app_commands.Choice(name="🛑 깃허브 알림 연동 해제", value="disable")
+    ])
+    async def github_webhook_cmd(
+        self,
+        interaction: discord.Interaction,
+        동작: app_commands.Choice[str],
+        알림채널: discord.TextChannel = None,
+        역할멘션: discord.Role = None
+    ):
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 이 명령어는 서버(길드)에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+
+        if not interaction.user.guild_permissions.manage_guild and not interaction.user.guild_permissions.administrator:
+            await core.safe_send_response(interaction, "❌ 이 명령어를 사용하려면 **서버 관리(Manage Server)** 권한이 필요합니다.", ephemeral=True)
+            return
+
+        data = await asyncio.to_thread(core.load_data)
+        configs = core.get_github_webhook_configs(data)
+        g_key = str(interaction.guild_id)
+
+        # 1. 해제
+        if 동작.value == "disable":
+            removed = core.remove_github_webhook_config(data, interaction.guild_id)
+            if removed:
+                await asyncio.to_thread(core.save_data, data)
+                await core.safe_send_response(interaction, "🛑 **이 서버의 GitHub 웹훅 알림 연동이 해제되었습니다.**", ephemeral=True)
+            else:
+                await core.safe_send_response(interaction, "ℹ️ 현재 설정된 GitHub 알림 채널이 없습니다.", ephemeral=True)
+            return
+
+        # 2. 설정
+        if 동작.value == "set":
+            target_ch = 알림채널 or interaction.channel
+            if not isinstance(target_ch, discord.TextChannel):
+                await core.safe_send_response(interaction, "❌ 알림을 수신할 **텍스트 채널**을 올바르게 지정해 주세요.", ephemeral=True)
+                return
+
+            role_id = 역할멘션.id if 역할멘션 else None
+            core.set_github_webhook_config(data, interaction.guild_id, target_ch.id, role_id)
+            await asyncio.to_thread(core.save_data, data)
+
+            ext_host = os.getenv("EXTERNAL_URL") or os.getenv("WEBHOOK_HOST") or f"http://<서버IP 또는 도메인>:{core.PORT}"
+            webhook_url = f"{ext_host.rstrip('/')}/api/github/webhook?channel_id={target_ch.id}"
+
+            embed = discord.Embed(
+                title="🚀 GitHub 웹훅 실시간 업데이트 알림 채널 설정 완료",
+                description=(
+                    f"• 📢 **공지 수신 채널:** {target_ch.mention} (`#{target_ch.name}`)\n"
+                    f"• 👥 **배포 시 멘션 역할:** {역할멘션.mention if 역할멘션 else '지정 안함'}\n"
+                    f"• 🌐 **내 GitHub Webhook Payload URL:**\n"
+                    f"  ```{webhook_url}```\n"
+                    "### 💡 깃허브 저장소 5분 연동 방법\n"
+                    "1. 깃허브 저장소 > **Settings** > 좌측 **Webhooks** > **[Add webhook]**\n"
+                    "2. **Payload URL**에 위 URL 붙여넣기\n"
+                    "3. **Content type**을 `application/json`으로 선택\n"
+                    "4. 이벤트 선택에서 **Pushes** 및 **Workflow runs** 체크 후 저장!\n"
+                    "5. 하단 버튼의 **`[🧪 테스트 알림 즉시 발송]`**을 눌러 지금 채널 임베드를 확인해 보세요!"
+                ),
+                color=discord.Color.from_rgb(46, 204, 113),
+                timestamp=datetime.datetime.now(core.KST)
+            )
+            embed.set_footer(text="코드 푸시 및 Actions 성공/실패 시 예쁜 임베드가 자동 공지됩니다.")
+            view = GithubWebhookGuideView(interaction.user, target_ch, self.bot, 역할멘션)
+            await core.safe_send_response(interaction, embed=embed, view=view)
+            return
+
+        # 3. 정보 / 가이드
+        if 동작.value == "info":
+            cur_cfg = configs.get(g_key)
+            if not cur_cfg or not cur_cfg.get("channel_id"):
+                await core.safe_send_response(
+                    interaction,
+                    "ℹ️ 현재 등록된 깃허브 알림 채널이 없습니다.\n`/깃허브알림 동작:설정 알림채널:#채널명`으로 먼저 채널을 등록해 주세요!",
+                    ephemeral=True
+                )
+                return
+
+            ch = self.bot.get_channel(cur_cfg["channel_id"])
+            ch_mention = ch.mention if ch else f"`ID: {cur_cfg['channel_id']}`"
+            role = interaction.guild.get_role(cur_cfg.get("role_id")) if cur_cfg.get("role_id") else None
+
+            ext_host = os.getenv("EXTERNAL_URL") or os.getenv("WEBHOOK_HOST") or f"http://<서버IP 또는 도메인>:{core.PORT}"
+            webhook_url = f"{ext_host.rstrip('/')}/api/github/webhook?channel_id={cur_cfg['channel_id']}"
+
+            embed = discord.Embed(
+                title="ℹ️ GitHub 실시간 배포 알림 연동 현황",
+                description=(
+                    f"• 📢 **공지 채널:** {ch_mention}\n"
+                    f"• 👥 **멘션 역할:** {role.mention if role else '지정 안함'}\n"
+                    f"• 🌐 **Webhook Payload URL:**\n"
+                    f"  ```{webhook_url}```"
+                ),
+                color=discord.Color.blue(),
+                timestamp=datetime.datetime.now(core.KST)
+            )
+            target_text_ch = ch if isinstance(ch, discord.TextChannel) else interaction.channel
+            view = GithubWebhookGuideView(interaction.user, target_text_ch, self.bot, role)
+            await core.safe_send_response(interaction, embed=embed, view=view)
+            return
+
+        # 4. 테스트 발송
+        if 동작.value == "test":
+            target_ch = 알림채널 or (self.bot.get_channel(configs.get(g_key, {}).get("channel_id")) if g_key in configs else interaction.channel)
+            if not isinstance(target_ch, discord.TextChannel):
+                target_ch = interaction.channel
+
+            role_id = configs.get(g_key, {}).get("role_id")
+            role = interaction.guild.get_role(role_id) if role_id else 역할멘션
+
+            sample_embed = discord.Embed(
+                title="🚀 업데이트 완료: feat(core): 하드코어 스터디 및 깃허브 실시간 배포 알림 시스템 탑재",
+                url="https://github.com/alyagsosiji/norosi",
+                color=discord.Color.from_rgb(46, 204, 113),
+                timestamp=datetime.datetime.now(core.KST)
+            )
+            sample_embed.description = (
+                f"📦 **저장소:** [`alyagsosiji/norosi`](https://github.com/alyagsosiji/norosi)  ·  🌿 **브랜치:** `master`\n"
+                f"👤 **커밋 작성자:** `{interaction.user.display_name}`  ·  🔖 **커밋:** [`7a9b1c2`](https://github.com/alyagsosiji/norosi)\n\n"
+                "### 📝 커밋 상세 내용\n"
+                "```feat(study): 50분 집중/10분 휴식 음성 안내 사이클 및 보라색 은하수 잔디(🟪) 지급\nfeat(github): 웹훅 연동 실시간 커밋 및 Actions 배포 알림 자동 발송```\n"
+                "📂 **파일 변경:** `+15 추가` · `~4 수정` · `-0 삭제`\n"
+                "🔗 [커밋 비교 및 세부 코드 변경내역 보기 (GitHub)](https://github.com/alyagsosiji/norosi)"
+            )
+            sample_embed.set_thumbnail(url="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png")
+            sample_embed.set_footer(text="GitHub Push Event • norosi Live Deploy • 테스트 알림")
+
+            content = role.mention if role else None
+            try:
+                await target_ch.send(content=content, embed=sample_embed)
+                await core.safe_send_response(interaction, f"✅ {target_ch.mention} 채널로 **[🚀 업데이트 완료]** 테스트 알림이 발송되었습니다!", ephemeral=True)
+            except Exception as e:
+                await core.safe_send_response(interaction, f"❌ 알림 발송 실패 (채널 권한을 확인해 주세요): {e}", ephemeral=True)
 
     # ==========================================
     # 1. 🔊 Voice (음성 채널 입장/퇴장/이동)

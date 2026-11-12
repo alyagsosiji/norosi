@@ -14,7 +14,7 @@ import inspect
 import urllib.request
 import urllib.parse
 import urllib.error
-
+import tempfile
 import base64
 
 class _RequestsResponse:
@@ -244,8 +244,9 @@ DATA_FILE = "ddays_data.json"
 PROSEKA_CACHE_FILE = "proseka_kr_cache.json"
 RANDOM_KEYWORDS = ["pop", "lofi", "k-pop", "indie", "jazz", "r&b", "piano", "acoustic", "chill", "synthwave", "rock"]
 
-# 실행 중인 뽀모도로 타이머 태스크 관리용 딕셔너리
+# 실행 중인 뽀모도로 및 하드코어 스터디 타이머 태스크 관리용 딕셔너리
 ACTIVE_POMODORO_TASKS = {}
+ACTIVE_HARDCORE_STUDY_TASKS = {}
 
 # 중복 카드 크리스탈 변환 단가 (원본 1장 제외 초과분 1장당 지급 크리스탈)
 DUPLICATE_CRYSTAL_RATES = {
@@ -2499,7 +2500,7 @@ def sync_todo_history_today(todo: dict):
 
 
 def get_todo_galaxy_grass(profile: dict) -> tuple[str, str]:
-    """최근 7일간의 은하수 잔디(🌌 완료 / 🌠 진행중 / 🌑 미달성) 요약 줄과 상세 내역 문자열 반환"""
+    """최근 7일간의 은하수 잔디(🟪 하드코어 완주 / 🌌 일반 100% / 🌠 진행중 / 🌑 미달성) 요약 줄과 상세 내역 문자열 반환"""
     todo = ensure_user_todo_today(profile)
     history = todo.get("history", {})
     today_date = datetime.datetime.now(KST).date()
@@ -2516,7 +2517,13 @@ def get_todo_galaxy_grass(profile: dict) -> tuple[str, str]:
         done_c = rec.get("done", 0)
         tot_c = rec.get("total", 0)
 
-        if tot_c > 0 and done_c >= tot_c:
+        if rec.get("hardcore_completed"):
+            icon = "🟪"
+            perfect_days += 1
+            h_mins = rec.get("hardcore_mins", 50)
+            h_topic = rec.get("hardcore_topic", "집중 스터디")
+            status_txt = f"`{done_c}/{tot_c}` + 🟪 **하드코어 {h_mins}분 완주** ({h_topic})"
+        elif tot_c > 0 and done_c >= tot_c:
             icon = "🌌"
             perfect_days += 1
             status_txt = f"`{done_c}/{tot_c}` (100% ✨)"
@@ -4152,6 +4159,99 @@ def get_ffmpeg_executable() -> str:
         return imageio_ffmpeg.get_ffmpeg_exe()
     except Exception:
         return "ffmpeg"
+
+
+async def generate_korean_tts_audio_source(text: str) -> tuple[Optional[discord.AudioSource], Optional[str]]:
+    """
+    한국어 텍스트를 Google Translate TTS로 음성 합성하여
+    디스코드 음성 채널에서 재생 가능한 AudioSource와 임시 파일 경로를 반환합니다.
+    """
+    try:
+        url = "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ko&q=" + urllib.parse.quote(text)
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        loop = asyncio.get_running_loop()
+
+        def _fetch():
+            with urllib.request.urlopen(req, timeout=7) as resp:
+                return resp.read()
+
+        data = await loop.run_in_executor(None, _fetch)
+        if not data:
+            return None, None
+
+        tf = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+        tf.write(data)
+        tf.close()
+
+        source = discord.FFmpegPCMAudio(
+            tf.name,
+            executable=get_ffmpeg_executable()
+        )
+        return source, tf.name
+    except Exception as e:
+        print(f"⚠️ [TTS 생성 예외] {e}", flush=True)
+        return None, None
+
+
+async def play_tts_voice_alert(vc: discord.VoiceClient, text: str):
+    """음성 채널에 TTS 안내 음성을 송출합니다."""
+    if not vc or not vc.is_connected():
+        return
+    ensure_opus_loaded()
+    source, tmp_file = await generate_korean_tts_audio_source(text)
+    if not source:
+        return
+
+    try:
+        if vc.is_playing():
+            vc.stop()
+    except Exception:
+        pass
+
+    played_event = asyncio.Event()
+
+    def _after(error):
+        if tmp_file and os.path.exists(tmp_file):
+            try:
+                os.unlink(tmp_file)
+            except Exception:
+                pass
+        played_event.set()
+
+    try:
+        vc.play(source, after=_after)
+        try:
+            await asyncio.wait_for(played_event.wait(), timeout=18.0)
+        except asyncio.TimeoutError:
+            pass
+    except Exception as e:
+        print(f"⚠️ [음성 알림 재생 예외] {e}", flush=True)
+        if tmp_file and os.path.exists(tmp_file):
+            try:
+                os.unlink(tmp_file)
+            except Exception:
+                pass
+
+
+def get_github_webhook_configs(data: dict) -> dict:
+    return data.setdefault("github_webhook_configs", {})
+
+
+def set_github_webhook_config(data: dict, guild_id: int, channel_id: int, role_id: Optional[int] = None) -> dict:
+    configs = get_github_webhook_configs(data)
+    cfg = {
+        "channel_id": channel_id,
+        "role_id": role_id,
+        "enabled": True,
+        "updated_at": get_now_datetime_str()
+    }
+    configs[str(guild_id)] = cfg
+    return cfg
+
+
+def remove_github_webhook_config(data: dict, guild_id: int) -> bool:
+    configs = get_github_webhook_configs(data)
+    return bool(configs.pop(str(guild_id), None))
 
 
 def resolve_voice_stream_sync(track: dict) -> tuple[dict | None, str | None]:

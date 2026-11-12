@@ -813,7 +813,7 @@ class TodoTrackerView(core.SafeView):
             embed.add_field(name=f"📋 오늘의 목표 ({done_cnt}/{tot_cnt})", value="\n".join(lines), inline=False)
 
         embed.add_field(
-            name="🌌 최근 7일 은하수 잔디 기록 (🌌: 100% · 🌠: 진행중 · 🌑: 미달성)",
+            name="🌌 최근 7일 은하수 잔디 기록 (🟪: 하드코어 완주 · 🌌: 100% · 🌠: 진행중 · 🌑: 미달성)",
             value=f"{grass_bar}\n\n{grass_details}",
             inline=False
         )
@@ -2386,6 +2386,314 @@ class DDayCog(commands.Cog):
 
         task = asyncio.create_task(run_pomodoro_cycle())
         core.ACTIVE_POMODORO_TASKS[key] = {"task": task, "voice_channel": target_vc}
+
+    @app_commands.command(
+        name="하드코어스터디",
+        description="자격증 시험/AI 코딩 전용: 50분 집중/10분 휴식 음성 안내 사이클 및 은하수 보라잔디(🟪)와 대량 크리스탈 획득"
+    )
+    @app_commands.describe(
+        동작="하드코어 스터디 타이머 시작, 중지, 또는 현재 진행 현황을 선택하세요.",
+        목표="(선택) 공부할 자격증 시험 과목이나 코딩 작업 내용 (기본값: 정보처리기능사 실기 / AI 코딩)",
+        목표시간="(선택) 목표 스터디 시간 (기본값: 100분 / 2세트)",
+        음성채널="(선택) 음성 안내를 진행할 음성 채널 (미선택 시 현재 접속 중인 음성 채널 자동 감지)",
+        음성안내="(선택) 봇이 음성 채널에 직접 입장하여 음성(TTS)으로 시작/휴식을 안내할지 여부 (기본: 예)",
+        자동음소거="(선택) 50분 집중 시간 동안 음성 채널 참가자 마이크를 자동 음소거할지 여부 (기본: 예)"
+    )
+    @app_commands.choices(동작=[
+        app_commands.Choice(name="🔥 하드코어 스터디 시작", value="start"),
+        app_commands.Choice(name="⏹️ 스터디 중지 (음소거 즉시 해제)", value="stop"),
+        app_commands.Choice(name="📊 나의 하드코어 스터디 현황 및 보라잔디 조회", value="status")
+    ])
+    @app_commands.choices(목표시간=[
+        app_commands.Choice(name="⚡ 50분 (1세트 / 집중 50분 + 휴식 10분) — 보상 💎 500개", value=50),
+        app_commands.Choice(name="🔥 100분 (2세트 / 집중 100분 + 휴식 20분) [추천] — 보상 💎 1,000개", value=100),
+        app_commands.Choice(name="🚀 150분 (3세트 / 집중 150분 + 휴식 30분) — 보상 💎 1,500개", value=150),
+        app_commands.Choice(name="👑 200분 (4세트 / 집중 200분 + 휴식 40분) — 보상 💎 2,000개", value=200),
+        app_commands.Choice(name="🏆 250분 (5세트 / 집중 250분 + 휴식 50분) — 보상 💎 2,500개", value=250),
+    ])
+    async def hardcore_study_cmd(
+        self,
+        interaction: discord.Interaction,
+        동작: app_commands.Choice[str],
+        목표: str = "정보처리기능사 실기 / AI 코딩",
+        목표시간: int = 100,
+        음성채널: discord.VoiceChannel = None,
+        음성안내: bool = True,
+        자동음소거: bool = True
+    ):
+        key = (interaction.guild_id or 0, interaction.user.id)
+
+        # 1. 현황 조회
+        if 동작.value == "status":
+            data = await asyncio.to_thread(core.load_data)
+            u_key = str(interaction.user.id)
+            profile = core.ensure_user_profile(data, u_key, interaction.user.display_name)
+            stats = profile.setdefault("hardcore_study_stats", {"total_mins": 0, "total_sets": 0, "completed_days": 0})
+            grass_bar, grass_details = core.get_todo_galaxy_grass(profile)
+
+            task_info = core.ACTIVE_HARDCORE_STUDY_TASKS.get(key)
+            status_desc = "현재 실행 중인 하드코어 스터디가 없습니다."
+            if task_info:
+                st = task_info.get("start_time", datetime.datetime.now(core.KST))
+                elapsed_min = int((datetime.datetime.now(core.KST) - st).total_seconds() // 60)
+                status_desc = (
+                    f"🔥 **현재 스터디 진행 중!**\n"
+                    f"• **진행 세트:** `{task_info.get('current_set', 1)}/{task_info.get('num_sets', 2)}세트`\n"
+                    f"• **스터디 과목:** `{task_info.get('topic', '스터디')}`\n"
+                    f"• **경과 시간:** 약 `{elapsed_min}분 경과`\n"
+                    f"• **연동 채널:** `{getattr(task_info.get('voice_channel'), 'name', '미지정')}`"
+                )
+
+            embed = discord.Embed(
+                title=f"📊 {interaction.user.display_name}님의 하드코어 스터디 & 은하수 보라잔디(🟪) 현황",
+                description=status_desc,
+                color=discord.Color.purple(),
+                timestamp=datetime.datetime.now(core.KST)
+            )
+            embed.add_field(
+                name="👑 하드코어 스터디 누적 완주 업적",
+                value=(
+                    f"• 🟪 **완주 일수:** 총 **`{stats.get('completed_days', 0):,}일`**\n"
+                    f"• ⏱️ **누적 집중 시간:** 총 **`{stats.get('total_mins', 0):,}분`** (`{stats.get('total_sets', 0):,}세트`)\n"
+                    f"• 💎 **현재 보유 크리스탈:** **`{profile.get('crystals', 0):,}개`**"
+                ),
+                inline=False
+            )
+            embed.add_field(
+                name="🌱 최근 7일 은하수 잔디 (🟪: 하드코어 완주 · 🌌: 100% · 🌠: 진행중 · 🌑: 미달성)",
+                value=f"{grass_bar}\n\n{grass_details}",
+                inline=False
+            )
+            embed.set_footer(text="50분 집중 / 10분 휴식 완주 시 일일 잔디가 🟪(보라색)으로 기록되며 대량 크리스탈이 지급됩니다!")
+            await core.safe_send_response(interaction, embed=embed)
+            return
+
+        # 2. 중지
+        if 동작.value == "stop":
+            task_info = core.ACTIVE_HARDCORE_STUDY_TASKS.pop(key, None)
+            if not task_info:
+                await core.safe_send_response(interaction, "ℹ️ 현재 실행 중인 하드코어 스터디 타이머가 없습니다.", ephemeral=True)
+                return
+
+            task_info["task"].cancel()
+            v_ch = task_info.get("voice_channel")
+            if v_ch:
+                for member in v_ch.members:
+                    if not member.bot:
+                        try:
+                            await member.edit(mute=False, reason="하드코어 스터디 수동 중지")
+                        except Exception:
+                            pass
+
+            vc = task_info.get("voice_client")
+            if vc and vc.is_connected():
+                try:
+                    await vc.disconnect()
+                except Exception:
+                    pass
+
+            await core.safe_send_response(interaction, "⏹️ **하드코어 스터디가 중지되었으며 음성 채널 음소거가 해제되었습니다.**")
+            return
+
+        # 3. 시작
+        if key in core.ACTIVE_HARDCORE_STUDY_TASKS or key in core.ACTIVE_POMODORO_TASKS:
+            await core.safe_send_response(interaction, "⚠️ 이미 실행 중인 집중/스터디 모드가 있습니다. 먼저 `중지`를 선택해 종료해 주세요.", ephemeral=True)
+            return
+
+        target_vc = 음성채널
+        if not target_vc and isinstance(interaction.user, discord.Member) and interaction.user.voice:
+            target_vc = interaction.user.voice.channel
+
+        num_sets = max(1, min(10, 목표시간 // 50))
+        actual_study_mins = num_sets * 50
+        reward_crystals = num_sets * 500
+
+        vc_status_str = f"🔊 `{target_vc.name}` (음성 안내 On · 자동 음소거 적용)" if target_vc else "미지정 (텍스트 알림 및 힐링 음악 안내)"
+
+        embed = discord.Embed(
+            title="🔥 [하드코어 스터디] 50분 집중 / 10분 휴식 사이클 시작!",
+            description=(
+                f"• 👤 **도전자:** {interaction.user.mention}\n"
+                f"• 🎯 **스터디 목표:** `{목표}`\n"
+                f"• ⏱️ **목표 시간:** 총 `{actual_study_mins}분` (`{num_sets}세트`)\n"
+                f"• 🔊 **연동 음성 채널:** {vc_status_str}\n"
+                f"• 🎁 **완주 보상:** 일일 은하수 **`🟪 보라색 잔디`** 심기 + 크리스탈 **`💎 +{reward_crystals:,}개`**\n\n"
+                f"└ 🟪🌑🌑🌑🌑🌑🌑🌑🌑🌑 **0% (1세트 50분 집중 시작!)**"
+            ),
+            color=discord.Color.purple(),
+            timestamp=datetime.datetime.now(core.KST)
+        )
+        embed.set_footer(text="중도 포기 없이 완주 시 은하수 보라잔디와 대량 크리스탈이 즉시 지급됩니다! 화이팅! 💪")
+        await core.safe_send_response(interaction, embed=embed)
+
+        # 음성 연결 준비
+        voice_client = None
+        if 음성안내 and target_vc and interaction.guild:
+            try:
+                vc_existing = interaction.guild.voice_client
+                if vc_existing and vc_existing.is_connected():
+                    if vc_existing.channel != target_vc:
+                        await vc_existing.move_to(target_vc)
+                    voice_client = vc_existing
+                else:
+                    voice_client = await target_vc.connect(timeout=10.0, self_deaf=False, self_mute=False)
+            except Exception as vc_err:
+                print(f"⚠️ [하드코어 스터디 음성 연결 예외] {vc_err}", flush=True)
+
+        info_dict = {
+            "voice_channel": target_vc,
+            "voice_client": voice_client,
+            "start_time": datetime.datetime.now(core.KST),
+            "num_sets": num_sets,
+            "current_set": 1,
+            "topic": 목표,
+            "reward_crystals": reward_crystals
+        }
+
+        async def run_hardcore_cycle():
+            try:
+                for cycle in range(1, num_sets + 1):
+                    info_dict["current_set"] = cycle
+                    muted_count = 0
+                    if target_vc and 자동음소거:
+                        for member in target_vc.members:
+                            if not member.bot:
+                                try:
+                                    await member.edit(mute=True, reason=f"하드코어 스터디 {cycle}세트 집중 시작")
+                                    muted_count += 1
+                                except Exception:
+                                    pass
+
+                    # 1) 집중 시작 음성 안내 및 메시지
+                    if voice_client and voice_client.is_connected() and 음성안내:
+                        tts_text = f"하드코어 스터디 {cycle}세트 집중 시간을 시작합니다. 목표는 {목표}입니다. 50분 동안 집중해 주세요."
+                        await core.play_tts_voice_alert(voice_client, tts_text)
+
+                    if cycle > 1 and interaction.channel:
+                        cycle_embed = discord.Embed(
+                            title=f"🔥 [하드코어 스터디] {cycle}/{num_sets}세트 집중 시작! (50분)",
+                            description=(
+                                f"{interaction.user.mention}님, 다시 집중할 시간입니다!\n"
+                                f"• 🎯 **목표:** `{목표}`\n"
+                                f"• 🔇 **음성 자동 음소거:** `{muted_count}명 적용`\n"
+                                f"└ 🟪🌑🌑🌑🌑🌑🌑🌑🌑🌑 **0%**"
+                            ),
+                            color=discord.Color.purple(),
+                            timestamp=datetime.datetime.now(core.KST)
+                        )
+                        try:
+                            await interaction.channel.send(embed=cycle_embed)
+                        except Exception:
+                            pass
+
+                    # 50분 집중 대기 (50 * 60초)
+                    await asyncio.sleep(50 * 60)
+
+                    # 2) 50분 집중 완료 및 10분 휴식 시작
+                    if target_vc and 자동음소거:
+                        for member in target_vc.members:
+                            if not member.bot:
+                                try:
+                                    await member.edit(mute=False, reason=f"하드코어 스터디 {cycle}세트 완료 휴식")
+                                    muted_count += 1
+                                except Exception:
+                                    pass
+
+                    if voice_client and voice_client.is_connected() and 음성안내:
+                        tts_break_text = f"딩동댕! 50분 집중 시간이 끝났습니다. 음소거가 해제되었으니 10분간 편안하게 휴식을 취하세요."
+                        await core.play_tts_voice_alert(voice_client, tts_break_text)
+
+                    break_prefs = {"platform": "all", "genre": "lofi chill piano study", "artist": None, "playlist_url": None}
+                    track_info, _ = await core.get_recommended_music(break_prefs)
+
+                    break_content = (
+                        f"🔔 **딩동댕! {interaction.user.mention}님, {cycle}/{num_sets}세트 50분 집중이 끝났습니다!**\n"
+                        f"✨✨✨✨✨✨✨✨✨✨ **100% 완료!** 이제 `10분` 동안 편안히 휴식하세요. (음성 채널 음소거 해제 완료 ☕)"
+                    )
+
+                    if interaction.channel:
+                        try:
+                            if track_info and hasattr(self.bot, "build_music_embed_and_view"):
+                                m_embed, m_view = self.bot.build_music_embed_and_view(
+                                    track_info,
+                                    break_prefs,
+                                    custom_title=f"하드코어 스터디 휴식 힐링 음악 ({cycle}세트 완료)"
+                                )
+                                await interaction.channel.send(content=break_content, embed=m_embed, view=m_view)
+                            else:
+                                await interaction.channel.send(content=break_content)
+                        except Exception:
+                            pass
+
+                    # 휴식 10분 대기 (마지막 세트 제외)
+                    if cycle < num_sets:
+                        await asyncio.sleep(10 * 60)
+
+                # 3) 전 세트 완주 성공 처리!
+                if voice_client and voice_client.is_connected() and 음성안내:
+                    tts_done_text = f"축하합니다! 목표하신 하드코어 스터디를 전 세트 완주하셨습니다! 일일 은하수 잔디에 보라색 스터디 잔디가 심어졌고, {reward_crystals} 크리스탈이 지급되었습니다. 정말 수고 많으셨습니다!"
+                    await core.play_tts_voice_alert(voice_client, tts_done_text)
+                    await asyncio.sleep(2.0)
+                    try:
+                        await voice_client.disconnect()
+                    except Exception:
+                        pass
+
+                # 데이터베이스 업데이트: 은하수 보라잔디(🟪) 기록 + 대량 크리스탈 지급
+                data = await asyncio.to_thread(core.load_data)
+                u_key = str(interaction.user.id)
+                profile = core.ensure_user_profile(data, u_key, interaction.user.display_name)
+                todo = core.ensure_user_todo_today(profile)
+                history = todo.setdefault("history", {})
+                today_str = core.get_today_str()
+
+                today_rec = history.setdefault(today_str, {"done": 0, "total": 0})
+                today_rec["hardcore_completed"] = True
+                today_rec["hardcore_mins"] = today_rec.get("hardcore_mins", 0) + actual_study_mins
+                today_rec["hardcore_topic"] = 목표
+
+                profile["crystals"] = profile.get("crystals", 0) + reward_crystals
+                stats = profile.setdefault("hardcore_study_stats", {"total_mins": 0, "total_sets": 0, "completed_days": 0})
+                stats["total_mins"] += actual_study_mins
+                stats["total_sets"] += num_sets
+                stats["completed_days"] += 1
+
+                await asyncio.to_thread(core.save_data, data)
+
+                grass_bar, _ = core.get_todo_galaxy_grass(profile)
+
+                finish_embed = discord.Embed(
+                    title="👑 [하드코어 스터디] 전 세트 완주 성공! 은하수 보라잔디(🟪) 심기 완료",
+                    description=(
+                        f"🎉 {interaction.user.mention}님, 목표하신 **`{actual_study_mins}분`** (`{num_sets}세트`) 고강도 스터디를 완주하셨습니다!\n\n"
+                        f"• 🎯 **완주 과목:** `{목표}`\n"
+                        f"• 🟪 **일일 은하수 잔디:** 특별 **`🟪 보라색 잔디`** 등록 완료!\n"
+                        f"• 💎 **완주 보상:** 크리스탈 **`+{reward_crystals:,}개`** 지급 완료! (현재 보유: `{profile['crystals']:,}개`)\n"
+                        f"• 🌱 **최근 7일 잔디:** {grass_bar}"
+                    ),
+                    color=discord.Color.from_rgb(155, 89, 182),
+                    timestamp=datetime.datetime.now(core.KST)
+                )
+                finish_embed.set_footer(text="자격증 합격과 AI 코딩 정복을 응원합니다! 훌륭한 집중력이었습니다! ✨")
+
+                if interaction.channel:
+                    try:
+                        view = TodoTrackerView(interaction.user, profile)
+                        await interaction.channel.send(embed=finish_embed, view=view)
+                    except Exception:
+                        try:
+                            await interaction.channel.send(embed=finish_embed)
+                        except Exception:
+                            pass
+
+            except asyncio.CancelledError:
+                pass
+            finally:
+                core.ACTIVE_HARDCORE_STUDY_TASKS.pop(key, None)
+
+        task = asyncio.create_task(run_hardcore_cycle())
+        info_dict["task"] = task
+        core.ACTIVE_HARDCORE_STUDY_TASKS[key] = info_dict
 
     @app_commands.command(name="데이터초기화", description="[관리자 전용] 데이터베이스에 저장된 모든 D-Day(채널 포함) 및 음악 설정을 초기화합니다.")
     @app_commands.default_permissions(administrator=True)
