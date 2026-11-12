@@ -491,6 +491,15 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
     {
         "category": "music",
         "cat_label": "🎵 음악 & 플레이리스트",
+        "name": "/배속",
+        "desc": "음성채널 플레이리스트 재생 속도(배속)를 0.5x~2.0x 조절 (기본: 1.0x, 리모컨 버튼 및 텍스트 `!배속` 지원)",
+        "params": "속도: [0.5x ~ 2.0x(선택, 기본: 1.0x)]",
+        "example": "/배속 속도:1.25",
+        "source": "cogs/music.py",
+    },
+    {
+        "category": "music",
+        "cat_label": "🎵 음악 & 플레이리스트",
         "name": "/음악지금추천",
         "desc": "현재 시간 및 감성에 어울리는 프로세카/보컬로이드 노래를 즉시 1곡 추천 (내 플레이리스트 원클릭 담기 지원)",
         "params": "없음",

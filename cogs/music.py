@@ -6,8 +6,6 @@ import time
 import random
 import asyncio
 import datetime
-import queue
-import threading
 from typing import Optional
 import discord
 from discord import app_commands
@@ -851,70 +849,6 @@ def _format_duration_mmss(sec: int) -> str:
     return f"{m:02d}:{s:02d}"
 
 
-# ==========================================
-# 🛡️ 고음질 무지연 사전 버퍼링 오디오 소스 (네트워크 끊김·버퍼링 원천 방지)
-# ==========================================
-class BufferedAudioSource(discord.AudioSource):
-    """
-    FFmpeg 스트리밍 I/O 지연 및 네트워크 지터를 흡수하는 무지연 인메모리 버퍼링 오디오 소스.
-    - 백그라운드 스레드가 FFmpeg 출력을 약 4초(200 프레임) 분량 선독(Pre-fetch)하여 큐에 유지합니다.
-    - Discord AudioPlayer 스레드가 20ms마다 프레임을 요구할 때 메모리에서 0ms 즉시 반환하여
-      유튜브/사운드클라우드 스트리밍 시 네트워크 핑 지연이나 패킷 손실로 인한 뚝뚝 끊김(Stuttering)을 원천 방지합니다.
-    - 일시적인 네트워크 순단 시에도 버퍼에서 무중단 재생되며, 버퍼가 고갈되어도 즉시 종료되지 않고
-      재연결될 때까지 20ms 무음 패킷을 반환하여 곡이 중간에 튕기거나 조기 종료되는 현상을 완벽히 차단합니다.
-    """
-    def __init__(self, original: discord.AudioSource, buffer_seconds: float = 4.0):
-        self.original = original
-        self.buffer_size = max(50, int(buffer_seconds * 50))
-        self.queue: queue.Queue[bytes] = queue.Queue(maxsize=self.buffer_size)
-        self._stopped = threading.Event()
-        self._eof = threading.Event()
-        self._thread = threading.Thread(target=self._reader_loop, daemon=True, name="NorosiAudioBuffer")
-        self._thread.start()
-
-    def _reader_loop(self):
-        while not self._stopped.is_set():
-            try:
-                data = self.original.read()
-                if not data:
-                    self._eof.set()
-                    break
-                while not self._stopped.is_set():
-                    try:
-                        self.queue.put(data, timeout=0.1)
-                        break
-                    except queue.Full:
-                        continue
-            except Exception:
-                self._eof.set()
-                break
-
-    def read(self) -> bytes:
-        if self._stopped.is_set():
-            return b""
-        try:
-            return self.queue.get(timeout=0.6)
-        except queue.Empty:
-            if self._eof.is_set():
-                return b""
-            # 일시적인 스트림 지연 시 조기 종료를 막기 위해 20ms 무음 반환
-            return b"\x00" * 3840
-
-    def is_opus(self) -> bool:
-        return getattr(self.original, "is_opus", lambda: False)()
-
-    def cleanup(self):
-        self._stopped.set()
-        try:
-            self.original.cleanup()
-        except Exception:
-            pass
-        while not self.queue.empty():
-            try:
-                self.queue.get_nowait()
-            except Exception:
-                break
-
 
 # ==========================================
 # 🔊 음성채널 플레이리스트 순차 자동재생 엔진 (GuildVoicePlaylistPlayer)
@@ -963,6 +897,7 @@ class GuildVoicePlaylistPlayer:
         self.volume: float = 0.20    # 기본 음량 20% (0.20)
         self.auto_announce: bool = True  # 다음 곡 자동 전환 시 대시보드 실시간 갱신
         self.deaf_mode: bool = True  # 기본값: 헤드셋 끄기 (청각 차단 On / deafen)
+        self.playback_speed: float = 1.0  # 기본값: 1.0배속 (0.5x ~ 2.0x 지원)
         self.is_playing_flag: bool = False
         self.is_paused_flag: bool = False
         self._stop_requested: bool = False
@@ -1020,6 +955,16 @@ class GuildVoicePlaylistPlayer:
         new_state = not self.deaf_mode
         await self.set_deafen(new_state)
         return new_state
+
+    async def set_playback_speed(self, speed: float) -> tuple[bool, str]:
+        """플레이어의 재생 배속(0.5x ~ 2.0x)을 설정하고 현재 곡을 새로운 속도로 매끄럽게 재적용합니다."""
+        val = round(max(0.5, min(2.0, float(speed))), 2)
+        self.playback_speed = val
+        vc = self.guild.voice_client
+        if vc and (vc.is_playing() or vc.is_paused()) and self.current_stream_meta:
+            await self.skip_to(self.current_index)
+        await self.refresh_control_panel()
+        return True, f"⚡ 재생 속도가 **`{val}배속`**으로 설정되었습니다!"
 
     async def ensure_connected(self, target_vc: discord.abc.Connectable, self_deaf: Optional[bool] = None) -> tuple[bool, str]:
         # libopus 라이브러리 사전 로드 보장
@@ -1206,26 +1151,21 @@ class GuildVoicePlaylistPlayer:
         ffmpeg_exe = core.get_ffmpeg_executable()
         core.ensure_opus_loaded()
 
-        # 끊김(버퍼링/EOF 조기종료/네트워크 찰나의 지연)을 원천 차단하는 고신뢰 스트리밍 연결 옵션
-        before_opts_list = [
-            "-reconnect 1",
-            "-reconnect_streamed 1",
-            "-reconnect_at_eof 1",
-            "-reconnect_delay_max 2",
-            "-nostdin",
-            "-rw_timeout 15000000",
-            "-probesize 10M",
-            "-analyzeduration 0"
-        ]
+        # 모든 FFmpeg 환경(Debian/Ubuntu/imageio-ffmpeg)에서 가장 완벽하게 호환되는 표준 스트리밍 옵션
         ua = stream_meta.get("user_agent")
         if ua:
-            before_opts_list.append(f'-user_agent "{ua}"')
-        before_opts = " ".join(before_opts_list)
+            before_opts = f'-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin -user_agent "{ua}"'
+        else:
+            before_opts = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin"
 
-        # 디스코드 음성 규격(48,000Hz 16-bit 2채널 스테레오 PCM)에 완벽하게 일치시키는 고음질 리샘플링 옵션
-        out_opts = "-vn -f s16le -ar 48000 -ac 2 -loglevel warning"
+        # 배속(playback_speed) 적용: 1.0배속이 아닐 경우 FFmpeg atempo 오디오 필터 적용
+        speed = getattr(self, "playback_speed", 1.0)
+        if abs(speed - 1.0) > 0.01:
+            out_opts = f'-vn -filter:a "atempo={speed}"'
+        else:
+            out_opts = "-vn"
 
-        # 1순위: FFmpeg PCM 오디오 + 4초 무지연 인메모리 버퍼링 + 실시간 볼륨 조절기 (최상위 음질 및 무중단 파이프라인)
+        # 1순위: FFmpeg PCM 오디오 + 실시간 볼륨 조절기 (디스코드 권장 표준)
         # 2순위: FFmpegOpusAudio 폴백
         try:
             raw_audio = discord.FFmpegPCMAudio(
@@ -1234,14 +1174,13 @@ class GuildVoicePlaylistPlayer:
                 before_options=before_opts,
                 options=out_opts
             )
-            buffered_audio = BufferedAudioSource(raw_audio, buffer_seconds=4.0)
-            source = discord.PCMVolumeTransformer(buffered_audio, volume=max(0.05, min(self.volume, 2.0)))
+            source = discord.PCMVolumeTransformer(raw_audio, volume=max(0.05, min(self.volume, 2.0)))
         except Exception:
             source = discord.FFmpegOpusAudio(
                 stream_meta["stream_url"],
                 executable=ffmpeg_exe,
                 before_options=before_opts,
-                options="-vn -loglevel warning"
+                options=out_opts
             )
 
         # 이미 재생 중이면 내부 stop 플래그를 잠시 보호하며 교체
@@ -1479,7 +1418,7 @@ class VoicePlayerControlView(core.SafeView):
             self.jump_select.disabled = not connected
             self.jump_select.placeholder = f"🎵 곡 순번 바로 이동 (현재 {self.player.current_index + 1}번 / 총 {total}곡)..."
 
-        # Row 3: 헤드셋 끄기(청각 차단) 토글 및 오디오 재연결 버튼
+        # Row 3: 헤드셋 끄기(청각 차단) 토글, 오디오 재연결 및 배속 조절 버튼
         self.toggle_deaf_btn.disabled = not connected
         if self.player.deaf_mode:
             self.toggle_deaf_btn.label = "🎧 헤드셋: 끔 (차단 On)"
@@ -1488,6 +1427,11 @@ class VoicePlayerControlView(core.SafeView):
             self.toggle_deaf_btn.label = "🎧 헤드셋: 켬 (차단 Off)"
             self.toggle_deaf_btn.style = discord.ButtonStyle.success
         self.refresh_audio_btn.disabled = not connected
+
+        speed = getattr(self.player, "playback_speed", 1.0)
+        self.speed_toggle_btn.label = f"⚡ 배속: {speed}x"
+        self.speed_toggle_btn.style = discord.ButtonStyle.primary if abs(speed - 1.0) > 0.01 else discord.ButtonStyle.secondary
+        self.speed_toggle_btn.disabled = not connected
 
     def build_embed(self) -> discord.Embed:
         self.update_components()
@@ -1503,6 +1447,8 @@ class VoicePlayerControlView(core.SafeView):
         vol_pct = int(round(self.player.volume * 100))
         loop_desc = {"all": "🔁 전곡 순환 자동재생", "one": "🔂 현재 곡 무한반복", "off": "➡️ 마지막 순번까지 1회 자동재생"}.get(self.player.loop_mode, "🔁 전곡 순환")
         deaf_badge = "🎧 **헤드셋:** `끄기 (차단 On)`" if self.player.deaf_mode else "🎧 **헤드셋:** `켜기 (차단 Off)`"
+        speed = getattr(self.player, "playback_speed", 1.0)
+        speed_badge = f"⚡ **배속:** `{speed}x`" if abs(speed - 1.0) > 0.01 else "⚡ **배속:** `1.0x (기본)`"
 
         if not connected or not cur_t:
             embed = discord.Embed(
@@ -1532,7 +1478,7 @@ class VoicePlayerControlView(core.SafeView):
                 f"{status_badge}  ·  **순번 `{cur_num:02d} / {total_cnt:02d}번 곡`**  ·  {deaf_badge}\n\n"
                 f"### 🎶 [{t_norm['title']}]({t_norm['url']})\n"
                 f"• 🎤 **아티스트:** `{t_norm['artist']}`  |  ⏱️ **길이:** `{dur_str}`\n"
-                f"• 🎛️ **반복 설정:** `{loop_desc}`  |  🔊 **볼륨:** `{vol_pct}%`{sleep_str}\n"
+                f"• 🎛️ **반복 설정:** `{loop_desc}`  |  🔊 **볼륨:** `{vol_pct}%`  |  {speed_badge}{sleep_str}\n"
                 f"• 🔗 **원본 바로가기:** [📺YouTube]({t_norm['yt_url']}) · [🟢Spotify]({t_norm['sp_url']}) · [☁️SoundCloud]({t_norm['sc_url']})"
             ),
             color=discord.Color.from_rgb(r, g, b),
@@ -1711,6 +1657,22 @@ class VoicePlayerControlView(core.SafeView):
     async def refresh_audio_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         await self.player.skip_to(self.player.current_index)
+        try:
+            await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        except Exception:
+            pass
+
+    @discord.ui.button(label="⚡ 배속: 1.0x", style=discord.ButtonStyle.secondary, row=3)
+    async def speed_toggle_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        speeds = [1.0, 1.25, 1.5, 1.75, 2.0, 0.5, 0.75]
+        cur = getattr(self.player, "playback_speed", 1.0)
+        try:
+            nxt_idx = (speeds.index(cur) + 1) % len(speeds)
+        except ValueError:
+            nxt_idx = 0
+        nxt_speed = speeds[nxt_idx]
+        await self.player.set_playback_speed(nxt_speed)
         try:
             await interaction.edit_original_response(embed=self.build_embed(), view=self)
         except Exception:
@@ -4424,6 +4386,38 @@ class MusicCog(commands.Cog):
         embed.set_footer(text=f"설정 변경자: {interaction.user.display_name}")
         await interaction.response.send_message(embed=embed)
 
+    @app_commands.command(name="배속", description="플레이리스트의 재생 속도(배속)를 조절합니다. (기본: 1.0배속)")
+    @app_commands.describe(속도="설정할 재생 속도 (0.5배속 ~ 2.0배속)")
+    @app_commands.choices(속도=[
+        app_commands.Choice(name="⚡ 1.0배속 (표준 / 기본값)", value="1.0"),
+        app_commands.Choice(name="⚡ 1.25배속 (조금 빠르게)", value="1.25"),
+        app_commands.Choice(name="⚡ 1.5배속 (빠르게)", value="1.5"),
+        app_commands.Choice(name="⚡ 1.75배속 (매우 빠르게)", value="1.75"),
+        app_commands.Choice(name="⚡ 2.0배속 (2배속)", value="2.0"),
+        app_commands.Choice(name="🐌 0.75배속 (조금 느리게)", value="0.75"),
+        app_commands.Choice(name="🐌 0.5배속 (0.5배속)", value="0.5"),
+    ])
+    async def playback_speed_cmd(self, interaction: discord.Interaction, 속도: str = "1.0"):
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 음성채널 배속 설정은 서버(길드)에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+
+        try:
+            val = float(속도)
+        except ValueError:
+            val = 1.0
+
+        player = get_voice_player(self.bot, interaction.guild)
+        ok, msg = await player.set_playback_speed(val)
+        embed = discord.Embed(
+            title="⚡ 플레이리스트 재생 배속 설정",
+            description=f"{msg}\n\n💡 리모컨 대시보드의 **`[⚡ 배속]`** 버튼으로도 원클릭 순환 변경이 가능합니다.",
+            color=discord.Color.green() if val == 1.0 else discord.Color.gold(),
+            timestamp=datetime.datetime.now(core.KST)
+        )
+        embed.set_footer(text=f"설정 변경자: {interaction.user.display_name}")
+        await interaction.response.send_message(embed=embed)
+
     # ==========================================
     # 디스코드 캐시 문제와 무관하게 100% 즉시 작동하는 텍스트 접두사 명령어 (Prefix: !)
     # ==========================================
@@ -4905,6 +4899,24 @@ class MusicCog(commands.Cog):
         new_state = await player.toggle_deafen()
         st = "🎧 **헤드셋 끄기 (청각 차단 On / 빨간 사선)**" if new_state else "🔊 **헤드셋 켜기 (청각 차단 Off / 일반)**"
         await ctx.send(f"✅ 봇의 음성 상태가 {st} 상태로 변경되었습니다.")
+
+    @commands.command(name="배속", aliases=["속도", "speed", "배속설정"])
+    async def prefix_playback_speed(self, ctx: commands.Context, 속도: Optional[str] = None):
+        """채팅창에 !배속 [0.5 ~ 2.0] 입력 시 음성 재생 배속 변경 (기본값: 1.0)"""
+        if not ctx.guild:
+            return
+        player = get_voice_player(self.bot, ctx.guild)
+        if not 속도 or not 속도.strip():
+            cur = getattr(player, "playback_speed", 1.0)
+            await ctx.send(f"⚡ 현재 재생 배속: **`{cur}x`** (기본: `1.0x`)\n• 변경 예시: `!배속 1.25` 또는 `!배속 1.5`, `!배속 1.0`")
+            return
+        try:
+            val = float(속도.replace("x", "").replace("배", "").strip())
+        except ValueError:
+            await ctx.send("❌ 유효한 숫자를 입력해 주세요! (예: `!배속 1.25`, `!배속 1.5`, `!배속 1.0`)")
+            return
+        ok, msg = await player.set_playback_speed(val)
+        await ctx.send(f"✅ {msg}")
 
 
 
