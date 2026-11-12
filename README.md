@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🏮 norosi (노로시 / 狼煙)
+# 🏮 norosi (무로시)
 **서버의 든든한 신호탄이 되어주는 올인원(All-in-One) 다기능 디스코드 봇**
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
