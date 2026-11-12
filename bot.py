@@ -327,6 +327,25 @@ class NorosiBot(commands.Bot):
         except Exception:
             return None
 
+    async def _safe_startup_sync(self):
+        """
+        봇 부팅 시 백그라운드에서 안전하게 글로벌 슬래시 명령어를 동기화합니다.
+        길드 루프 동기화(copy_global_to)를 제거하여 Discord HTTP 429(Rate Limit)를 방지하고,
+        on_ready가 멈추지 않도록 비동기 백그라운드 태스크로 처리합니다.
+        특정 길드 즉시 반영은 '!동기화' 또는 '!싱크' 명령어로 언제든 수행 가능합니다.
+        """
+        try:
+            print("🌐 [백그라운드 동기화] 글로벌 슬래시 명령어 동기화 시작...", flush=True)
+            synced_cmds = await self.tree.sync()
+            print(f"✅ [동기화 완료] 슬래시 명령어 총 {len(synced_cmds)}개 글로벌 등록 완료!", flush=True)
+        except discord.HTTPException as e:
+            if e.status == 429:
+                print(f"⏳ [동기화 알림] Discord API 속도 제한(429 Rate Limit) 감지: {e}. 백그라운드에서 대기 후 자동 재시도됩니다.", flush=True)
+            else:
+                print(f"⚠️ [동기화 오류] 슬래시 명령어 등록 중 HTTP 예외: {e}", flush=True)
+        except Exception as e:
+            print(f"⚠️ [동기화 오류] 백그라운드 명령어 동기화 예외: {e}", flush=True)
+
     async def on_ready(self):
         fb_status = "연동됨" if core.get_firebase_endpoint() else "로컬 + 인메모리 캐시 모드"
         print(f"✅ 로그인 완료: {self.user} (이름: norosi | ID: {self.user.id}) | 저장소: {fb_status}", flush=True)
@@ -337,25 +356,8 @@ class NorosiBot(commands.Bot):
         )
 
         if not self._commands_synced:
-            try:
-                print("🔄 [명령어 동기화 시작] 길드 즉시 반영(0초 노출) 및 글로벌 슬래시 명령어 동기화 진행 중...", flush=True)
-
-                for guild in self.guilds:
-                    try:
-                        self.tree.copy_global_to(guild=guild)
-                        await self.tree.sync(guild=guild)
-                        print(f"⚡ [{guild.name}] 길드 슬래시 명령어 즉시 반영 완료", flush=True)
-                    except Exception as ge:
-                        print(f"⚠️ [{guild.name}] 길드 즉시 동기화 알림: {ge}", flush=True)
-
-                synced_cmds = await self.tree.sync()
-                self._commands_synced = True
-                print(
-                    f"✅ [동기화 완료] 슬래시 명령어 총 {len(synced_cmds)}개 전역 및 길드 등록 완료!",
-                    flush=True
-                )
-            except Exception as e:
-                print(f"⚠️ 명령어 동기화 오류: {e}", flush=True)
+            self._commands_synced = True
+            asyncio.create_task(self._safe_startup_sync())
 
         await self.update_all_dday_channels()
 
