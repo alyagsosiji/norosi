@@ -610,10 +610,10 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
     {
         "category": "admin",
         "cat_label": "⚙️ 봇 관리 & 배포 알림",
-        "name": "/깃허브알림",
-        "desc": "GitHub 푸시(Push) 및 Actions 배포 결과를 '🚀 업데이트 완료: [커밋 메시지]' 임베드로 실시간 공지",
-        "params": "동작: [설정/가이드/테스트/해제] 알림채널: [#채널] 역할멘션: [@역할(선택)]",
-        "example": "/깃허브알림 동작:설정 알림채널:#공지-업데이트",
+        "name": "/깃허브연동 (또는 /깃허브알림)",
+        "desc": "현재 채널 또는 지정한 채널에 GitHub 푸시 및 Actions 배포 알림을 즉시 연동 및 Webhook 주소 발급",
+        "params": "채널: [#채널(선택, 미입력 시 현재 채널)] 역할멘션: [@역할(선택)] 연동해제: [True/False(선택)]",
+        "example": "/깃허브연동 채널:#공지-업데이트",
         "source": "cogs/logger.py",
     },
     {
