@@ -110,41 +110,123 @@ import yt_dlp
 # ==========================================
 # 1. 환경 변수 (.env) 자동 로더 및 보안 설정
 # ==========================================
+_FOUND_ENV_FILES = []
+_PARSED_ENV_KEYS = []
+
 def _load_env_file():
-    """로컬 및 서버의 .env 파일을 자동으로 읽어 환경변수에 주입합니다."""
+    """
+    로컬, GCP VM, Render, 도커 등 어떤 환경에서도 .env 파일을 자동으로 감지하여
+    빈 환경변수 덮어쓰기, UTF-8 BOM(\ufeff) 정규화, 다중 토큰 별칭을 지원하도록 환경변수에 주입합니다.
+    """
+    global _FOUND_ENV_FILES, _PARSED_ENV_KEYS
+    _FOUND_ENV_FILES = []
+    _PARSED_ENV_KEYS = []
+
+    # 1. python-dotenv 가 있으면 override=True 로 1차 시도
     try:
         from dotenv import load_dotenv
-        load_dotenv(override=False)
+        load_dotenv(override=True)
     except ImportError:
         pass
 
-    search_dirs = [
+    # 2. 광범위한 디렉토리 및 파일 이름 탐색
+    candidate_dirs = [
         os.getcwd(),
         os.path.dirname(os.path.abspath(__file__)),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."),
+        os.path.expanduser("~"),
+        os.path.expanduser("~/norosi"),
+        os.path.expanduser("~/alyagsosiji/norosi"),
+        "/home/ubuntu/norosi",
+        "/home/ubuntu",
+        "/home/antigravity/norosi",
+        "/home/antigravity/alyagsosiji/norosi",
+        "/home/debian/norosi",
+        "/root/norosi"
     ]
-    for d in search_dirs:
-        env_path = os.path.join(d, ".env")
-        if os.path.isfile(env_path):
-            try:
-                with open(env_path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line or line.startswith("#") or "=" not in line:
-                            continue
-                        k, v = line.split("=", 1)
-                        k = k.strip()
-                        v = v.strip().strip("'").strip('"')
-                        if k and k not in os.environ:
-                            os.environ[k] = v
-                break
-            except Exception:
-                pass
+    # 사용자 정의 환경변수 경로가 있다면 최우선 포함
+    custom_env = os.environ.get("ENV_FILE") or os.environ.get("DOTENV_PATH")
+    if custom_env:
+        candidate_dirs.insert(0, os.path.dirname(os.path.abspath(custom_env)))
+
+    candidate_files = [".env", ".env.local", ".env.production", ".env.txt", "deploy/.env"]
+
+    seen_paths = set()
+    for c_dir in candidate_dirs:
+        if not c_dir or not os.path.isdir(c_dir):
+            continue
+        for c_file in candidate_files:
+            env_path = os.path.normpath(os.path.join(c_dir, c_file))
+            if env_path in seen_paths:
+                continue
+            seen_paths.add(env_path)
+
+            if os.path.isfile(env_path):
+                _FOUND_ENV_FILES.append(env_path)
+                try:
+                    # UTF-8 with BOM 자동 제거 (utf-8-sig)
+                    with open(env_path, "r", encoding="utf-8-sig") as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line or line.startswith("#"):
+                                continue
+                            if line.startswith("export "):
+                                line = line[7:].strip()
+                            if "=" not in line:
+                                continue
+                            k, v = line.split("=", 1)
+                            k = k.strip().lstrip("\ufeff")
+                            # 주석 및 따옴표 제거
+                            v = v.strip()
+                            if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+                                v = v[1:-1].strip()
+                            else:
+                                # 인라인 주석 제거 (따옴표 밖의 #)
+                                if " #" in v:
+                                    v = v.split(" #", 1)[0].strip()
+
+                            if k:
+                                _PARSED_ENV_KEYS.append(k)
+                                curr = os.environ.get(k, "")
+                                # 환경변수가 없거나, 빈 문자열이거나, .env에 실질적인 값이 들어있다면 우선 주입
+                                if v or not curr.strip():
+                                    os.environ[k] = v
+                except Exception:
+                    pass
+
+def get_token() -> str:
+    """다양한 환경변수 이름(DISCORD_TOKEN, BOT_TOKEN 등)에서 유효한 디스코드 토큰을 추출합니다."""
+    candidates = ["DISCORD_TOKEN", "BOT_TOKEN", "DISCORD_BOT_TOKEN", "TOKEN", "DISCORD_APP_TOKEN"]
+    for key in candidates:
+        val = os.getenv(key, "").strip().strip('"').strip("'")
+        if val and val != "여기에_디스코드_봇_토큰_입력":
+            return val
+    # 아직도 없으면 _load_env_file() 재실행 후 재확인
+    _load_env_file()
+    for key in candidates:
+        val = os.getenv(key, "").strip().strip('"').strip("'")
+        if val and val != "여기에_디스코드_봇_토큰_입력":
+            return val
+    return ""
+
+def get_env_diagnostics() -> dict:
+    """토큰 미설정 등 문제 발생 시 원인 분석을 위한 상세 진단 정보를 반환합니다."""
+    token = get_token()
+    token_status = "OK" if token else "MISSING"
+    masked_token = f"{token[:4]}...{token[-4:]} (길이: {len(token)})" if token else "None"
+    return {
+        "token_status": token_status,
+        "masked_token": masked_token,
+        "found_env_files": list(set(_FOUND_ENV_FILES)),
+        "parsed_keys": sorted(list(set(_PARSED_ENV_KEYS))),
+        "cwd": os.getcwd(),
+        "script_dir": os.path.dirname(os.path.abspath(__file__)),
+    }
 
 _load_env_file()
 
 # 실제 키 값을 코드에서 완전히 비워둡니다 (.env에서만 로드)
-TOKEN = os.getenv("DISCORD_TOKEN", "").strip().strip('"').strip("'")
+TOKEN = get_token()
 PORT = int(os.getenv("PORT", "10000") or "10000")
 BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID", "1028926437710905375") or "1028926437710905375")
 

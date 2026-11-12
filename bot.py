@@ -175,21 +175,22 @@ class NorosiBot(commands.Bot):
 
         if not self._commands_synced:
             try:
-                print("🔄 [명령어 동기화 시작] 길드 캐시 정리 및 글로벌 단일 슬래시 명령어 동기화 진행 중...", flush=True)
+                print("🔄 [명령어 동기화 시작] 길드 즉시 반영(0초 노출) 및 글로벌 슬래시 명령어 동기화 진행 중...", flush=True)
 
-                # 1. 서버(길드)에 남아있을 수 있는 중복 길드 커맨드 캐시 정리 (명령어가 2개씩 중복 표시되는 디스코드 버그 원천 차단)
+                # 1. 각 길드에 글로벌 명령어를 복사하여 즉시 0초 반영 (디스코드 전역 캐시 1시간 지연 방지)
                 for guild in self.guilds:
                     try:
-                        self.tree.clear_commands(guild=guild)
+                        self.tree.copy_global_to(guild=guild)
                         await self.tree.sync(guild=guild)
+                        print(f"⚡ [{guild.name}] 길드 슬래시 명령어 즉시 반영 완료", flush=True)
                     except Exception as ge:
-                        print(f"⚠️ [{guild.name}] 길드 캐시 정리 알림: {ge}", flush=True)
+                        print(f"⚠️ [{guild.name}] 길드 즉시 동기화 알림: {ge}", flush=True)
 
-                # 2. 전역(글로벌) 슬래시 명령어 단일화 동기화
+                # 2. 전역(글로벌) 슬래시 명령어 동기화 병행
                 synced_cmds = await self.tree.sync()
                 self._commands_synced = True
                 print(
-                    f"✅ [동기화 완료] 글로벌 단일화 슬래시 명령어 총 {len(synced_cmds)}개 정상 등록 완료! (명령어 중복 노출 방지)",
+                    f"✅ [동기화 완료] 슬래시 명령어 총 {len(synced_cmds)}개 전역 및 길드 등록 완료!",
                     flush=True
                 )
                 print(f"📋 등록된 슬래시 명령어 {len(synced_cmds)}종 목록:", flush=True)
@@ -884,22 +885,52 @@ async def main():
 
     await bot.start_web_server()
 
-    if not core.TOKEN or core.TOKEN == "여기에_디스코드_봇_토큰_입력":
-        print("❌ 치명적 오류: DISCORD_TOKEN이 설정되지 않았습니다! .env 파일을 확인하세요.", flush=True)
-        while True:
-            await asyncio.sleep(3600)
+    # 토큰 실시간 확인 (다중 소스, 다중 키, 환경변수 덮어쓰기 지원)
+    active_token = core.get_token()
+    if not active_token:
+        diag = core.get_env_diagnostics()
+        print("❌ [치명적 오류] 유효한 DISCORD_TOKEN을 찾을 수 없습니다!", flush=True)
+        print("------------------------------------------------------------------", flush=True)
+        print(f"📁 현재 작업 디렉토리 (CWD): {diag.get('cwd')}", flush=True)
+        print(f"📁 스크립트 위치: {diag.get('script_dir')}", flush=True)
+        print(f"🔍 감지된 .env 파일 목록: {diag.get('found_env_files') or '없음 (0개 발견)'}", flush=True)
+        print(f"🔑 .env에서 파싱된 키 목록: {diag.get('parsed_keys') or '없음'}", flush=True)
+        print("------------------------------------------------------------------", flush=True)
+        print("💡 [해결 방법 안내]", flush=True)
+        print("1. 프로젝트 루트(/home/ubuntu/norosi 또는 bot.py가 위치한 폴더)에 .env 파일을 생성하세요.", flush=True)
+        print("2. 파일 내용 예시:\n   DISCORD_TOKEN=your_bot_token_here", flush=True)
+        print("3. 또는 GitHub Secrets에 DISCORD_TOKEN을 등록해 두면 배포 시 자동 주입됩니다.", flush=True)
+        print("⏳ 30초마다 .env 파일을 재검색하여 토큰이 등록되면 자동으로 시작합니다...", flush=True)
+        print("==================================================================", flush=True)
 
-    print("🔑 디스코드 게이트웨이 인증 및 연결 시도 중...", flush=True)
+        while not active_token:
+            await asyncio.sleep(30)
+            core._load_env_file()
+            active_token = core.get_token()
+            if active_token:
+                print(f"🎉 새 토큰이 감지되었습니다! (길이: {len(active_token)}) 봇 연결을 시작합니다...", flush=True)
+                break
+
+    core.TOKEN = active_token
+    print(f"🔑 디스코드 게이트웨이 인증 및 연결 시도 중... (토큰 길이: {len(active_token)})", flush=True)
     while True:
         try:
             await bot.start(core.TOKEN)
         except discord.LoginFailure:
             print(
-                "❌ 치명적 오류: 디스코드 토큰이 유효하지 않습니다! "
-                "Discord Developer Portal에서 Reset Token 후 .env 파일의 DISCORD_TOKEN을 갱신하세요.",
+                "❌ 치명적 오류: 디스코드 토큰이 유효하지 않습니다! (LoginFailure)\n"
+                "👉 Discord Developer Portal에서 Reset Token 후 .env 파일의 DISCORD_TOKEN을 갱신하세요.",
                 flush=True
             )
-            await asyncio.sleep(3600)
+            # 토큰이 파일에서 수정될 때까지 30초마다 대기하며 자동 재시도
+            while True:
+                await asyncio.sleep(30)
+                core._load_env_file()
+                new_token = core.get_token()
+                if new_token and new_token != core.TOKEN:
+                    print("🔄 새로운 토큰이 감지되어 연결을 재시도합니다...", flush=True)
+                    core.TOKEN = new_token
+                    break
         except Exception as e:
             print(f"⚠️ 봇 연결 예외 발생 (15초 후 재시도): {e}", flush=True)
             await asyncio.sleep(15)

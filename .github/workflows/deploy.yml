@@ -41,6 +41,7 @@ jobs:
           GCP_HOST: ${{ secrets.GCP_HOST }}
           GCP_USER: ${{ secrets.GCP_USER }}
           GCP_SSH_KEY: ${{ secrets.GCP_SSH_KEY }}
+          DISCORD_TOKEN_SECRET: ${{ secrets.DISCORD_TOKEN }}
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
@@ -107,6 +108,12 @@ jobs:
             ACTIVE_USER="${GCP_USER}"
           fi
 
+          # GitHub Secrets에 DISCORD_TOKEN이 등록된 경우 서버의 .env에 자동 동기화용 base64 페이로드
+          TOKEN_B64=""
+          if [ -n "${DISCORD_TOKEN_SECRET}" ]; then
+            TOKEN_B64=$(printf "%s" "${DISCORD_TOKEN_SECRET}" | base64 -w 0 2>/dev/null || printf "%s" "${DISCORD_TOKEN_SECRET}" | base64)
+          fi
+
           ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15 -i ~/.ssh/gcp_deploy_key \
             "${ACTIVE_USER}@${GCP_HOST}" \
             "bash -c '
@@ -126,6 +133,22 @@ jobs:
               git fetch origin
               CURRENT_BRANCH=\$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo \"master\")
               git reset --hard \"origin/\$CURRENT_BRANCH\" 2>/dev/null || git reset --hard origin/master 2>/dev/null || git reset --hard origin/main
+
+              # GitHub Secrets의 DISCORD_TOKEN이 전달된 경우 .env 자동 동기화
+              if [ -n \"${TOKEN_B64}\" ]; then
+                RESOLVED_TOKEN=\$(echo \"${TOKEN_B64}\" | base64 -d)
+                if [ -n \"\$RESOLVED_TOKEN\" ]; then
+                  if [ ! -f .env ]; then
+                    echo \"DISCORD_TOKEN=\$RESOLVED_TOKEN\" > .env
+                    chmod 600 .env
+                    echo \"🔒 [보안] GitHub Secrets의 DISCORD_TOKEN으로 .env 파일 생성 완료!\"
+                  elif ! grep -q \"DISCORD_TOKEN=\" .env || grep -q \"^DISCORD_TOKEN=\$\" .env; then
+                    echo \"\" >> .env
+                    echo \"DISCORD_TOKEN=\$RESOLVED_TOKEN\" >> .env
+                    echo \"🔒 [보안] .env 파일에 DISCORD_TOKEN 자동 주입 완료!\"
+                  fi
+                fi
+              fi
 
               echo \"==========================================\"
               echo \"📦 [2/4] Python 가상환경 의존성 확인...\"
