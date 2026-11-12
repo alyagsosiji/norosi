@@ -40,8 +40,9 @@ class TerminalStreamTee:
         if not message:
             return
 
-        # 무한 루프 방지: 디스코드 HTTP 전송 자체 에러나 게이트웨이 디버그 메시지는 제외
-        if any(ign in message for ign in ("[TerminalLogger]", "discord.http", "discord.gateway", "discord.webhook")):
+        # 무한 루프 및 레이트 리밋 피드백 방지: 디스코드 HTTP 전송 자체 로그나 게이트웨이 메시지, 레이트 리밋 등은 채널 전송 제외
+        lower_msg = message.lower()
+        if any(ign in lower_msg for ign in ("[terminallogger]", "discord.http", "discord.gateway", "discord.webhook", "rate limit", "rate limited", "429")):
             return
 
         try:
@@ -84,8 +85,8 @@ class DiscordQueueLoggingHandler(logging.Handler):
         self.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S"))
 
     def emit(self, record: logging.LogRecord):
-        # discord.http / gateway 의 일반 INFO 로그는 무한 루프 방지를 위해 제외 (WARNING 이상만 기록)
-        if record.name.startswith(("discord.http", "discord.gateway", "discord.client", "aiohttp.access")) and record.levelno < logging.WARNING:
+        # 무한 루프 및 레이트 리밋 피드백 방지: 디스코드/aiohttp 자체 내부 로그는 터미널에만 출력하고 채널로 재전송하지 않음
+        if record.name.startswith(("discord", "aiohttp")):
             return
         try:
             msg = ANSI_ESCAPE_RE.sub("", self.format(record))
@@ -239,9 +240,9 @@ class NorosiBot(commands.Bot):
         if not self.terminal_log_dispatch_loop.is_running():
             self.terminal_log_dispatch_loop.start()
 
-    @tasks.loop(seconds=2.0)
+    @tasks.loop(seconds=3.0)
     async def terminal_log_dispatch_loop(self):
-        """2초마다 VM 터미널 출력 큐를 확인하여 지정된 디스코드 채널로 안전하게 묶음 전송"""
+        """3초마다 VM 터미널 출력 큐를 확인하여 지정된 디스코드 채널로 안전하게 묶음 전송 (레이트 리밋 방어 탑재)"""
         if not self.terminal_log_queue or self.terminal_log_queue.empty():
             return
 
@@ -260,30 +261,61 @@ class NorosiBot(commands.Bot):
         if not channel:
             return
 
-        buffer = ""
+        # 큐에서 쌓인 모든 로그 텍스트를 청크 단위로 추출
+        chunks = []
         while not self.terminal_log_queue.empty():
             try:
                 chunk = self.terminal_log_queue.get_nowait()
+                chunks.append(chunk)
             except asyncio.QueueEmpty:
                 break
 
-            # 코드블록 깨짐 방지
-            safe_chunk = chunk.replace("```", "'''")
-            if len(buffer) + len(safe_chunk) > 1850:
-                if buffer.strip():
-                    try:
-                        await channel.send(f"```log\n{buffer.strip()}\n```")
-                    except Exception as e:
-                        self._orig_stderr.write(f"[TerminalLogger] 전송 실패: {e}\n")
-                buffer = safe_chunk[:1850]
-            else:
-                buffer += safe_chunk
+        if not chunks:
+            return
 
-        if buffer.strip():
+        # 로그 텍스트 합치기 및 코드블록 특수문자 치환
+        full_text = "".join(chunks).replace("```", "'''")
+
+        # 디스코드 2,000자 제한을 준수하도록 ~1,800자 단위 메시지 리스트로 분할
+        messages_to_send = []
+        buf = ""
+        for line in full_text.splitlines(keepends=True):
+            if len(buf) + len(line) > 1800:
+                if buf.strip():
+                    messages_to_send.append(buf.strip())
+                buf = line
+            else:
+                buf += line
+        if buf.strip():
+            messages_to_send.append(buf.strip())
+
+        if not messages_to_send:
+            return
+
+        # 과도한 출력(폭주) 발생 시 채널 도배 및 429 방지: 최대 2개 메시지만 전송하고 중간은 생략
+        if len(messages_to_send) > 2:
+            dropped_cnt = len(messages_to_send) - 2
+            messages_to_send = [
+                messages_to_send[0],
+                f"... [⚠️ 터미널 출력 폭주 방어: 중간 로그 약 {dropped_cnt * 1800}자 생략됨. 서버 VM 콘솔 참조] ...\n" + messages_to_send[-1]
+            ]
+
+        # 디스코드 채널 레이트 리밋(5초당 5회) 준수를 위해 메시지 간 1.1초 간격 전송
+        for idx, msg in enumerate(messages_to_send):
+            if not msg.strip():
+                continue
             try:
-                await channel.send(f"```log\n{buffer.strip()}\n```")
+                await channel.send(f"```log\n{msg.strip()}\n```")
+            except discord.HTTPException as he:
+                if he.status == 429:
+                    self._orig_stderr.write(f"[TerminalLogger] 채널 전송 429 감지(일시대기): {he}\n")
+                else:
+                    self._orig_stderr.write(f"[TerminalLogger] 전송 HTTP 오류: {he}\n")
             except Exception as e:
                 self._orig_stderr.write(f"[TerminalLogger] 전송 실패: {e}\n")
+
+            if idx < len(messages_to_send) - 1:
+                await asyncio.sleep(1.1)
 
     @terminal_log_dispatch_loop.before_loop
     async def before_terminal_log_dispatch(self):
