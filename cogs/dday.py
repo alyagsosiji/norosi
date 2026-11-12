@@ -1795,12 +1795,6 @@ class DDayCog(commands.Cog):
         )
         await interaction.followup.send(embed=embed)
 
-    @app_commands.command(name="메뉴", description="명령어 입력 없이 버튼 하나로 출석, 뽑기, 보관함, 중복변환, 오늘목표, 음악추천을 실행하는 올인원 리모컨을 엽니다.")
-    async def quick_menu_cmd(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        view = QuickMenuHubView(self.bot, interaction.user, interaction.guild, data)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
 
     @app_commands.command(name="출석체크", description="자정(00:00) 기준 각 서버별로 하루 1회 출석체크를 진행하고 출석 달력 및 개근 보상(100~2000💎)을 받습니다.")
     async def attendance_check_cmd(self, interaction: discord.Interaction):
