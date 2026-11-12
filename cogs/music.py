@@ -895,7 +895,7 @@ class GuildVoicePlaylistPlayer:
         self.loop_mode: str = "all"  # "all"(플리 전체 순환) | "one"(현재 곡 반복) | "off"(1회 완주 후 종료)
         self.volume: float = 0.20    # 기본 음량 20% (0.20)
         self.auto_announce: bool = True  # 다음 곡 자동 전환 시 대시보드 실시간 갱신
-        self.deaf_mode: bool = False  # 기본값: 헤드셋 켜기 (청각 차단 Off, 사용자 오해 방지 및 소리 정상 출력)
+        self.deaf_mode: bool = True  # 기본값: 헤드셋 끄기 (청각 차단 On / deafen)
         self.is_playing_flag: bool = False
         self.is_paused_flag: bool = False
         self._stop_requested: bool = False
@@ -1039,7 +1039,7 @@ class GuildVoicePlaylistPlayer:
         if not tracks:
             return False, "플레이리스트에 수록된 곡이 없습니다! 먼저 곡을 추가해 주세요."
 
-        ok, err_msg = await self.ensure_connected(voice_channel)
+        ok, err_msg = await self.ensure_connected(voice_channel, self_deaf=True)
         if not ok:
             return False, err_msg
 
