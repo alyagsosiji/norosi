@@ -10,6 +10,7 @@ import calendar
 import threading
 from collections import OrderedDict, defaultdict, deque
 from typing import Optional, List, Dict, Any, Union
+import inspect
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -338,12 +339,44 @@ async def safe_send_response(interaction: discord.Interaction, embed=None, conte
         print(f"⚠️ [safe_send_response 예외] {e}", flush=True)
 
 
+SAFE_VIEW_REGISTRY: dict[str, type["SafeView"]] = {}
+
+
 class SafeView(discord.ui.View):
-    """'애플리케이션 응답 없음' 먹통 방지 커스텀 UI View 래퍼"""
+    """'애플리케이션 응답 없음' 먹통 방지 및 봇 재시작/코드 반영 후에도 버튼이 영구 유지되는 커스텀 UI View 래퍼"""
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        SAFE_VIEW_REGISTRY[cls.__name__] = cls
+
+        # 데코레이터(@discord.ui.button, @discord.ui.select 등)로 등록된 자식 요소들에
+        # 봇 재시작 후에도 유실되지 않는 고유한 결정론적(Deterministic) custom_id 자동 부여
+        for name, raw in cls.__view_children_items__.items():
+            if hasattr(raw, "__discord_ui_model_kwargs__"):
+                kwargs_dict = raw.__discord_ui_model_kwargs__
+                if kwargs_dict.get("custom_id") in (None, discord.utils.MISSING) and kwargs_dict.get("url") is None and kwargs_dict.get("sku_id") is None:
+                    kwargs_dict["custom_id"] = f"norosi:{cls.__name__}:{name}"
+
     def __init__(self, *args, **kwargs):
+        # 60초~120초 단기 확인창(ResetConfirmView 등)을 제외한 모든 메뉴/대시보드 뷰는
+        # 봇 재시작이나 장기 방치 후에도 먹통되지 않도록 timeout=None(영구 지속) 적용
+        t = kwargs.get("timeout", 180.0)
+        if t is not None and t > 120:
+            kwargs["timeout"] = None
+        elif "timeout" not in kwargs:
+            kwargs["timeout"] = None
+
         super().__init__(*args, **kwargs)
         self.message: Optional[discord.Message] = None
         self._last_interaction: Optional[discord.Interaction] = None
+
+    def add_item(self, item: discord.ui.Item):
+        # 동적으로 add_item 된 요소에도 재시작 시 식별 가능한 deterministic custom_id 자동 부여
+        if hasattr(item, "_provided_custom_id") and not item._provided_custom_id:
+            lbl = getattr(item, "label", "") or getattr(item, "placeholder", "") or str(len(self.children))
+            item.custom_id = f"norosi:{self.__class__.__name__}:{lbl}"
+            item._provided_custom_id = True
+        return super().add_item(item)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """버튼/드롭다운 조작 시 뷰가 붙어 있는 메시지와 최근 인터랙션을 기억 (타임아웃 시 자동 비활성화용)"""
@@ -364,7 +397,9 @@ class SafeView(discord.ui.View):
             pass
 
     async def on_timeout(self):
-        """View 제한 시간 만료 시 버튼/셀렉트 자동 비활성화(disabled) 처리로 깔끔한 UX 보장"""
+        """View 제한 시간 만료 시 버튼/셀렉트 자동 비활성화(disabled) 처리 (단기 확인창 전용)"""
+        if self.timeout is None:
+            return
         for child in self.children:
             if hasattr(child, "disabled"):
                 child.disabled = True
@@ -380,6 +415,47 @@ class SafeView(discord.ui.View):
                 await self._last_interaction.edit_original_response(view=self)
         except Exception:
             pass
+
+
+def reconstruct_safe_view(view_cls_or_name: Union[type[SafeView], str], interaction: discord.Interaction) -> Optional[SafeView]:
+    """
+    봇 재시작 또는 코드 업데이트로 메모리에서 유실된 SafeView를 인터랙션 컨텍스트로부터 지능적으로 복원합니다.
+    """
+    if isinstance(view_cls_or_name, str):
+        view_cls = SAFE_VIEW_REGISTRY.get(view_cls_or_name)
+    else:
+        view_cls = view_cls_or_name
+
+    if not view_cls or not issubclass(view_cls, SafeView):
+        return None
+
+    try:
+        sig = inspect.signature(view_cls.__init__)
+        kwargs = {}
+        for name, p in sig.parameters.items():
+            if name == "self":
+                continue
+            if name in ("bot", "bot_instance"):
+                kwargs[name] = interaction.client
+            elif name in ("user", "member", "viewer", "target_user", "owner"):
+                kwargs[name] = interaction.user
+            elif name in ("guild",):
+                kwargs[name] = interaction.guild
+            elif name in ("data",):
+                kwargs[name] = get_cached_data()
+            elif name in ("player",):
+                import cogs.music
+                kwargs[name] = cogs.music.get_voice_player(interaction.client, interaction.guild)
+            elif p.default is not inspect.Parameter.empty:
+                kwargs[name] = p.default
+
+        inst = view_cls(**kwargs)
+        if interaction.message:
+            inst.message = interaction.message
+        return inst
+    except Exception as e:
+        print(f"⚠️ [SafeView 복원 예외] {getattr(view_cls, '__name__', str(view_cls))}: {e}", flush=True)
+        return None
 
 
 class SafeModal(discord.ui.Modal):

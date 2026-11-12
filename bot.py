@@ -343,6 +343,255 @@ class NorosiBot(commands.Bot):
         except Exception as e:
             print(f"❌ [에러 메시지 송신 예외]: {e}", flush=True)
 
+    async def on_interaction(self, interaction: discord.Interaction):
+        """
+        컴포넌트(버튼, 드롭다운 메뉴) 상호작용 발생 시
+        코드 반영이나 봇 재시작으로 인해 ViewStore에서 유실된 이전 버튼을 지능적으로 복구·실행합니다.
+        """
+        if interaction.type == discord.InteractionType.component:
+            # discord.py 내부 _view_store에서 이미 정상 처리된 경우(현재 세션 뷰)는 패스
+            if interaction.response.is_done():
+                return
+            await self.handle_persistent_button_fallback(interaction)
+
+    async def handle_persistent_button_fallback(self, interaction: discord.Interaction):
+        """
+        봇 재시작 또는 코드 업데이트로 인해 discord.py의 메모리 ViewStore에서 유실된
+        모든 이전 버튼 및 UI 상호작용을 지능적으로 복구·실행하여 '먹통 현상'을 영구 차단합니다.
+        (단, 수정/삭제된 명령어의 버튼은 정중한 안내 메시지로 전환)
+        """
+        custom_id = str(interaction.data.get("custom_id", "") or "").strip()
+        msg = interaction.message
+
+        # 1. 반응역할 버튼 (rr_btn_{role_id})
+        if custom_id.startswith("rr_btn_"):
+            try:
+                from cogs.roles import PersistentRoleButton
+                role_id = int(custom_id.replace("rr_btn_", "").strip())
+                btn = PersistentRoleButton(role_id=role_id, label="역할")
+                await btn.callback(interaction)
+                return
+            except Exception as e:
+                print(f"⚠️ [반응역할 폴백 예외] {e}", flush=True)
+
+        # 2. 결정론적 커스텀 ID 패턴: norosi:{ViewClassName}:{item_name}
+        if custom_id.startswith("norosi:"):
+            parts = custom_id.split(":", 2)
+            if len(parts) >= 3:
+                view_name = parts[1]
+                item_name = parts[2]
+                view_cls = core.SAFE_VIEW_REGISTRY.get(view_name)
+                if view_cls:
+                    try:
+                        view = core.reconstruct_safe_view(view_cls, interaction)
+                        if view:
+                            target_item = None
+                            for child in view.children:
+                                if getattr(child, "custom_id", None) == custom_id:
+                                    target_item = child
+                                    break
+                            if not target_item:
+                                for child in view.children:
+                                    cb_name = getattr(getattr(child, "callback", None), "__name__", "")
+                                    if cb_name == item_name:
+                                        target_item = child
+                                        break
+                                    if getattr(child, "label", None) == item_name:
+                                        target_item = child
+                                        break
+                            if target_item and hasattr(target_item, "callback"):
+                                await target_item.callback(interaction)
+                                if msg:
+                                    try:
+                                        self.add_view(view, message_id=msg.id)
+                                    except Exception:
+                                        pass
+                                return
+                    except Exception as e:
+                        print(f"⚠️ [norosi 뷰 복구 예외] {view_name}.{item_name}: {e}", flush=True)
+
+        # 3. 코드 반영 전 구버전 메시지(랜덤 hex custom_id) 지능형 매칭 및 복구
+        if msg:
+            embed_text = ""
+            if msg.embeds:
+                emb = msg.embeds[0]
+                embed_text = f"{emb.title or ''} {emb.description or ''}"
+
+            clicked_label = ""
+            clicked_emoji = ""
+            component_type = interaction.data.get("component_type", 2)
+            for row in getattr(msg, "components", []):
+                for child in getattr(row, "children", []):
+                    if child.custom_id == custom_id:
+                        clicked_label = getattr(child, "label", "") or ""
+                        clicked_emoji = getattr(child, "emoji", "") or ""
+                        break
+
+            # 3-1. 음성채널 자동재생 대시보드 (리모컨)
+            if "순차 자동재생 대시보드" in embed_text or "실시간 스트리밍 중" in embed_text or "실시간 리모컨" in embed_text:
+                try:
+                    import cogs.music
+                    player = cogs.music.get_voice_player(self, interaction.guild)
+                    view = cogs.music.VoicePlayerControlView(player)
+                    view.message = msg
+                    target_btn = None
+
+                    cl = clicked_label.lower()
+                    if "이전" in cl:
+                        target_btn = view.prev_track_btn
+                    elif "일시정지" in cl or "재생" in cl:
+                        target_btn = view.pause_resume_btn
+                    elif "다음" in cl:
+                        target_btn = view.next_track_btn
+                    elif "순환" in cl or "반복" in cl:
+                        target_btn = view.loop_btn
+                    elif "정지" in cl or "퇴장" in cl:
+                        target_btn = view.stop_btn
+                    elif "-15%" in cl:
+                        target_btn = view.vol_down_btn
+                    elif "+15%" in cl:
+                        target_btn = view.vol_up_btn
+                    elif "셔플" in cl:
+                        target_btn = view.shuffle_queue_btn
+                    elif "취침" in cl or "타이머" in cl:
+                        target_btn = view.sleep_timer_btn
+                    elif "담기" in cl or "스크랩" in cl:
+                        target_btn = view.grab_current_track_btn
+                    elif "헤드셋" in cl:
+                        target_btn = view.toggle_deaf_btn
+                    elif "재연결" in cl or "새로고침" in cl:
+                        target_btn = view.refresh_audio_btn
+                    elif "배속" in cl:
+                        target_btn = view.speed_toggle_btn
+                    elif component_type in (3, 5, 6, 7, 8):
+                        target_btn = view.jump_select
+
+                    if target_btn and hasattr(target_btn, "callback"):
+                        await target_btn.callback(interaction)
+                        try:
+                            self.add_view(view, message_id=msg.id)
+                        except Exception:
+                            pass
+                        return
+                except Exception as e:
+                    print(f"⚠️ [음성 플레이어 리모컨 구버전 복구 예외] {e}", flush=True)
+
+            # 3-2. 올인원 마스터 대시보드
+            if "마스터 대시보드" in embed_text or "norosi 통합 제어" in embed_text:
+                try:
+                    from cogs.dashboard import MasterDashboardView
+                    data = core.get_cached_data()
+                    view = MasterDashboardView(self, interaction.user, interaction.guild, data)
+                    view.message = msg
+
+                    if component_type in (3, 5, 6, 7, 8):
+                        for child in view.children:
+                            if isinstance(child, discord.ui.Select):
+                                await child.callback(interaction)
+                                try:
+                                    self.add_view(view, message_id=msg.id)
+                                except Exception:
+                                    pass
+                                return
+                    elif "새로고침" in clicked_label:
+                        await view._on_refresh_clicked(interaction)
+                        try:
+                            self.add_view(view, message_id=msg.id)
+                        except Exception:
+                            pass
+                        return
+                    else:
+                        for child in view.children:
+                            if getattr(child, "label", None) == clicked_label:
+                                await child.callback(interaction)
+                                try:
+                                    self.add_view(view, message_id=msg.id)
+                                except Exception:
+                                    pass
+                                return
+                except Exception as e:
+                    print(f"⚠️ [마스터 대시보드 구버전 복구 예외] {e}", flush=True)
+
+            # 3-3. 플레이리스트 보관함 / 스튜디오
+            if "플레이리스트 보관함" in embed_text or "플레이리스트 스튜디오" in embed_text:
+                try:
+                    from cogs.music import PlaylistStudioView
+                    data = core.get_cached_data()
+                    view = PlaylistStudioView(interaction.user, interaction.user, data)
+                    view.message = msg
+                    for child in view.children:
+                        if getattr(child, "label", None) == clicked_label:
+                            await child.callback(interaction)
+                            try:
+                                self.add_view(view, message_id=msg.id)
+                            except Exception:
+                                pass
+                            return
+                except Exception as e:
+                    print(f"⚠️ [플레이리스트 스튜디오 구버전 복구 예외] {e}", flush=True)
+
+            # 3-4. 도움말 카테고리
+            if "도움말" in embed_text or "명령어 가이드" in embed_text:
+                try:
+                    from cogs.help import HelpCategoryView
+                    view = HelpCategoryView(self)
+                    view.message = msg
+                    if component_type in (3, 5, 6, 7, 8):
+                        for child in view.children:
+                            if isinstance(child, discord.ui.Select):
+                                await child.callback(interaction)
+                                try:
+                                    self.add_view(view, message_id=msg.id)
+                                except Exception:
+                                    pass
+                                return
+                except Exception as e:
+                    print(f"⚠️ [도움말 구버전 복구 예외] {e}", flush=True)
+
+            # 3-5. 서버 종합 통계
+            if "서버 종합 통계" in embed_text or "서버 통계" in embed_text:
+                try:
+                    from cogs.stats import ServerStatsDashboardView
+                    data = core.get_cached_data()
+                    view = ServerStatsDashboardView(interaction.guild, data)
+                    view.message = msg
+                    for child in view.children:
+                        if getattr(child, "label", None) == clicked_label:
+                            await child.callback(interaction)
+                            try:
+                                self.add_view(view, message_id=msg.id)
+                            except Exception:
+                                pass
+                            return
+                except Exception as e:
+                    print(f"⚠️ [통계 대시보드 구버전 복구 예외] {e}", flush=True)
+
+            # 3-6. 출석체크 및 오늘의 운세
+            if "출석체크" in clicked_label or "운세" in clicked_label:
+                try:
+                    from cogs.dday import AttendanceQuickActionView
+                    view = AttendanceQuickActionView(self, interaction.user)
+                    view.message = msg
+                    for child in view.children:
+                        if getattr(child, "label", None) == clicked_label:
+                            await child.callback(interaction)
+                            return
+                except Exception as e:
+                    print(f"⚠️ [출석체크 버튼 복구 예외] {e}", flush=True)
+
+        # 4. 수정/삭제된 명령어의 버튼이거나 도저히 복구할 수 없는 경우 (사용자가 요청한 예외 케이스)
+        # Discord의 붉은색 '이 상호작용에 실패했습니다' 대신 친절한 안내 메시지 송출
+        if not interaction.response.is_done():
+            try:
+                await core.safe_send_response(
+                    interaction,
+                    "💡 **봇 업데이트 안내:** 이전 버전에서 생성된 패널이거나 변경된 기능의 버튼입니다.\n"
+                    "최신 버전으로 정상 이용하시려면 해당 명령어를 다시 실행해 주세요! ✨",
+                    ephemeral=True
+                )
+            except Exception:
+                pass
+
     async def resolve_channel(self, channel_id):
         """캐시 미스 시에도 채널을 안전하게 가져오는 헬퍼 (get_channel -> fetch_channel 폴백)"""
         if not channel_id:
