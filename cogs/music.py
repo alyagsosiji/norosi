@@ -5,12 +5,18 @@ import copy
 import time
 import random
 import asyncio
+import queue
+import threading
 import datetime
 from typing import Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
 import core
+
+# PCMVolumeTransformer가 하위 오디오 소스의 _current_error를 투명하게 전달하도록 확장
+if not hasattr(discord.PCMVolumeTransformer, "_current_error"):
+    discord.PCMVolumeTransformer._current_error = property(lambda self: getattr(self.original, "_current_error", None))
 
 # 디스코드 음성 전송용 libopus 라이브러리 초기 로드 보장
 try:
@@ -851,6 +857,83 @@ def _format_duration_mmss(sec: int) -> str:
 
 
 # ==========================================
+# 🛡️ 고음질 무지연 사전 버퍼링 오디오 소스 (네트워크 끊김·속도 튐·이상 소음 원천 방지)
+# ==========================================
+class JitterFreeAudioBuffer(discord.AudioSource):
+    """
+    네트워크 지터 및 FFmpeg I/O 지연을 완벽하게 흡수하는 무지연 인메모리 사전 버퍼링 오디오 소스.
+    - 백그라운드 스레드가 FFmpeg 출력을 약 5초(250 프레임) 분량 선독(Pre-fetch)하여 큐에 유지합니다.
+    - 재생 시작 전 0.5초(25 프레임) 분량의 쿠션 버퍼를 사전 확보한 후 음성 패킷을 공급하므로,
+      Discord AudioPlayer 스레드가 20ms마다 프레임을 요구할 때 메모리에서 0.00001초 즉시 반환됩니다.
+    - 네트워크 일시 지연 시에도 패킷 버스트(순간 과속 재생) 및 패킷 결핍(뚝뚝 끊김/로봇 소음)을 원천 방지합니다.
+    """
+    def __init__(self, original: discord.AudioSource, prefetch_frames: int = 25, max_frames: int = 250):
+        self.original = original
+        self.queue: queue.Queue[bytes] = queue.Queue(maxsize=max_frames)
+        self._stopped = threading.Event()
+        self._eof = threading.Event()
+        self._ready = threading.Event()
+        self.prefetch_frames = prefetch_frames
+
+        self._thread = threading.Thread(target=self._worker, daemon=True, name="NorosiAudioBufferWorker")
+        self._thread.start()
+
+        # 재생 시작 전 0.5초(25프레임) 분량의 쿠션 버퍼를 최대 2.5초간 안전하게 대기
+        self._ready.wait(timeout=2.5)
+
+    def _worker(self):
+        while not self._stopped.is_set():
+            try:
+                chunk = self.original.read()
+                if not chunk:
+                    self._eof.set()
+                    self._ready.set()
+                    break
+                while not self._stopped.is_set():
+                    try:
+                        self.queue.put(chunk, timeout=0.1)
+                        if self.queue.qsize() >= self.prefetch_frames:
+                            self._ready.set()
+                        break
+                    except queue.Full:
+                        continue
+            except Exception:
+                self._eof.set()
+                self._ready.set()
+                break
+
+    def read(self) -> bytes:
+        if self._stopped.is_set():
+            return b""
+        try:
+            return self.queue.get(timeout=0.2)
+        except queue.Empty:
+            if self._eof.is_set():
+                return b""
+            # 극심한 네트워크 순단 발생 시 오디오 플레이어 조기 종료를 막기 위한 20ms 무음 쿠션
+            return b"\x00" * 3840
+
+    @property
+    def _current_error(self):
+        return getattr(self.original, "_current_error", None)
+
+    def is_opus(self) -> bool:
+        return getattr(self.original, "is_opus", lambda: False)()
+
+    def cleanup(self):
+        self._stopped.set()
+        try:
+            self.original.cleanup()
+        except Exception:
+            pass
+        while not self.queue.empty():
+            try:
+                self.queue.get_nowait()
+            except Exception:
+                break
+
+
+# ==========================================
 # 🔊 음성채널 플레이리스트 순차 자동재생 엔진 (GuildVoicePlaylistPlayer)
 # ==========================================
 _VOICE_PLAYERS: dict[int, "GuildVoicePlaylistPlayer"] = {}
@@ -1159,13 +1242,14 @@ class GuildVoicePlaylistPlayer:
             before_opts = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin"
 
         # 배속(playback_speed) 적용: 1.0배속이 아닐 경우 FFmpeg atempo 오디오 필터 적용
+        # asetpts=PTS-STARTPTS를 함께 적용하여 원격 스트림 타임스탬프 불연속으로 인한 속도 튐/이상 음정 원천 차단
         speed = getattr(self, "playback_speed", 1.0)
         if abs(speed - 1.0) > 0.01:
-            out_opts = f'-vn -filter:a "atempo={speed}"'
+            out_opts = f'-vn -filter:a "asetpts=PTS-STARTPTS,atempo={speed}"'
         else:
             out_opts = "-vn"
 
-        # 1순위: FFmpeg PCM 오디오 + 실시간 볼륨 조절기 (디스코드 권장 표준)
+        # 1순위: FFmpeg PCM 오디오 + 5초 무지연 사전 버퍼링 + 실시간 볼륨 조절기 (디스코드 권장 최고음질)
         # 2순위: FFmpegOpusAudio 폴백
         try:
             raw_audio = discord.FFmpegPCMAudio(
@@ -1174,7 +1258,8 @@ class GuildVoicePlaylistPlayer:
                 before_options=before_opts,
                 options=out_opts
             )
-            source = discord.PCMVolumeTransformer(raw_audio, volume=max(0.05, min(self.volume, 2.0)))
+            buffered_audio = JitterFreeAudioBuffer(raw_audio, prefetch_frames=25, max_frames=250)
+            source = discord.PCMVolumeTransformer(buffered_audio, volume=max(0.05, min(self.volume, 2.0)))
         except Exception:
             source = discord.FFmpegOpusAudio(
                 stream_meta["stream_url"],

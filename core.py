@@ -4120,11 +4120,6 @@ def resolve_voice_stream_sync(track: dict) -> tuple[dict | None, str | None]:
         "socket_timeout": 12,
         "default_search": "ytsearch",
         "logger": _QuietYdlLogger(),
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["android", "ios", "mweb"]
-            }
-        }
     }
 
     last_err = None
