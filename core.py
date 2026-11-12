@@ -2514,6 +2514,8 @@ def save_pulled_cards_to_user(guild_id: int, user_id: int, drawn_cards: list):
                 user_cards[cid_str]["count"] = user_cards[cid_str].get("count", 1) + 1
                 user_cards[cid_str]["last_obtained_at"] = now_str
                 user_cards[cid_str].setdefault("locked", False)
+                user_cards[cid_str].setdefault("level", 1)
+                user_cards[cid_str].setdefault("awakened", False)
                 if c.get("assetbundleName"):
                     user_cards[cid_str]["assetbundleName"] = c["assetbundleName"]
             else:
@@ -2535,6 +2537,8 @@ def save_pulled_cards_to_user(guild_id: int, user_id: int, drawn_cards: list):
                     "obtained_at": now_str,
                     "last_obtained_at": now_str,
                     "count": 1,
+                    "level": 1,
+                    "awakened": False,
                     "locked": False
                 }
 

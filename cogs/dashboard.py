@@ -1,18 +1,13 @@
 """
 norosi Bot - 올인원 마스터 대시보드 (All-in-One Master Dashboard) Cog
 - 7대 핵심 기능 영역(홈, 가챠, 일정, 음악, 역할·관리, 게임, 통계)을 탭(Tab)으로 자유롭게 오가는 슈퍼 컨트롤 타워
-- 명령어 타이핑 없이 드롭다운 및 대화형 버튼 조작으로 69개 모든 기능을 100% 원클릭 조작
-- 철저한 관리자 권한 검사(서버 관리자/역할 관리자/봇 소유자) 및 비인가 접근 사전 방어
-- 봇의 필수 권한(Manage Roles 등) 미부여 시 사전 안내 및 상호작용 오류(Interaction Failed) 원천 차단
-- 슬래시 커맨드: /대시보드, /메뉴
-- 일반 명령어: !대시보드, !메뉴
+- 모든 상호작용(모달/뷰/슬래시 콜백) 시그니처 불일치 버그 완벽 해결본
 """
 
 import asyncio
 import datetime
 import random
-import time
-from typing import Optional, List, Dict, Any
+from typing import Optional
 
 import discord
 from discord import app_commands
@@ -85,14 +80,13 @@ class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 등록"
         }
         await asyncio.to_thread(core.save_data, data)
 
-        # 봇의 채널 업데이트 스케줄러 동기화
         if hasattr(self.dashboard_view.bot, "update_all_dday_channels"):
             try:
                 await self.dashboard_view.bot.update_all_dday_channels()
             except Exception:
                 pass
 
-        diff, diff_str = core.get_dday_info(target_val)
+        _, diff_str = core.get_dday_info(target_val)
         await interaction.followup.send(
             f"🎉 **새 D-Day 일정이 성공적으로 등록되었습니다!**\n"
             f"• **일정:** {emoji_val} **`{name_val}`**\n"
@@ -159,6 +153,35 @@ class DashboardPomodoroModal(core.SafeModal, title="⏳ 뽀모도로 집중모�
             )
         else:
             await core.safe_send_response(interaction, "❌ 집중모드 모듈을 찾을 수 없습니다. `/집중모드` 명령어를 이용해 주세요.", ephemeral=True)
+
+
+# ==========================================
+# 👻 대시보드 전용 모달: 비활성 유저 기준일수 입력
+# ==========================================
+class DashboardInactiveAuditModal(core.SafeModal, title="👻 비활성(잠수) 유저 스캔"):
+    days_input = discord.ui.TextInput(
+        label="미활동 기준 일수 (7 / 14 / 30 / 60 / 90)",
+        placeholder="예: 30 (최근 30일 이상 무활동 멤버 스캔)",
+        default="30",
+        required=True,
+        max_length=3
+    )
+
+    def __init__(self, bot: commands.Bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        raw = self.days_input.value.strip()
+        days_val = int(raw) if raw.isdigit() else 30
+        days_val = max(1, min(365, days_val))
+
+        logger_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "inactive_users_cmd")), None)
+        if logger_cog:
+            choice_obj = app_commands.Choice(name=f"⏳ 최근 {days_val}일 이상 미활동", value=days_val)
+            await logger_cog.inactive_users_cmd.callback(logger_cog, interaction, 기준일수=choice_obj)
+        else:
+            await core.safe_send_response(interaction, "❌ 감사 로그 모듈을 찾을 수 없습니다. `/비활성유저조회` 명령어를 이용해 주세요.", ephemeral=True)
 
 
 # ==========================================
@@ -249,7 +272,14 @@ class MasterDashboardView(core.SafeView):
         self.current_tab = initial_tab
         self.refresh_components()
 
+    def _find_cog_with_attr(self, attr_name: str):
+        for cog in self.bot.cogs.values():
+            if hasattr(cog, attr_name):
+                return cog
+        return None
+
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
         if interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
@@ -260,12 +290,6 @@ class MasterDashboardView(core.SafeView):
         return True
 
     async def check_admin_permission(self, interaction: discord.Interaction, action_name: str = "이 작업", require_roles_perm: bool = False) -> bool:
-        """
-        관리자 권한 엄격 검사 헬퍼:
-        1) 서버 채널 여부 검사
-        2) 사용자 관리 권한(Administrator, Manage Roles, Manage Guild) 또는 봇 소유자 여부 검사
-        3) 봇의 필수 권한(Manage Roles 등) 여부 검사
-        """
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
             await core.safe_send_response(
                 interaction,
@@ -274,7 +298,6 @@ class MasterDashboardView(core.SafeView):
             )
             return False
 
-        # 봇 소유자 특권 허용
         is_owner = await self.bot.is_bot_owner_user(interaction.user)
         user_perms = interaction.user.guild_permissions
         is_admin = is_owner or user_perms.administrator or user_perms.manage_guild or (require_roles_perm and user_perms.manage_roles)
@@ -288,7 +311,6 @@ class MasterDashboardView(core.SafeView):
             )
             return False
 
-        # 봇 자신의 권한 확인 (역할 배정 작업인 경우)
         if require_roles_perm and interaction.guild.me:
             bot_perms = interaction.guild.me.guild_permissions
             if not bot_perms.administrator and not bot_perms.manage_roles:
@@ -303,12 +325,9 @@ class MasterDashboardView(core.SafeView):
         return True
 
     def refresh_components(self):
-        """현재 선택된 탭에 맞춰 상단 드롭다운 및 하단 기능 버튼들을 실시간 재구성"""
         self.clear_items()
-        # Row 0: 탭 네비게이션 드롭다운
         self.add_item(DashboardTabSelect(self.current_tab))
 
-        # Row 1, 2, 3: 탭별 전용 인터랙티브 버튼 렌더링
         if self.current_tab == "home":
             self._setup_home_buttons()
         elif self.current_tab == "gacha":
@@ -324,14 +343,10 @@ class MasterDashboardView(core.SafeView):
         elif self.current_tab == "stats":
             self._setup_stats_buttons()
 
-        # 공통 새로고침 버튼 (우측 하단 배치)
         btn_refresh = discord.ui.Button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=2)
         btn_refresh.callback = self._on_refresh_clicked
         self.add_item(btn_refresh)
 
-    # ----------------------------------------------------
-    # 탭별 버튼 세팅
-    # ----------------------------------------------------
     def _setup_home_buttons(self):
         btn_att = discord.ui.Button(label="📅 즉시 출석체크", style=discord.ButtonStyle.primary, row=1)
         btn_att.callback = self._on_attendance_clicked
@@ -354,11 +369,11 @@ class MasterDashboardView(core.SafeView):
         self.add_item(btn_music)
 
     def _setup_gacha_buttons(self):
-        btn_p10 = discord.ui.Button(label="🌈 10회 뽑기 (2,000💎)", style=discord.ButtonStyle.success, row=1)
+        btn_p10 = discord.ui.Button(label="🌈 10회 뽑기", style=discord.ButtonStyle.success, row=1)
         btn_p10.callback = self._on_pull_10_clicked
         self.add_item(btn_p10)
 
-        btn_p1 = discord.ui.Button(label="🎲 1회 뽑기 (200💎)", style=discord.ButtonStyle.success, row=1)
+        btn_p1 = discord.ui.Button(label="🎲 1회 뽑기", style=discord.ButtonStyle.success, row=1)
         btn_p1.callback = self._on_pull_1_clicked
         self.add_item(btn_p1)
 
@@ -566,13 +581,6 @@ class MasterDashboardView(core.SafeView):
         embed.set_footer(text="💡 상단 드롭다운에서 가챠, 일정, 음악, 역할, 게임, 통계 대시보드로 이동할 수 있습니다.")
         return embed
 
-    def _find_cog_with_attr(self, attr_name: str):
-        """Cog 클래스 이름에 상관없이 특정 커맨드 핸들러를 보유한 Cog 인스턴스를 안전하게 반환"""
-        for cog in self.bot.cogs.values():
-            if hasattr(cog, attr_name):
-                return cog
-        return None
-
     def build_gacha_embed(self) -> discord.Embed:
         g_key = str(self.guild.id if self.guild else 0)
         u_key = str(self.user.id)
@@ -584,7 +592,6 @@ class MasterDashboardView(core.SafeView):
         total_cards_count = sum(c.get("count", 1) for c in user_cards.values())
         dup_excess = sum(max(0, c.get("count", 1) - 1) for c in user_cards.values() if not c.get("locked", False))
 
-        # rarity_type 키 정확히 매핑 (기존 "rarity" 오타 수정)
         four_stars = sum(1 for c in user_cards.values() if c.get("rarity_type") == "rarity_4")
         birthdays = sum(1 for c in user_cards.values() if c.get("rarity_type") == "rarity_birthday")
 
@@ -617,7 +624,7 @@ class MasterDashboardView(core.SafeView):
         for name, info in list(ddays_dict.items())[:5]:
             d_val = info.get("date")
             try:
-                diff, d_txt = core.get_dday_info(d_val)
+                _, d_txt = core.get_dday_info(d_val)
                 lines.append(f"• **{name}** (`{d_val}`): **`{d_txt}`**")
             except Exception:
                 pass
@@ -651,7 +658,6 @@ class MasterDashboardView(core.SafeView):
         return embed
 
     def build_music_embed(self) -> discord.Embed:
-        # user_profiles[u_key]["playlists"] 에서 정확히 조회하도록 수정
         u_key = str(self.user.id)
         profile = core.ensure_user_profile(self.data, u_key, self.user.display_name)
         u_pls = core.ensure_user_playlists(profile, self.user.display_name)
@@ -714,7 +720,7 @@ class MasterDashboardView(core.SafeView):
                 "• **✨ 추천 기능:**\n"
                 "  - **`[🚀 사진 스타일 역할버튼 제작]`** : 제목/본문/버튼이름/이모지를 자유롭게 넣어 깔끔한 버튼 발행\n"
                 "  - **`[🎭 반응역할 종합 스튜디오]`** : 단계별 빌더 및 기존 공지글 바인딩\n"
-                "  - **`[📢 스마트 공지 발송]`** : 공지 채널에 알림 임베드 즉시 전송\n"
+                "  - **`[📢 스마트 공지 발송]`** : 공지 채널에 알림 임베드 미리보기 및 즉시 전송\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             ),
             color=discord.Color.from_rgb(88, 101, 242),
@@ -786,7 +792,6 @@ class MasterDashboardView(core.SafeView):
         except Exception as e:
             await core.safe_send_response(interaction, f"⚠️ 새로고침 중 오류 발생: {e}", ephemeral=True)
 
-    # 홈 / 가챠 관련
     async def _on_attendance_clicked(self, interaction: discord.Interaction):
         try:
             await core.safe_defer(interaction)
@@ -870,7 +875,11 @@ class MasterDashboardView(core.SafeView):
                 cname = cinfo.get("char_name", "미상")
                 cprefix = cinfo.get("prefix", "")
                 rlabel = cinfo.get("rarity_label", "★1")
-                deck_cards_lines.append(f"**슬롯 {slot_idx} (리더)**: {rlabel} [{cprefix}] **{cname}** (`{cid}`)" if slot_idx == 1 else f"**슬롯 {slot_idx}**: {rlabel} [{cprefix}] {cname} (`{cid}`)")
+                deck_cards_lines.append(
+                    f"**슬롯 {slot_idx} (리더)**: {rlabel} [{cprefix}] **{cname}** (`{cid}`)"
+                    if slot_idx == 1 else
+                    f"**슬롯 {slot_idx}**: {rlabel} [{cprefix}] {cname} (`{cid}`)"
+                )
 
             if not deck_cards_lines:
                 desc = "현재 편성된 덱이 없습니다.\n채팅창에 **`/덱편성`** 명령어를 입력하여 보유한 카드 중 원하는 5장을 선택해 덱을 꾸며보세요!"
@@ -974,7 +983,7 @@ class MasterDashboardView(core.SafeView):
             data = await asyncio.to_thread(core.load_data)
             profile = core.ensure_user_profile(data, interaction.user.id, interaction.user.display_name)
             partner_id = profile.get("partner_id")
-            partner_member = interaction.guild.get_member(partner_id) if (interaction.guild and partner_id) else None
+            partner_member = interaction.guild.get_member(int(partner_id)) if (interaction.guild and partner_id) else None
             view = dday.PartnerStudioView(interaction.user, partner_member, profile)
             await interaction.followup.send(embed=view.build_embed(), view=view)
         except Exception as e:
@@ -1000,7 +1009,6 @@ class MasterDashboardView(core.SafeView):
             await core.safe_send_response(interaction, f"❌ 플레이리스트 스튜디오 오류: {e}", ephemeral=True)
 
     async def _on_music_now_clicked(self, interaction: discord.Interaction):
-        """MusicRecommendView 인자 불일치 버그 해결: 곡을 먼저 추천받은 후 표준 빌더 호출"""
         try:
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
@@ -1033,7 +1041,7 @@ class MasterDashboardView(core.SafeView):
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 오디오 테스트 실행 중 오류: {e}", ephemeral=True)
 
-    # 관리자 관련 (철저한 권한 검사 적용)
+    # 관리자 관련 (logger.AnnouncementPreviewView 및 DashboardInactiveAuditModal 정확히 연결)
     async def _on_quick_role_btn_clicked(self, interaction: discord.Interaction):
         try:
             if not await self.check_admin_permission(interaction, action_name="사진 스타일 역할버튼 제작", require_roles_perm=True):
@@ -1055,15 +1063,32 @@ class MasterDashboardView(core.SafeView):
         try:
             if not await self.check_admin_permission(interaction, action_name="스마트 공지 발송", require_roles_perm=False):
                 return
-            await interaction.response.send_modal(logger.AnnouncementModal(interaction.channel))
+            await core.safe_defer(interaction, ephemeral=True)
+            preview_view = logger.AnnouncementPreviewView(
+                author=interaction.user,
+                guild=interaction.guild,
+                target_channel=interaction.channel,
+                title="서버 공식 소식 및 안내사항",
+                content=(
+                    "안녕하세요, 서버 멤버 여러분!\n\n"
+                    "하단의 **`[✏️ 내용/제목 수정]`** 버튼을 눌러 본문을 작성하거나,\n"
+                    "**`[📋 추천 공지 템플릿 불러오기]`** 드롭다운에서 템플릿을 선택해 보세요!"
+                )
+            )
+            await interaction.followup.send(
+                content=preview_view.build_preview_content(),
+                embed=preview_view.build_embed(),
+                view=preview_view,
+                ephemeral=True
+            )
         except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 공지 발송 모달 열기 실패: {e}", ephemeral=True)
+            await core.safe_send_response(interaction, f"❌ 공지 스튜디오 열기 실패: {e}", ephemeral=True)
 
     async def _on_inactive_audit_clicked(self, interaction: discord.Interaction):
         try:
             if not await self.check_admin_permission(interaction, action_name="비활성 유저 감사", require_roles_perm=False):
                 return
-            await interaction.response.send_modal(logger.InactiveAuditModal(self.bot))
+            await interaction.response.send_modal(DashboardInactiveAuditModal(self.bot))
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 비활성 유저 감사 모달 열기 실패: {e}", ephemeral=True)
 
@@ -1199,7 +1224,8 @@ class Dashboard(commands.Cog, name="대시보드"):
             data=data,
             initial_tab=init_tab
         )
-        await interaction.followup.send(embed=view.build_current_embed(), view=view)
+        msg = await interaction.followup.send(embed=view.build_current_embed(), view=view, wait=True)
+        view.message = msg
 
     @app_commands.command(name="메뉴", description="명령어 타이핑 없이 버튼 하나로 모든 봇 기능을 1초 만에 실행하는 슈퍼 대시보드 리모컨을 엽니다.")
     async def slash_menu(self, interaction: discord.Interaction):
@@ -1212,11 +1238,11 @@ class Dashboard(commands.Cog, name="대시보드"):
             data=data,
             initial_tab="home"
         )
-        await interaction.followup.send(embed=view.build_current_embed(), view=view)
+        msg = await interaction.followup.send(embed=view.build_current_embed(), view=view, wait=True)
+        view.message = msg
 
     @commands.command(name="대시보드", aliases=["dashboard", "메뉴", "menu", "리모컨", "컨트롤타워"])
     async def prefix_dashboard(self, ctx: commands.Context):
-        """[명령어] 채팅창에서 !대시보드 또는 !메뉴 입력 시 올인원 마스터 대시보드 호출"""
         data = await asyncio.to_thread(core.load_data)
         view = MasterDashboardView(
             bot=self.bot,
@@ -1225,7 +1251,8 @@ class Dashboard(commands.Cog, name="대시보드"):
             data=data,
             initial_tab="home"
         )
-        await ctx.send(embed=view.build_current_embed(), view=view)
+        msg = await ctx.send(embed=view.build_current_embed(), view=view)
+        view.message = msg
 
 
 async def setup(bot: commands.Bot):
