@@ -34,7 +34,7 @@ fi
 # ------------------------------------------------------------------------------
 echo "📦 [3/6] 필수 시스템 패키지(Python3, venv, pip, git, ffmpeg)를 설치합니다..."
 sudo apt update -y
-sudo apt install -y python3 python3-pip python3-venv git curl ffmpeg
+sudo apt install -y python3 python3-pip python3-venv git curl ffmpeg fonts-nanum
 
 # ------------------------------------------------------------------------------
 # 3. Python 가상환경(venv) 구성 및 패키지 설치

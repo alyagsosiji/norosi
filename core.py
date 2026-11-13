@@ -5,6 +5,7 @@ import copy
 import json
 import time
 import random
+import colorsys
 import asyncio
 import datetime
 import calendar
@@ -292,6 +293,10 @@ _IMAGE_CACHE_LOCK = threading.Lock()
 _THUMB_BYTES_CACHE = OrderedDict()
 _THUMB_CACHE_LOCK = threading.Lock()
 _ASSET_URL_CACHE = {}
+_FONT_CACHE = {}
+_FONT_CACHE_LOCK = threading.Lock()
+_RAINBOW_FRAME_CACHE = {}
+_THREAD_LOCAL_HTTP = threading.local()
 MAX_IMAGE_CACHE_SIZE = 80
 MAX_THUMB_CACHE_SIZE = 240
 
@@ -1737,18 +1742,47 @@ def get_random_proseka_quote(preferred_oshi: str = None, preferred_card: dict = 
     return result
 
 
+def _get_http_session():
+    """스레드 로컬 HTTP 세션을 반환해 CDN TLS 연결을 안전하게 재사용합니다."""
+    if not hasattr(requests, "Session"):
+        return requests
+    sess = getattr(_THREAD_LOCAL_HTTP, "session", None)
+    if sess is None:
+        sess = requests.Session()
+        _THREAD_LOCAL_HTTP.session = sess
+    return sess
+
+
 def can_card_awaken(card: dict) -> bool:
     if not card:
         return False
     r_type = card.get("rarity_type")
     if r_type:
         return r_type in ("rarity_3", "rarity_4")
+    r_label = str(card.get("rarity_label") or "")
+    l_label = str(card.get("limit_label") or "")
+    if "생일" in r_label or "생일" in l_label:
+        return False
     cid = card.get("id") or card.get("card_id")
-    if cid:
-        c_obj = next((c for c in PROSEKA_KR_CARDS if c.get("id") == cid), None)
+    if cid is not None:
+        cid_str = str(cid)
+        c_obj = next((c for c in PROSEKA_KR_CARDS if str(c.get("id")) == cid_str), None)
         if c_obj:
             return c_obj.get("rarity_type") in ("rarity_3", "rarity_4")
     return False
+
+
+def _resolve_card_asset_name(card: dict) -> str | None:
+    asset_name = card.get("assetbundleName")
+    if asset_name:
+        return asset_name
+    cid = card.get("id") or card.get("card_id")
+    if cid is not None:
+        cid_str = str(cid)
+        for c in PROSEKA_KR_CARDS:
+            if str(c.get("id")) == cid_str and c.get("assetbundleName"):
+                return c["assetbundleName"]
+    return None
 
 
 def fetch_proseka_card_image_bytes(card: dict, mode: str = "auto"):
@@ -1760,13 +1794,7 @@ def fetch_proseka_card_image_bytes(card: dict, mode: str = "auto"):
     if not card:
         return None, None
 
-    asset_name = card.get("assetbundleName")
-    if not asset_name:
-        cid = card.get("id") or card.get("card_id")
-        for c in PROSEKA_KR_CARDS:
-            if c.get("id") == cid and c.get("assetbundleName"):
-                asset_name = c["assetbundleName"]
-                break
+    asset_name = _resolve_card_asset_name(card)
     if not asset_name:
         return None, None
 
@@ -1799,6 +1827,7 @@ def fetch_proseka_card_image_bytes(card: dict, mode: str = "auto"):
             f"https://storage.sekai.best/sekai-jp-assets/character/member/{asset_name}/card_{sfx}.png",
             f"https://storage.sekai.best/sekai-kr-assets/character/member/{asset_name}/card_{sfx}.png",
             f"https://storage.sekai.best/sekai-jp-assets/thumbnail/chara/{asset_name}_{sfx}.webp",
+            f"https://storage.sekai.best/sekai-kr-assets/thumbnail/chara/{asset_name}_{sfx}.webp",
         ):
             if u not in seen_urls:
                 seen_urls.add(u)
@@ -1809,10 +1838,11 @@ def fetch_proseka_card_image_bytes(card: dict, mode: str = "auto"):
         "Referer": "https://sekai.best/",
         "Origin": "https://sekai.best"
     }
+    sess = _get_http_session()
 
     for url, used_sfx in candidate_pairs:
         try:
-            res = requests.get(url, headers=headers, timeout=2.5)
+            res = sess.get(url, headers=headers, timeout=4.5)
             if res.status_code == 200 and len(res.content) > 1000:
                 out_bytes = res.content
                 ext = "png" if url.endswith(".png") else "webp"
@@ -1834,7 +1864,8 @@ def fetch_proseka_card_image_bytes(card: dict, mode: str = "auto"):
                         # 손상되었거나 이미지가 아닌 응답은 다음 후보 URL로 넘김
                         continue
 
-                filename = f"card_{card.get('id', 0)}_{used_sfx}.{ext}"
+                safe_cid = card.get("id") or card.get("card_id") or 0
+                filename = f"card_{safe_cid}_{used_sfx}.{ext}"
                 with _IMAGE_CACHE_LOCK:
                     _ASSET_URL_CACHE[cache_key] = url
                     _ASSET_URL_CACHE[f"{asset_name}:{used_sfx}"] = url
@@ -1853,15 +1884,7 @@ def get_proseka_card_image_url(card: dict, mode: str = "auto") -> str:
     if not card:
         return "https://storage.sekai.best/sekai-jp-assets/character/member/res017_no001/card_normal.webp"
 
-    asset_name = card.get("assetbundleName")
-    if not asset_name:
-        cid = card.get("id") or card.get("card_id")
-        for c in PROSEKA_KR_CARDS:
-            if c.get("id") == cid and c.get("assetbundleName"):
-                asset_name = c["assetbundleName"]
-                break
-    if not asset_name:
-        asset_name = "res017_no001"
+    asset_name = _resolve_card_asset_name(card) or "res017_no001"
 
     target_sfx = "after_training" if (mode != "normal" and can_card_awaken(card)) else "normal"
     with _IMAGE_CACHE_LOCK:
@@ -1871,52 +1894,151 @@ def get_proseka_card_image_url(card: dict, mode: str = "auto") -> str:
     return f"https://storage.sekai.best/sekai-jp-assets/character/member/{asset_name}/card_{target_sfx}.webp"
 
 
+def _sanitize_grid_text(text: str) -> str:
+    """Pillow 트루타입 폰트에서 두부 박스(□)가 생기지 않도록 컬러 이모지 등을 안전한 문자/공백으로 정제합니다."""
+    if not text:
+        return ""
+    replacements = {
+        "🌟": "★",
+        "🎊": "★",
+        "🎂": "♥",
+        "🎀": "♥",
+        "✨": "★",
+        "💫": "★",
+        "⭐": "★",
+        "🔮": "",
+        "🧪": "",
+        "💎": "",
+        "🎯": "",
+    }
+    for src, dst in replacements.items():
+        text = text.replace(src, dst)
+    out = []
+    for ch in text:
+        cp = ord(ch)
+        if cp in (0xFE0E, 0xFE0F, 0x200D):
+            continue
+        if cp > 0xFFFF:
+            continue
+        if 0x2600 <= cp <= 0x27BF and ch not in ("★", "☆", "♥", "♡", "♦", "♠", "♣"):
+            continue
+        out.append(ch)
+    return re.sub(r" {2,}", " ", "".join(out)).strip()
+
+
 def _get_grid_font(size: int, bold: bool = True):
-    """한글/영문/숫자를 선명하게 지원하는 시스템 트루타입 폰트를 반환합니다."""
+    """한글/영문/숫자/★ 기호를 선명하게 지원하는 번들 및 시스템 트루타입 폰트를 반환합니다."""
     if ImageFont is None:
         return None
+    cache_key = (size, bool(bold))
+    with _FONT_CACHE_LOCK:
+        cached = _FONT_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    bundled_bold = os.path.join(base_dir, "assets", "fonts", "NanumGothic-Bold.ttf")
+    bundled_reg = os.path.join(base_dir, "assets", "fonts", "NanumGothic-Regular.ttf")
+
     font_candidates = (
         [
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-            "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "C:\\Windows\\Fonts\\malgunbd.ttf",
-            "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+            (bundled_bold, 0),
+            (bundled_reg, 0),
+            ("/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf", 0),
+            ("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", 1),
+            ("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", 0),
+            ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 1),
+            ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 0),
+            ("C:\\Windows\\Fonts\\malgunbd.ttf", 0),
+            ("/System/Library/Fonts/AppleSDGothicNeo.ttc", 0),
+            ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 0),
         ]
         if bold
         else [
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
-            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "C:\\Windows\\Fonts\\malgun.ttf",
-            "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+            (bundled_reg, 0),
+            (bundled_bold, 0),
+            ("/usr/share/fonts/truetype/nanum/NanumGothic.ttf", 0),
+            ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 1),
+            ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 0),
+            ("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", 1),
+            ("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", 0),
+            ("C:\\Windows\\Fonts\\malgun.ttf", 0),
+            ("/System/Library/Fonts/AppleSDGothicNeo.ttc", 0),
+            ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 0),
         ]
     )
-    for fp in font_candidates:
+    loaded = None
+    for fp, idx in font_candidates:
         if os.path.exists(fp):
             try:
-                return ImageFont.truetype(fp, size)
+                loaded = ImageFont.truetype(fp, size, index=idx)
+                break
             except Exception:
-                continue
-    try:
-        return ImageFont.load_default()
-    except Exception:
-        return None
+                try:
+                    loaded = ImageFont.truetype(fp, size)
+                    break
+                except Exception:
+                    continue
+    if loaded is None:
+        try:
+            loaded = ImageFont.load_default()
+        except Exception:
+            loaded = None
+
+    if loaded is not None:
+        with _FONT_CACHE_LOCK:
+            _FONT_CACHE[cache_key] = loaded
+    return loaded
+
+
+def _get_rainbow_tile_frame(tile_w: int, tile_h: int, radius: int = 12, border_w: int = 5):
+    """★4 카드 슬롯용 부드러운 안티앨리어싱 무지개 그라데이션 테두리 RGBA 이미지를 생성·캐시합니다."""
+    key = (tile_w, tile_h, radius, border_w)
+    with _FONT_CACHE_LOCK:
+        cached = _RAINBOW_FRAME_CACHE.get(key)
+        if cached is not None:
+            return cached
+
+    # 대각선 무지개 그라데이션 RGBA 픽셀 생성
+    buf = bytearray(tile_w * tile_h * 4)
+    pos = 0
+    for py in range(tile_h):
+        ny = (py / max(1, tile_h - 1)) * 0.35
+        for px in range(tile_w):
+            hue = ((px / max(1, tile_w - 1)) * 0.65 + ny) % 1.0
+            r, g, b = colorsys.hsv_to_rgb(hue, 0.88, 1.0)
+            buf[pos] = int(r * 255)
+            buf[pos + 1] = int(g * 255)
+            buf[pos + 2] = int(b * 255)
+            buf[pos + 3] = 255
+            pos += 4
+
+    rainbow_img = Image.frombytes("RGBA", (tile_w, tile_h), bytes(buf))
+
+    # 2x 슈퍼샘플링으로 둥근 테두리 링 마스크 생성 (매끄러운 곡선)
+    scale = 2
+    mw, mh = tile_w * scale, tile_h * scale
+    mask_hi = Image.new("L", (mw, mh), 0)
+    mdraw = ImageDraw.Draw(mask_hi)
+    mdraw.rounded_rectangle([0, 0, mw - 1, mh - 1], radius=radius * scale, fill=255)
+    bw = border_w * scale
+    inner_r = max(2, (radius - border_w) * scale)
+    mdraw.rounded_rectangle([bw, bw, mw - 1 - bw, mh - 1 - bw], radius=inner_r, fill=0)
+    mask = mask_hi.resize((tile_w, tile_h), Image.Resampling.LANCZOS)
+
+    frame = Image.new("RGBA", (tile_w, tile_h), (0, 0, 0, 0))
+    frame.paste(rainbow_img, (0, 0), mask)
+
+    with _FONT_CACHE_LOCK:
+        _RAINBOW_FRAME_CACHE[key] = frame
+    return frame
 
 
 def fetch_proseka_card_thumbnail_bytes(card: dict) -> bytes | None:
     """10연차 5x2 격자 시트용 경량 캐릭터 썸네일 바이트를 LRU 캐시 기반으로 빠르게 가져옵니다."""
     if not card:
         return None
-    asset_name = card.get("assetbundleName")
-    if not asset_name:
-        cid = card.get("id")
-        for c in PROSEKA_KR_CARDS:
-            if c.get("id") == cid and c.get("assetbundleName"):
-                asset_name = c["assetbundleName"]
-                break
+    asset_name = _resolve_card_asset_name(card)
     if not asset_name:
         return None
 
@@ -1935,11 +2057,19 @@ def fetch_proseka_card_thumbnail_bytes(card: dict) -> bytes | None:
         f"https://storage.sekai.best/sekai-jp-assets/thumbnail/chara/{asset_name}_normal.webp",
         f"https://storage.sekai.best/sekai-kr-assets/thumbnail/chara/{asset_name}_normal.webp",
         f"https://storage.sekai.best/sekai-jp-assets/thumbnail/chara/{asset_name}_after_training.webp",
+        f"https://storage.sekai.best/sekai-kr-assets/thumbnail/chara/{asset_name}_after_training.webp",
     ]
+    sess = _get_http_session()
     for url in urls:
         try:
-            res = requests.get(url, headers=headers, timeout=2.0)
+            res = sess.get(url, headers=headers, timeout=4.0)
             if res.status_code == 200 and len(res.content) > 500:
+                if Image is not None:
+                    try:
+                        with Image.open(io.BytesIO(res.content)) as im:
+                            im.load()
+                    except Exception:
+                        continue
                 with _THUMB_CACHE_LOCK:
                     _THUMB_BYTES_CACHE[cache_key] = res.content
                     if len(_THUMB_BYTES_CACHE) > MAX_THUMB_CACHE_SIZE:
@@ -2001,10 +2131,12 @@ def build_10pull_grid_image_bytes(
 
     r4_cnt = sum(1 for c in cards if c.get("star_num", 0) >= 4)
     r3_cnt = sum(1 for c in cards if c.get("star_num", 0) == 3)
-    left_title = f"PROSEKA {len(cards)}연차 결과  |  {b_cfg.get('short_name', '가챠')}"
-    if header_tag:
-        left_title = f"{header_tag}  |  {left_title}"
-    right_stats = f"★4/생일: {r4_cnt}장   ★3: {r3_cnt}장"
+    banner_short = _sanitize_grid_text(b_cfg.get("short_name", "가챠"))
+    clean_tag = _sanitize_grid_text(header_tag)
+    left_title = _sanitize_grid_text(f"PROSEKA {len(cards)}연차 결과  |  {banner_short}")
+    if clean_tag:
+        left_title = _sanitize_grid_text(f"{clean_tag}  |  {left_title}")
+    right_stats = _sanitize_grid_text(f"★4/생일: {r4_cnt}장   ★3: {r3_cnt}장")
     right_w = 0
     if font_sub:
         bbox = draw.textbbox((0, 0), right_stats, font=font_sub)
@@ -2019,6 +2151,8 @@ def build_10pull_grid_image_bytes(
             left_title = left_title[:-4] + "..."
     draw.text((pad_x, 11), left_title, fill=(242, 246, 255, 255), font=font_header)
 
+    rainbow_frame = None
+
     for idx, c in enumerate(cards):
         col = idx % cols
         row = idx // cols
@@ -2027,11 +2161,12 @@ def build_10pull_grid_image_bytes(
 
         s_num = int(c.get("star_num", 2))
         r_type = c.get("rarity_type", "")
+        is_rainbow_4 = (s_num >= 4 and r_type != "rarity_birthday")
         if r_type == "rarity_birthday":
-            outer_col, inner_col, label_bg = (255, 130, 185, 255), (255, 210, 230, 255), (65, 28, 52, 255)
-            star_str = "BD"
-        elif s_num >= 4:
-            outer_col, inner_col, label_bg = (255, 215, 0, 255), (0, 229, 255, 255), (56, 38, 78, 255)
+            outer_col, inner_col, label_bg = (255, 118, 185, 255), (255, 212, 235, 255), (74, 26, 56, 255)
+            star_str = "♥BD"
+        elif is_rainbow_4:
+            outer_col, inner_col, label_bg = (190, 145, 255, 255), (235, 245, 255, 210), (46, 32, 74, 255)
             star_str = "★4"
         elif s_num == 3:
             outer_col, inner_col, label_bg = (242, 184, 48, 255), (255, 232, 140, 255), (50, 42, 26, 255)
@@ -2043,14 +2178,22 @@ def build_10pull_grid_image_bytes(
             outer_col, inner_col, label_bg = (110, 120, 148, 255), (150, 160, 185, 255), (32, 36, 54, 255)
             star_str = "★1"
 
-        # 카드 슬롯 배경 & 테두리
-        draw.rounded_rectangle([x, y, x + tile_w, y + tile_h], radius=12, fill=(25, 30, 52, 255), outline=outer_col, width=4)
-        if s_num >= 4:
-            draw.rounded_rectangle([x + 4, y + 4, x + tile_w - 4, y + tile_h - 4], radius=9, outline=inner_col, width=2)
+        # 카드 슬롯 배경 & 테두리 (★4는 무지개 그라데이션 테두리 적용)
+        if is_rainbow_4:
+            if rainbow_frame is None:
+                rainbow_frame = _get_rainbow_tile_frame(tile_w, tile_h, radius=12, border_w=5)
+            draw.rounded_rectangle([x + 3, y + 3, x + tile_w - 3, y + tile_h - 3], radius=10, fill=(25, 30, 52, 255))
+            canvas.paste(rainbow_frame, (x, y), rainbow_frame)
+            draw.rounded_rectangle([x + 5, y + 5, x + tile_w - 5, y + tile_h - 5], radius=8, outline=inner_col, width=1)
+        else:
+            draw.rounded_rectangle([x, y, x + tile_w, y + tile_h], radius=12, fill=(25, 30, 52, 255), outline=outer_col, width=4)
+            if r_type == "rarity_birthday":
+                draw.rounded_rectangle([x + 4, y + 4, x + tile_w - 4, y + tile_h - 4], radius=9, outline=inner_col, width=2)
 
         art_size = 176
         art_x = x + (tile_w - art_size) // 2
         art_y = y + 8
+        draw.rounded_rectangle([art_x, art_y, art_x + art_size, art_y + art_size], radius=8, fill=label_bg)
 
         raw_img = thumb_bytes_list[idx] if idx < len(thumb_bytes_list) else None
         pasted = False
@@ -2071,29 +2214,54 @@ def build_10pull_grid_image_bytes(
             except Exception:
                 pasted = False
 
-        if not pasted:
-            draw.rounded_rectangle([art_x, art_y, art_x + art_size, art_y + art_size], radius=8, fill=label_bg)
-            draw.text((art_x + 56, art_y + 72), star_str, fill=(255, 255, 255, 255), font=font_header)
+        if not pasted and font_header:
+            sb = draw.textbbox((0, 0), star_str, font=font_header)
+            sw = sb[2] - sb[0]
+            sh = sb[3] - sb[1]
+            draw.text(
+                (art_x + (art_size - sw) // 2, art_y + (art_size - sh) // 2 - 4),
+                star_str,
+                fill=(255, 255, 255, 255),
+                font=font_header,
+            )
 
-        # 하단 라벨 바
+        # 하단 라벨 바 (글자 수 & 픽셀 너비 맞춤)
         bar_y = y + tile_h - 32
-        draw.rectangle([x + 4, bar_y, x + tile_w - 4, y + tile_h - 4], fill=label_bg)
-        short_name = str(c.get("char_name", ""))
+        bar_h = 28
+        draw.rectangle([x + 5, bar_y, x + tile_w - 5, y + tile_h - 5], fill=label_bg)
+        short_name = _sanitize_grid_text(str(c.get("char_name", "")))
         if len(short_name) > 7:
             short_name = short_name.split()[-1]
-        caption = f"{star_str} {short_name}"[:13]
+        caption = _sanitize_grid_text(f"{star_str} {short_name}")
         if font_name:
+            max_cap_w = tile_w - 14
+            while len(caption) > 4:
+                cbbox = draw.textbbox((0, 0), caption, font=font_name)
+                if (cbbox[2] - cbbox[0]) <= max_cap_w:
+                    break
+                caption = caption[:-2] + "…"
             cbbox = draw.textbbox((0, 0), caption, font=font_name)
             cw = cbbox[2] - cbbox[0]
-            draw.text((x + max(6, (tile_w - cw) // 2), bar_y + 6), caption, fill=(255, 255, 255, 255), font=font_name)
+            ch = cbbox[3] - cbbox[1]
+            tx = x + max(6, (tile_w - cw) // 2)
+            ty = bar_y + max(2, (bar_h - ch) // 2 - cbbox[1] // 2)
+            draw.text((tx, ty), caption, fill=(255, 255, 255, 255), font=font_name)
 
         # NEW! / PICKUP 배지
         if c.get("is_new"):
-            draw.rounded_rectangle([x + 8, y + 8, x + 58, y + 28], radius=6, fill=(255, 72, 92, 240))
-            draw.text((x + 15, y + 10), "NEW!", fill=(255, 255, 255, 255), font=font_badge)
+            bx1, by1, bx2, by2 = x + 8, y + 8, x + 60, y + 28
+            draw.rounded_rectangle([bx1, by1, bx2, by2], radius=6, fill=(255, 72, 92, 240))
+            if font_badge:
+                nb = draw.textbbox((0, 0), "NEW!", font=font_badge)
+                nw, nh = nb[2] - nb[0], nb[3] - nb[1]
+                draw.text((bx1 + ((bx2 - bx1) - nw) // 2, by1 + ((by2 - by1) - nh) // 2 - 1), "NEW!", fill=(255, 255, 255, 255), font=font_badge)
         if c.get("is_pickup"):
-            draw.rounded_rectangle([x + tile_w - 68, y + 8, x + tile_w - 8, y + 28], radius=6, fill=(176, 56, 232, 240))
-            draw.text((x + tile_w - 61, y + 10), "PICKUP", fill=(255, 255, 255, 255), font=font_badge)
+            bx1, by1, bx2, by2 = x + tile_w - 72, y + 8, x + tile_w - 8, y + 28
+            draw.rounded_rectangle([bx1, by1, bx2, by2], radius=6, fill=(176, 56, 232, 240))
+            if font_badge:
+                pb = draw.textbbox((0, 0), "PICKUP", font=font_badge)
+                pw, ph = pb[2] - pb[0], pb[3] - pb[1]
+                draw.text((bx1 + ((bx2 - bx1) - pw) // 2, by1 + ((by2 - by1) - ph) // 2 - 1), "PICKUP", fill=(255, 255, 255, 255), font=font_badge)
 
     out = io.BytesIO()
     canvas.convert("RGB").save(out, format="PNG", optimize=True)

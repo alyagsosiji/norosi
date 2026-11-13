@@ -272,13 +272,15 @@ async def send_gacha_pull_result(
         if cos:
             desc_lines.append(f"• 👗 **3D 의상 획득:** `[{cos['name']}]` (의상실 착용 / ✦MR.2 어나더 컬러 해금)")
 
+        is_bday_card = (c.get("rarity_type") == "rarity_birthday")
         card_embed = discord.Embed(
             title=card_title[:256],
             description="\n".join(desc_lines),
-            color=discord.Color.from_rgb(255, 105, 180) if c.get("rarity_type") == "rarity_birthday" else discord.Color.from_rgb(255, 215, 0),
+            color=discord.Color.from_rgb(255, 105, 180) if is_bday_card else discord.Color.from_rgb(138, 128, 255),
             timestamp=datetime.datetime.now(core.KST)
         )
-        card_embed.set_footer(text=f"프로세카 ★4 공식 일러스트  •  {c.get('char_name', '')} [{c.get('prefix', '')}]")
+        footer_kind = "🎂 생일" if is_bday_card else "★4"
+        card_embed.set_footer(text=f"프로세카 {footer_kind} 공식 일러스트  •  {c.get('char_name', '')} [{c.get('prefix', '')}]")
 
         fallback_url = core.get_proseka_card_image_url(c, "auto")
         if img_bytes and filename and len(file_specs) < MAX_FILES and (total_bytes + len(img_bytes) <= MAX_TOTAL_BYTES):
@@ -1893,10 +1895,12 @@ class ProsekaRatePaginationView(core.SafeView):
                     f"**{idx}.** {pickup_badge}`[{c['limit_label']}]` **{c['rarity_label']} [{c['prefix']}] {c['char_name']}**\n"
                     f"   └ 🏷️ {unit_str} · {c['attr']} · 🎲 개별 확률: **`{c['prob']:.4f}%`** (ID: `{c['id']}`)"
                 )
-            embed.add_field(
-                name=f"📖 캐릭터 목록 (페이지 {self.current_page + 1} / {self.max_page + 1})",
-                value="\n\n".join(lines),
-                inline=False
+            core.add_chunked_embed_fields(
+                embed,
+                f"📖 캐릭터 목록 (페이지 {self.current_page + 1} / {self.max_page + 1})",
+                lines,
+                separator="\n\n",
+                max_chars=950,
             )
 
         embed.set_footer(text="하단 드롭다운에서 필터 또는 배너(일반/페스티벌/생일)별 확률을 실시간 전환할 수 있습니다.")
@@ -2168,7 +2172,7 @@ class MyInventoryView(core.SafeView):
     async def illust_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         cid_val = select.values[0]
         if cid_val == "NONE":
-            await core.safe_defer(interaction)
+            await core.safe_send_response(interaction, "ℹ️ 현재 페이지에서 감상할 카드를 선택해주세요.", ephemeral=True)
             return
         selected_card = next((c for c in self.cards if str(c.get("id")) == cid_val), None)
         if not selected_card:
@@ -2498,7 +2502,7 @@ class CardPokedexView(core.SafeView):
     async def preview_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         cid_val = select.values[0]
         if cid_val == "NONE":
-            await core.safe_defer(interaction)
+            await core.safe_send_response(interaction, "ℹ️ 현재 페이지에서 미리볼 카드를 선택해주세요.", ephemeral=True)
             return
         pool = self.get_filtered_items()
         target_card = next((c for c in pool if str(c.get("id")) == cid_val), None)
