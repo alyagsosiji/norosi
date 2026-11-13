@@ -1,6 +1,6 @@
 """
 norosi Bot - 올인원 마스터 대시보드 (All-in-One Master Dashboard) Cog
-- 7대 핵심 기능 영역(홈, 가챠, 일정, 음악, 역할·관리, 게임, 통계)을 탭(Tab)으로 자유롭게 오가는 슈퍼 컨트롤 타워
+- 9대 핵심 기능 영역(홈, 프로세카 가챠, 원신, 스타레일, 일정, 음악, 역할·관리, 게임, 통계)을 탭(Tab)으로 자유롭게 오가는 슈퍼 컨트롤 타워
 - 모든 상호작용(모달/뷰/슬래시 콜백) 시그니처 불일치 버그 완벽 해결본
 """
 
@@ -14,7 +14,9 @@ from discord import app_commands
 from discord.ext import commands
 
 import core
-from cogs import dday, gacha, music, roles, stats, logger
+import genshin_core
+import hsr_core
+from cogs import dday, gacha, genshin, hsr, music, roles, stats, logger
 
 
 # ==========================================
@@ -193,16 +195,30 @@ class DashboardTabSelect(discord.ui.Select):
             discord.SelectOption(
                 label="🧭 종합 관제 대시보드",
                 value="home",
-                description="내 출석, 크리스탈, 오시, D-Day, 오늘 목표 한눈에 보기",
+                description="내 출석, 크리스탈, 멀티가챠 요약, D-Day, 오늘 목표 한눈에 보기",
                 emoji="🧭",
                 default=(current_tab == "home")
             ),
             discord.SelectOption(
-                label="🎮 카드·뽑기·덱 대시보드",
+                label="🎮 프로세카 카드·뽑기·덱",
                 value="gacha",
-                description="10회/1회 가챠, 보관함, 중복 변환, 덱 편성, 카드 도감",
+                description="프로세카 10회/1회 가챠, 보관함, 중복 변환, 덱 편성, 도감",
                 emoji="🎮",
                 default=(current_tab == "gacha")
+            ),
+            discord.SelectOption(
+                label="🌠 원신 기원·보관함·상점",
+                value="genshin",
+                description="원신 10회/1회 기원, 운명의궤도, 보관함, 티바트 도감, 페이몬 상점, 파티",
+                emoji="🌠",
+                default=(current_tab == "genshin")
+            ),
+            discord.SelectOption(
+                label="🚄 스타레일 워프·상점·편대",
+                value="hsr",
+                description="스타레일 10회/1회 워프, 상시300, 보관함, 아카이브, 별빛·헤르타 상점, 편대",
+                emoji="🚄",
+                default=(current_tab == "hsr")
             ),
             discord.SelectOption(
                 label="📅 D-Day·생일·집중 대시보드",
@@ -252,6 +268,7 @@ class DashboardTabSelect(discord.ui.Select):
         view: "MasterDashboardView" = self.view
         selected_tab = self.values[0]
         view.current_tab = selected_tab
+        view.data = await asyncio.to_thread(core.load_data)
         view.refresh_components()
         embed = view.build_current_embed()
         await interaction.response.edit_message(embed=embed, view=view)
@@ -263,16 +280,25 @@ class DashboardTabSelect(discord.ui.Select):
 class MasterDashboardView(core.SafeView):
     """norosi 봇의 모든 기능을 통합 제어하는 슈퍼 대시보드 뷰"""
 
-    def __init__(self, bot: commands.Bot, user: discord.Member, guild: Optional[discord.Guild], data: dict, initial_tab: str = "home"):
+    def __init__(
+        self,
+        bot: Optional[commands.Bot] = None,
+        user: Optional[discord.abc.User] = None,
+        guild: Optional[discord.Guild] = None,
+        data: Optional[dict] = None,
+        initial_tab: str = "home",
+    ):
         super().__init__(timeout=600)
         self.bot = bot
         self.user = user
         self.guild = guild
-        self.data = data
+        self.data = data if data is not None else core.get_cached_data()
         self.current_tab = initial_tab
         self.refresh_components()
 
     def _find_cog_with_attr(self, attr_name: str):
+        if not self.bot:
+            return None
         for cog in self.bot.cogs.values():
             if hasattr(cog, attr_name):
                 return cog
@@ -280,6 +306,13 @@ class MasterDashboardView(core.SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         await super().interaction_check(interaction)
+        if self.bot is None:
+            self.bot = interaction.client
+        if self.guild is None:
+            self.guild = interaction.guild
+        if self.user is None:
+            self.user = interaction.user
+            return True
         if interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
@@ -298,7 +331,8 @@ class MasterDashboardView(core.SafeView):
             )
             return False
 
-        is_owner = await self.bot.is_bot_owner_user(interaction.user)
+        bot_ref = self.bot or interaction.client
+        is_owner = await bot_ref.is_bot_owner_user(interaction.user)
         user_perms = interaction.user.guild_permissions
         is_admin = is_owner or user_perms.administrator or user_perms.manage_guild or (require_roles_perm and user_perms.manage_roles)
 
@@ -332,6 +366,10 @@ class MasterDashboardView(core.SafeView):
             self._setup_home_buttons()
         elif self.current_tab == "gacha":
             self._setup_gacha_buttons()
+        elif self.current_tab == "genshin":
+            self._setup_genshin_buttons()
+        elif self.current_tab == "hsr":
+            self._setup_hsr_buttons()
         elif self.current_tab == "life":
             self._setup_life_buttons()
         elif self.current_tab == "music":
@@ -396,6 +434,72 @@ class MasterDashboardView(core.SafeView):
         btn_rank = discord.ui.Button(label="🏆 가챠 랭킹", style=discord.ButtonStyle.secondary, row=2)
         btn_rank.callback = self._on_gacha_rank_clicked
         self.add_item(btn_rank)
+
+    def _setup_genshin_buttons(self):
+        b10 = discord.ui.Button(label="🌠 10회 기원", style=discord.ButtonStyle.success, row=1)
+        b10.callback = self._on_gi_pull_10
+        self.add_item(b10)
+
+        b1 = discord.ui.Button(label="✨ 1회 기원", style=discord.ButtonStyle.success, row=1)
+        b1.callback = self._on_gi_pull_1
+        self.add_item(b1)
+
+        binv = discord.ui.Button(label="🎒 원신 보관함", style=discord.ButtonStyle.primary, row=1)
+        binv.callback = self._on_gi_inv
+        self.add_item(binv)
+
+        bfate = discord.ui.Button(label="🧭 운명의 궤도", style=discord.ButtonStyle.secondary, row=1)
+        bfate.callback = self._on_gi_fate
+        self.add_item(bfate)
+
+        bdex = discord.ui.Button(label="📖 티바트 도감", style=discord.ButtonStyle.secondary, row=2)
+        bdex.callback = self._on_gi_pokedex
+        self.add_item(bdex)
+
+        bshop = discord.ui.Button(label="🧚 페이몬 상점", style=discord.ButtonStyle.primary, row=2)
+        bshop.callback = self._on_gi_shop
+        self.add_item(bshop)
+
+        bparty = discord.ui.Button(label="⚔️ 4인 파티·공명", style=discord.ButtonStyle.secondary, row=2)
+        bparty.callback = self._on_gi_party
+        self.add_item(bparty)
+
+        brank = discord.ui.Button(label="🏆 원신 랭킹", style=discord.ButtonStyle.secondary, row=2)
+        brank.callback = self._on_gi_rank
+        self.add_item(brank)
+
+    def _setup_hsr_buttons(self):
+        b10 = discord.ui.Button(label="🚆 10회 워프", style=discord.ButtonStyle.success, row=1)
+        b10.callback = self._on_hsr_warp_10
+        self.add_item(b10)
+
+        b1 = discord.ui.Button(label="🎫 1회 워프", style=discord.ButtonStyle.success, row=1)
+        b1.callback = self._on_hsr_warp_1
+        self.add_item(b1)
+
+        binv = discord.ui.Button(label="🎒 스타레일 보관함", style=discord.ButtonStyle.primary, row=1)
+        binv.callback = self._on_hsr_inv
+        self.add_item(binv)
+
+        b300 = discord.ui.Button(label="🎁 상시 300 선택", style=discord.ButtonStyle.secondary, row=1)
+        b300.callback = self._on_hsr_300
+        self.add_item(b300)
+
+        bdex = discord.ui.Button(label="📖 은하 아카이브", style=discord.ButtonStyle.secondary, row=2)
+        bdex.callback = self._on_hsr_pokedex
+        self.add_item(bdex)
+
+        bshop = discord.ui.Button(label="🛍️ 별빛·헤르타 상점", style=discord.ButtonStyle.primary, row=2)
+        bshop.callback = self._on_hsr_shop
+        self.add_item(bshop)
+
+        bparty = discord.ui.Button(label="🚄 4인 개척 편대", style=discord.ButtonStyle.secondary, row=2)
+        bparty.callback = self._on_hsr_party
+        self.add_item(bparty)
+
+        brank = discord.ui.Button(label="🏆 스타레일 랭킹", style=discord.ButtonStyle.secondary, row=2)
+        brank.callback = self._on_hsr_rank
+        self.add_item(brank)
 
     def _setup_life_buttons(self):
         btn_add_dday = discord.ui.Button(label="➕ 새 D-Day 등록", style=discord.ButtonStyle.primary, row=1)
@@ -502,6 +606,10 @@ class MasterDashboardView(core.SafeView):
             return self.build_home_embed()
         elif self.current_tab == "gacha":
             return self.build_gacha_embed()
+        elif self.current_tab == "genshin":
+            return self.build_genshin_embed()
+        elif self.current_tab == "hsr":
+            return self.build_hsr_embed()
         elif self.current_tab == "life":
             return self.build_life_embed()
         elif self.current_tab == "music":
@@ -516,10 +624,12 @@ class MasterDashboardView(core.SafeView):
 
     def build_home_embed(self) -> discord.Embed:
         g_key = str(self.guild.id if self.guild else 0)
-        u_key = str(self.user.id)
+        uid_int = self.user.id if self.user else 0
+        u_key = str(uid_int)
+        u_name = self.user.display_name if self.user else "노로시 유저"
         today_str = core.get_today_str()
 
-        profile = core.ensure_user_profile(self.data, u_key, self.user.display_name)
+        profile = core.ensure_user_profile(self.data, u_key, u_name)
         guild_att = self.data.get("guild_attendance", {}).get(g_key, {}).get(u_key, {})
         checked_today = (guild_att.get("last_date") == today_str)
 
@@ -537,6 +647,8 @@ class MasterDashboardView(core.SafeView):
         user_cards = self.data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
         unique_cnt = len(user_cards)
         dup_excess = sum(max(0, c.get("count", 1) - 1) for c in user_cards.values() if not c.get("locked", False))
+        gi_cnt = len(self.data.get("genshin_users", {}).get(g_key, {}).get(u_key, {}).get("items", {}))
+        hsr_cnt = len(self.data.get("hsr_users", {}).get(g_key, {}).get(u_key, {}).get("items", {}))
 
         ddays_dict = self.data.get("ddays", {})
         nearest_dday_str = "등록된 일정 없음 (`/디데이추가`)"
@@ -565,15 +677,15 @@ class MasterDashboardView(core.SafeView):
         )
 
         embed = discord.Embed(
-            title=f"🧭 {self.user.display_name}님의 norosi 종합 관제 대시보드",
+            title=f"🧭 {u_name}님의 norosi 종합 관제 대시보드",
             description=(
                 "norosi 봇의 모든 기능을 한곳에서 시각적으로 제어할 수 있는 올인원 마스터 컨트롤 타워입니다.\n"
-                "**상단 드롭다운**을 눌러 기능 탭을 전환하거나 **하단 핫키 버튼**으로 즉시 실행하세요!\n\n"
+                "**상단 드롭다운**을 눌러 **프로세카 · 원신 · 스타레일** 등 원하는 탭으로 이동하거나 **하단 핫키 버튼**을 누르세요!\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"• **🏠 `{guild_label}` 출석:** {att_badge}\n"
                 f"• **💎 보유 크리스탈:** **`{crystals:,}개`** (마이세카이 일일 보너스 `+{ms_bonus}💎`)\n"
                 f"• **💖 오시 캐릭터:** `{oshi_name}`  ·  **💑 파트너:** {partner_tag}\n"
-                f"• **🎒 보유 캐릭터:** `{unique_cnt:,}종` (환전 가능 중복: `{dup_excess:,}장`)\n"
+                f"• **🌌 멀티가챠 보유:** 프로세카 `{unique_cnt:,}종` (중복 `{dup_excess:,}장`) · 🌠 원신 `{gi_cnt:,}종` · 🚄 스타레일 `{hsr_cnt:,}종`\n"
                 f"• **📅 가장 가까운 D-Day:** {nearest_dday_str}\n"
                 f"• **🌱 오늘 목표 달성률 (`{done_cnt}/{tot_cnt}`):** {grass_bar}\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -581,14 +693,16 @@ class MasterDashboardView(core.SafeView):
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST)
         )
-        embed.set_thumbnail(url=self.user.display_avatar.url)
-        embed.set_footer(text="💡 상단 드롭다운에서 가챠, 일정, 음악, 역할, 게임, 통계 대시보드로 이동할 수 있습니다.")
+        if self.user and hasattr(self.user, "display_avatar"):
+            embed.set_thumbnail(url=self.user.display_avatar.url)
+        embed.set_footer(text="💡 상단 드롭다운에서 프로세카, 원신, 스타레일, 일정, 음악, 역할, 통계 대시보드로 이동할 수 있습니다.")
         return embed
 
     def build_gacha_embed(self) -> discord.Embed:
         g_key = str(self.guild.id if self.guild else 0)
-        u_key = str(self.user.id)
-        profile = core.ensure_user_profile(self.data, u_key, self.user.display_name)
+        u_key = str(self.user.id if self.user else 0)
+        u_name = self.user.display_name if self.user else "노로시 유저"
+        profile = core.ensure_user_profile(self.data, u_key, u_name)
         crystals = profile.get("crystals", 0)
 
         user_cards = self.data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
@@ -605,7 +719,7 @@ class MasterDashboardView(core.SafeView):
         embed = discord.Embed(
             title="🎮 프로세카 카드 & 가챠 대시보드",
             description=(
-                f"**{self.user.display_name}**님의 카드 컬렉션 및 뽑기 종합 현황입니다.\n\n"
+                f"**{u_name}**님의 카드 컬렉션 및 뽑기 종합 현황입니다.\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"• **💎 보유 크리스탈:** **`{crystals:,}개`**\n"
                 f"• **🎒 보유 카드 현황:** 총 `{total_cards_count:,}장` (고유 수집: `{total_unique:,}종`)\n"
@@ -618,6 +732,96 @@ class MasterDashboardView(core.SafeView):
             timestamp=datetime.datetime.now(core.KST)
         )
         embed.set_footer(text="버튼을 눌러 10회 뽑기, 보관함, 중복 환전, 덱 편성, 도감을 바로 실행하세요!")
+        return embed
+
+    def build_genshin_embed(self) -> discord.Embed:
+        g_key = str(self.guild.id if self.guild else 0)
+        u_key = str(self.user.id if self.user else 0)
+        u_name = self.user.display_name if self.user else "여행자"
+        u_data = self.data.get("genshin_users", {}).get(g_key, {}).get(u_key, {})
+        items = u_data.get("items", {})
+        r5_cnt = sum(1 for v in items.values() if v.get("rank") == 5)
+        r4_cnt = sum(1 for v in items.values() if v.get("rank") == 4)
+
+        try:
+            eff = genshin_core.resolve_effective_genshin_pickup(self.data.get("genshin_pickup"))
+        except Exception:
+            eff = {}
+        c1_name = eff["char1"]["name"] if eff.get("char1") else "픽업 ①"
+        c2_name = eff["char2"]["name"] if eff.get("char2") else "픽업 ②"
+        w_names = " / ".join(w["name"] for w in (eff.get("weapon_1"), eff.get("weapon_2")) if w) or "픽업 무기"
+
+        ft = u_data.get("fate_target_id")
+        w_obj = next((w for w in (eff.get("weapon_1"), eff.get("weapon_2")) if w and w["id"] == ft), None)
+        ft_txt = f"{w_obj['name']} ({u_data.get('fate_point', 0)}/1)" if w_obj else f"미설정 ({u_data.get('fate_point', 0)}/1)"
+
+        party_objs = [items[k] for k in (u_data.get("party") or []) if k in items][:4]
+        party_ana = genshin_core.analyze_genshin_party(party_objs) if party_objs else {"total_power": 0, "resonances": []}
+
+        embed = discord.Embed(
+            title="🌠 원신 (Genshin Impact) 기원 & 컬렉션 대시보드",
+            description=(
+                f"**{u_name}**님의 티바트 기원 · 천장 · 상점 · 파티 통합 현황입니다.\n\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"• **🎯 현재 이벤트 픽업:** `{c1_name}` / `{c2_name}`\n"
+                f"• **⚔️ 신의 주조 픽업 무기:** `{w_names}`\n"
+                f"• **🌠 현재 천장 스택:**\n"
+                f"  - 캐릭터 `{u_data.get('pity_char', 0)}/90` ({'🔒확정' if u_data.get('guaranteed_char') else '🎲반천장'} · 광휘 `{u_data.get('loss_streak', 0)}`)\n"
+                f"  - 무기 `{u_data.get('pity_weapon', 0)}/80` (🧭 궤도: `{ft_txt}`) · 상시 `{u_data.get('pity_standard', 0)}/90`\n"
+                f"• **💎 보유 재화:** ✨ 스타라이트 `{u_data.get('starglitter', 0):,}` · 💠 스타더스트 `{u_data.get('stardust', 0):,}` · 📘 영웅의 경험 `{u_data.get('hero_wit', 0):,}권`\n"
+                f"• **🎒 보유 컬렉션:** 총 `{len(items)}종` (★5 `{r5_cnt}종` · ★4 `{r4_cnt}종` · 누적 기원 `{u_data.get('total_pulls', 0):,}회`)\n"
+                f"• **⚔️ 편성 파티 ({len(party_objs)}/4):** 전투력 `{party_ana['total_power']:,}` (원소 공명 `{len(party_ana['resonances'])}개`)\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            ),
+            color=discord.Color.from_rgb(56, 152, 236),
+            timestamp=datetime.datetime.now(core.KST)
+        )
+        embed.set_footer(text="하단 버튼으로 10회/1회 기원, 운명의 궤도, 보관함, 페이몬 상점, 4인 파티를 즉시 열 수 있습니다!")
+        return embed
+
+    def build_hsr_embed(self) -> discord.Embed:
+        g_key = str(self.guild.id if self.guild else 0)
+        u_key = str(self.user.id if self.user else 0)
+        u_name = self.user.display_name if self.user else "개척자"
+        u_data = self.data.get("hsr_users", {}).get(g_key, {}).get(u_key, {})
+        items = u_data.get("items", {})
+        r5_cnt = sum(1 for v in items.values() if v.get("rank") == 5)
+        r4_cnt = sum(1 for v in items.values() if v.get("rank") == 4)
+
+        try:
+            eff = hsr_core.resolve_effective_hsr_pickup(self.data.get("hsr_pickup"))
+        except Exception:
+            eff = {}
+        c1_name = eff["char1"]["name"] if eff.get("char1") else "픽업 ①"
+        c2_name = eff["char2"]["name"] if eff.get("char2") else "픽업 ②"
+        lc_name = eff["lc_1"]["name"] if eff.get("lc_1") else "픽업 광추"
+
+        std_tot = int(u_data.get("standard_total_pulls", 0))
+        claimed = bool(u_data.get("standard_300_claimed"))
+        sel_status = "✅ 수령 완료" if claimed else ("🎊 선택 가능!" if std_tot >= 300 else f"`{std_tot}/300회`")
+
+        party_objs = [items[k] for k in (u_data.get("party") or []) if k in items][:4]
+        party_ana = hsr_core.analyze_hsr_party(party_objs) if party_objs else {"total_power": 0, "synergies": []}
+
+        embed = discord.Embed(
+            title="🚄 붕괴: 스타레일 워프 & 은하 열차 대시보드",
+            description=(
+                f"**{u_name}**님의 워프 · 천장 · 별빛·헤르타 상점 · 개척 편대 통합 현황입니다.\n\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"• **🎯 현재 이벤트 워프:** `{c1_name}` / `{c2_name}`\n"
+                f"• **🪩 빛의 자취 픽업 광추:** `{lc_name}`\n"
+                f"• **🚄 현재 천장 스택:**\n"
+                f"  - 캐릭터 `{u_data.get('pity_char', 0)}/90` ({'🔒확정' if u_data.get('guaranteed_char') else '🎲50/50'}) · 광추 `{u_data.get('pity_lc', 0)}/80` ({'🔒확정' if u_data.get('guaranteed_lc') else '🎲75/25'})\n"
+                f"  - 상시 `{u_data.get('pity_standard', 0)}/90` · 🎁 300회 보상: {sel_status}\n"
+                f"• **💎 보유 재화:** 🌟 별빛 `{u_data.get('starlight', 0):,}` · 🫧 잔재 `{u_data.get('embers', 0):,}` · 🧪 헤르타채권 `{u_data.get('herta_bond', 0):,}` · 📘 가이드 `{u_data.get('traveler_guide', 0):,}권`\n"
+                f"• **🎒 보유 아카이브:** 총 `{len(items)}종` (★5 `{r5_cnt}종` · ★4 `{r4_cnt}종` · 누적 워프 `{u_data.get('total_pulls', 0):,}회`)\n"
+                f"• **🚄 개척 편대 ({len(party_objs)}/4):** 전투력 `{party_ana['total_power']:,}` (시너지 `{len(party_ana['synergies'])}개`)\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            ),
+            color=discord.Color.from_rgb(174, 114, 255),
+            timestamp=datetime.datetime.now(core.KST)
+        )
+        embed.set_footer(text="하단 버튼으로 10회/1회 워프, 상시 300 선택, 별빛·헤르타 상점, 4인 편대를 즉시 열 수 있습니다!")
         return embed
 
     def build_life_embed(self) -> discord.Embed:
@@ -662,9 +866,10 @@ class MasterDashboardView(core.SafeView):
         return embed
 
     def build_music_embed(self) -> discord.Embed:
-        u_key = str(self.user.id)
-        profile = core.ensure_user_profile(self.data, u_key, self.user.display_name)
-        u_pls = core.ensure_user_playlists(profile, self.user.display_name)
+        u_key = str(self.user.id if self.user else 0)
+        u_name = self.user.display_name if self.user else "노로시 유저"
+        profile = core.ensure_user_profile(self.data, u_key, u_name)
+        u_pls = core.ensure_user_playlists(profile, u_name)
         tot_tracks = sum(len(p.get("tracks", [])) for p in u_pls if isinstance(p, dict))
 
         vc_status = "❌ 미연결 (대기 중)"
@@ -920,6 +1125,120 @@ class MasterDashboardView(core.SafeView):
                 await core.safe_send_response(interaction, "🏆 가챠 랭킹은 `/가챠랭킹` 명령어로 확인하실 수 있습니다.", ephemeral=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 랭킹 조회 중 오류: {e}", ephemeral=True)
+
+    # 원신 관련 콜백
+    async def _on_gi_pull_10(self, interaction: discord.Interaction):
+        try:
+            pv = genshin.GenshinPullAgainView(interaction.user, banner_key="char1", skip_anim=False, practice=False, last_count=10)
+            await pv._run_repull_with_cooldown(interaction, 10)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 원신 기원 실행 중 오류: {e}", ephemeral=True)
+
+    async def _on_gi_pull_1(self, interaction: discord.Interaction):
+        try:
+            pv = genshin.GenshinPullAgainView(interaction.user, banner_key="char1", skip_anim=False, practice=False, last_count=1)
+            await pv._run_repull_with_cooldown(interaction, 1)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 원신 기원 실행 중 오류: {e}", ephemeral=True)
+
+    async def _on_gi_inv(self, interaction: discord.Interaction):
+        try:
+            v = genshin.GenshinInventoryView(interaction.guild_id or 0, interaction.user)
+            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 원신 보관함 로드 중 오류: {e}", ephemeral=True)
+
+    async def _on_gi_fate(self, interaction: discord.Interaction):
+        try:
+            v = genshin.GenshinFatePathView(interaction.guild_id or 0, interaction.user)
+            await core.safe_send_response(interaction, embed=v.build_embed(), view=v, ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 운명의 궤도 로드 중 오류: {e}", ephemeral=True)
+
+    async def _on_gi_pokedex(self, interaction: discord.Interaction):
+        try:
+            v = genshin.GenshinPokedexView(interaction.guild_id or 0, interaction.user, tab="owned")
+            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 원신 도감 로드 중 오류: {e}", ephemeral=True)
+
+    async def _on_gi_shop(self, interaction: discord.Interaction):
+        try:
+            v = genshin.GenshinShopView(interaction.guild_id or 0, interaction.user)
+            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 페이몬 상점 로드 중 오류: {e}", ephemeral=True)
+
+    async def _on_gi_party(self, interaction: discord.Interaction):
+        try:
+            v = genshin.GenshinPartyView(interaction.guild_id or 0, interaction.user)
+            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 원신 파티 로드 중 오류: {e}", ephemeral=True)
+
+    async def _on_gi_rank(self, interaction: discord.Interaction):
+        try:
+            v = genshin.GenshinRankingView(interaction.guild_id or 0, mode="ranking")
+            await core.safe_send_response(interaction, embed=v.build_embed(interaction.guild), view=v)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 원신 랭킹 로드 중 오류: {e}", ephemeral=True)
+
+    # 스타레일 관련 콜백
+    async def _on_hsr_warp_10(self, interaction: discord.Interaction):
+        try:
+            wv = hsr.HSRWarpAgainView(interaction.user, banner_key="char1", skip_anim=False, practice=False, last_count=10)
+            await wv._run_rewarp_with_cooldown(interaction, 10)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 스타레일 워프 실행 중 오류: {e}", ephemeral=True)
+
+    async def _on_hsr_warp_1(self, interaction: discord.Interaction):
+        try:
+            wv = hsr.HSRWarpAgainView(interaction.user, banner_key="char1", skip_anim=False, practice=False, last_count=1)
+            await wv._run_rewarp_with_cooldown(interaction, 1)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 스타레일 워프 실행 중 오류: {e}", ephemeral=True)
+
+    async def _on_hsr_inv(self, interaction: discord.Interaction):
+        try:
+            v = hsr.HSRInventoryView(interaction.guild_id or 0, interaction.user)
+            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 스타레일 보관함 로드 중 오류: {e}", ephemeral=True)
+
+    async def _on_hsr_300(self, interaction: discord.Interaction):
+        try:
+            v = hsr.HSRStandard300View(interaction.guild_id or 0, interaction.user)
+            await core.safe_send_response(interaction, embed=v.build_embed(), view=v, ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 상시 300회 보상 로드 중 오류: {e}", ephemeral=True)
+
+    async def _on_hsr_pokedex(self, interaction: discord.Interaction):
+        try:
+            v = hsr.HSRPokedexView(interaction.guild_id or 0, interaction.user, tab="owned")
+            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 스타레일 도감 로드 중 오류: {e}", ephemeral=True)
+
+    async def _on_hsr_shop(self, interaction: discord.Interaction):
+        try:
+            v = hsr.HSRShopView(interaction.guild_id or 0, interaction.user)
+            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 스타레일 상점 로드 중 오류: {e}", ephemeral=True)
+
+    async def _on_hsr_party(self, interaction: discord.Interaction):
+        try:
+            v = hsr.HSRPartyView(interaction.guild_id or 0, interaction.user)
+            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 스타레일 편대 로드 중 오류: {e}", ephemeral=True)
+
+    async def _on_hsr_rank(self, interaction: discord.Interaction):
+        try:
+            v = hsr.HSRRankingView(interaction.guild_id or 0, mode="ranking")
+            await core.safe_send_response(interaction, embed=v.build_embed(interaction.guild), view=v)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 스타레일 랭킹 로드 중 오류: {e}", ephemeral=True)
 
     async def _on_todo_clicked(self, interaction: discord.Interaction):
         try:
@@ -1217,7 +1536,8 @@ class MasterDashboardView(core.SafeView):
 
     async def _on_bot_status_clicked(self, interaction: discord.Interaction):
         try:
-            is_owner = await self.bot.is_bot_owner_user(interaction.user)
+            bot_ref = self.bot or interaction.client
+            is_owner = await bot_ref.is_bot_owner_user(interaction.user)
             is_admin = False
             if interaction.guild and isinstance(interaction.user, discord.Member):
                 is_admin = interaction.user.guild_permissions.administrator or interaction.user.guild_permissions.manage_guild
@@ -1254,11 +1574,13 @@ class Dashboard(commands.Cog, name="대시보드"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="대시보드", description="모든 봇 기능(가챠, 일정, 음악, 역할, 게임, 통계)을 시각적으로 제어하는 올인원 마스터 대시보드를 엽니다.")
+    @app_commands.command(name="대시보드", description="모든 봇 기능(프로세카·원신·스타레일 가챠, 일정, 음악, 역할, 통계)을 제어하는 올인원 대시보드를 엽니다.")
     @app_commands.describe(탭="초기에 열람할 기능 대시보드 탭 (기본: 종합 관제)")
     @app_commands.choices(탭=[
         app_commands.Choice(name="🧭 [홈] 종합 관제 대시보드", value="home"),
-        app_commands.Choice(name="🎮 [가챠] 카드·뽑기·덱 대시보드", value="gacha"),
+        app_commands.Choice(name="🎮 [프로세카] 카드·뽑기·덱 대시보드", value="gacha"),
+        app_commands.Choice(name="🌠 [원신] 기원·보관함·페이몬상점", value="genshin"),
+        app_commands.Choice(name="🚄 [스타레일] 워프·아카이브·별빛상점", value="hsr"),
         app_commands.Choice(name="📅 [일정] D-Day·생일·집중 대시보드", value="life"),
         app_commands.Choice(name="🎵 [음악] 플레이리스트·사운드 대시보드", value="music"),
         app_commands.Choice(name="🎭 [역할] 역할버튼·공지 대시보드", value="admin"),

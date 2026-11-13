@@ -354,9 +354,11 @@ class NorosiBot(commands.Bot):
         # 글로벌 슬래시 커맨드 에러 핸들러 등록 ("명령어 응답 안함" 3초 타임아웃 차단)
         self.tree.on_error = self.on_app_command_error
 
-        print("🔌 [2/4] Cogs 확장 모듈 등록 중 (gacha, music, dday, logger, ai, stats, roles, help, dashboard)...", flush=True)
+        print("🔌 [2/4] Cogs 확장 모듈 등록 중 (gacha, genshin, hsr, music, dday, logger, ai, stats, roles, help, dashboard)...", flush=True)
         ext_list = [
             "cogs.gacha",
+            "cogs.genshin",
+            "cogs.hsr",
             "cogs.music",
             "cogs.dday",
             "cogs.logger",
@@ -391,8 +393,11 @@ class NorosiBot(commands.Bot):
         except Exception as e:
             print(f"ℹ️ 반응역할 지속 View 복원 건너뜀: {e}", flush=True)
 
-        print("📚 [3/4] 프로세카 한섭 DB 백그라운드 캐시 워밍 시작...", flush=True)
+        print("📚 [3/4] 프로세카 · 원신 · 스타레일 한국어 DB 백그라운드 캐시 워밍 시작...", flush=True)
         asyncio.create_task(asyncio.to_thread(core.load_proseka_kr_db))
+        import genshin_core, hsr_core
+        asyncio.create_task(asyncio.to_thread(genshin_core.load_genshin_kr_db))
+        asyncio.create_task(asyncio.to_thread(hsr_core.load_hsr_kr_db))
 
         print("⏰ [4/4] 상주 스케줄러 및 VM 터미널 로그 브릿지 루프 활성화...", flush=True)
         if not self.midnight_tasks.is_running():
@@ -1030,7 +1035,13 @@ class NorosiBot(commands.Bot):
 
     @tasks.loop(time=datetime.time(hour=0, minute=0, tzinfo=core.KST))
     async def midnight_tasks(self):
-        await asyncio.to_thread(core.load_proseka_kr_db)
+        import genshin_core, hsr_core
+        await asyncio.gather(
+            asyncio.to_thread(core.load_proseka_kr_db),
+            asyncio.to_thread(genshin_core.load_genshin_kr_db),
+            asyncio.to_thread(hsr_core.load_hsr_kr_db),
+            return_exceptions=True,
+        )
 
         data = await asyncio.to_thread(core.load_data)
         today = datetime.datetime.now(core.KST).date()

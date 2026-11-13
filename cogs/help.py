@@ -1,5 +1,5 @@
 """
-cogs/help.py - norosi bot help: 전체 76개 슬래시 명령어 통합 도움말 & 가독성 최적화 가이드
+cogs/help.py - norosi bot help: 전체 79개 슬래시 명령어(99종 기능) 통합 도움말 & 가독성 최적화 가이드
 """
 
 import math
@@ -15,7 +15,7 @@ PRIVACY_URL = "https://app.notion.com/p/40f0518d06038048b0c6ea1052ce23e7?source=
 SUPPORT_SERVER_URL = "https://discord.gg/6utpaS7s52"
 
 # ==========================================
-# 전체 76개 슬래시 명령어 완벽 카탈로그 (7대 카테고리 분류)
+# 전체 79개 슬래시 명령어 (99종 기능) 완벽 카탈로그 (9대 카테고리 분류)
 # ==========================================
 COMMAND_CATALOG: List[Dict[str, Any]] = [
     # 1. 🎮 출석 & 카드/가챠 (21종)
@@ -207,6 +207,208 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "params": "없음",
         "example": "/서버캐릭터초기화",
         "source": "cogs/gacha.py",
+    },
+
+    # 2. 🌠 원신 기원 & 도감 & 파티 (/원신 그룹 커맨드)
+    {
+        "category": "genshin",
+        "cat_label": "🌠 원신 (기원·도감·상점)",
+        "name": "/원신 기원",
+        "desc": "원신 4대 배너(캐릭터①·②/신의주조 무기/상시) 기원! 90/80 소프트천장·포착된 광휘·유성 3.5초 연출·리세마라 연습모드 지원",
+        "params": "배너: [캐릭터①/캐릭터②/신의주조/상시] 횟수: [10회/1회] 연습모드: [선택] 연출스킵: [선택]",
+        "example": "/원신 기원 배너:🌠 캐릭터 이벤트 기원 ① 횟수:10회 기원",
+        "source": "cogs/genshin.py",
+    },
+    {
+        "category": "genshin",
+        "cat_label": "🌠 원신 (기원·도감·상점)",
+        "name": "/원신 운명의궤도",
+        "desc": "신의 주조(무기 이벤트 기원) 목표 5성 무기를 지정하여 명정 포인트 1/1 확정 보장 설정",
+        "params": "버튼 UI로 픽업 무기 선택/해제",
+        "example": "/원신 운명의궤도",
+        "source": "cogs/genshin.py",
+    },
+    {
+        "category": "genshin",
+        "cat_label": "🌠 원신 (기원·도감·상점)",
+        "name": "/원신 보관함",
+        "desc": "보유 캐릭터(운명의 자리 C0~C6)·무기(재련 R1~R5) 필터 조회, 스플래시 일러스트, 잠금🔒, 영웅의 경험 Lv.1~90 육성",
+        "params": "필터: [전체/캐릭터/무기/★5/★4/잠금]",
+        "example": "/원신 보관함",
+        "source": "cogs/genshin.py",
+    },
+    {
+        "category": "genshin",
+        "cat_label": "🌠 원신 (기원·도감·상점)",
+        "name": "/원신 도감",
+        "desc": "실시간 원신 한국어 DB 기반 전체 캐릭터·무기 도감 수집률 및 미보유 목록 열람",
+        "params": "탭: [보유/미보유/전체]",
+        "example": "/원신 도감",
+        "source": "cogs/genshin.py",
+    },
+    {
+        "category": "genshin",
+        "cat_label": "🌠 원신 (기원·도감·상점)",
+        "name": "/원신 상점",
+        "desc": "페이몬의 상점! 주인 없는 스타라이트 월간 ★4 캐릭터·흑암/왕실 무기 & 스타더스트 인연·영웅의 경험 교환",
+        "params": "없음 (드롭다운 교환)",
+        "example": "/원신 상점",
+        "source": "cogs/genshin.py",
+    },
+    {
+        "category": "genshin",
+        "cat_label": "🌠 원신 (기원·도감·상점)",
+        "name": "/원신 파티편성",
+        "desc": "보유 캐릭터 4인으로 파티를 구성하고 원소 공명(불/물/번개/얼음/바람/바위/풀·4원소) 및 전투력 계산",
+        "params": "슬롯1~4: [보유캐릭터 자동완성(선택)]",
+        "example": "/원신 파티편성",
+        "source": "cogs/genshin.py",
+    },
+    {
+        "category": "genshin",
+        "cat_label": "🌠 원신 (기원·도감·상점)",
+        "name": "/원신 프로필",
+        "desc": "여행자 쇼케이스 카드(대표 캐릭터·상태문구 설정, 기원 천장 스택, 주력 캐릭터) 조회",
+        "params": "대상: [@유저] 대표캐릭터: [선택] 상태문구: [선택]",
+        "example": "/원신 프로필",
+        "source": "cogs/genshin.py",
+    },
+    {
+        "category": "genshin",
+        "cat_label": "🌠 원신 (기원·도감·상점)",
+        "name": "/원신 확률",
+        "desc": "현재 적용된 원신 배너 픽업 정보와 천장/포착된 광휘/운명의 궤도 확률표 확인",
+        "params": "배너: [캐릭터①/②/무기/상시]",
+        "example": "/원신 확률",
+        "source": "cogs/genshin.py",
+    },
+    {
+        "category": "genshin",
+        "cat_label": "🌠 원신 (기원·도감·상점)",
+        "name": "/원신 랭킹",
+        "desc": "서버 원신 수집 랭킹, 10연 명예의 전당(최다 ★5·저스택), 최근 ★5 획득 속보 조회",
+        "params": "없음",
+        "example": "/원신 랭킹",
+        "source": "cogs/genshin.py",
+    },
+    {
+        "category": "genshin",
+        "cat_label": "🌠 원신 (기원·도감·상점)",
+        "name": "/원신 픽업설정",
+        "desc": "[봇 주인 전용] 원신 이벤트 기원 픽업을 프리셋 또는 실시간 DB 자동완성 캐릭터/무기로 변경",
+        "params": "프리셋/캐릭터1·2/사성1~3/무기1·2/배너이름",
+        "example": "/원신 픽업설정 프리셋:💧 폰타인 (푸리나 / 느비예트)",
+        "source": "cogs/genshin.py",
+    },
+    {
+        "category": "genshin",
+        "cat_label": "🌠 원신 (기원·도감·상점)",
+        "name": "/원신 서버초기화",
+        "desc": "[서버 관리자 전용] 현재 서버의 원신 기원/보관함 데이터 초기화",
+        "params": "없음",
+        "example": "/원신 서버초기화",
+        "source": "cogs/genshin.py",
+    },
+
+    # 3. 🚄 붕괴: 스타레일 워프 & 아카이브 & 상점 (/스타레일 그룹 커맨드)
+    {
+        "category": "hsr",
+        "cat_label": "🚄 스타레일 (워프·상점·편대)",
+        "name": "/스타레일 워프",
+        "desc": "스타레일 4대 배너(캐릭터①·②/빛의자취 75:25 광추/상시) 워프! 은하열차 3.5초 승차권 연출 & 연습모드 지원",
+        "params": "배너: [캐릭터①/②/광추/상시] 횟수: [10회/1회] 연습모드: [선택] 연출스킵: [선택]",
+        "example": "/스타레일 워프 배너:🚆 캐릭터 이벤트 워프 ① 횟수:10회 워프",
+        "source": "cogs/hsr.py",
+    },
+    {
+        "category": "hsr",
+        "cat_label": "🚄 스타레일 (워프·상점·편대)",
+        "name": "/스타레일 상시300선택",
+        "desc": "뭇별의 워프(상시) 누적 300회 달성 시 상시 5성 캐릭터 7명(히메코·브로냐 등) 중 1명 확정 초대",
+        "params": "드롭다운으로 상시 5성 직접 선택",
+        "example": "/스타레일 상시300선택",
+        "source": "cogs/hsr.py",
+    },
+    {
+        "category": "hsr",
+        "cat_label": "🚄 스타레일 (워프·상점·편대)",
+        "name": "/스타레일 보관함",
+        "desc": "보유 캐릭터(성혼 E0~E6)·광추(중첩 S1~S5) 필터 조회, 스플래시 아트, 잠금🔒, 여행 가이드 Lv.1~80 육성",
+        "params": "필터: [전체/캐릭터/광추/★5/★4/잠금]",
+        "example": "/스타레일 보관함",
+        "source": "cogs/hsr.py",
+    },
+    {
+        "category": "hsr",
+        "cat_label": "🚄 스타레일 (워프·상점·편대)",
+        "name": "/스타레일 도감",
+        "desc": "실시간 스타레일 한국어 DB(9운명의 길·7속성) 아카이브 수집률 및 보유/미보유 확인",
+        "params": "탭: [보유/미보유/전체]",
+        "example": "/스타레일 도감",
+        "source": "cogs/hsr.py",
+    },
+    {
+        "category": "hsr",
+        "cat_label": "🚄 스타레일 (워프·상점·편대)",
+        "name": "/스타레일 상점",
+        "desc": "별빛 교환(600별빛 상시 5성 광추·월간 ★4), 헤르타 상점(채권 5성 광추·특제 중첩기), 불멸의 잔재 광추·티켓",
+        "params": "탭 & 드롭다운 교환",
+        "example": "/스타레일 상점",
+        "source": "cogs/hsr.py",
+    },
+    {
+        "category": "hsr",
+        "cat_label": "🚄 스타레일 (워프·상점·편대)",
+        "name": "/스타레일 파티편성",
+        "desc": "4인 개척 편대를 구성하고 딜러·서포터·생존 밸런스, 다속성 약점 격파·기억/추공 시너지 분석",
+        "params": "슬롯1~4: [보유캐릭터 자동완성(선택)]",
+        "example": "/스타레일 파티편성",
+        "source": "cogs/hsr.py",
+    },
+    {
+        "category": "hsr",
+        "cat_label": "🚄 스타레일 (워프·상점·편대)",
+        "name": "/스타레일 프로필",
+        "desc": "개척자 쇼케이스 카드(대표 캐릭터·상태문구 설정, 워프 스택 및 300회 진행률, 편대 전투력) 조회",
+        "params": "대상: [@유저] 대표캐릭터: [선택] 상태문구: [선택]",
+        "example": "/스타레일 프로필",
+        "source": "cogs/hsr.py",
+    },
+    {
+        "category": "hsr",
+        "cat_label": "🚄 스타레일 (워프·상점·편대)",
+        "name": "/스타레일 확률",
+        "desc": "현재 스타레일 배너 픽업 정보 및 캐릭터 50/50 · 광추 75/25 확률표 확인",
+        "params": "배너: [캐릭터①/②/광추/상시]",
+        "example": "/스타레일 확률",
+        "source": "cogs/hsr.py",
+    },
+    {
+        "category": "hsr",
+        "cat_label": "🚄 스타레일 (워프·상점·편대)",
+        "name": "/스타레일 랭킹",
+        "desc": "서버 스타레일 수집 랭킹 · 10연 워프 명예의 전당 · 최근 ★5 도약 속보 조회",
+        "params": "없음",
+        "example": "/스타레일 랭킹",
+        "source": "cogs/hsr.py",
+    },
+    {
+        "category": "hsr",
+        "cat_label": "🚄 스타레일 (워프·상점·편대)",
+        "name": "/스타레일 픽업설정",
+        "desc": "[봇 주인 전용] 스타레일 이벤트 워프 픽업을 프리셋 또는 실시간 DB 자동완성으로 변경",
+        "params": "프리셋/캐릭터1·2/사성1~3/광추1·2/배너이름",
+        "example": "/스타레일 픽업설정 프리셋:☀️ 앰포리어스 (파이논 / 카스토리스)",
+        "source": "cogs/hsr.py",
+    },
+    {
+        "category": "hsr",
+        "cat_label": "🚄 스타레일 (워프·상점·편대)",
+        "name": "/스타레일 서버초기화",
+        "desc": "[서버 관리자 전용] 현재 서버의 스타레일 워프/보관함 데이터 초기화",
+        "params": "없음",
+        "example": "/스타레일 서버초기화",
+        "source": "cogs/hsr.py",
     },
 
     # 2. 🎲 미니게임 & 생활 유틸리티 (4종 - NEW!)
@@ -719,15 +921,17 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "admin",
         "cat_label": "⚙️ 봇 관리 & 안내",
         "name": "/도움말",
-        "desc": "전체 77개 슬래시 명령어의 카테고리별 상세 가이드 및 대화형 페이지별 열람",
+        "desc": "전체 79개 슬래시 명령어(/원신·/스타레일 포함 99종 기능)의 카테고리별 상세 가이드 및 대화형 페이지별 열람",
         "params": "category: [카테고리(선택)] search: [검색어(선택)]",
-        "example": "/도움말 category:admin search:반응역할",
+        "example": "/도움말 category:genshin search:기원",
         "source": "cogs/help.py",
     },
 ]
 
 CATEGORY_META = [
-    ("cards", "🎮 출석 & 카드/가챠 (21종 · 5페이지)", "출석체크, 배너별 프로세카 뽑기, 마스터랭크, 세카이라이브, 3D 의상·어나더컬러 등"),
+    ("cards", "🎮 출석 & 프로세카 카드/가챠 (21종 · 5페이지)", "출석체크, 배너별 프로세카 뽑기, 마스터랭크, 세카이라이브, 3D 의상·어나더컬러 등"),
+    ("genshin", "🌠 원신 기원 & 도감 & 상점 (11종 · 3페이지)", "/원신 기원(90/80천장·포착된 광휘), 운명의 궤도, 페이몬의 상점, 4인 원소 공명 파티 등"),
+    ("hsr", "🚄 스타레일 워프 & 아카이브 & 상점 (11종 · 3페이지)", "/스타레일 워프(광추 75/25·300회 선택), 별빛/헤르타 상점, 4인 편대 시너지 등"),
     ("dday", "📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", "멤버 생일 전광판, 공용/비밀 D-Day, 파트너, 하드코어스터디, 뽀모도로 집중모드 등"),
     ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", "올인원 /대시보드, /메뉴, /깃허브연동, /터미널로그채널, 반응역할, 공지발송 등"),
     ("games", "🎲 미니게임 & 파티 모집 (5종 · 1페이지)", "파티원 모집, 끝말잇기(두음법칙), 러시안룰렛, 초정밀 실시간 날씨, 스마트 알림예약"),
@@ -737,8 +941,10 @@ CATEGORY_META = [
 ]
 
 CATEGORY_DROPDOWN_OPTIONS = [
-    ("all", "🌟 전체 명령어 한눈에 보기 (77종 요약판)", "7대 카테고리 요약 보드 (다음 버튼으로 상세 가이드 열람)", "🌐"),
-    ("cards", "🎮 출석 & 카드/가챠 (21종 · 5페이지)", "/프로세카뽑기, /마스터랭크, /라이브, /의상, /마이세카이 등", "🎮"),
+    ("all", "🌟 전체 명령어 한눈에 보기 (99종 요약판)", "9대 카테고리 요약 보드 (다음 버튼으로 상세 가이드 열람)", "🌐"),
+    ("cards", "🎮 출석 & 프로세카 가챠 (21종 · 5페이지)", "/프로세카뽑기, /마스터랭크, /라이브, /의상, /마이세카이 등", "🎮"),
+    ("genshin", "🌠 원신 기원·도감·상점 (11종 · 3페이지)", "/원신 기원, /원신 운명의궤도, /원신 상점, /원신 파티편성 등", "🌠"),
+    ("hsr", "🚄 스타레일 워프·상점·편대 (11종 · 3페이지)", "/스타레일 워프, /스타레일 상시300선택, /스타레일 상점, /스타레일 파티편성 등", "🚄"),
     ("dday", "📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", "/디데이추가, /하드코어스터디, /생일등록, /파트너, /집중모드 등", "📅"),
     ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", "/대시보드, /메뉴, /깃허브연동, /터미널로그채널, /반응역할 등", "⚙️"),
     ("games", "🎲 미니게임 & 파티 모집 (5종 · 1페이지)", "/모집, /끝말잇기, /러시안룰렛, /날씨, /알림예약", "🎲"),
@@ -751,7 +957,7 @@ CATEGORY_DROPDOWN_OPTIONS = [
 def build_help_embed(category: str = "all", search_kw: str = "", page: int = 0) -> discord.Embed:
     """
     가독성을 극대화한 norosi bot help 임베드 빌더.
-    - category=='all' & page==0 & 검색어 없음: 전체 77개 명령어를 7대 카테고리별로 한눈에 볼 수 있는 요약 대시보드 제공
+    - category=='all' & page==0 & 검색어 없음: 전체 79개 슬래시 명령어(99종 기능)를 9대 카테고리별로 한눈에 볼 수 있는 요약 대시보드 제공
     - 특정 카테고리 선택 또는 페이지 이동 시: 페이지당 5개씩 깔끔하고 가독성 높은 카드 레이아웃 제공
     """
     total_cmds = len(COMMAND_CATALOG)
@@ -766,8 +972,8 @@ def build_help_embed(category: str = "all", search_kw: str = "", page: int = 0) 
         desc_lines = [
             header_links,
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            f"✨ **norosi**는 총 **`{total_cmds}종`**의 기능을 제공하는 올인원 세카이 & 커뮤니티 봇입니다.",
-            "💡 명령어를 직접 치기 번거로울 땐 **`/메뉴`** 버튼 리모컨으로 모든 기능을 원클릭 조작할 수 있습니다!",
+            f"✨ **norosi**는 총 **`{total_cmds}종`**의 기능(79개 슬래시 명령어)을 제공하는 올인원 멀티가챠 & 커뮤니티 봇입니다.",
+            "💡 명령어를 직접 치기 번거로울 땐 **`/메뉴`** 또는 **`/대시보드`** 버튼 리모컨으로 모든 기능을 원클릭 조작할 수 있습니다!",
             "👇 **아래 카테고리 드롭다운**을 선택하거나 **`다음 ▶` 버튼**으로 1페이지부터 상세 가이드를 열람하세요."
         ]
         embed = discord.Embed(
@@ -786,7 +992,7 @@ def build_help_embed(category: str = "all", search_kw: str = "", page: int = 0) 
                 inline=False
             )
 
-        embed.set_footer(text=f"전체 {total_cmds}개 슬래시 명령어 요약판  •  [다음 ▶] 버튼으로 1페이지부터 상세 가이드 보기  •  /메뉴 로 원클릭 실행")
+        embed.set_footer(text=f"전체 79개 슬래시 명령어 ({total_cmds}종 기능) 요약판  •  [다음 ▶]으로 상세 보기  •  /메뉴 로 원클릭 실행")
         return embed
 
     # 2. 카테고리별 또는 검색어 필터링 상세 카드 보기
@@ -808,7 +1014,7 @@ def build_help_embed(category: str = "all", search_kw: str = "", page: int = 0) 
                 f"{header_links}\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"⚠️ **`{search_kw}`** 키워드와 일치하는 명령어를 찾지 못했습니다.\n\n"
-                "💡 **추천 검색어:** `마이세카이`, `교환`, `뽑기`, `출석`, `모집`, `날씨`, `생일`, `음악`, `파트너`\n"
+                "💡 **추천 검색어:** `원신`, `스타레일`, `프로세카뽑기`, `운명의궤도`, `상시300`, `마이세카이`, `출석`, `모집`, `음악`, `파트너`\n"
                 "👉 아래 드롭다운에서 **'전체 명령어 한눈에 보기'**를 선택해 전체 목록을 둘러보세요!"
             ),
             color=discord.Color.orange(),
@@ -858,7 +1064,7 @@ def build_help_embed(category: str = "all", search_kw: str = "", page: int = 0) 
 
 
 class HelpCategorySelect(discord.ui.Select):
-    """7대 카테고리 선택 드롭다운 (현재 선택 상태 default 반영 및 페이지 안내)"""
+    """9대 카테고리 선택 드롭다운 (현재 선택 상태 default 반영 및 페이지 안내)"""
     def __init__(self, parent_view: "HelpCategoryView"):
         self.parent_view = parent_view
         super().__init__(
@@ -1001,14 +1207,16 @@ class HelpCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="도움말", description="norosi bot help - 전체 77개 슬래시 명령어 한눈에 보기 및 카테고리별 상세 가이드")
+    @app_commands.command(name="도움말", description="norosi bot help - 전체 79개 슬래시 명령어(99종 기능) 한눈에 보기 및 카테고리별 상세 가이드")
     @app_commands.describe(
-        category="안내받을 카테고리 (all/games/cards/dday/stats/ai/music/admin)",
-        search="검색할 명령어 이름 또는 키워드 (예: 마스터랭크, 라이브, 프로세카뽑기, 의상, 반응역할, 플레이리스트)"
+        category="안내받을 카테고리 (all/cards/genshin/hsr/dday/admin/games/stats/music/ai)",
+        search="검색할 명령어 이름 또는 키워드 (예: 원신, 스타레일, 프로세카뽑기, 운명의궤도, 마스터랭크, 플레이리스트)"
     )
     @app_commands.choices(category=[
-        app_commands.Choice(name="🌟 전체 명령어 한눈에 보기 (77종 요약판)", value="all"),
-        app_commands.Choice(name="🎮 출석 & 카드/가챠 (21종 · 5페이지)", value="cards"),
+        app_commands.Choice(name="🌟 전체 명령어 한눈에 보기 (99종 요약판)", value="all"),
+        app_commands.Choice(name="🎮 출석 & 프로세카 가챠 (21종 · 5페이지)", value="cards"),
+        app_commands.Choice(name="🌠 원신 기원 & 도감 & 상점 (11종 · 3페이지)", value="genshin"),
+        app_commands.Choice(name="🚄 스타레일 워프 & 아카이브 & 상점 (11종 · 3페이지)", value="hsr"),
         app_commands.Choice(name="📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", value="dday"),
         app_commands.Choice(name="⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", value="admin"),
         app_commands.Choice(name="🎲 미니게임 & 파티 모집 (5종 · 1페이지)", value="games"),
@@ -1030,7 +1238,7 @@ class HelpCog(commands.Cog):
 
     @commands.command(name="도움말", aliases=["help", "도움", "명령어"])
     async def prefix_help(self, ctx: commands.Context, *, 검색: Optional[str] = ""):
-        """채팅창에 !도움말 또는 !help 입력 시 즉시 77종 올인원 가이드 및 카테고리 대시보드 호출"""
+        """채팅창에 !도움말 또는 !help 입력 시 즉시 99종 기능 올인원 가이드 및 카테고리 대시보드 호출"""
         embed = build_help_embed(category="all", search_kw=검색 or "", page=0)
         view = HelpCategoryView(bot_instance=self.bot, category="all", search_kw=검색 or "", author=ctx.author)
         await ctx.send(embed=embed, view=view)

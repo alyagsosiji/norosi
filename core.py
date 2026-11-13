@@ -530,7 +530,9 @@ def reconstruct_safe_view(view_cls_or_name: Union[type[SafeView], str], interact
             elif name in ("owner",):
                 orig_user = getattr(getattr(interaction, "message", None), "interaction", None)
                 kwargs[name] = getattr(orig_user, "user", None) or interaction.user
-            elif name in ("user", "member", "viewer", "target_user", "host_user", "author", "host"):
+            elif name in ("user", "caller", "member", "viewer", "target_user", "host_user", "author", "host"):
+                kwargs[name] = interaction.user
+            elif name in ("requester", "target"):
                 kwargs[name] = interaction.user
             elif name in ("guild",):
                 kwargs[name] = interaction.guild
@@ -538,9 +540,9 @@ def reconstruct_safe_view(view_cls_or_name: Union[type[SafeView], str], interact
                 kwargs[name] = interaction.guild.id if interaction.guild else 0
             elif name in ("data",):
                 kwargs[name] = get_cached_data()
-            elif name in ("card_list", "items", "options"):
+            elif name in ("card_list", "items", "options", "all_prob_cards", "stats_list", "first_set", "initial_drawn"):
                 kwargs[name] = []
-            elif name in ("stats", "profile", "user_cfg", "config", "cal_info", "game"):
+            elif name in ("stats", "profile", "user_cfg", "config", "cal_info", "game", "card", "pickup_cfg", "preview_info", "hall_of_fame", "req_card", "tgt_card", "req_cards", "tgt_cards"):
                 kwargs[name] = {}
             elif name in ("year",):
                 kwargs[name] = datetime.datetime.now(KST).year
@@ -601,6 +603,26 @@ def get_mood_keyword():
     elif hour >= 22 or hour < 5:
         return random.choice(["ambient", "lofi", "piano", "chill", "synthwave"])
     return random.choice(RANDOM_KEYWORDS)
+
+
+# ==========================================
+# 1-5. 가챠 전역 쿨타임 (프로세카 / 원신 / 붕괴: 스타레일 공통 3.5초, 연출 스킵 시 5.0초)
+# ==========================================
+GACHA_GLOBAL_COOLDOWN: dict[int, float] = {}
+GACHA_COOLDOWN_SECONDS: float = 3.5
+GACHA_SKIP_COOLDOWN_SECONDS: float = 5.0
+
+
+def check_and_update_gacha_cooldown(user_id: int, skip_anim: bool = False) -> tuple[bool, float]:
+    """모든 뽑기 경로(프로세카/원신/스타레일, 단차/10연차/재뽑기)에서 예외 없이 쿨타임(기본 3.5초, 연출 스킵 시 5.0초)을 강제 검사하고 갱신합니다."""
+    now = time.time()
+    cooldown_until = GACHA_GLOBAL_COOLDOWN.get(user_id, 0.0)
+    if now < cooldown_until:
+        rem = cooldown_until - now
+        return False, rem
+    duration = GACHA_SKIP_COOLDOWN_SECONDS if skip_anim else GACHA_COOLDOWN_SECONDS
+    GACHA_GLOBAL_COOLDOWN[user_id] = now + duration
+    return True, 0.0
 
 
 # ==========================================
@@ -2742,6 +2764,32 @@ DEFAULT_CONFIG = {
     },
     "gacha_users": {},
     "gacha_hall_of_fame": {},
+    "genshin_pickup": {
+        "char1": None,
+        "char2": None,
+        "char_4_ids": [],
+        "weapon_1": None,
+        "weapon_2": None,
+        "weapon_4_ids": [],
+        "banner_name": "기본 모험 기원",
+        "version_label": None,
+        "updated_at": None
+    },
+    "genshin_users": {},
+    "genshin_hall_of_fame": {},
+    "hsr_pickup": {
+        "char1": None,
+        "char2": None,
+        "char_4_ids": [],
+        "lc_1": None,
+        "lc_2": None,
+        "lc_4_ids": [],
+        "banner_name": "별을 향한 도약",
+        "version_label": None,
+        "updated_at": None
+    },
+    "hsr_users": {},
+    "hsr_hall_of_fame": {},
     "user_profiles": {},
     "partners": {},
     "guild_attendance": {},
@@ -3127,6 +3175,29 @@ def normalize_data(data):
     if "gacha_hall_of_fame" not in data or not isinstance(data["gacha_hall_of_fame"], dict):
         data["gacha_hall_of_fame"] = {}
 
+    for p_key in ("genshin_pickup", "hsr_pickup"):
+        if p_key not in data or not isinstance(data[p_key], dict):
+            data[p_key] = copy.deepcopy(DEFAULT_CONFIG[p_key])
+        else:
+            for k, v in DEFAULT_CONFIG[p_key].items():
+                data[p_key].setdefault(k, copy.deepcopy(v) if isinstance(v, (dict, list)) else v)
+
+    for u_root_key in ("genshin_users", "hsr_users"):
+        if u_root_key not in data or not isinstance(data[u_root_key], dict):
+            data[u_root_key] = {}
+        else:
+            for g_key, g_map in list(data[u_root_key].items()):
+                if isinstance(g_map, dict):
+                    for u_key, u_info in list(g_map.items()):
+                        if isinstance(u_info, dict) and isinstance(u_info.get("items"), dict):
+                            for item_k, item_obj in u_info["items"].items():
+                                if isinstance(item_obj, dict):
+                                    item_obj.setdefault("locked", False)
+
+    for hof_key in ("genshin_hall_of_fame", "hsr_hall_of_fame"):
+        if hof_key not in data or not isinstance(data[hof_key], dict):
+            data[hof_key] = {}
+
     if "user_profiles" not in data or not isinstance(data["user_profiles"], dict):
         data["user_profiles"] = {}
     else:
@@ -3247,6 +3318,31 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
     for g_key, local_g_users in local_norm.get("gacha_users", {}).items():
         if g_key not in merged["gacha_users"]:
             merged["gacha_users"][g_key] = copy.deepcopy(local_g_users)
+
+    for u_root_key in ("genshin_users", "hsr_users"):
+        for g_key, local_g_users in local_norm.get(u_root_key, {}).items():
+            if g_key not in merged[u_root_key]:
+                merged[u_root_key][g_key] = copy.deepcopy(local_g_users)
+            elif isinstance(local_g_users, dict):
+                rem_g = merged[u_root_key].setdefault(g_key, {})
+                for u_key, local_u in local_g_users.items():
+                    rem_u = rem_g.get(u_key)
+                    if not isinstance(rem_u, dict) or (
+                        isinstance(local_u, dict)
+                        and local_u.get("total_pulls", 0) > rem_u.get("total_pulls", 0)
+                    ):
+                        rem_g[u_key] = copy.deepcopy(local_u)
+
+    for hof_key in ("genshin_hall_of_fame", "hsr_hall_of_fame"):
+        for g_key, local_hof in local_norm.get(hof_key, {}).items():
+            if g_key not in merged[hof_key]:
+                merged[hof_key][g_key] = copy.deepcopy(local_hof)
+
+    for p_key in ("genshin_pickup", "hsr_pickup"):
+        l_ts = str(local_norm.get(p_key, {}).get("updated_at") or "")
+        r_ts = str(merged.get(p_key, {}).get("updated_at") or "")
+        if l_ts and l_ts > r_ts:
+            merged[p_key] = copy.deepcopy(local_norm[p_key])
 
     for g_key, local_g_log in local_norm.get("server_logs", {}).items():
         if g_key not in merged["server_logs"]:
