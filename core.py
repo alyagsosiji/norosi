@@ -1301,8 +1301,8 @@ def purchase_and_equip_costume(guild_id: int, user_id: int, char_id: int, costum
 load_proseka_costumes_db()
 
 
-def get_random_proseka_quote(preferred_oshi: str = None) -> dict:
-    """한섭 DB에서 랜덤 대사를 추출하여 반환 (오시 설정 시 50% 확률로 오시 대사 우선 매칭)"""
+def get_random_proseka_quote(preferred_oshi: str = None, preferred_card: dict = None) -> dict:
+    """한섭 DB에서 대사를 추출하여 반환 (오시 설정 시 50% 확률로 오시 대사 우선 매칭, 착용 의상 카드 지정 시 해당 카드 우선)"""
     pool = PROSEKA_KR_QUOTES if PROSEKA_KR_QUOTES else build_fallback_proseka_quotes()
     chosen = None
 
@@ -1315,7 +1315,9 @@ def get_random_proseka_quote(preferred_oshi: str = None) -> dict:
         chosen = random.choice(pool)
 
     result = dict(chosen)
-    if not result.get("card") and PROSEKA_KR_CARDS:
+    if preferred_card and preferred_oshi and result.get("char_name") == preferred_oshi:
+        result["card"] = preferred_card
+    elif not result.get("card") and PROSEKA_KR_CARDS:
         char_cards = [
             c for c in PROSEKA_KR_CARDS
             if c.get("char_id") == result.get("char_id") and c.get("star_num", 1) >= 3
@@ -1327,7 +1329,16 @@ def get_random_proseka_quote(preferred_oshi: str = None) -> dict:
 
 
 def can_card_awaken(card: dict) -> bool:
-    return card.get("rarity_type") in ("rarity_3", "rarity_4")
+    if not card:
+        return False
+    if card.get("rarity_type") in ("rarity_3", "rarity_4"):
+        return True
+    cid = card.get("id") or card.get("card_id")
+    if cid:
+        c_obj = next((c for c in PROSEKA_KR_CARDS if c.get("id") == cid), None)
+        if c_obj:
+            return c_obj.get("rarity_type") in ("rarity_3", "rarity_4") or c_obj.get("star_num", 0) >= 3
+    return False
 
 
 def fetch_proseka_card_image_bytes(card: dict, mode: str = "auto"):

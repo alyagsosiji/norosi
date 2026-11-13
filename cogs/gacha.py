@@ -852,8 +852,11 @@ class CharacterCostumeWardrobeView(core.SafeView):
         )
 
         card_id = equipped.get("card_id")
-        if card_id and card_id > 0:
-            embed.set_image(url=core.get_proseka_card_image_url({"id": card_id, "assetbundleName": equipped.get("assetbundleName")}, "auto"))
+        card_obj = next((c for c in core.PROSEKA_KR_CARDS if c.get("id") == card_id), None)
+        if card_obj:
+            embed.set_image(url=core.get_proseka_card_image_url(card_obj, "auto"))
+        elif card_id and card_id > 0:
+            embed.set_image(url=core.get_proseka_card_image_url({"id": card_id, "assetbundleName": equipped.get("assetbundleName"), "rarity_type": "rarity_4"}, "auto"))
         else:
             rep_card = next((c for c in core.PROSEKA_KR_CARDS if c.get("char_id") == self.current_char_id), None)
             if rep_card:
@@ -2519,9 +2522,24 @@ class GachaCog(commands.Cog):
 
         rep_card = None
         if oshi_cards:
-            oshi_cards.sort(key=lambda x: (-x.get("star_num", 1), -int(x.get("is_limited", False)), -x.get("count", 1), -x.get("id", 0)))
-            rep_card = oshi_cards[0]
-            embed.set_footer(text=f"대표 일러스트: [{rep_card.get('limit_label', '통상')}] {rep_card['rarity_label']} [{rep_card['prefix']}] {rep_card['char_name']}")
+            # 1순위: 오시가 특정 의상을 착용 중인 경우, 그 착용 의상의 카드 일러스트 우선 연동!
+            if oshi_char_id:
+                oshi_cos = core.get_user_equipped_costume(interaction.guild_id or 0, target_user.id, oshi_char_id)
+                cos_card_id = oshi_cos.get("card_id")
+                if cos_card_id and cos_card_id > 0:
+                    matched_cos_card = next((c for c in oshi_cards if c.get("id") == cos_card_id), None)
+                    if not matched_cos_card:
+                        matched_cos_card = next((c for c in core.PROSEKA_KR_CARDS if c.get("id") == cos_card_id), None)
+                    if matched_cos_card:
+                        rep_card = matched_cos_card
+                        cos_name_tag = f" · 👗착용 의상: [{oshi_cos.get('name', '의상')}]"
+                        embed.set_footer(text=f"대표 일러스트: [{rep_card.get('limit_label', '통상')}] {rep_card['rarity_label']} [{rep_card['prefix']}] {rep_card['char_name']}{cos_name_tag}")
+
+            # 2순위: 기본 의상이거나 매칭 카드가 없을 때 최고 등급 카드
+            if not rep_card:
+                oshi_cards.sort(key=lambda x: (-x.get("star_num", 1), -int(x.get("is_limited", False)), -x.get("count", 1), -x.get("id", 0)))
+                rep_card = oshi_cards[0]
+                embed.set_footer(text=f"대표 일러스트: [{rep_card.get('limit_label', '통상')}] {rep_card['rarity_label']} [{rep_card['prefix']}] {rep_card['char_name']}")
         elif valid_deck_cards:
             rep_card = valid_deck_cards[0]
             embed.set_footer(text=f"대표 일러스트 (덱 리더): [{rep_card.get('limit_label', '통상')}] {rep_card['rarity_label']} [{rep_card['prefix']}] {rep_card['char_name']}")

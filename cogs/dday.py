@@ -87,7 +87,15 @@ async def execute_and_build_attendance_response(interaction: discord.Interaction
         return dup_embed, None, quick_view
 
     # 현재 서버 오늘 첫 출석 성공 시
-    quote_info = core.get_random_proseka_quote(preferred_oshi=oshi_name)
+    preferred_card = None
+    if oshi_name:
+        oshi_char_id = next((cid for cid, info in core.CHARACTER_MAP.items() if info["name"] == oshi_name), None)
+        if oshi_char_id:
+            oshi_cos = core.get_user_equipped_costume(guild_id, user_id, oshi_char_id)
+            if oshi_cos and oshi_cos.get("card_id") and oshi_cos.get("card_id") > 0:
+                preferred_card = next((c for c in core.PROSEKA_KR_CARDS if c.get("id") == oshi_cos["card_id"]), None)
+
+    quote_info = core.get_random_proseka_quote(preferred_oshi=oshi_name, preferred_card=preferred_card)
     is_oshi_match = (oshi_name and quote_info.get("char_name") == oshi_name)
     oshi_badge = " 💖**[내 오시 등장!]**" if is_oshi_match else ""
 
