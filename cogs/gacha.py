@@ -144,7 +144,7 @@ async def send_gacha_pull_result(
     banner_type: str = "normal",
     skip_anim: bool = False
 ):
-    """뽑기 결과 전송: 연출 보기 시 2.5초 승격 연출+대사 선공개 후 일러스트와 함께 결과를 표시합니다."""
+    """뽑기 결과 전송: 연출 보기 시 3.5초 승격 연출+대사 선공개 후 일러스트와 함께 결과를 표시합니다."""
     embed, has_4star = build_gacha_pull_embed(drawn, pickup_cfg, pull_count, user=interaction.user, banner_type=banner_type)
     high_cards = [c for c in drawn if c.get("star_num", 0) >= 4] if has_4star else []
     total_high = len(high_cards)
@@ -160,11 +160,11 @@ async def send_gacha_pull_result(
         if high_cards:
             results, _ = await asyncio.gather(
                 asyncio.gather(*(asyncio.to_thread(core.fetch_proseka_card_image_bytes, c, "auto") for c in high_cards[:9])),
-                asyncio.sleep(2.5)
+                asyncio.sleep(3.5)
             )
         else:
             results = []
-            await asyncio.sleep(2.5)
+            await asyncio.sleep(3.5)
     else:
         if high_cards:
             results = await asyncio.gather(*(
@@ -368,20 +368,22 @@ class DuplicateConvertConfirmView(core.SafeView):
         )
 
 
-# 모든 뽑기 경로(슬래시 명령어, 단차/10연차 버튼, 재뽑기 버튼)에서 예외 없이 공유되는 엄격한 5초 쿨타임
+# 모든 뽑기 경로(슬래시 명령어, 단차/10연차 버튼, 재뽑기 버튼)에서 예외 없이 공유되는 쿨타임
+# 기본 연출 보기: 3.5초 / 연출 스킵 시: 5.0초
 GACHA_GLOBAL_COOLDOWN: dict[int, float] = {}
-GACHA_COOLDOWN_SECONDS: float = 5.0
+GACHA_COOLDOWN_SECONDS: float = 3.5
+GACHA_SKIP_COOLDOWN_SECONDS: float = 5.0
 
 
-def check_and_update_gacha_cooldown(user_id: int) -> tuple[bool, float]:
-    """모든 뽑기 경로에서 예외 없이 5초 쿨타임을 강제 검사하고 갱신합니다."""
+def check_and_update_gacha_cooldown(user_id: int, skip_anim: bool = False) -> tuple[bool, float]:
+    """모든 뽑기 경로에서 예외 없이 쿨타임(기본 3.5초, 연출 스킵 시 5.0초)을 강제 검사하고 갱신합니다."""
     now = time.time()
-    last_t = GACHA_GLOBAL_COOLDOWN.get(user_id, 0.0)
-    elapsed = now - last_t
-    if elapsed < GACHA_COOLDOWN_SECONDS:
-        rem = GACHA_COOLDOWN_SECONDS - elapsed
+    cooldown_until = GACHA_GLOBAL_COOLDOWN.get(user_id, 0.0)
+    if now < cooldown_until:
+        rem = cooldown_until - now
         return False, rem
-    GACHA_GLOBAL_COOLDOWN[user_id] = now
+    duration = GACHA_SKIP_COOLDOWN_SECONDS if skip_anim else GACHA_COOLDOWN_SECONDS
+    GACHA_GLOBAL_COOLDOWN[user_id] = now + duration
     return True, 0.0
 
 
@@ -425,7 +427,7 @@ class GachaPullAgainView(core.SafeView):
         ]
 
     async def _handle_repull(self, interaction: discord.Interaction, pull_count: int):
-        can_pull, rem = check_and_update_gacha_cooldown(interaction.user.id)
+        can_pull, rem = check_and_update_gacha_cooldown(interaction.user.id, skip_anim=self.skip_anim)
         if not can_pull:
             await core.safe_send_response(
                 interaction,
@@ -2755,7 +2757,6 @@ class GachaCog(commands.Cog):
             app_commands.Choice(name="⏭️ 연출 스킵 (결과 즉시 표시)", value="skip"),
         ]
     )
-    @app_commands.checks.cooldown(1, 5.0, key=lambda i: i.user.id)
     async def proseka_pull_cmd(
         self,
         interaction: discord.Interaction,
@@ -2763,7 +2764,8 @@ class GachaCog(commands.Cog):
         배너: app_commands.Choice[str] = None,
         연출: app_commands.Choice[str] = None
     ):
-        can_pull, rem = check_and_update_gacha_cooldown(interaction.user.id)
+        skip_anim = (연출 is not None and 연출.value == "skip")
+        can_pull, rem = check_and_update_gacha_cooldown(interaction.user.id, skip_anim=skip_anim)
         if not can_pull:
             await core.safe_send_response(
                 interaction,
@@ -2775,7 +2777,6 @@ class GachaCog(commands.Cog):
         await core.safe_defer(interaction)
         pull_count = 횟수.value if 횟수 else 1
         banner_key = 배너.value if 배너 else "normal"
-        skip_anim = (연출 is not None and 연출.value == "skip")
 
         data = await asyncio.to_thread(core.load_data)
         pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
