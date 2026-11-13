@@ -93,7 +93,10 @@ async def execute_and_build_attendance_response(interaction: discord.Interaction
         if oshi_char_id:
             oshi_cos = core.get_user_equipped_costume(guild_id, user_id, oshi_char_id)
             if oshi_cos and oshi_cos.get("card_id") and oshi_cos.get("card_id") > 0:
-                preferred_card = next((c for c in core.PROSEKA_KR_CARDS if c.get("id") == oshi_cos["card_id"]), None)
+                if oshi_cos.get("origin_char_id") == oshi_char_id:
+                    preferred_card = next((c for c in core.PROSEKA_KR_CARDS if c.get("id") == oshi_cos["card_id"]), None)
+                else:
+                    preferred_card = next((c for c in core.PROSEKA_KR_CARDS if c.get("char_id") == oshi_char_id and c.get("star_num") == 4), None)
 
     quote_info = core.get_random_proseka_quote(preferred_oshi=oshi_name, preferred_card=preferred_card)
     is_oshi_match = (oshi_name and quote_info.get("char_name") == oshi_name)
