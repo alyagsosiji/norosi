@@ -88,6 +88,61 @@ def build_gacha_pull_embed(drawn: list, pickup_cfg: dict, pull_count: int, user:
     return embed, has_4star
 
 
+async def send_gacha_pull_result(interaction: discord.Interaction, drawn: list, pickup_cfg: dict, pull_count: int, view: discord.ui.View):
+    """뽑기 결과 전송: ★4(또는 생일) 카드가 1장 이상 등장하면 모든 고성급 카드의 공식 일러스트와 카드 정보를 개별 임베드로 첨부하여 전송합니다."""
+    embed, has_4star = build_gacha_pull_embed(drawn, pickup_cfg, pull_count, user=interaction.user)
+    if not has_4star:
+        await interaction.followup.send(embed=embed, view=view)
+        return
+
+    high_cards = [c for c in drawn if c.get("star_num", 0) >= 4]
+    total_high = len(high_cards)
+    # 디스코드 메시지당 임베드는 최대 10개 (결과 요약 1개 + 카드 일러스트 최대 9개)
+    results = await asyncio.gather(*(
+        asyncio.to_thread(core.fetch_proseka_card_image_bytes, c, "auto")
+        for c in high_cards[:9]
+    ))
+
+    embeds = [embed]
+    files = []
+    for idx, (c, (img_bytes, filename)) in enumerate(zip(high_cards[:9], results), start=1):
+        card_badge = "🎂 [Birthday]" if c.get("rarity_type") == "rarity_birthday" else "🌟 ★4"
+        pickup_txt = "🎯 **[픽업!]** " if c.get("is_pickup") else ""
+        new_txt = "✨ **[NEW!]** " if c.get("is_new") else ""
+        limit_txt = f"`[{c.get('limit_label', '통상')}]` " if c.get("limit_label") else ""
+        order_txt = f"({idx}/{total_high}) " if total_high > 1 else ""
+        unit_str = f"{c.get('unit', '')}" + (f" ({c.get('support_unit')})" if c.get("support_unit") else "")
+
+        card_title = f"{pickup_txt}{new_txt}{card_badge} {order_txt}{limit_txt}[{c.get('prefix', '')}] {c.get('char_name', '')}"
+        desc_lines = [
+            f"• 🏷️ **유닛:** `{unit_str}`  ·  ✨ **속성:** {c.get('attr', '✨')}  ·  📊 **확률:** `{c.get('prob', 0):.4f}%`"
+        ]
+        if c.get("skill_name"):
+            desc_lines.append(f"• ⚡ **스킬:** `{c.get('skill_name')}`")
+
+        card_embed = discord.Embed(
+            title=card_title[:256],
+            description="\n".join(desc_lines),
+            color=discord.Color.from_rgb(255, 105, 180) if c.get("rarity_type") == "rarity_birthday" else discord.Color.from_rgb(255, 215, 0),
+            timestamp=datetime.datetime.now(core.KST)
+        )
+        card_embed.set_footer(text=f"프로세카 ★4 공식 일러스트  •  {c.get('char_name', '')} [{c.get('prefix', '')}]")
+
+        if img_bytes and filename:
+            safe_fn = f"pull_{idx}_{filename}"
+            files.append(discord.File(io.BytesIO(img_bytes), filename=safe_fn))
+            card_embed.set_image(url=f"attachment://{safe_fn}")
+        else:
+            fallback_url = core.get_proseka_card_image_url(c, "auto")
+            card_embed.set_image(url=fallback_url)
+        embeds.append(card_embed)
+
+    if files:
+        await interaction.followup.send(embeds=embeds, files=files, view=view)
+    else:
+        await interaction.followup.send(embeds=embeds, view=view)
+
+
 class DuplicateConvertConfirmView(core.SafeView):
     """2장 이상 중복 보유한 카드(잠금 제외)를 크리스탈로 일괄 변환하는 확인 뷰"""
     def __init__(
@@ -260,24 +315,8 @@ class GachaPullAgainView(core.SafeView):
 
         guild_id = interaction.guild_id or 0
         await asyncio.to_thread(core.save_pulled_cards_to_user, guild_id, interaction.user.id, drawn)
-        embed, has_4star = build_gacha_pull_embed(drawn, pickup_cfg, pull_count, user=interaction.user)
         new_view = GachaPullAgainView(interaction.user)
-
-        if has_4star:
-            high_cards = [c for c in drawn if c["star_num"] >= 4]
-            featured_card = next((c for c in high_cards if c.get("is_pickup")), high_cards[0])
-            img_bytes, filename = await asyncio.to_thread(core.fetch_proseka_card_image_bytes, featured_card, "auto")
-            if img_bytes and filename:
-                file = discord.File(io.BytesIO(img_bytes), filename=filename)
-                embed.set_image(url=f"attachment://{filename}")
-                await interaction.followup.send(embed=embed, file=file, view=new_view)
-                return
-            else:
-                embed.set_image(url=core.get_proseka_card_image_url(featured_card, "auto"))
-                await interaction.followup.send(embed=embed, view=new_view)
-                return
-
-        await interaction.followup.send(embed=embed, view=new_view)
+        await send_gacha_pull_result(interaction, drawn, pickup_cfg, pull_count, new_view)
 
     @discord.ui.button(label="🎵 1회 더 뽑기", style=discord.ButtonStyle.primary, row=0)
     async def pull_one_more(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -294,7 +333,7 @@ class GachaPullAgainView(core.SafeView):
         g_key = str(interaction.guild_id or 0)
         u_key = str(interaction.user.id)
         user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
-        view = MyInventoryView(interaction.user, list(user_cards_dict.values()), items_per_page=5, guild_id=interaction.guild_id or 0)
+        view = MyInventoryView(interaction.user, list(user_cards_dict.values()), items_per_page=10, guild_id=interaction.guild_id or 0)
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
     @discord.ui.button(label="💎 중복 변환", style=discord.ButtonStyle.secondary, row=1)
@@ -810,7 +849,7 @@ class ProsekaRatePaginationView(core.SafeView):
 
 class MyInventoryView(core.SafeView):
     """내 캐릭터 보관함 (검색어 필터 + 정렬 + 잠금 표시 + 중복 카드 크리스탈 변환 + 일러스트 & 각성 전환)"""
-    def __init__(self, user: discord.User, card_list: list, items_per_page=5, search_keyword: str = None, guild_id: int = 0):
+    def __init__(self, user: discord.User, card_list: list, items_per_page=10, search_keyword: str = None, guild_id: int = 0):
         super().__init__(timeout=600)
         self.user = user
         self.cards = list(card_list)
@@ -934,11 +973,25 @@ class MyInventoryView(core.SafeView):
                     f"**{idx}.** {lock_badge}`[{c.get('limit_label', '통상')}]` **{c['rarity_label']} [{c['prefix']}] {c['char_name']}** (보유: `{c.get('count', 1)}장`)\n"
                     f"   └ 🏷️ {unit_str} · {c.get('attr', '✨')} · 📈 `Lv.{cur_lvl}/{max_lvl}` (`⚔️ {power_val:,}`) · 🕒 `{c.get('last_obtained_at', '-')[:10]}`"
                 )
-            embed.add_field(
-                name=f"📖 내 캐릭터 목록 (페이지 {self.current_page + 1} / {self.max_page + 1})",
-                value="\n\n".join(lines),
-                inline=False
-            )
+            full_text = "\n".join(lines)
+            if len(full_text) <= 1000:
+                embed.add_field(
+                    name=f"📖 내 캐릭터 목록 (페이지 {self.current_page + 1} / {self.max_page + 1})",
+                    value=full_text,
+                    inline=False
+                )
+            else:
+                mid = (len(lines) + 1) // 2
+                embed.add_field(
+                    name=f"📖 내 캐릭터 목록 (페이지 {self.current_page + 1} / {self.max_page + 1}) - 1",
+                    value="\n".join(lines[:mid]),
+                    inline=False
+                )
+                embed.add_field(
+                    name=f"📖 내 캐릭터 목록 (페이지 {self.current_page + 1} / {self.max_page + 1}) - 2",
+                    value="\n".join(lines[mid:]),
+                    inline=False
+                )
 
         embed.set_footer(text="하단에서 카드를 선택해 일러스트 감상·각성 전환·잠금(🔒)을 설정하거나, 💎 버튼으로 중복 카드를 크리스탈로 변환하세요.")
         return embed
@@ -1669,24 +1722,8 @@ class GachaCog(commands.Cog):
         guild_id = interaction.guild_id or 0
         await asyncio.to_thread(core.save_pulled_cards_to_user, guild_id, interaction.user.id, drawn)
 
-        embed, has_4star = build_gacha_pull_embed(drawn, pickup_cfg, pull_count, user=interaction.user)
         repull_view = GachaPullAgainView(interaction.user)
-
-        if has_4star:
-            high_cards = [c for c in drawn if c["star_num"] >= 4]
-            featured_card = next((c for c in high_cards if c.get("is_pickup")), high_cards[0])
-            img_bytes, filename = await asyncio.to_thread(core.fetch_proseka_card_image_bytes, featured_card, "auto")
-            if img_bytes and filename:
-                file = discord.File(io.BytesIO(img_bytes), filename=filename)
-                embed.set_image(url=f"attachment://{filename}")
-                await interaction.followup.send(embed=embed, file=file, view=repull_view)
-                return
-            else:
-                embed.set_image(url=core.get_proseka_card_image_url(featured_card, "auto"))
-                await interaction.followup.send(embed=embed, view=repull_view)
-                return
-
-        await interaction.followup.send(embed=embed, view=repull_view)
+        await send_gacha_pull_result(interaction, drawn, pickup_cfg, pull_count, repull_view)
 
     @proseka_pull_cmd.error
     async def proseka_pull_cmd_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
@@ -1745,7 +1782,7 @@ class GachaCog(commands.Cog):
                 or kw_lower in c.get("rarity_label", "").lower()
             ]
 
-        view = MyInventoryView(target_user, card_list, items_per_page=5, search_keyword=clean_kw, guild_id=interaction.guild_id or 0)
+        view = MyInventoryView(target_user, card_list, items_per_page=10, search_keyword=clean_kw, guild_id=interaction.guild_id or 0)
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
     @app_commands.command(name="카드도감", description="캐릭터별 수집률(%)과 아직 획득하지 못한 미보유 카드를 별도 탭으로 확인하는 전체 카드 도감을 엽니다.")

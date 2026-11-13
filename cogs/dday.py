@@ -436,7 +436,7 @@ class CommandRemoteSelect(discord.ui.Select):
             g_key = str(interaction.guild_id or 0)
             u_key = str(interaction.user.id)
             user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
-            view = MyInventoryView(interaction.user, list(user_cards_dict.values()), items_per_page=5, guild_id=interaction.guild_id or 0)
+            view = MyInventoryView(interaction.user, list(user_cards_dict.values()), items_per_page=10, guild_id=interaction.guild_id or 0)
             await interaction.followup.send(embed=view.build_embed(), view=view)
         elif val == "pokedex":
             await core.safe_defer(interaction)
@@ -677,7 +677,7 @@ class QuickMenuHubView(core.SafeView):
         g_key = str(interaction.guild_id or 0)
         u_key = str(interaction.user.id)
         user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
-        view = MyInventoryView(interaction.user, list(user_cards_dict.values()), items_per_page=5, guild_id=interaction.guild_id or 0)
+        view = MyInventoryView(interaction.user, list(user_cards_dict.values()), items_per_page=10, guild_id=interaction.guild_id or 0)
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
     @discord.ui.button(label="📖 카드도감", style=discord.ButtonStyle.secondary, row=2)

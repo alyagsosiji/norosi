@@ -834,7 +834,7 @@ class MasterDashboardView(core.SafeView):
             g_key = str(interaction.guild_id or 0)
             u_key = str(interaction.user.id)
             user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
-            view = gacha.MyInventoryView(interaction.user, list(user_cards_dict.values()), items_per_page=5, guild_id=interaction.guild_id or 0)
+            view = gacha.MyInventoryView(interaction.user, list(user_cards_dict.values()), items_per_page=10, guild_id=interaction.guild_id or 0)
             await interaction.followup.send(embed=view.build_embed(), view=view)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 보관함 조회 중 오류: {e}", ephemeral=True)
