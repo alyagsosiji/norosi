@@ -288,6 +288,7 @@ _FIREBASE_DISABLED_UNTIL = 0.0
 
 # 일러스트 바이트 & 성공 URL LRU 캐시 (응답 지연 및 타임아웃 방지용)
 _IMAGE_BYTES_CACHE = OrderedDict()
+_IMAGE_CACHE_LOCK = threading.Lock()
 _THUMB_BYTES_CACHE = OrderedDict()
 _THUMB_CACHE_LOCK = threading.Lock()
 _ASSET_URL_CACHE = {}
@@ -829,34 +830,47 @@ def fetch_json_with_fallback(urls):
     return None
 
 
+def hydrate_proseka_kr_cache_from_disk() -> bool:
+    """디스크의 한섭 카드 캐시(proseka_kr_cache.json)가 존재하면 네트워크 없이 즉시 로드합니다."""
+    if not os.path.exists(PROSEKA_CACHE_FILE):
+        return False
+    try:
+        with open(PROSEKA_CACHE_FILE, "r", encoding="utf-8") as f:
+            cached = json.load(f)
+        if cached and isinstance(cached, list) and len(cached) > 50:
+            PROSEKA_KR_CARDS.clear()
+            PROSEKA_KR_CARDS.extend(cached)
+            quotes = []
+            for c in cached:
+                gp = (c.get("gachaPhrase") or "").strip()
+                if gp and gp != "-":
+                    quotes.append({
+                        "char_id": c["char_id"],
+                        "char_name": c["char_name"],
+                        "unit": c.get("effective_unit", c["unit"]),
+                        "quote": gp,
+                        "source": f"[{c.get('limit_label', '통상')}] {c['rarity_label']} [{c['prefix']}]",
+                        "card": c
+                    })
+            if quotes:
+                PROSEKA_KR_QUOTES.clear()
+                PROSEKA_KR_QUOTES.extend(quotes)
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def load_proseka_kr_db():
     """프로세카 한국 서버(KR) 마스터 DB에서 전체 카드 및 캐릭터 대사(gachaPhrase, systemLive2ds)를 로드"""
     global PROSEKA_KR_CARDS, PROSEKA_KR_QUOTES
 
     # 1. 로컬 캐시 파일이 존재하면 먼저 로드하여 메모리 폭증(OOM Killer) 방지
-    if os.path.exists(PROSEKA_CACHE_FILE):
+    if hydrate_proseka_kr_cache_from_disk():
         try:
-            with open(PROSEKA_CACHE_FILE, "r", encoding="utf-8") as f:
-                cached = json.load(f)
-                if cached and isinstance(cached, list) and len(cached) > 50:
-                    PROSEKA_KR_CARDS = cached
-                    quotes = []
-                    for c in cached:
-                        gp = (c.get("gachaPhrase") or "").strip()
-                        if gp and gp != "-":
-                            quotes.append({
-                                "char_id": c["char_id"],
-                                "char_name": c["char_name"],
-                                "unit": c.get("effective_unit", c["unit"]),
-                                "quote": gp,
-                                "source": f"[{c.get('limit_label', '통상')}] {c['rarity_label']} [{c['prefix']}]",
-                                "card": c
-                            })
-                    if quotes:
-                        PROSEKA_KR_QUOTES = quotes
-                    mtime = os.path.getmtime(PROSEKA_CACHE_FILE)
-                    if time.time() - mtime < 86400:
-                        return
+            mtime = os.path.getmtime(PROSEKA_CACHE_FILE)
+            if time.time() - mtime < 86400:
+                return
         except Exception:
             pass
 
@@ -1691,7 +1705,8 @@ def purchase_and_equip_costume(guild_id: int, user_id: int, char_id: int, costum
         return True, f"👗 **{target_char['name']}**에게 **[{costume['name']}]** 의상을 제작하여 입혀주었습니다!", costume, rem_crystals
 
 
-# 모듈 로드 시 캐시된 의상 DB 초기화
+# 모듈 로드 시 로컬 캐시된 카드/의상 DB 즉시 초기화 (네트워크 호출 없음)
+hydrate_proseka_kr_cache_from_disk()
 load_proseka_costumes_db()
 
 
@@ -1725,60 +1740,69 @@ def get_random_proseka_quote(preferred_oshi: str = None, preferred_card: dict = 
 def can_card_awaken(card: dict) -> bool:
     if not card:
         return False
-    if card.get("rarity_type") in ("rarity_3", "rarity_4"):
-        return True
+    r_type = card.get("rarity_type")
+    if r_type:
+        return r_type in ("rarity_3", "rarity_4")
     cid = card.get("id") or card.get("card_id")
     if cid:
         c_obj = next((c for c in PROSEKA_KR_CARDS if c.get("id") == cid), None)
         if c_obj:
-            return c_obj.get("rarity_type") in ("rarity_3", "rarity_4") or c_obj.get("star_num", 0) >= 3
+            return c_obj.get("rarity_type") in ("rarity_3", "rarity_4")
     return False
 
 
 def fetch_proseka_card_image_bytes(card: dict, mode: str = "auto"):
     """
     카드의 일러스트를 한섭/일섭 에셋 서버에서 고속 조회하여 바이트로 반환.
-    인메모리 LRU 캐시(_IMAGE_BYTES_CACHE)와 핵심 URL 우선 매핑(타임아웃 2초)을 적용해
-    출석체크 및 뽑기 명령어의 타임아웃/지연을 완벽히 방지합니다.
+    인메모리 LRU 캐시(_IMAGE_BYTES_CACHE)와 다중 CDN·각성 전 폴백, JPEG 변환을 적용해
+    디스코드 임베드 일러스트 표시 실패 및 타임아웃을 완벽히 방지합니다.
     """
     if not card:
         return None, None
 
     asset_name = card.get("assetbundleName")
     if not asset_name:
+        cid = card.get("id") or card.get("card_id")
         for c in PROSEKA_KR_CARDS:
-            if c.get("id") == card.get("id") and c.get("assetbundleName"):
+            if c.get("id") == cid and c.get("assetbundleName"):
                 asset_name = c["assetbundleName"]
                 break
     if not asset_name:
         return None, None
 
-    if mode == "normal":
+    awakenable = can_card_awaken(card)
+    if mode == "normal" or not awakenable:
         target_sfx = "normal"
         suffixes = ["normal"]
     else:
-        target_sfx = "after_training" if can_card_awaken(card) else "normal"
-        suffixes = ["after_training", "normal"] if can_card_awaken(card) else ["normal"]
+        target_sfx = "after_training"
+        suffixes = ["after_training", "normal"]
 
     cache_key = f"{asset_name}:{target_sfx}"
-    if cache_key in _IMAGE_BYTES_CACHE:
-        _IMAGE_BYTES_CACHE.move_to_end(cache_key)
-        return _IMAGE_BYTES_CACHE[cache_key]
+    with _IMAGE_CACHE_LOCK:
+        if cache_key in _IMAGE_BYTES_CACHE:
+            _IMAGE_BYTES_CACHE.move_to_end(cache_key)
+            return _IMAGE_BYTES_CACHE[cache_key]
+        cached_url = _ASSET_URL_CACHE.get(cache_key)
 
-    candidate_urls = []
-    if cache_key in _ASSET_URL_CACHE:
-        candidate_urls.append(_ASSET_URL_CACHE[cache_key])
+    candidate_pairs: list[tuple[str, str]] = []
+    seen_urls: set[str] = set()
+    if cached_url:
+        candidate_pairs.append((cached_url, target_sfx))
+        seen_urls.add(cached_url)
 
-    # 가장 성공률이 높은 대표 CDN 경로만 선별하여 최대 대기 시간을 대폭 단축
     for sfx in suffixes:
         for u in (
             f"https://storage.sekai.best/sekai-jp-assets/character/member/{asset_name}/card_{sfx}.webp",
             f"https://storage.sekai.best/sekai-kr-assets/character/member/{asset_name}/card_{sfx}.webp",
             f"https://storage.sekai.best/sekai-jp-assets/character/member/{asset_name}_rip/card_{sfx}.webp",
-            f"https://storage.sekai.best/sekai-jp-assets/thumbnail/chara/{asset_name}_{sfx}.webp"
+            f"https://storage.sekai.best/sekai-jp-assets/character/member/{asset_name}/card_{sfx}.png",
+            f"https://storage.sekai.best/sekai-kr-assets/character/member/{asset_name}/card_{sfx}.png",
+            f"https://storage.sekai.best/sekai-jp-assets/thumbnail/chara/{asset_name}_{sfx}.webp",
         ):
-            if u not in candidate_urls:
-                candidate_urls.append(u)
+            if u not in seen_urls:
+                seen_urls.add(u)
+                candidate_pairs.append((u, sfx))
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
@@ -1786,17 +1810,38 @@ def fetch_proseka_card_image_bytes(card: dict, mode: str = "auto"):
         "Origin": "https://sekai.best"
     }
 
-    for url in candidate_urls[:4]:
+    for url, used_sfx in candidate_pairs:
         try:
-            res = requests.get(url, headers=headers, timeout=2.0)
+            res = requests.get(url, headers=headers, timeout=2.5)
             if res.status_code == 200 and len(res.content) > 1000:
+                out_bytes = res.content
                 ext = "png" if url.endswith(".png") else "webp"
-                filename = f"card_{card.get('id', 0)}_{target_sfx}.{ext}"
-                _ASSET_URL_CACHE[cache_key] = url
-                _IMAGE_BYTES_CACHE[cache_key] = (res.content, filename)
-                if len(_IMAGE_BYTES_CACHE) > MAX_IMAGE_CACHE_SIZE:
-                    _IMAGE_BYTES_CACHE.popitem(last=False)
-                return res.content, filename
+                if Image is not None:
+                    try:
+                        with Image.open(io.BytesIO(res.content)) as im:
+                            if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+                                bg = Image.new("RGB", im.size, (19, 22, 41))
+                                rgba = im.convert("RGBA")
+                                bg.paste(rgba, mask=rgba.split()[-1])
+                                rgb_im = bg
+                            else:
+                                rgb_im = im.convert("RGB")
+                            buf = io.BytesIO()
+                            rgb_im.save(buf, format="JPEG", quality=90, optimize=True)
+                            out_bytes = buf.getvalue()
+                            ext = "jpg"
+                    except Exception:
+                        # 손상되었거나 이미지가 아닌 응답은 다음 후보 URL로 넘김
+                        continue
+
+                filename = f"card_{card.get('id', 0)}_{used_sfx}.{ext}"
+                with _IMAGE_CACHE_LOCK:
+                    _ASSET_URL_CACHE[cache_key] = url
+                    _ASSET_URL_CACHE[f"{asset_name}:{used_sfx}"] = url
+                    _IMAGE_BYTES_CACHE[cache_key] = (out_bytes, filename)
+                    if len(_IMAGE_BYTES_CACHE) > MAX_IMAGE_CACHE_SIZE:
+                        _IMAGE_BYTES_CACHE.popitem(last=False)
+                return out_bytes, filename
         except Exception:
             continue
 
@@ -1807,17 +1852,22 @@ def get_proseka_card_image_url(card: dict, mode: str = "auto") -> str:
     """카드의 직접 퍼블릭 CDN 이미지 URL을 반환 (바이트 다운로드 실패 시에도 임베드에 100% 표시 보장)"""
     if not card:
         return "https://storage.sekai.best/sekai-jp-assets/character/member/res017_no001/card_normal.webp"
-    
+
     asset_name = card.get("assetbundleName")
     if not asset_name:
+        cid = card.get("id") or card.get("card_id")
         for c in PROSEKA_KR_CARDS:
-            if c.get("id") == card.get("id") and c.get("assetbundleName"):
+            if c.get("id") == cid and c.get("assetbundleName"):
                 asset_name = c["assetbundleName"]
                 break
     if not asset_name:
         asset_name = "res017_no001"
 
     target_sfx = "after_training" if (mode != "normal" and can_card_awaken(card)) else "normal"
+    with _IMAGE_CACHE_LOCK:
+        cached = _ASSET_URL_CACHE.get(f"{asset_name}:{target_sfx}")
+        if cached:
+            return cached
     return f"https://storage.sekai.best/sekai-jp-assets/character/member/{asset_name}/card_{target_sfx}.webp"
 
 
@@ -1955,11 +2005,19 @@ def build_10pull_grid_image_bytes(
     if header_tag:
         left_title = f"{header_tag}  |  {left_title}"
     right_stats = f"★4/생일: {r4_cnt}장   ★3: {r3_cnt}장"
-    draw.text((pad_x, 11), left_title, fill=(242, 246, 255, 255), font=font_header)
+    right_w = 0
     if font_sub:
         bbox = draw.textbbox((0, 0), right_stats, font=font_sub)
-        tw = bbox[2] - bbox[0]
-        draw.text((width - pad_x - tw, 14), right_stats, fill=(170, 238, 255, 255), font=font_sub)
+        right_w = bbox[2] - bbox[0]
+        draw.text((width - pad_x - right_w, 14), right_stats, fill=(170, 238, 255, 255), font=font_sub)
+    if font_header and right_w > 0:
+        max_title_w = width - pad_x * 2 - right_w - 20
+        while len(left_title) > 12:
+            tb = draw.textbbox((0, 0), left_title, font=font_header)
+            if (tb[2] - tb[0]) <= max_title_w:
+                break
+            left_title = left_title[:-4] + "..."
+    draw.text((pad_x, 11), left_title, fill=(242, 246, 255, 255), font=font_header)
 
     for idx, c in enumerate(cards):
         col = idx % cols

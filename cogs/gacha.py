@@ -1,6 +1,7 @@
 import io
 import copy
 import time
+import random
 import asyncio
 import datetime
 import discord
@@ -92,7 +93,7 @@ def build_gacha_pull_embed(
         cos = core.get_costume_for_card(c.get("id"))
         cos_badge = f" · 👗`[{cos['name']}]`" if cos else ""
         card_title = f"{p_mark}{new_mark}{limit_badge}**{rarity_badge} [{c['prefix']}] {c['char_name']}**"
-        card_sub = f"   └ 🏷️ `{unit_str}` · `{c['attr']}` · 확률 `{c['prob']:.4f}%`{cos_badge}"
+        card_sub = f"   └ 🏷️ `{unit_str}` · `{c['attr']}` · 확률 `{c.get('prob', 0.0):.4f}%`{cos_badge}"
         lines.append(f"**{idx:02d}.** {card_title}\n{card_sub}")
 
     r4_cnt = sum(1 for c in drawn if c["rarity_type"] == "rarity_4")
@@ -168,9 +169,26 @@ async def send_gacha_pull_result(
     high_cards = [c for c in drawn if c.get("star_num", 0) >= 4] if has_4star else []
     total_high = len(high_cards)
     want_grid = len(drawn) >= 2
+    want_single_img = (not has_4star) and (not want_grid) and len(drawn) == 1
 
     async def _empty_grid():
         return None, None
+
+    if high_cards:
+        img_coro = asyncio.gather(
+            *(asyncio.to_thread(core.fetch_proseka_card_image_bytes, c, "auto") for c in high_cards[:9])
+        )
+    elif want_single_img:
+        img_coro = asyncio.gather(
+            asyncio.to_thread(core.fetch_proseka_card_image_bytes, drawn[0], "auto")
+        )
+    else:
+        img_coro = asyncio.sleep(0, result=[])
+
+    grid_coro = (
+        asyncio.to_thread(core.build_10pull_grid_image_bytes, drawn, banner_type, grid_tag)
+        if want_grid else _empty_grid()
+    )
 
     intro_msg = None
     if not skip_anim:
@@ -179,52 +197,59 @@ async def send_gacha_pull_result(
             intro_msg = await interaction.followup.send(embed=intro_embed, wait=True)
         except Exception:
             intro_msg = None
-
-        img_coro = (
-            asyncio.gather(*(asyncio.to_thread(core.fetch_proseka_card_image_bytes, c, "auto") for c in high_cards[:9]))
-            if high_cards else asyncio.sleep(0, result=[])
-        )
-        grid_coro = (
-            asyncio.to_thread(core.build_10pull_grid_image_bytes, drawn, banner_type, grid_tag)
-            if want_grid else _empty_grid()
-        )
         results, (grid_bytes, grid_fn), _ = await asyncio.gather(img_coro, grid_coro, asyncio.sleep(3.5))
     else:
-        img_coro = (
-            asyncio.gather(*(asyncio.to_thread(core.fetch_proseka_card_image_bytes, c, "auto") for c in high_cards[:9]))
-            if high_cards else asyncio.sleep(0, result=[])
-        )
-        grid_coro = (
-            asyncio.to_thread(core.build_10pull_grid_image_bytes, drawn, banner_type, grid_tag)
-            if want_grid else _empty_grid()
-        )
         results, (grid_bytes, grid_fn) = await asyncio.gather(img_coro, grid_coro)
 
-    grid_file = None
-    if grid_bytes and grid_fn:
-        grid_file = discord.File(io.BytesIO(grid_bytes), filename=grid_fn)
+    MAX_FILES = 10
+    MAX_TOTAL_BYTES = 7_800_000
+    file_specs: list[tuple[bytes, str]] = []
+    total_bytes = 0
+
+    if grid_bytes and grid_fn and len(grid_bytes) <= MAX_TOTAL_BYTES:
+        file_specs.append((grid_bytes, grid_fn))
+        total_bytes += len(grid_bytes)
         embed.set_image(url=f"attachment://{grid_fn}")
 
+    def _build_files(specs: list[tuple[bytes, str]]) -> list[discord.File]:
+        return [discord.File(io.BytesIO(b), filename=fn) for b, fn in specs]
+
     if not has_4star:
+        if want_single_img:
+            s_bytes, s_fn = results[0] if results else (None, None)
+            if s_bytes and s_fn and len(file_specs) < MAX_FILES and (total_bytes + len(s_bytes) <= MAX_TOTAL_BYTES):
+                safe_fn = f"pull_1_{s_fn}"
+                file_specs.append((s_bytes, safe_fn))
+                total_bytes += len(s_bytes)
+                embed.set_image(url=f"attachment://{safe_fn}")
+            else:
+                embed.set_image(url=core.get_proseka_card_image_url(drawn[0], "auto"))
+
         if intro_msg is not None:
             try:
-                if grid_file is not None:
-                    await intro_msg.edit(embed=embed, attachments=[grid_file], view=view)
-                else:
-                    await intro_msg.edit(embed=embed, view=view)
+                await intro_msg.edit(embed=embed, attachments=_build_files(file_specs), view=view)
                 return
             except Exception:
-                pass
-        if grid_file is not None:
-            await interaction.followup.send(embed=embed, file=discord.File(io.BytesIO(grid_bytes), filename=grid_fn), view=view)
-        else:
+                try:
+                    await intro_msg.delete()
+                except Exception:
+                    pass
+
+        try:
+            if file_specs:
+                await interaction.followup.send(embed=embed, files=_build_files(file_specs), view=view)
+            else:
+                await interaction.followup.send(embed=embed, view=view)
+        except discord.HTTPException:
+            if want_single_img:
+                embed.set_image(url=core.get_proseka_card_image_url(drawn[0], "auto"))
+            else:
+                embed.set_image(url=None)
             await interaction.followup.send(embed=embed, view=view)
         return
 
     embeds = [embed]
-    files = []
-    if grid_file is not None:
-        files.append(grid_file)
+    card_embed_pairs: list[tuple[discord.Embed, dict]] = []
 
     for idx, (c, (img_bytes, filename)) in enumerate(zip(high_cards[:9], results), start=1):
         card_badge = "🎂 [Birthday]" if c.get("rarity_type") == "rarity_birthday" else "🌟 ★4"
@@ -255,34 +280,36 @@ async def send_gacha_pull_result(
         )
         card_embed.set_footer(text=f"프로세카 ★4 공식 일러스트  •  {c.get('char_name', '')} [{c.get('prefix', '')}]")
 
-        if img_bytes and filename:
+        fallback_url = core.get_proseka_card_image_url(c, "auto")
+        if img_bytes and filename and len(file_specs) < MAX_FILES and (total_bytes + len(img_bytes) <= MAX_TOTAL_BYTES):
             safe_fn = f"pull_{idx}_{filename}"
-            files.append(discord.File(io.BytesIO(img_bytes), filename=safe_fn))
+            file_specs.append((img_bytes, safe_fn))
+            total_bytes += len(img_bytes)
             card_embed.set_image(url=f"attachment://{safe_fn}")
         else:
-            fallback_url = core.get_proseka_card_image_url(c, "auto")
             card_embed.set_image(url=fallback_url)
         embeds.append(card_embed)
+        card_embed_pairs.append((card_embed, c))
 
     if intro_msg is not None:
         try:
-            if files:
-                await intro_msg.edit(embeds=embeds, attachments=files, view=view)
-            else:
-                await intro_msg.edit(embeds=embeds, view=view)
+            await intro_msg.edit(embeds=embeds, attachments=_build_files(file_specs), view=view)
             return
         except Exception:
-            pass
+            try:
+                await intro_msg.delete()
+            except Exception:
+                pass
 
-    if files:
-        fresh_files = []
-        if grid_bytes and grid_fn:
-            fresh_files.append(discord.File(io.BytesIO(grid_bytes), filename=grid_fn))
-        for idx, (c, (img_bytes, filename)) in enumerate(zip(high_cards[:9], results), start=1):
-            if img_bytes and filename:
-                fresh_files.append(discord.File(io.BytesIO(img_bytes), filename=f"pull_{idx}_{filename}"))
-        await interaction.followup.send(embeds=embeds, files=fresh_files, view=view)
-    else:
+    try:
+        if file_specs:
+            await interaction.followup.send(embeds=embeds, files=_build_files(file_specs), view=view)
+        else:
+            await interaction.followup.send(embeds=embeds, view=view)
+    except discord.HTTPException:
+        embed.set_image(url=None)
+        for c_emb, c in card_embed_pairs:
+            c_emb.set_image(url=core.get_proseka_card_image_url(c, "auto"))
         await interaction.followup.send(embeds=embeds, view=view)
 
 
@@ -493,7 +520,7 @@ class GachaPullAgainView(core.SafeView):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
         pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
-        drawn = core.draw_proseka_cards(pickup_cfg, count=pull_count, banner_type=self.banner_type)
+        drawn = await asyncio.to_thread(core.draw_proseka_cards, pickup_cfg, pull_count, self.banner_type)
         if not drawn:
             await interaction.followup.send("❌ 한국 서버 캐릭터 DB를 불러오지 못했습니다.", ephemeral=True)
             return
@@ -548,6 +575,7 @@ class GachaPullAgainView(core.SafeView):
 
     @discord.ui.button(label="💎 중복 변환", style=discord.ButtonStyle.secondary, row=1)
     async def open_duplicate_converter(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction, ephemeral=True)
         guild_id = interaction.guild_id or 0
         preview = await asyncio.to_thread(core.preview_duplicate_cards, guild_id, interaction.user.id)
         view = DuplicateConvertConfirmView(guild_id, interaction.user, preview)
@@ -693,12 +721,19 @@ class RerollSimulatorView(core.SafeView):
         if interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 연습 시뮬레이션을 시작한 본인만 조작할 수 있습니다.", ephemeral=True)
             return
+        if self._lock.locked():
+            await core.safe_send_response(interaction, "⏳ 이전 시뮬레이션을 처리 중입니다. 잠시 후 다시 눌러주세요.", ephemeral=True)
+            return
         async with self._lock:
             await core.safe_defer(interaction)
-            data = await asyncio.to_thread(core.load_data)
-            self.pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
-            drawn = core.draw_proseka_cards(self.pickup_cfg, count=10, banner_type=self.banner_type)
-            core.annotate_drawn_is_new(self.guild_id, self.user.id, drawn)
+            def _do_roll():
+                d = core.load_data()
+                p_cfg = d.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
+                dr = core.draw_proseka_cards(p_cfg, count=10, banner_type=self.banner_type)
+                core.annotate_drawn_is_new(self.guild_id, self.user.id, dr)
+                return p_cfg, dr
+
+            self.pickup_cfg, drawn = await asyncio.to_thread(_do_roll)
             self.drawn = drawn
             self.attempt_count += 1
             self.total_high += sum(1 for c in drawn if c.get("star_num", 0) >= 4)
@@ -713,41 +748,64 @@ class RerollSimulatorView(core.SafeView):
                     embed=embed, attachments=[discord.File(io.BytesIO(grid_bytes), filename=grid_fn)], view=self
                 )
             else:
-                await interaction.edit_original_response(embed=embed, view=self)
+                await interaction.edit_original_response(embed=embed, attachments=[], view=self)
 
     @discord.ui.button(label="🎯 픽업/★4 뜰 때까지 돌리기 (최대 50회)", style=discord.ButtonStyle.success, row=0)
     async def auto_reroll_until_hit(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 연습 시뮬레이션을 시작한 본인만 조작할 수 있습니다.", ephemeral=True)
             return
+        if self._lock.locked():
+            await core.safe_send_response(interaction, "⏳ 이전 시뮬레이션을 처리 중입니다. 잠시 후 다시 눌러주세요.", ephemeral=True)
+            return
         async with self._lock:
             await core.safe_defer(interaction)
-            data = await asyncio.to_thread(core.load_data)
-            self.pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
-            prob_cards = core.calculate_card_probabilities(self.pickup_cfg, banner_type=self.banner_type)
-            has_pickup_target = any(c.get("is_pickup") and c.get("star_num", 0) >= 4 for c in prob_cards)
 
-            batch_tries = 0
-            last_drawn = []
-            hit = False
-            while batch_tries < 50:
-                batch_tries += 1
-                drawn = core.draw_proseka_cards(self.pickup_cfg, count=10, banner_type=self.banner_type)
-                self.attempt_count += 1
-                self.total_high += sum(1 for c in drawn if c.get("star_num", 0) >= 4)
-                self.total_pickup += sum(1 for c in drawn if c.get("star_num", 0) >= 4 and c.get("is_pickup"))
-                last_drawn = drawn
-                if has_pickup_target:
-                    if any(c.get("is_pickup") and c.get("star_num", 0) >= 4 for c in drawn):
-                        hit = True
-                        break
-                else:
-                    if any(c.get("star_num", 0) >= 4 for c in drawn):
-                        hit = True
-                        break
+            def _run_batch():
+                d = core.load_data()
+                p_cfg = d.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
+                prob_cards = core.calculate_card_probabilities(p_cfg, banner_type=self.banner_type)
+                if not prob_cards:
+                    return p_cfg, 0, [], False, 0, 0, False
+                has_pickup_target = any(c.get("is_pickup") and c.get("star_num", 0) >= 4 for c in prob_cards)
+                weights = [c["prob"] for c in prob_cards]
+                high_pool = [c for c in prob_cards if c["star_num"] >= 3]
+                high_weights = [c["prob"] for c in high_pool]
 
-            core.annotate_drawn_is_new(self.guild_id, self.user.id, last_drawn)
+                batch_tries = 0
+                add_high = 0
+                add_pickup = 0
+                last_drawn = []
+                hit = False
+                while batch_tries < 50:
+                    batch_tries += 1
+                    drawn = [dict(c) for c in random.choices(prob_cards, weights=weights, k=10)]
+                    if high_pool and not any(c["star_num"] >= 3 for c in drawn):
+                        drawn[-1] = dict(random.choices(high_pool, weights=high_weights, k=1)[0])
+                    add_high += sum(1 for c in drawn if c.get("star_num", 0) >= 4)
+                    add_pickup += sum(1 for c in drawn if c.get("star_num", 0) >= 4 and c.get("is_pickup"))
+                    last_drawn = drawn
+                    if has_pickup_target:
+                        if any(c.get("is_pickup") and c.get("star_num", 0) >= 4 for c in drawn):
+                            hit = True
+                            break
+                    else:
+                        if any(c.get("star_num", 0) >= 4 for c in drawn):
+                            hit = True
+                            break
+                for c in last_drawn:
+                    cid_str = str(c.get("id"))
+                    if cid_str in core.PROSEKA_KR_COSTUMES:
+                        c["costume"] = core.PROSEKA_KR_COSTUMES[cid_str]
+                core.annotate_drawn_is_new(self.guild_id, self.user.id, last_drawn)
+                return p_cfg, batch_tries, last_drawn, hit, add_high, add_pickup, has_pickup_target
+
+            self.pickup_cfg, batch_tries, last_drawn, hit, add_high, add_pickup, has_pickup_target = await asyncio.to_thread(_run_batch)
+            self.attempt_count += batch_tries
+            self.total_high += add_high
+            self.total_pickup += add_pickup
             self.drawn = last_drawn
+
             target_label = "목표 픽업 ★4" if has_pickup_target else "★4·생일"
             if hit:
                 self.last_auto_note = f"🎉 **자동 시뮬 성공:** 이번 도전 `{batch_tries}회` (`{batch_tries * 10}연차`, 가상 `{batch_tries * 3000:,}💎`) 만에 {target_label} 등장!"
@@ -763,7 +821,7 @@ class RerollSimulatorView(core.SafeView):
                     embed=embed, attachments=[discord.File(io.BytesIO(grid_bytes), filename=grid_fn)], view=self
                 )
             else:
-                await interaction.edit_original_response(embed=embed, view=self)
+                await interaction.edit_original_response(embed=embed, attachments=[], view=self)
 
     @discord.ui.select(
         placeholder="🧪 연습 배너 선택...",
@@ -774,9 +832,18 @@ class RerollSimulatorView(core.SafeView):
         if interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 연습 시뮬레이션을 시작한 본인만 배너를 바꿀 수 있습니다.", ephemeral=True)
             return
+        if self._lock.locked():
+            await core.safe_send_response(interaction, "⏳ 이전 시뮬레이션을 처리 중입니다. 잠시 후 다시 눌러주세요.", ephemeral=True)
+            return
         self.banner_type = select.values[0]
         self._refresh_select()
+        b_cfg = core.BANNER_CONFIGS.get(self.banner_type, core.BANNER_CONFIGS["normal"])
         await interaction.response.edit_message(view=self)
+        await core.safe_send_response(
+            interaction,
+            f"🧪 다음 연습 배너가 **`{b_cfg['name']}`**(으)로 변경되었습니다! 상단 버튼을 눌러 10연차를 돌려보세요.",
+            ephemeral=True,
+        )
 
 
 class DestinyRerollView(core.SafeView):
@@ -855,20 +922,29 @@ class DestinyRerollView(core.SafeView):
                 embed=embed, attachments=[discord.File(io.BytesIO(grid_bytes), filename=grid_fn)], view=self
             )
         else:
-            await interaction.edit_original_response(embed=embed, view=self)
+            await interaction.edit_original_response(embed=embed, attachments=[], view=self)
 
     @discord.ui.button(label="🔁 다시 뽑기 (남은 2/2회)", style=discord.ButtonStyle.primary, row=0)
     async def reroll_set(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 운명 다시 뽑기를 시작한 본인만 조작할 수 있습니다.", ephemeral=True)
             return
+        if self._lock.locked():
+            await core.safe_send_response(interaction, "⏳ 이전 작업을 처리 중입니다. 잠시 후 다시 눌러주세요.", ephemeral=True)
+            return
+        if self.confirmed or len(self.sets) >= 3:
+            await core.safe_send_response(interaction, "❌ 더 이상 다시 뽑을 수 없습니다.", ephemeral=True)
+            return
         async with self._lock:
             if self.confirmed or len(self.sets) >= 3:
                 await core.safe_send_response(interaction, "❌ 더 이상 다시 뽑을 수 없습니다.", ephemeral=True)
                 return
             await core.safe_defer(interaction)
-            new_set = core.draw_proseka_cards(self.pickup_cfg, count=10, banner_type=self.banner_type)
-            core.annotate_drawn_is_new(self.guild_id, self.user.id, new_set)
+            def _draw_new():
+                ns = core.draw_proseka_cards(self.pickup_cfg, count=10, banner_type=self.banner_type)
+                core.annotate_drawn_is_new(self.guild_id, self.user.id, ns)
+                return ns
+            new_set = await asyncio.to_thread(_draw_new)
             self.sets.append(new_set)
             self.current_idx = len(self.sets) - 1
             await self._render_current(interaction)
@@ -878,8 +954,12 @@ class DestinyRerollView(core.SafeView):
         if interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인만 세트를 전환할 수 있습니다.", ephemeral=True)
             return
+        if self._lock.locked():
+            await core.safe_send_response(interaction, "⏳ 이전 작업을 처리 중입니다. 잠시 후 다시 눌러주세요.", ephemeral=True)
+            return
         async with self._lock:
             if self.current_idx <= 0:
+                await core.safe_send_response(interaction, "ℹ️ 이미 첫 번째 세트입니다.", ephemeral=True)
                 return
             await core.safe_defer(interaction)
             self.current_idx -= 1
@@ -890,8 +970,12 @@ class DestinyRerollView(core.SafeView):
         if interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인만 세트를 전환할 수 있습니다.", ephemeral=True)
             return
+        if self._lock.locked():
+            await core.safe_send_response(interaction, "⏳ 이전 작업을 처리 중입니다. 잠시 후 다시 눌러주세요.", ephemeral=True)
+            return
         async with self._lock:
             if self.current_idx >= len(self.sets) - 1:
+                await core.safe_send_response(interaction, "ℹ️ 이미 마지막 세트입니다.", ephemeral=True)
                 return
             await core.safe_defer(interaction)
             self.current_idx += 1
@@ -901,6 +985,12 @@ class DestinyRerollView(core.SafeView):
     async def confirm_set(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인만 세트를 확정 수령할 수 있습니다.", ephemeral=True)
+            return
+        if self._lock.locked():
+            await core.safe_send_response(interaction, "⏳ 이전 작업을 처리 중입니다. 잠시 후 다시 눌러주세요.", ephemeral=True)
+            return
+        if self.confirmed:
+            await core.safe_send_response(interaction, "✅ 이미 확정 수령을 완료했습니다.", ephemeral=True)
             return
         async with self._lock:
             if self.confirmed:
@@ -971,9 +1061,9 @@ class GachaRankingView(core.SafeView):
                     f"{medals[i]} <@{s['uid']}> — 누적 **`{s['pulls']:,}회`** 뽑기"
                     for i, s in enumerate(by_pulls)
                 ]
-                embed.add_field(name="📚 도감 수집률 TOP 5", value="\n".join(collect_lines), inline=False)
-                embed.add_field(name="✨ ★4 & 🎀생일 최다 보유 TOP 5", value="\n".join(high_lines), inline=False)
-                embed.add_field(name="🎰 누적 뽑기 횟수 TOP 5", value="\n".join(pull_lines), inline=False)
+                core.add_chunked_embed_fields(embed, "📚 도감 수집률 TOP 5", collect_lines, separator="\n", max_chars=950)
+                core.add_chunked_embed_fields(embed, "✨ ★4 & 🎀생일 최다 보유 TOP 5", high_lines, separator="\n", max_chars=950)
+                core.add_chunked_embed_fields(embed, "🎰 누적 뽑기 횟수 TOP 5", pull_lines, separator="\n", max_chars=950)
             else:
                 embed.add_field(name="📭 데이터 없음", value="아직 집계된 보관함 기록이 없습니다.", inline=False)
             embed.set_footer(text="하단 버튼으로 [👑 명예의 전당 & 비틱 로그]를 확인할 수 있습니다.")
@@ -996,7 +1086,7 @@ class GachaRankingView(core.SafeView):
                     f"{medals[i]} <@{r['uid']}> — 10연차 **★4·생일 `{r.get('high_count', 0)}장`**{pickup_info} (`{r.get('banner', '')}` · {r.get('achieved_at', '')[:10]})\n"
                     f"   └ {cards_preview}"
                 )
-            embed.add_field(name="🌟 단일 10연차 최고 비틱 TOP 5", value="\n".join(hof_lines), inline=False)
+            core.add_chunked_embed_fields(embed, "🌟 단일 10연차 최고 비틱 TOP 5", hof_lines, separator="\n", max_chars=950)
         else:
             embed.add_field(name="🌟 단일 10연차 최고 비틱 TOP 5", value="아직 10연차 ★4 명예의 전당 기록이 없습니다. 첫 주인공이 되어보세요!", inline=False)
 
@@ -1006,7 +1096,7 @@ class GachaRankingView(core.SafeView):
                 f"🎯 <@{e['uid']}> — **{e['label']}** (`{e['banner']}` · `{e['obtained_at'][5:16]}`)"
                 for e in pickup_logs[:7]
             ]
-            embed.add_field(name="🎯 최근 서버 내 픽업 ★4 획득 로그", value="\n".join(p_lines), inline=False)
+            core.add_chunked_embed_fields(embed, "🎯 최근 서버 내 픽업 ★4 획득 로그", p_lines, separator="\n", max_chars=950)
         else:
             embed.add_field(name="🎯 최근 서버 내 픽업 ★4 획득 로그", value="최근 픽업 ★4 획득 기록이 아직 없습니다.", inline=False)
 
@@ -1016,7 +1106,7 @@ class GachaRankingView(core.SafeView):
                 f"{'🎯' if e.get('is_pickup') else ('🎂' if e.get('rarity_type') == 'rarity_birthday' else '🌟')} <@{e['uid']}> — **{e['label']}** (`{e['obtained_at'][5:16]}`)"
                 for e in high_logs[:5]
             ]
-            embed.add_field(name="✨ 최근 서버 내 ★4 · 생일 획득 로그", value="\n".join(h_lines), inline=False)
+            core.add_chunked_embed_fields(embed, "✨ 최근 서버 내 ★4 · 생일 획득 로그", h_lines, separator="\n", max_chars=950)
 
         embed.set_footer(text="하단 버튼으로 [🏆 종합 랭킹]과 [👑 명예의 전당]을 전환할 수 있습니다.")
         return embed
@@ -1396,7 +1486,7 @@ class CardIllustToggleView(core.SafeView):
             await interaction.edit_original_response(embed=embed, attachments=[file], view=self)
         else:
             embed.set_image(url=core.get_proseka_card_image_url(self.card, self.current_mode))
-            await interaction.edit_original_response(embed=embed, view=self)
+            await interaction.edit_original_response(embed=embed, attachments=[], view=self)
 
 
 class CharacterCostumeWardrobeView(core.SafeView):
@@ -1594,7 +1684,7 @@ class CharacterCostumeWardrobeView(core.SafeView):
             my_char_cards.sort(key=lambda x: (-x.get("star_num", 1), -int(x.get("is_limited", False)), -x.get("count", 1), -x.get("id", 0)))
             char_card = my_char_cards[0]
         else:
-            char_card = next((c for c in core.PROSEKA_KR_CARDS if c.get("char_id") == self.current_char_id and c.get("star_num") == 4), None)
+            char_card = next((c for c in core.PROSEKA_KR_CARDS if c.get("char_id") == self.current_char_id and c.get("rarity_type") == "rarity_4"), None)
             if not char_card:
                 char_card = next((c for c in core.PROSEKA_KR_CARDS if c.get("char_id") == self.current_char_id), None)
 
@@ -2004,25 +2094,13 @@ class MyInventoryView(core.SafeView):
                     f"**{idx}.** {lock_badge}`[{c.get('limit_label', '통상')}]` **{c['rarity_label']} [{c['prefix']}] {c['char_name']}** (보유: `{c.get('count', 1)}장`{mr_tag})\n"
                     f"   └ 🏷️ {unit_str} · {c.get('attr', '✨')}{cos_tag} · 📈 `Lv.{cur_lvl}/{max_lvl}` (`⚔️ {power_val:,}`) · 🕒 `{c.get('last_obtained_at', '-')[:10]}`"
                 )
-            full_text = "\n".join(lines)
-            if len(full_text) <= 1000:
-                embed.add_field(
-                    name=f"📖 내 캐릭터 목록 (페이지 {self.current_page + 1} / {self.max_page + 1})",
-                    value=full_text,
-                    inline=False
-                )
-            else:
-                mid = (len(lines) + 1) // 2
-                embed.add_field(
-                    name=f"📖 내 캐릭터 목록 (페이지 {self.current_page + 1} / {self.max_page + 1}) - 1",
-                    value="\n".join(lines[:mid]),
-                    inline=False
-                )
-                embed.add_field(
-                    name=f"📖 내 캐릭터 목록 (페이지 {self.current_page + 1} / {self.max_page + 1}) - 2",
-                    value="\n".join(lines[mid:]),
-                    inline=False
-                )
+            core.add_chunked_embed_fields(
+                embed,
+                f"📖 내 캐릭터 목록 (페이지 {self.current_page + 1} / {self.max_page + 1})",
+                lines,
+                separator="\n",
+                max_chars=950
+            )
 
         embed.set_footer(text="하단에서 카드를 선택해 일러스트 감상·각성 전환·잠금(🔒)을 설정하거나, 💎 버튼으로 중복 카드를 크리스탈로 변환하세요.")
         return embed
@@ -2279,25 +2357,13 @@ class CardPokedexView(core.SafeView):
                         f"• **{c_stat['char_name']}** (`{c_stat['unit']}`)\n"
                         f"  └ {c_stat['bar']} **`{c_stat['rate']:.1f}%`** (`{c_stat['owned_count']}/{c_stat['total_count']}종`) {badge}"
                     )
-                full_text = "\n".join(lines)
-                if len(full_text) <= 1000:
-                    embed.add_field(
-                        name=f"📊 캐릭터별 수집률 현황 (페이지 {self.current_page + 1} / {self.max_page + 1})",
-                        value=full_text,
-                        inline=False
-                    )
-                else:
-                    mid = (len(lines) + 1) // 2
-                    embed.add_field(
-                        name=f"📊 캐릭터별 수집률 현황 (페이지 {self.current_page + 1} / {self.max_page + 1}) - 1",
-                        value="\n".join(lines[:mid]),
-                        inline=False
-                    )
-                    embed.add_field(
-                        name=f"📊 캐릭터별 수집률 현황 (페이지 {self.current_page + 1} / {self.max_page + 1}) - 2",
-                        value="\n".join(lines[mid:]),
-                        inline=False
-                    )
+                core.add_chunked_embed_fields(
+                    embed,
+                    f"📊 캐릭터별 수집률 현황 (페이지 {self.current_page + 1} / {self.max_page + 1})",
+                    lines,
+                    separator="\n",
+                    max_chars=950
+                )
         elif self.active_tab == "unowned":
             if not page_items:
                 embed.add_field(
@@ -2313,25 +2379,13 @@ class CardPokedexView(core.SafeView):
                         f"**{idx}.** 🔒 `[{c.get('limit_label', '통상')}]` **{c['rarity_label']} [{c['prefix']}] {c['char_name']}**\n"
                         f"   └ 🏷️ {unit_str} · {c.get('attr', '✨')} · 도감 ID: `{c['id']}` *(미보유)*"
                     )
-                full_text = "\n".join(lines)
-                if len(full_text) <= 1000:
-                    embed.add_field(
-                        name=f"🔒 아직 획득하지 못한 카드 목록 (페이지 {self.current_page + 1} / {self.max_page + 1})",
-                        value=full_text,
-                        inline=False
-                    )
-                else:
-                    mid = (len(lines) + 1) // 2
-                    embed.add_field(
-                        name=f"🔒 아직 획득하지 못한 카드 목록 (페이지 {self.current_page + 1} / {self.max_page + 1}) - 1",
-                        value="\n".join(lines[:mid]),
-                        inline=False
-                    )
-                    embed.add_field(
-                        name=f"🔒 아직 획득하지 못한 카드 목록 (페이지 {self.current_page + 1} / {self.max_page + 1}) - 2",
-                        value="\n".join(lines[mid:]),
-                        inline=False
-                    )
+                core.add_chunked_embed_fields(
+                    embed,
+                    f"🔒 아직 획득하지 못한 카드 목록 (페이지 {self.current_page + 1} / {self.max_page + 1})",
+                    lines,
+                    separator="\n",
+                    max_chars=950
+                )
         else:
             if not page_items:
                 embed.add_field(
@@ -2347,25 +2401,13 @@ class CardPokedexView(core.SafeView):
                         f"**{idx}.** ✨ {lock_icon}`[{c.get('limit_label', '통상')}]` **{c['rarity_label']} [{c['prefix']}] {c['char_name']}** (`x{c.get('count', 1)}장`)\n"
                         f"   └ 🏷️ {c.get('unit', '')} · {c.get('attr', '✨')} · 도감 ID: `{c['id']}`"
                     )
-                full_text = "\n".join(lines)
-                if len(full_text) <= 1000:
-                    embed.add_field(
-                        name=f"✨ 보유 완료 도감 목록 (페이지 {self.current_page + 1} / {self.max_page + 1})",
-                        value=full_text,
-                        inline=False
-                    )
-                else:
-                    mid = (len(lines) + 1) // 2
-                    embed.add_field(
-                        name=f"✨ 보유 완료 도감 목록 (페이지 {self.current_page + 1} / {self.max_page + 1}) - 1",
-                        value="\n".join(lines[:mid]),
-                        inline=False
-                    )
-                    embed.add_field(
-                        name=f"✨ 보유 완료 도감 목록 (페이지 {self.current_page + 1} / {self.max_page + 1}) - 2",
-                        value="\n".join(lines[mid:]),
-                        inline=False
-                    )
+                core.add_chunked_embed_fields(
+                    embed,
+                    f"✨ 보유 완료 도감 목록 (페이지 {self.current_page + 1} / {self.max_page + 1})",
+                    lines,
+                    separator="\n",
+                    max_chars=950
+                )
 
         embed.set_footer(text="상단 버튼으로 [캐릭터별 수집률 %] / [🔒 미획득 카드] / [✨ 보유 카드] 탭을 자유롭게 전환하세요!")
         return embed
@@ -2737,15 +2779,30 @@ class EventForecastView(core.SafeView):
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST)
         )
-        for ev in all_events:
+        total_chars = len(embed.title) + len(embed.description) + len(core.FORECAST_DISCLAIMER)
+        omitted = 0
+        for idx, ev in enumerate(all_events):
             tag = "🌟컬페한정" if ev.get("is_fes") else ("🎀한정" if ev.get("is_limited") else "🎵통상")
             val = (
                 f"• **예상 기간:** `{ev['kr_estimated_start']}` ~ `{ev['kr_estimated_end']}`\n"
                 f"• **일섭 원본:** `{ev['jp_start']}` ~ `{ev['jp_end']}`\n"
                 f"• **유닛/가챠:** {ev['unit']} · `{ev['gacha_name']}` ({tag})\n"
                 f"• **대표 픽업:** {', '.join(ev.get('featured_cards', [])[:2])}"
+            )[:1024]
+            fname = f"🏆 [{ev['id']}] {ev['name']}"[:256]
+            # Reserve 1 field + chars if there will be omitted items
+            max_fields = 24 if idx < len(all_events) - 1 else 25
+            if len(embed.fields) >= max_fields or (total_chars + len(fname) + len(val) > 5400):
+                omitted = len(all_events) - idx
+                break
+            embed.add_field(name=fname, value=val, inline=False)
+            total_chars += len(fname) + len(val)
+        if omitted > 0:
+            embed.add_field(
+                name=f"➕ 외 {omitted}개 예정 이벤트",
+                value="나머지 일정은 월별 미래시 달력에서 이전/다음 월 버튼으로 확인하실 수 있습니다.",
+                inline=False
             )
-            embed.add_field(name=f"🏆 [{ev['id']}] {ev['name']}", value=val, inline=False)
         embed.set_footer(text=core.FORECAST_DISCLAIMER)
         await core.safe_send_response(interaction, embed=embed, ephemeral=True)
 
@@ -3058,6 +3115,7 @@ class SekaiLiveView(core.SafeView):
         valid_ids = {s["id"] for s in core.PROSEKA_LIVE_SONGS}
         self.selected_song_id = initial_song_id if initial_song_id in valid_ids else core.PROSEKA_LIVE_SONGS[0]["id"]
         self.last_result: dict | None = None
+        self._lock = asyncio.Lock()
         self._refresh_components()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -3183,35 +3241,43 @@ class SekaiLiveView(core.SafeView):
         return embed
 
     async def _run_live(self, interaction: discord.Interaction, song_id: str | None):
-        await interaction.response.defer()
-        s_obj = next((s for s in core.PROSEKA_LIVE_SONGS if s["id"] == song_id), None) if song_id else None
-        title_preview = s_obj["title"] if s_obj else "랜덤 세카이 명곡"
-        fever_embed = discord.Embed(
-            title=f"🎶 [{title_preview}] LIVE START!!",
-            description=(
-                "✨ **5인 유닛 멤버가 스테이지에 올라섰습니다!**\n"
-                "🎵 리듬 노트 집중... **FEVER CHANCE!! ⚡**"
-            ),
-            color=discord.Color.gold(),
-            timestamp=datetime.datetime.now(core.KST)
-        )
-        try:
-            await interaction.edit_original_response(embed=fever_embed, view=None)
-        except Exception:
-            pass
-
-        await asyncio.sleep(1.0)
-        ok, msg, res = await asyncio.to_thread(
-            core.execute_sekai_live, self.guild_id, interaction.user.id, song_id, interaction.user.display_name
-        )
-        if not ok:
-            await interaction.edit_original_response(embed=self.build_embed(), view=self)
-            await core.safe_send_response(interaction, f"❌ {msg}", ephemeral=True)
+        if self._lock.locked():
+            await core.safe_send_response(
+                interaction,
+                "⏳ 이미 세카이 라이브 무대가 진행 중입니다! 잠시 후 다시 시도해주세요.",
+                ephemeral=True
+            )
             return
+        async with self._lock:
+            await core.safe_defer(interaction)
+            s_obj = next((s for s in core.PROSEKA_LIVE_SONGS if s["id"] == song_id), None) if song_id else None
+            title_preview = s_obj["title"] if s_obj else "랜덤 세카이 명곡"
+            fever_embed = discord.Embed(
+                title=f"🎶 [{title_preview}] LIVE START!!",
+                description=(
+                    "✨ **5인 유닛 멤버가 스테이지에 올라섰습니다!**\n"
+                    "🎵 리듬 노트 집중... **FEVER CHANCE!! ⚡**"
+                ),
+                color=discord.Color.gold(),
+                timestamp=datetime.datetime.now(core.KST)
+            )
+            try:
+                await interaction.edit_original_response(embed=fever_embed, view=None)
+            except Exception:
+                pass
 
-        self.last_result = res
-        self.selected_song_id = res["song"]["id"]
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+            await asyncio.sleep(1.0)
+            ok, msg, res = await asyncio.to_thread(
+                core.execute_sekai_live, self.guild_id, interaction.user.id, song_id, interaction.user.display_name
+            )
+            if not ok:
+                await interaction.edit_original_response(embed=self.build_embed(), view=self)
+                await core.safe_send_response(interaction, f"❌ {msg}", ephemeral=True)
+                return
+
+            self.last_result = res
+            self.selected_song_id = res["song"]["id"]
+            await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     @discord.ui.select(placeholder="🎵 플레이할 세카이 라이브 곡을 선택하세요...", row=0)
     async def song_select(self, interaction: discord.Interaction, select: discord.ui.Select):
@@ -3283,11 +3349,11 @@ class GachaCog(commands.Cog):
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
             pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
-            drawn = core.draw_proseka_cards(pickup_cfg, count=10, banner_type=banner_key)
+            drawn = await asyncio.to_thread(core.draw_proseka_cards, pickup_cfg, count=10, banner_type=banner_key)
             if not drawn:
                 await interaction.followup.send("❌ 한국 서버 캐릭터 DB를 불러오지 못했습니다.")
                 return
-            core.annotate_drawn_is_new(guild_id, interaction.user.id, drawn)
+            await asyncio.to_thread(core.annotate_drawn_is_new, guild_id, interaction.user.id, drawn)
             sim_view = RerollSimulatorView(interaction.user, guild_id, pickup_cfg, banner_type=banner_key, initial_drawn=drawn)
             grid_bytes, grid_fn = await asyncio.to_thread(
                 core.build_10pull_grid_image_bytes, drawn, banner_key, "연습 1회차"
@@ -3379,7 +3445,7 @@ class GachaCog(commands.Cog):
 
         data = await asyncio.to_thread(core.load_data)
         pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
-        drawn = core.draw_proseka_cards(pickup_cfg, count=pull_count, banner_type=banner_key)
+        drawn = await asyncio.to_thread(core.draw_proseka_cards, pickup_cfg, count=pull_count, banner_type=banner_key)
 
         if not drawn:
             await interaction.followup.send("❌ 한국 서버 캐릭터 DB를 불러오지 못했습니다.")
