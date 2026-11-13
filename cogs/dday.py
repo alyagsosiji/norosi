@@ -16,7 +16,8 @@ from cogs.gacha import (
     CardPokedexView,
     EventForecastView,
     EventInfoView,
-    MySekaiHubView
+    MySekaiHubView,
+    CharacterCostumeWardrobeView
 )
 from cogs.stats import RecruitModal, SuggestionTypeSelectView
 from cogs.help import build_help_embed, HelpCategoryView
@@ -326,6 +327,7 @@ class CommandRemoteSelect(discord.ui.Select):
             discord.SelectOption(label="🎶 /이벤트", value="event_info", description="한섭/일섭 실시간 이벤트 및 가챠 배너 정보"),
             discord.SelectOption(label="🎰 /프로세카뽑기 (10회)", value="pull_10", description="10회 연속 뽑기 (★3 이상 1장 확정 / 2,000💎 소모)"),
             discord.SelectOption(label="🎒 /내캐릭터", value="my_chars", description="뽑은 캐릭터 보관함 & 잠금(🔒) 관리"),
+            discord.SelectOption(label="👗 /의상", value="wardrobe", description="캐릭터 3D 의상 착용 및 다른 캐릭터 의상 제작"),
             discord.SelectOption(label="📖 /카드도감", value="pokedex", description="캐릭터별 수집률(%) 및 미보유 카드 조회"),
             discord.SelectOption(label="💎 /중복카드변환", value="dup_convert", description="중복 카드를 크리스탈로 일괄 환전"),
             discord.SelectOption(label="🌟 /내프로필", value="profile", description="오시 일러, 덱, 출석, 가챠 통계 프로필 카드"),
@@ -449,6 +451,10 @@ class CommandRemoteSelect(discord.ui.Select):
             preview = await asyncio.to_thread(core.preview_duplicate_cards, guild_id, interaction.user.id)
             view = DuplicateConvertConfirmView(guild_id, interaction.user, preview)
             await core.safe_send_response(interaction, embed=view.build_preview_embed(), view=view, ephemeral=True)
+        elif val == "wardrobe":
+            await core.safe_defer(interaction)
+            view = CharacterCostumeWardrobeView(interaction.user, guild_id=interaction.guild_id or 0)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
         elif val == "profile":
             gacha_cog = self.bot_instance.get_cog("GachaCog")
             if gacha_cog:

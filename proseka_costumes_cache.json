@@ -1,0 +1,9081 @@
+{
+  "4": {
+    "costume_id": "cos_4",
+    "group_id": 29001,
+    "name": "트윙클 사운드",
+    "card_id": 4,
+    "card_prefix": "새벽의 대화",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no004",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "88": {
+    "costume_id": "cos_88",
+    "group_id": 30017,
+    "name": "호핑 프릴",
+    "card_id": 88,
+    "card_prefix": "새 스테이지 의상",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no008",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "92": {
+    "costume_id": "cos_92",
+    "group_id": 31018,
+    "name": "액티브 스트리트",
+    "card_id": 92,
+    "card_prefix": "아웅다웅 히트 업",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no004",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "96": {
+    "costume_id": "cos_96",
+    "group_id": 32005,
+    "name": "리틀 스타",
+    "card_id": 96,
+    "card_prefix": "새로운 단원 등장!",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no004",
+    "parts": [
+      "body"
+    ]
+  },
+  "109": {
+    "costume_id": "cos_109",
+    "group_id": 34002,
+    "name": "스텔라 록",
+    "card_id": 109,
+    "card_prefix": "레이니 디스턴스",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no005",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "110": {
+    "costume_id": "cos_110",
+    "group_id": 35019,
+    "name": "스텔라 클로버",
+    "card_id": 110,
+    "card_prefix": "황혼의 비를 닦아 내고",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no005",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "114": {
+    "costume_id": "cos_114",
+    "group_id": 36014,
+    "name": "매스커레이드 돌",
+    "card_id": 114,
+    "card_prefix": "얽매인 매스커레이드",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no005",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "115": {
+    "costume_id": "cos_115",
+    "group_id": 37013,
+    "name": "마스크 오브 티어",
+    "card_id": 115,
+    "card_prefix": "살아 있는 것처럼",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no005",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "119": {
+    "costume_id": "cos_119",
+    "group_id": 38004,
+    "name": "마스터 테일코트",
+    "card_id": 119,
+    "card_prefix": "뜻밖의 지적",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no005",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "120": {
+    "costume_id": "cos_120",
+    "group_id": 39003,
+    "name": "더 포멀 스타",
+    "card_id": 120,
+    "card_prefix": "조마조마?! 좀비 패닉!",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no005",
+    "parts": [
+      "body"
+    ]
+  },
+  "124": {
+    "costume_id": "cos_124",
+    "group_id": 42011,
+    "name": "스마일리 옐",
+    "card_id": 124,
+    "card_prefix": "질주! 마지막 주자☆",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no007",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "125": {
+    "costume_id": "cos_125",
+    "group_id": 43006,
+    "name": "엔조이 플래그",
+    "card_id": 125,
+    "card_prefix": "축복을 한가득",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no005",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "129": {
+    "costume_id": "cos_129",
+    "group_id": 44007,
+    "name": "레인보우 하트",
+    "card_id": 129,
+    "card_prefix": "언제나 앞을 향해",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no005",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "130": {
+    "costume_id": "cos_130",
+    "group_id": 45005,
+    "name": "점핑 하트",
+    "card_id": 130,
+    "card_prefix": "으아아아앗?!",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no005",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "134": {
+    "costume_id": "cos_134",
+    "group_id": 46010,
+    "name": "선라이즈 시티",
+    "card_id": 134,
+    "card_prefix": "파트너인데",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no005",
+    "parts": [
+      "body"
+    ]
+  },
+  "135": {
+    "costume_id": "cos_135",
+    "group_id": 47009,
+    "name": "클리어 라이트 시티",
+    "card_id": 135,
+    "card_prefix": "다시 한번 둘이서",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no005",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "139": {
+    "costume_id": "cos_139",
+    "group_id": 50016,
+    "name": "귀여움☆ 페스티벌 티셔츠",
+    "card_id": 139,
+    "card_prefix": "옥상의 프렌드십",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no006",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "140": {
+    "costume_id": "cos_140",
+    "group_id": 51006,
+    "name": "페스티벌 블레이저",
+    "card_id": 140,
+    "card_prefix": "비밀스러운 연기 지도",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no007",
+    "parts": [
+      "body"
+    ]
+  },
+  "144": {
+    "costume_id": "cos_144",
+    "group_id": 52012,
+    "name": "원더☆ 산타 걸",
+    "card_id": 144,
+    "card_prefix": "하늘이 보내 준 선물",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no007",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "145": {
+    "costume_id": "cos_145",
+    "group_id": 53017,
+    "name": "프레젠트 포 유!",
+    "card_id": 145,
+    "card_prefix": "원더☆ 크리스마스!",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no011",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "149": {
+    "costume_id": "cos_149",
+    "group_id": 60017,
+    "name": "퍼내틱 뉴 이어",
+    "card_id": 149,
+    "card_prefix": "강자의 미소",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no012",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "150": {
+    "costume_id": "cos_150",
+    "group_id": 61005,
+    "name": "축하의 후디",
+    "card_id": 150,
+    "card_prefix": "최고&최강의 콤비?!",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no005",
+    "parts": [
+      "body"
+    ]
+  },
+  "155": {
+    "costume_id": "cos_155",
+    "group_id": 62003,
+    "name": "스테인드글라스 텐더 하트",
+    "card_id": 155,
+    "card_prefix": "용기를 줘서 고마워",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no006",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "156": {
+    "costume_id": "cos_156",
+    "group_id": 63020,
+    "name": "스테인드글라스 브레이브 하트",
+    "card_id": 156,
+    "card_prefix": "3번째 선배!",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no007",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "160": {
+    "costume_id": "cos_160",
+    "group_id": 64008,
+    "name": "트루스 플라워",
+    "card_id": 160,
+    "card_prefix": "그 누구도 아닌 \"나 자신\"을",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no006",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "161": {
+    "costume_id": "cos_161",
+    "group_id": 65019,
+    "name": "디어 플라워",
+    "card_id": 161,
+    "card_prefix": "새로운 멤버 등장♪",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no007",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "165": {
+    "costume_id": "cos_165",
+    "group_id": 66002,
+    "name": "클래식 코디네이트",
+    "card_id": 165,
+    "card_prefix": "언젠가, 다시……",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no007",
+    "parts": [
+      "body"
+    ]
+  },
+  "166": {
+    "costume_id": "cos_166",
+    "group_id": 67001,
+    "name": "클래시컬 재킷",
+    "card_id": 166,
+    "card_prefix": "언젠가 올 그날을 기다리며",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no006",
+    "parts": [
+      "body"
+    ]
+  },
+  "170": {
+    "costume_id": "cos_170",
+    "group_id": 70004,
+    "name": "비스트 록",
+    "card_id": 170,
+    "card_prefix": "유대와 우려",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no007",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "171": {
+    "costume_id": "cos_171",
+    "group_id": 71018,
+    "name": "푹신푹신 록",
+    "card_id": 171,
+    "card_prefix": "우정의 큐피드",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no006",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "175": {
+    "costume_id": "cos_175",
+    "group_id": 72015,
+    "name": "나르키소스 페인터 드레스",
+    "card_id": 175,
+    "card_prefix": "포기하고 싶지 않으니까",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no007",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "176": {
+    "costume_id": "cos_176",
+    "group_id": 73014,
+    "name": "언슈어 에이프런 드레스",
+    "card_id": 176,
+    "card_prefix": "내뱉은 말",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no007",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "180": {
+    "costume_id": "cos_180",
+    "group_id": 74011,
+    "name": "캔디 휠",
+    "card_id": 180,
+    "card_prefix": "더없이 소중한 웃음",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no009",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "181": {
+    "costume_id": "cos_181",
+    "group_id": 75012,
+    "name": "커피 컵 벌룬",
+    "card_id": 181,
+    "card_prefix": "마음의 메신저",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no008",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "185": {
+    "costume_id": "cos_185",
+    "group_id": 78002,
+    "name": "드리미 페가수스",
+    "card_id": 185,
+    "card_prefix": "최고의 히나마츠리!",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no009",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "186": {
+    "costume_id": "cos_186",
+    "group_id": 79003,
+    "name": "트래디셔널 페가수스",
+    "card_id": 186,
+    "card_prefix": "오빠의 고뇌",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no010",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "190": {
+    "costume_id": "cos_190",
+    "group_id": 80005,
+    "name": "엔젤 오브 호프",
+    "card_id": 190,
+    "card_prefix": "\"당신\"을 위해",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no007",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "191": {
+    "costume_id": "cos_191",
+    "group_id": 81006,
+    "name": "엔젤 오브 빌리브",
+    "card_id": 191,
+    "card_prefix": "노력하는 너에게",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no008",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "195": {
+    "costume_id": "cos_195",
+    "group_id": 84013,
+    "name": "레퀴엠 나이트",
+    "card_id": 195,
+    "card_prefix": "언젠가 꿨던 꿈을",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no007",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "196": {
+    "costume_id": "cos_196",
+    "group_id": 85014,
+    "name": "라이브러리 드레스",
+    "card_id": 196,
+    "card_prefix": "내 안으로 잠겨 드는",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no008",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "197": {
+    "costume_id": "cos_197",
+    "group_id": 88001,
+    "name": "체리 핑크 원피스",
+    "card_id": 197,
+    "card_prefix": "맑은 하늘을 기대하며",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no007",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "198": {
+    "costume_id": "cos_198",
+    "group_id": 89017,
+    "name": "체리 핑크 크로싱",
+    "card_id": 198,
+    "card_prefix": "성장하는 음색",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no013",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "202": {
+    "costume_id": "cos_202",
+    "group_id": 90016,
+    "name": "하이드 크리놀린",
+    "card_id": 202,
+    "card_prefix": "깨달아 버린 마음",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no008",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "203": {
+    "costume_id": "cos_203",
+    "group_id": 91020,
+    "name": "네슬레 크리놀린",
+    "card_id": 203,
+    "card_prefix": "필요한 거리",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no008",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "207": {
+    "costume_id": "cos_207",
+    "group_id": 92004,
+    "name": "드림 체이서",
+    "card_id": 207,
+    "card_prefix": "찾아낸 답",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no008",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "208": {
+    "costume_id": "cos_208",
+    "group_id": 93003,
+    "name": "드림 메이커",
+    "card_id": 208,
+    "card_prefix": "보이지 않는 마음",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no009",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "212": {
+    "costume_id": "cos_212",
+    "group_id": 94001,
+    "name": "비비드 소울",
+    "card_id": 212,
+    "card_prefix": "패배한 밤",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no007",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "213": {
+    "costume_id": "cos_213",
+    "group_id": 95010,
+    "name": "비비드 크루",
+    "card_id": 213,
+    "card_prefix": "동료니까",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no007",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "217": {
+    "costume_id": "cos_217",
+    "group_id": 98015,
+    "name": "페어리 테일",
+    "card_id": 217,
+    "card_prefix": "내밀어진 손",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no009",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "218": {
+    "costume_id": "cos_218",
+    "group_id": 99007,
+    "name": "포레스트 테일",
+    "card_id": 218,
+    "card_prefix": "변함없는 불굴의 마음",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no008",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "222": {
+    "costume_id": "cos_222",
+    "group_id": 100006,
+    "name": "크라운 페기 드레스",
+    "card_id": 222,
+    "card_prefix": "\"좋아하는 것\"을 눈 앞에",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no009",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "223": {
+    "costume_id": "cos_223",
+    "group_id": 101008,
+    "name": "티아라 페기 드레스",
+    "card_id": 223,
+    "card_prefix": "릴랙스 타임으로 초대",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no008",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "227": {
+    "costume_id": "cos_227",
+    "group_id": 102002,
+    "name": "트라움 싱어 턱시도",
+    "card_id": 227,
+    "card_prefix": "그대에게 바치는 사랑 노래",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no010",
+    "parts": [
+      "body",
+      "hair"
+    ]
+  },
+  "228": {
+    "costume_id": "cos_228",
+    "group_id": 103004,
+    "name": "블라우 로제 턱시도",
+    "card_id": 228,
+    "card_prefix": "판타스틱 플래너",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no010",
+    "parts": [
+      "body",
+      "hair"
+    ]
+  },
+  "232": {
+    "costume_id": "cos_232",
+    "group_id": 106003,
+    "name": "킹 오브 스마일",
+    "card_id": 232,
+    "card_prefix": "선택의 행방",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no011",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "233": {
+    "costume_id": "cos_233",
+    "group_id": 107011,
+    "name": "해피 해피 클락 래빗",
+    "card_id": 233,
+    "card_prefix": "마음은 하나",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no010",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "237": {
+    "costume_id": "cos_237",
+    "group_id": 108013,
+    "name": "추억의 카네이션 드레스",
+    "card_id": 237,
+    "card_prefix": "추억의 화단",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no010",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "238": {
+    "costume_id": "cos_238",
+    "group_id": 109019,
+    "name": "새벽하늘빛 그러데이션 드레스",
+    "card_id": 238,
+    "card_prefix": "나는 내 방식대로",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no011",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "242": {
+    "costume_id": "cos_242",
+    "group_id": 110006,
+    "name": "푸른 거리의 서머 드레스",
+    "card_id": 242,
+    "card_prefix": "언젠가 전할 수 있다면",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no010",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "243": {
+    "costume_id": "cos_243",
+    "group_id": 111007,
+    "name": "메모리얼 하트 코디",
+    "card_id": 243,
+    "card_prefix": "아이돌을 꿈꾸는 너에게",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no010",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "244": {
+    "costume_id": "cos_244",
+    "group_id": 112002,
+    "name": "오로라 레인보우 코트",
+    "card_id": 244,
+    "card_prefix": "다다른 마음",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no011",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "245": {
+    "costume_id": "cos_245",
+    "group_id": 113018,
+    "name": "프티 레인보우 코트",
+    "card_id": 245,
+    "card_prefix": "말괄량이 멜로디",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no009",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "249": {
+    "costume_id": "cos_249",
+    "group_id": 116009,
+    "name": "비스트 하트 걸",
+    "card_id": 249,
+    "card_prefix": "눈뜨는 내면의 힘",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no009",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "250": {
+    "costume_id": "cos_250",
+    "group_id": 117010,
+    "name": "비스트 하트 버디",
+    "card_id": 250,
+    "card_prefix": "파트너에게 전하는 말",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no009",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "254": {
+    "costume_id": "cos_254",
+    "group_id": 118001,
+    "name": "타오르는 여명의 옷",
+    "card_id": 254,
+    "card_prefix": "변하지 않는 여름 축제",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no009",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "255": {
+    "costume_id": "cos_255",
+    "group_id": 119015,
+    "name": "서늘한 황혼의 옷",
+    "card_id": 255,
+    "card_prefix": "언젠가의 여름 축제",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no011",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "259": {
+    "costume_id": "cos_259",
+    "group_id": 120003,
+    "name": "선셋 비치 걸",
+    "card_id": 259,
+    "card_prefix": "바다에서 열린 수영 교실",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no011",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "260": {
+    "costume_id": "cos_260",
+    "group_id": 121002,
+    "name": "마린 셸 걸",
+    "card_id": 260,
+    "card_prefix": "매직 쇼 어시스턴트!",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no012",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "264": {
+    "costume_id": "cos_264",
+    "group_id": 124007,
+    "name": "사랑의 메신저",
+    "card_id": 264,
+    "card_prefix": "전력! 해피 에브리데이!",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no012",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "265": {
+    "costume_id": "cos_265",
+    "group_id": 125005,
+    "name": "희망의 메신저",
+    "card_id": 265,
+    "card_prefix": "스테이지의 왕자님",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no010",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "269": {
+    "costume_id": "cos_269",
+    "group_id": 126012,
+    "name": "머메이드 워터 드레스",
+    "card_id": 269,
+    "card_prefix": "뒤풀이는 불꽃놀이로",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no010",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "270": {
+    "costume_id": "cos_270",
+    "group_id": 127004,
+    "name": "젤리피시 턱시도",
+    "card_id": 270,
+    "card_prefix": "무대 뒤의 연금술사",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no011",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "274": {
+    "costume_id": "cos_274",
+    "group_id": 128008,
+    "name": "달을 그리는 아이돌 래빗",
+    "card_id": 274,
+    "card_prefix": "그날과 같은 경단을",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no010",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "275": {
+    "costume_id": "cos_275",
+    "group_id": 129004,
+    "name": "별을 쫓는 로커 래빗",
+    "card_id": 275,
+    "card_prefix": "쓸쓸함을 채워 준 것은",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no010",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "279": {
+    "costume_id": "cos_279",
+    "group_id": 132001,
+    "name": "풀 메탈 하트",
+    "card_id": 279,
+    "card_prefix": "마음을 잇는 스타 피스",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no010",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "280": {
+    "costume_id": "cos_280",
+    "group_id": 133006,
+    "name": "브레이브풀 하트",
+    "card_id": 280,
+    "card_prefix": "소리로 말하는 합주",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no011",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "284": {
+    "costume_id": "cos_284",
+    "group_id": 136014,
+    "name": "스노 화이트 포기 드레스",
+    "card_id": 284,
+    "card_prefix": "따뜻한 애정의 기억",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no012",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "285": {
+    "costume_id": "cos_285",
+    "group_id": 137016,
+    "name": "릴리 벨 포기 드레스",
+    "card_id": 285,
+    "card_prefix": "한때의 안식",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no012",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "289": {
+    "costume_id": "cos_289",
+    "group_id": 140017,
+    "name": "그레이스풀 세카이 드레스",
+    "card_id": 289,
+    "card_prefix": "마음이 겹치는 곳에서",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no016",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "290": {
+    "costume_id": "cos_290",
+    "group_id": 141001,
+    "name": "화이트 하트 카디건",
+    "card_id": 290,
+    "card_prefix": "예전에 본 밤하늘",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no011",
+    "parts": [
+      "body",
+      "hair"
+    ]
+  },
+  "291": {
+    "costume_id": "cos_291",
+    "group_id": 142005,
+    "name": "호프풀 프릴 코디",
+    "card_id": 291,
+    "card_prefix": "동료들의 축복",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no011",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "292": {
+    "costume_id": "cos_292",
+    "group_id": 143009,
+    "name": "퓨어 하트 프릴 재킷",
+    "card_id": 292,
+    "card_prefix": "에무류? 춤의 비법!",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no011",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "293": {
+    "costume_id": "cos_293",
+    "group_id": 144003,
+    "name": "퓨어 플라워 턱시도",
+    "card_id": 293,
+    "card_prefix": "스테이지 뒤의 격려",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no012",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "296": {
+    "costume_id": "cos_296",
+    "group_id": 154010,
+    "name": "Don't give up Style",
+    "card_id": 296,
+    "card_prefix": "오버 더 펜스",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no010",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "297": {
+    "costume_id": "cos_297",
+    "group_id": 155002,
+    "name": "Believe in Style",
+    "card_id": 297,
+    "card_prefix": "신뢰에 대한 신뢰",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no012",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "301": {
+    "costume_id": "cos_301",
+    "group_id": 156004,
+    "name": "아르카이크 앨커미스트",
+    "card_id": 301,
+    "card_prefix": "지난날의 동경",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no012",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "302": {
+    "costume_id": "cos_302",
+    "group_id": 157011,
+    "name": "포레스트 가디언",
+    "card_id": 302,
+    "card_prefix": "저저저점~프!",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no013",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "307": {
+    "costume_id": "cos_307",
+    "group_id": 160016,
+    "name": "다크 클라우즈 클록",
+    "card_id": 307,
+    "card_prefix": "허밋 리버스",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no013",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "308": {
+    "costume_id": "cos_308",
+    "group_id": 161015,
+    "name": "시킹 클록",
+    "card_id": 308,
+    "card_prefix": "허밋 서처",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no013",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "313": {
+    "costume_id": "cos_313",
+    "group_id": 164003,
+    "name": "텐더니스 시스터",
+    "card_id": 313,
+    "card_prefix": "소중한 친구니까",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no014",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "314": {
+    "costume_id": "cos_314",
+    "group_id": 165004,
+    "name": "사려 깊은 시스터",
+    "card_id": 314,
+    "card_prefix": "아픈 말",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no012",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "319": {
+    "costume_id": "cos_319",
+    "group_id": 166009,
+    "name": "트윙클 퍼레이드",
+    "card_id": 319,
+    "card_prefix": "둘만의 비밀",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no012",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "320": {
+    "costume_id": "cos_320",
+    "group_id": 167019,
+    "name": "스위트나이트 퍼레이드",
+    "card_id": 320,
+    "card_prefix": "든든한 말",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no013",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "324": {
+    "costume_id": "cos_324",
+    "group_id": 168014,
+    "name": "스노플레이크 재킷",
+    "card_id": 324,
+    "card_prefix": "첫눈 속에서",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no014",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "325": {
+    "costume_id": "cos_325",
+    "group_id": 169001,
+    "name": "스노 크리스탈 코트",
+    "card_id": 325,
+    "card_prefix": "CD가 이어 준 만남",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no013",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "330": {
+    "costume_id": "cos_330",
+    "group_id": 172005,
+    "name": "스위트 퀸 드레스",
+    "card_id": 330,
+    "card_prefix": "레츠 팬 미팅!",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no012",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "331": {
+    "costume_id": "cos_331",
+    "group_id": 173007,
+    "name": "러블리 룩 드레스",
+    "card_id": 331,
+    "card_prefix": "팬과 함께!",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no013",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "335": {
+    "costume_id": "cos_335",
+    "group_id": 174018,
+    "name": "루시페니아 왕국 왕녀 정장",
+    "card_id": 335,
+    "card_prefix": "오만한 왕녀",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no013",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "336": {
+    "costume_id": "cos_336",
+    "group_id": 175005,
+    "name": "루시페니아 왕국 하인 의상",
+    "card_id": 336,
+    "card_prefix": "쌍둥이 하인",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no013",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "337": {
+    "costume_id": "cos_337",
+    "group_id": 176019,
+    "name": "피로 물든 광기의 의상",
+    "card_id": 337,
+    "card_prefix": "질투에 눈이 먼 재봉사",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no014",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "338": {
+    "costume_id": "cos_338",
+    "group_id": 177020,
+    "name": "여자 영주의 요염한 의상",
+    "card_id": 338,
+    "card_prefix": "악식의 악마",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no015",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "339": {
+    "costume_id": "cos_339",
+    "group_id": 178006,
+    "name": "USE 암성청 재판관 의상",
+    "card_id": 339,
+    "card_prefix": "탐욕스러운 재판관",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no013",
+    "parts": [
+      "body",
+      "hair"
+    ]
+  },
+  "341": {
+    "costume_id": "cos_341",
+    "group_id": 179002,
+    "name": "겨울 캠핑 재킷",
+    "card_id": 341,
+    "card_prefix": "아웃도어 쿠킹!",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no013",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "342": {
+    "costume_id": "cos_342",
+    "group_id": 180001,
+    "name": "가을 캠핑 재킷",
+    "card_id": 342,
+    "card_prefix": "겨울밤의 대화",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no012",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "348": {
+    "costume_id": "cos_348",
+    "group_id": 181012,
+    "name": "슈퍼캘리 벌룬 드레스",
+    "card_id": 348,
+    "card_prefix": "눈부신 꿈의 무대",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no012",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "349": {
+    "costume_id": "cos_349",
+    "group_id": 182004,
+    "name": "갤럭시 다크 슈트",
+    "card_id": 349,
+    "card_prefix": "끝없는 상상과 도전",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no013",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "350": {
+    "costume_id": "cos_350",
+    "group_id": 183006,
+    "name": "무녀 스타일",
+    "card_id": 350,
+    "card_prefix": "함께 소망하는 미래",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no015",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "351": {
+    "costume_id": "cos_351",
+    "group_id": 184003,
+    "name": "온화한 스쿨 스타일",
+    "card_id": 351,
+    "card_prefix": "한 해의 마지막 날을 보내는 법",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no016",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "352": {
+    "costume_id": "cos_352",
+    "group_id": 185009,
+    "name": "우아한 스트리트 스타일",
+    "card_id": 352,
+    "card_prefix": "새해 일출을 등에 지고",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no014",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "356": {
+    "costume_id": "cos_356",
+    "group_id": 190011,
+    "name": "캔디☆믹스 캔디",
+    "card_id": 356,
+    "card_prefix": "에무 대원은 조사 중!",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no014",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "357": {
+    "costume_id": "cos_357",
+    "group_id": 191003,
+    "name": "와플 앰버서더",
+    "card_id": 357,
+    "card_prefix": "댄스! 앤드! 싱!",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no014",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "358": {
+    "costume_id": "cos_358",
+    "group_id": 192020,
+    "name": "젤리곰 투어 가이드",
+    "card_id": 358,
+    "card_prefix": "울음소리는 어디에서?",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no016",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "361": {
+    "costume_id": "cos_361",
+    "group_id": 193013,
+    "name": "레미니센스 고딕",
+    "card_id": 361,
+    "card_prefix": "희미하게 반짝이는 엘피스",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no015",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "362": {
+    "costume_id": "cos_362",
+    "group_id": 194014,
+    "name": "딤라이트 고딕",
+    "card_id": 362,
+    "card_prefix": "절망의 밑바닥의 엘피스",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no015",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "363": {
+    "costume_id": "cos_363",
+    "group_id": 195016,
+    "name": "낫 로스트 고딕",
+    "card_id": 363,
+    "card_prefix": "당연해진 뒤풀이",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no014",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "368": {
+    "costume_id": "cos_368",
+    "group_id": 196007,
+    "name": "스위트 하트 레이디",
+    "card_id": 368,
+    "card_prefix": "비밀스러운 과자 만들기",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no014",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "369": {
+    "costume_id": "cos_369",
+    "group_id": 197002,
+    "name": "카페모카 도터",
+    "card_id": 369,
+    "card_prefix": "갑작스러운 전화",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no015",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "370": {
+    "costume_id": "cos_370",
+    "group_id": 198011,
+    "name": "큐티 리본 걸",
+    "card_id": 370,
+    "card_prefix": "서프라이즈☆투☆패밀리",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no015",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "373": {
+    "costume_id": "cos_373",
+    "group_id": 207009,
+    "name": "스카이 러너 재킷",
+    "card_id": 373,
+    "card_prefix": "그렇게 알게 된 \"전설\"",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no015",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "374": {
+    "costume_id": "cos_374",
+    "group_id": 208002,
+    "name": "드림 시너리 스타일",
+    "card_id": 374,
+    "card_prefix": "가슴속 두근거림을 말로",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no014",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "375": {
+    "costume_id": "cos_375",
+    "group_id": 209005,
+    "name": "블루미 스카이 후드",
+    "card_id": 375,
+    "card_prefix": "억누르지 못한 흥미",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no015",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "380": {
+    "costume_id": "cos_380",
+    "group_id": 210004,
+    "name": "라이더 온 더 로드",
+    "card_id": 380,
+    "card_prefix": "예전에 품었던 소망",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no015",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "381": {
+    "costume_id": "cos_381",
+    "group_id": 211001,
+    "name": "하드록 라이더스",
+    "card_id": 381,
+    "card_prefix": "방금 한 얘기 들었어?!",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no014",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "382": {
+    "costume_id": "cos_382",
+    "group_id": 212006,
+    "name": "롱 트립 라이더스",
+    "card_id": 382,
+    "card_prefix": "조금 어색한 떠들썩함",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no015",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "385": {
+    "costume_id": "cos_385",
+    "group_id": 213003,
+    "name": "쉬벌러스 슈발리에",
+    "card_id": 385,
+    "card_prefix": "트러블 미팅?!",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no015",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "386": {
+    "costume_id": "cos_386",
+    "group_id": 214001,
+    "name": "노블 팔라딘",
+    "card_id": 386,
+    "card_prefix": "초콜릿 만들기도 타협 없음",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no014",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "387": {
+    "costume_id": "cos_387",
+    "group_id": 215016,
+    "name": "옵타티오 에퀘스",
+    "card_id": 387,
+    "card_prefix": "메이킹 위드 칠드런",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no015",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "391": {
+    "costume_id": "cos_391",
+    "group_id": 218008,
+    "name": "매지컬 테일러 위치",
+    "card_id": 391,
+    "card_prefix": "Feel like Magic",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no015",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "392": {
+    "costume_id": "cos_392",
+    "group_id": 219005,
+    "name": "프리티 캣 위치",
+    "card_id": 392,
+    "card_prefix": "열렬한 토크!",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no013",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "393": {
+    "costume_id": "cos_393",
+    "group_id": 220017,
+    "name": "모어 포춘 위치",
+    "card_id": 393,
+    "card_prefix": "세카이의 의상실로 안내♪",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no022",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "397": {
+    "costume_id": "cos_397",
+    "group_id": 223015,
+    "name": "팡튀르 클로스",
+    "card_id": 397,
+    "card_prefix": "괴로움도 비참함도",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no015",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "398": {
+    "costume_id": "cos_398",
+    "group_id": 224013,
+    "name": "포에트리 클로스",
+    "card_id": 398,
+    "card_prefix": "소리가 이해되는 순간",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no017",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "399": {
+    "costume_id": "cos_399",
+    "group_id": 225018,
+    "name": "파스토랄 클로스",
+    "card_id": 399,
+    "card_prefix": "전하고 싶은 노랫소리",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no016",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "402": {
+    "costume_id": "cos_402",
+    "group_id": 228010,
+    "name": "러블리 비비드 데빌",
+    "card_id": 402,
+    "card_prefix": "예전의 열광",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no014",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "403": {
+    "costume_id": "cos_403",
+    "group_id": 229002,
+    "name": "노티스 브레이시스",
+    "card_id": 403,
+    "card_prefix": "삼켜 버렸던 마음",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no015",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "404": {
+    "costume_id": "cos_404",
+    "group_id": 230017,
+    "name": "밤벚꽃의 옷",
+    "card_id": 404,
+    "card_prefix": "바람에 흩날리는 꽃잎 속에서",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no023",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "405": {
+    "costume_id": "cos_405",
+    "group_id": 231005,
+    "name": "봄빛 스카잔",
+    "card_id": 405,
+    "card_prefix": "봄빛 디저트에 둘러싸여",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no017",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "406": {
+    "costume_id": "cos_406",
+    "group_id": 232019,
+    "name": "벚꽃 스튜던트",
+    "card_id": 406,
+    "card_prefix": "칠판에 핀 벚꽃",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no017",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "407": {
+    "costume_id": "cos_407",
+    "group_id": 233006,
+    "name": "화극의상 벚꽃",
+    "card_id": 407,
+    "card_prefix": "괜찮아, 얘들아",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no016",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "410": {
+    "costume_id": "cos_410",
+    "group_id": 236003,
+    "name": "에클라 에투알",
+    "card_id": 410,
+    "card_prefix": "별의 선율",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no016",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "411": {
+    "costume_id": "cos_411",
+    "group_id": 237012,
+    "name": "트래디셔널 모드 걸",
+    "card_id": 411,
+    "card_prefix": "아기 다람쥐들의 요청",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no014",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "412": {
+    "costume_id": "cos_412",
+    "group_id": 238004,
+    "name": "클래시컬 젠틀 코트",
+    "card_id": 412,
+    "card_prefix": "그 마음가짐을 높이 사서",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no015",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "416": {
+    "costume_id": "cos_416",
+    "group_id": 239001,
+    "name": "에스트렐라 가드",
+    "card_id": 416,
+    "card_prefix": "생각 말고 일단",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no015",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "417": {
+    "costume_id": "cos_417",
+    "group_id": 240002,
+    "name": "에스트레야 걸",
+    "card_id": 417,
+    "card_prefix": "가장 맛있는 한 잔!",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no017",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "418": {
+    "costume_id": "cos_418",
+    "group_id": 241003,
+    "name": "슈테른 크루",
+    "card_id": 418,
+    "card_prefix": "한 장의 상냥함",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no018",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "422": {
+    "costume_id": "cos_422",
+    "group_id": 242006,
+    "name": "호프풀 솔저",
+    "card_id": 422,
+    "card_prefix": "적중한 예감",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no017",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "423": {
+    "costume_id": "cos_423",
+    "group_id": 243005,
+    "name": "프리티 워리어",
+    "card_id": 423,
+    "card_prefix": "첫 음역 체크!",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no015",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "424": {
+    "costume_id": "cos_424",
+    "group_id": 244018,
+    "name": "러블리 블랙 베레",
+    "card_id": 424,
+    "card_prefix": "더 의지해 줘♪",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no018",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "428": {
+    "costume_id": "cos_428",
+    "group_id": 247004,
+    "name": "옛 참모 의상",
+    "card_id": 428,
+    "card_prefix": "황혼의 반짝임",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no016",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "429": {
+    "costume_id": "cos_429",
+    "group_id": 248016,
+    "name": "만개한 소녀의 화려한 의상",
+    "card_id": 429,
+    "card_prefix": "먼저 갈게!",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no017",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "430": {
+    "costume_id": "cos_430",
+    "group_id": 249019,
+    "name": "요염한 누님의 화려한 의상",
+    "card_id": 430,
+    "card_prefix": "캇파가 좋아하는 것?",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no019",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "434": {
+    "costume_id": "cos_434",
+    "group_id": 250001,
+    "name": "V.B.S SURVIVOR",
+    "card_id": 434,
+    "card_prefix": "손에 쥔 열기",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no016",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "435": {
+    "costume_id": "cos_435",
+    "group_id": 251009,
+    "name": "ROOKIE SURVIVOR",
+    "card_id": 435,
+    "card_prefix": "칭찬받았다♪",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no017",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "436": {
+    "costume_id": "cos_436",
+    "group_id": 252006,
+    "name": "COOL SURVIVOR",
+    "card_id": 436,
+    "card_prefix": "모두가 좋아하는 팬케이크!",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no017",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "440": {
+    "costume_id": "cos_440",
+    "group_id": 253010,
+    "name": "가넷 로젠",
+    "card_id": 440,
+    "card_prefix": "순백을 몸에 두르고",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no016",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "441": {
+    "costume_id": "cos_441",
+    "group_id": 254008,
+    "name": "리파인드 벨 턱시도",
+    "card_id": 441,
+    "card_prefix": "넘어지지 않도록 당신의 손을",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no017",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "442": {
+    "costume_id": "cos_442",
+    "group_id": 255020,
+    "name": "레이디 엘레강트",
+    "card_id": 442,
+    "card_prefix": "노력한 너에게",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no018",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "445": {
+    "costume_id": "cos_445",
+    "group_id": 258014,
+    "name": "컨퓨전 너스",
+    "card_id": 445,
+    "card_prefix": "노을빛 온기 속에서",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no018",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "446": {
+    "costume_id": "cos_446",
+    "group_id": 259016,
+    "name": "디셉션 너스",
+    "card_id": 446,
+    "card_prefix": "무섭지 않아",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no018",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "447": {
+    "costume_id": "cos_447",
+    "group_id": 260005,
+    "name": "인듀어 나이트가운",
+    "card_id": 447,
+    "card_prefix": "머뭇거리는 인사와 함께",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no018",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "450": {
+    "costume_id": "cos_450",
+    "group_id": 261012,
+    "name": "치어풀 시트러스",
+    "card_id": 450,
+    "card_prefix": "놀아 준 답례로",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no015",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "451": {
+    "costume_id": "cos_451",
+    "group_id": 262003,
+    "name": "패셔너블 키비스",
+    "card_id": 451,
+    "card_prefix": "집념의 술래잡기",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no018",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "452": {
+    "costume_id": "cos_452",
+    "group_id": 263011,
+    "name": "에너제틱 워터멜론",
+    "card_id": 452,
+    "card_prefix": "폭풍 전의 낚시",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no017",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "456": {
+    "costume_id": "cos_456",
+    "group_id": 264003,
+    "name": "흔들리는 에클루에 드레스",
+    "card_id": 456,
+    "card_prefix": "쌓아 온 용기",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no019",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "457": {
+    "costume_id": "cos_457",
+    "group_id": 265004,
+    "name": "부동의 에나멜 재킷",
+    "card_id": 457,
+    "card_prefix": "나에게 올바른 길",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no018",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "458": {
+    "costume_id": "cos_458",
+    "group_id": 266013,
+    "name": "프레시 걸 유니폼",
+    "card_id": 458,
+    "card_prefix": "이 공으로……!",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no019",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "459": {
+    "costume_id": "cos_459",
+    "group_id": 267005,
+    "name": "에너제틱 유니폼",
+    "card_id": 459,
+    "card_prefix": "명예로운 넘어짐",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no016",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "460": {
+    "costume_id": "cos_460",
+    "group_id": 268015,
+    "name": "러블리 프릴 유니폼",
+    "card_id": 460,
+    "card_prefix": "집게 힘이 너무 약해!",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no019",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "463": {
+    "costume_id": "cos_463",
+    "group_id": 271010,
+    "name": "Loving Sunflower",
+    "card_id": 463,
+    "card_prefix": "다정한 기억",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no017",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "464": {
+    "costume_id": "cos_464",
+    "group_id": 272001,
+    "name": "Old Days Boy",
+    "card_id": 464,
+    "card_prefix": "아침 연습의 한 장면",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no017",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "465": {
+    "costume_id": "cos_465",
+    "group_id": 273018,
+    "name": "My Little Shine",
+    "card_id": 465,
+    "card_prefix": "상영 중에는 조용히!",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no019",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "469": {
+    "costume_id": "cos_469",
+    "group_id": 274002,
+    "name": "D.C.Bad trip",
+    "card_id": 469,
+    "card_prefix": "기억의 심연",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no019",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "470": {
+    "costume_id": "cos_470",
+    "group_id": 275001,
+    "name": "D.C.Get close",
+    "card_id": 470,
+    "card_prefix": "그 노래를 들려줘",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no017",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "471": {
+    "costume_id": "cos_471",
+    "group_id": 276005,
+    "name": "D.C.Be help",
+    "card_id": 471,
+    "card_prefix": "방과 후의 한때",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no019",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "475": {
+    "costume_id": "cos_475",
+    "group_id": 277012,
+    "name": "샤프 슈터",
+    "card_id": 475,
+    "card_prefix": "표적은 놓치지 않아",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no017",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "476": {
+    "costume_id": "cos_476",
+    "group_id": 278011,
+    "name": "엔젤 글린트",
+    "card_id": 476,
+    "card_prefix": "눈이 반짝반짝 빛나☆",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no018",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "477": {
+    "costume_id": "cos_477",
+    "group_id": 279002,
+    "name": "매버릭 마스크 슈트",
+    "card_id": 477,
+    "card_prefix": "눈으로 따라갈 수 없는 뿌요 지우기",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no019",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "481": {
+    "costume_id": "cos_481",
+    "group_id": 282007,
+    "name": "블루 마린 크루 스타일",
+    "card_id": 481,
+    "card_prefix": "최강의 아이돌 스마일!",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no018",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "482": {
+    "costume_id": "cos_482",
+    "group_id": 283008,
+    "name": "블루 마린 프릴 플레어",
+    "card_id": 482,
+    "card_prefix": "떨어져 버렸나?",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no018",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "483": {
+    "costume_id": "cos_483",
+    "group_id": 284020,
+    "name": "블루 마린 머메이드",
+    "card_id": 483,
+    "card_prefix": "복근부터 단련해야지!",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no020",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "486": {
+    "costume_id": "cos_486",
+    "group_id": 285016,
+    "name": "릴리프 나이트웨어",
+    "card_id": 486,
+    "card_prefix": "용기를 준 것",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no019",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "487": {
+    "costume_id": "cos_487",
+    "group_id": 286013,
+    "name": "릴랙싱 나이트웨어",
+    "card_id": 487,
+    "card_prefix": "아침 햇살에 눈을 가늘게 뜨고",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no020",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "488": {
+    "costume_id": "cos_488",
+    "group_id": 287014,
+    "name": "코지 나이트웨어",
+    "card_id": 488,
+    "card_prefix": "머나먼 온기",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no019",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "493": {
+    "costume_id": "cos_493",
+    "group_id": 288004,
+    "name": "Topgear-tone",
+    "card_id": 493,
+    "card_prefix": "최선을 다하는 스테이지",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no020",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "494": {
+    "costume_id": "cos_494",
+    "group_id": 289001,
+    "name": "Soulful-tone",
+    "card_id": 494,
+    "card_prefix": "번뜩임을 기다리며",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no019",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "495": {
+    "costume_id": "cos_495",
+    "group_id": 290002,
+    "name": "Dynamic-tone",
+    "card_id": 495,
+    "card_prefix": "팔이 단단해졌네?!",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no020",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "499": {
+    "costume_id": "cos_499",
+    "group_id": 293015,
+    "name": "그림 선생님☆ 스타일",
+    "card_id": 499,
+    "card_prefix": "추억의 동물은",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no021",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "500": {
+    "costume_id": "cos_500",
+    "group_id": 294003,
+    "name": "폭발하는 아트☆ 스타일",
+    "card_id": 500,
+    "card_prefix": "왜 이렇게 되는 거야?",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no021",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "501": {
+    "costume_id": "cos_501",
+    "group_id": 295011,
+    "name": "자유로운 낙서☆ 스타일",
+    "card_id": 501,
+    "card_prefix": "문어랑 똑같은 얼굴☆",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no020",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "504": {
+    "costume_id": "cos_504",
+    "group_id": 296002,
+    "name": "Melody Walker",
+    "card_id": 504,
+    "card_prefix": "앞으로도 계속",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no020",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "505": {
+    "costume_id": "cos_505",
+    "group_id": 297009,
+    "name": "Pure Walker",
+    "card_id": 505,
+    "card_prefix": "미드나이트 메이킹",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no020",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "506": {
+    "costume_id": "cos_506",
+    "group_id": 298006,
+    "name": "House Walker",
+    "card_id": 506,
+    "card_prefix": "섬세함 아닐까?",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no019",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "509": {
+    "costume_id": "cos_509",
+    "group_id": 308017,
+    "name": "메모리즈 가이딩 스타일",
+    "card_id": 509,
+    "card_prefix": "적어도, 나에게",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no028",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "510": {
+    "costume_id": "cos_510",
+    "group_id": 309019,
+    "name": "플레잉 미스터리 드레스",
+    "card_id": 510,
+    "card_prefix": "이야기해, \"너\"의 마음에",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no022",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "511": {
+    "costume_id": "cos_511",
+    "group_id": 310014,
+    "name": "다크 시크 드레스",
+    "card_id": 511,
+    "card_prefix": "다정한 주문",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no020",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "512": {
+    "costume_id": "cos_512",
+    "group_id": 311008,
+    "name": "패시네이팅 아이돌",
+    "card_id": 512,
+    "card_prefix": "만주로 릴랙스♪",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no019",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "513": {
+    "costume_id": "cos_513",
+    "group_id": 312001,
+    "name": "매드니스 스트리트",
+    "card_id": 513,
+    "card_prefix": "커다란 함성의 열광을",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no020",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "514": {
+    "costume_id": "cos_514",
+    "group_id": 313004,
+    "name": "라이크 빌런 액터",
+    "card_id": 514,
+    "card_prefix": "던져 보는 말은",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no019",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "517": {
+    "costume_id": "cos_517",
+    "group_id": 316005,
+    "name": "드리밍 페어리",
+    "card_id": 517,
+    "card_prefix": "스포트라이트 그 너머에",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no018",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "518": {
+    "costume_id": "cos_518",
+    "group_id": 317006,
+    "name": "가이딩 페어리",
+    "card_id": 518,
+    "card_prefix": "마음까지 이어서",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no020",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "519": {
+    "costume_id": "cos_519",
+    "group_id": 318007,
+    "name": "베커닝 페어리",
+    "card_id": 519,
+    "card_prefix": "단독 라이브 작전 회의!",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no019",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "522": {
+    "costume_id": "cos_522",
+    "group_id": 319004,
+    "name": "아워글라스 턱시도",
+    "card_id": 522,
+    "card_prefix": "저녁 바람을 맞으며",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no020",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "523": {
+    "costume_id": "cos_523",
+    "group_id": 320003,
+    "name": "어드밴스 턱시도",
+    "card_id": 523,
+    "card_prefix": "자극을 받고",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no019",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "524": {
+    "costume_id": "cos_524",
+    "group_id": 321012,
+    "name": "페어웰 드레스",
+    "card_id": 524,
+    "card_prefix": "소꿉친구의 눈빛",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no018",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "528": {
+    "costume_id": "cos_528",
+    "group_id": 324009,
+    "name": "빨간 모자의 외출 드레스",
+    "card_id": 528,
+    "card_prefix": "내가 지켜 줄게",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no021",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "529": {
+    "costume_id": "cos_529",
+    "group_id": 325004,
+    "name": "늑대의 검은 망토",
+    "card_id": 529,
+    "card_prefix": "학교 축제로 좁혀지는 거리",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no021",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "530": {
+    "costume_id": "cos_530",
+    "group_id": 326005,
+    "name": "아기 염소의 프릴 드레스",
+    "card_id": 530,
+    "card_prefix": "목이 찢어질 것 같아!",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no019",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "535": {
+    "costume_id": "cos_535",
+    "group_id": 329001,
+    "name": "NEON Vo.",
+    "card_id": 535,
+    "card_prefix": "이어지는 음색",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no020",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "536": {
+    "costume_id": "cos_536",
+    "group_id": 330003,
+    "name": "NEON Dr.",
+    "card_id": 536,
+    "card_prefix": "배려를 더해서",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no024",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "537": {
+    "costume_id": "cos_537",
+    "group_id": 331017,
+    "name": "NEON SINGER",
+    "card_id": 537,
+    "card_prefix": "겹치는 노랫소리",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no030",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "540": {
+    "costume_id": "cos_540",
+    "group_id": 332015,
+    "name": "다크 데커레이트 스위트 걸",
+    "card_id": 540,
+    "card_prefix": "그리고 싶어지는 표정",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no022",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "541": {
+    "costume_id": "cos_541",
+    "group_id": 333013,
+    "name": "다크 데커레이트 캣 걸",
+    "card_id": 541,
+    "card_prefix": "이 거리 최고의 전문점에서",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no022",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "542": {
+    "costume_id": "cos_542",
+    "group_id": 334014,
+    "name": "다크 데커레이트 하트 걸",
+    "card_id": 542,
+    "card_prefix": "무언가 다른 식탁",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no021",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "545": {
+    "costume_id": "cos_545",
+    "group_id": 335006,
+    "name": "서니 크루",
+    "card_id": 545,
+    "card_prefix": "세계 최고의 미소",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no022",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "546": {
+    "costume_id": "cos_546",
+    "group_id": 336007,
+    "name": "해피 파일럿",
+    "card_id": 546,
+    "card_prefix": "전해져 온 수많은 마음들",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no020",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "547": {
+    "costume_id": "cos_547",
+    "group_id": 337020,
+    "name": "쿨 캐빈 크루",
+    "card_id": 547,
+    "card_prefix": "한 명의 팬으로서",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no022",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "551": {
+    "costume_id": "cos_551",
+    "group_id": 340001,
+    "name": "Beat Rider",
+    "card_id": 551,
+    "card_prefix": "말을 걸어 준 이유",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no022",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "552": {
+    "costume_id": "cos_552",
+    "group_id": 341002,
+    "name": "Calm Rider",
+    "card_id": 552,
+    "card_prefix": "아오야기 집안의 크리스마스 파티",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no021",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "553": {
+    "costume_id": "cos_553",
+    "group_id": 342019,
+    "name": "Ramble Rider",
+    "card_id": 553,
+    "card_prefix": "서둘러 멤버들의 곁으로!",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no023",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "556": {
+    "costume_id": "cos_556",
+    "group_id": 343008,
+    "name": "홀리 스노 아처",
+    "card_id": 556,
+    "card_prefix": "모든 화살에 만전을 기하는 마음으로",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no023",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "557": {
+    "costume_id": "cos_557",
+    "group_id": 344014,
+    "name": "캄 나이트 아처",
+    "card_id": 557,
+    "card_prefix": "너만 아는 정적",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no022",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "558": {
+    "costume_id": "cos_558",
+    "group_id": 345006,
+    "name": "일루미네이트 아처",
+    "card_id": 558,
+    "card_prefix": "어떤 어레인지가 좋을까?",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no022",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "563": {
+    "costume_id": "cos_563",
+    "group_id": 348015,
+    "name": "나르키소스 살로페트",
+    "card_id": 563,
+    "card_prefix": "리그렛 르팡티르",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no023",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "564": {
+    "costume_id": "cos_564",
+    "group_id": 349016,
+    "name": "콜라주 롤리타 드레스",
+    "card_id": 564,
+    "card_prefix": "솔리투스 유토피아",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no022",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "565": {
+    "costume_id": "cos_565",
+    "group_id": 350003,
+    "name": "비상하는 신룡의 옷",
+    "card_id": 565,
+    "card_prefix": "근하신년의 남자",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no020",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "566": {
+    "costume_id": "cos_566",
+    "group_id": 351010,
+    "name": "모시는 흰여우의 옷",
+    "card_id": 566,
+    "card_prefix": "스키장을 비출 정도의",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no021",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "567": {
+    "costume_id": "cos_567",
+    "group_id": 352018,
+    "name": "뛰어오르는 해태의 옷",
+    "card_id": 567,
+    "card_prefix": "사자춤 로봇과 술래잡기",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no023",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "571": {
+    "costume_id": "cos_571",
+    "group_id": 359011,
+    "name": "이터널 드리머",
+    "card_id": 571,
+    "card_prefix": "눈동자에 비치는 빛",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no022",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "572": {
+    "costume_id": "cos_572",
+    "group_id": 360004,
+    "name": "드리밍 어웨이",
+    "card_id": 572,
+    "card_prefix": "질 수는 없지",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no021",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "573": {
+    "costume_id": "cos_573",
+    "group_id": 361005,
+    "name": "페어리 팅크",
+    "card_id": 573,
+    "card_prefix": "즐거움 가득 보물 상자",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no023",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "576": {
+    "costume_id": "cos_576",
+    "group_id": 362003,
+    "name": "컨덕터 라이브 슈트",
+    "card_id": 576,
+    "card_prefix": "용기를 낸 후에",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no025",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "577": {
+    "costume_id": "cos_577",
+    "group_id": 363002,
+    "name": "엘레강스 라이브 슈트",
+    "card_id": 577,
+    "card_prefix": "꾸벅꾸벅 아트 클래스",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no022",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "578": {
+    "costume_id": "cos_578",
+    "group_id": 364004,
+    "name": "빌리프 라이브 슈트",
+    "card_id": 578,
+    "card_prefix": "중요한 준비",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no024",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "583": {
+    "costume_id": "cos_583",
+    "group_id": 365001,
+    "name": "멜티 오렌지",
+    "card_id": 583,
+    "card_prefix": "어둠 속의 온기",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no022",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "584": {
+    "costume_id": "cos_584",
+    "group_id": 366012,
+    "name": "멜티 페퍼민트",
+    "card_id": 584,
+    "card_prefix": "상대를 떠올리며",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no021",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "585": {
+    "costume_id": "cos_585",
+    "group_id": 367013,
+    "name": "멜티 라벤더",
+    "card_id": 585,
+    "card_prefix": "전하고 싶은 모두를 위해",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no023",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "589": {
+    "costume_id": "cos_589",
+    "group_id": 370008,
+    "name": "스프링 프린세스",
+    "card_id": 589,
+    "card_prefix": "한심한 나로부터 졸업",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no024",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "590": {
+    "costume_id": "cos_590",
+    "group_id": 371005,
+    "name": "프레시 그린 스왈로",
+    "card_id": 590,
+    "card_prefix": "오물오물 Time!",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no021",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "591": {
+    "costume_id": "cos_591",
+    "group_id": 372007,
+    "name": "플라워 기프트 스왈로",
+    "card_id": 591,
+    "card_prefix": "무리는 하지 마",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no022",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "595": {
+    "costume_id": "cos_595",
+    "group_id": 373009,
+    "name": "Flight Kid",
+    "card_id": 595,
+    "card_prefix": "클라이맥스 너머",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no023",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "596": {
+    "costume_id": "cos_596",
+    "group_id": 374010,
+    "name": "Fallen Kid",
+    "card_id": 596,
+    "card_prefix": "올려다 본 곳의 풍경",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no022",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "597": {
+    "costume_id": "cos_597",
+    "group_id": 375001,
+    "name": "Hound Kid",
+    "card_id": 597,
+    "card_prefix": "작전 회의와 치즈케이크",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no024",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "600": {
+    "costume_id": "cos_600",
+    "group_id": 376002,
+    "name": "슈발리에 누아르",
+    "card_id": 600,
+    "card_prefix": "변함없는 따뜻함 속에서",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no023",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "601": {
+    "costume_id": "cos_601",
+    "group_id": 377004,
+    "name": "매드 소서러",
+    "card_id": 601,
+    "card_prefix": "갑작스러운 시련",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no022",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "602": {
+    "costume_id": "cos_602",
+    "group_id": 378006,
+    "name": "완더링 거너",
+    "card_id": 602,
+    "card_prefix": "푹신함은 섞는 방법에 달렸어!",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no024",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "606": {
+    "costume_id": "cos_606",
+    "group_id": 381003,
+    "name": "Fearless Clown",
+    "card_id": 606,
+    "card_prefix": "번지는 눈동자에, 불사조",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no022",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "607": {
+    "costume_id": "cos_607",
+    "group_id": 382011,
+    "name": "Innocent Clown",
+    "card_id": 607,
+    "card_prefix": "꽥꽥☆ 오리 챌린지!",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no023",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "608": {
+    "costume_id": "cos_608",
+    "group_id": 383012,
+    "name": "Sway Clown",
+    "card_id": 608,
+    "card_prefix": "깨달은 차이",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no022",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "612": {
+    "costume_id": "cos_612",
+    "group_id": 384013,
+    "name": "레블 언캐니",
+    "card_id": 612,
+    "card_prefix": "결의에 불을 붙이다",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no025",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "613": {
+    "costume_id": "cos_613",
+    "group_id": 385015,
+    "name": "프러보크 크리피",
+    "card_id": 613,
+    "card_prefix": "부디 평온한 시간을",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no024",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "614": {
+    "costume_id": "cos_614",
+    "group_id": 386016,
+    "name": "템테이션 이어리",
+    "card_id": 614,
+    "card_prefix": "쇼핑으로 기분 전환",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no023",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "617": {
+    "costume_id": "cos_617",
+    "group_id": 387018,
+    "name": "기도의 홀리 드레스",
+    "card_id": 617,
+    "card_prefix": "화해의 가교",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no024",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "618": {
+    "costume_id": "cos_618",
+    "group_id": 388005,
+    "name": "소망의 홀리 코트",
+    "card_id": 618,
+    "card_prefix": "너를 위한 응원",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no025",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "619": {
+    "costume_id": "cos_619",
+    "group_id": 389004,
+    "name": "꽃피는 소녀의 날개옷",
+    "card_id": 619,
+    "card_prefix": "소리와 소리를 맞춰",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no025",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "620": {
+    "costume_id": "cos_620",
+    "group_id": 390010,
+    "name": "봄맞이 소녀의 날개옷",
+    "card_id": 620,
+    "card_prefix": "심부름 중의 만남",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no023",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "621": {
+    "costume_id": "cos_621",
+    "group_id": 391015,
+    "name": "새벽녘 소녀의 날개옷",
+    "card_id": 621,
+    "card_prefix": "느낀 것을 그림으로",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no025",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "622": {
+    "costume_id": "cos_622",
+    "group_id": 392017,
+    "name": "설레는 소녀의 날개옷",
+    "card_id": 622,
+    "card_prefix": "첫 스트리트!",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no033",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "624": {
+    "costume_id": "cos_624",
+    "group_id": 403002,
+    "name": "유니버설 트레이니",
+    "card_id": 624,
+    "card_prefix": "모든 것을 감수할 각오를",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no024",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "625": {
+    "costume_id": "cos_625",
+    "group_id": 404003,
+    "name": "언그래비티 슈트",
+    "card_id": 625,
+    "card_prefix": "이 마음조차 뛰어넘어서",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no027",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "626": {
+    "costume_id": "cos_626",
+    "group_id": 405020,
+    "name": "갤럭시 리서처",
+    "card_id": 626,
+    "card_prefix": "든든한 온기",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no025",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "630": {
+    "costume_id": "cos_630",
+    "group_id": 406007,
+    "name": "피어 트래드",
+    "card_id": 630,
+    "card_prefix": "멀어지는 거리",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no024",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "631": {
+    "costume_id": "cos_631",
+    "group_id": 407006,
+    "name": "브라이트 트래드",
+    "card_id": 631,
+    "card_prefix": "달라질지도 모르는 일상",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no024",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "632": {
+    "costume_id": "cos_632",
+    "group_id": 408008,
+    "name": "프로스펙트 트래드",
+    "card_id": 632,
+    "card_prefix": "활기차게 지방 촬영!",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no025",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "636": {
+    "costume_id": "cos_636",
+    "group_id": 409016,
+    "name": "Runaway Cat",
+    "card_id": 636,
+    "card_prefix": "나니까 할 수 있는 말",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no024",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "637": {
+    "costume_id": "cos_637",
+    "group_id": 410014,
+    "name": "Lost kitten",
+    "card_id": 637,
+    "card_prefix": "단절되어 가는 길",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no025",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "638": {
+    "costume_id": "cos_638",
+    "group_id": 411019,
+    "name": "Escape girl",
+    "card_id": 638,
+    "card_prefix": "사고방식을 바꿔",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no026",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "642": {
+    "costume_id": "cos_642",
+    "group_id": 414006,
+    "name": "세일러 캡틴",
+    "card_id": 642,
+    "card_prefix": "추억은 도넛과 함께",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no025",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "643": {
+    "costume_id": "cos_643",
+    "group_id": 415001,
+    "name": "네이비 내비게이터",
+    "card_id": 643,
+    "card_prefix": "물 위의 도피행",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no024",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "644": {
+    "costume_id": "cos_644",
+    "group_id": 416017,
+    "name": "세일러 어프렌티스",
+    "card_id": 644,
+    "card_prefix": "요코하마 가이드는 미식의 예감♪",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no034",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "648": {
+    "costume_id": "cos_648",
+    "group_id": 417012,
+    "name": "이노센트 걸",
+    "card_id": 648,
+    "card_prefix": "부족한 나니까",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no025",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "649": {
+    "costume_id": "cos_649",
+    "group_id": 418004,
+    "name": "캐주얼 보이",
+    "card_id": 649,
+    "card_prefix": "언제든지 얘기를 들어 줄게",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no024",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "650": {
+    "costume_id": "cos_650",
+    "group_id": 419006,
+    "name": "클래리티 가이",
+    "card_id": 650,
+    "card_prefix": "응원의 힘을 믿어",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no027",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "654": {
+    "costume_id": "cos_654",
+    "group_id": 420003,
+    "name": "블레싱 브라이드",
+    "card_id": 654,
+    "card_prefix": "감사와 축복의 종 아래서",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no028",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "655": {
+    "costume_id": "cos_655",
+    "group_id": 421011,
+    "name": "해피 벨",
+    "card_id": 655,
+    "card_prefix": "오오토리 백작 등장!",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no025",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "656": {
+    "costume_id": "cos_656",
+    "group_id": 422013,
+    "name": "플라워 머메이드",
+    "card_id": 656,
+    "card_prefix": "따뜻함을 주는 사람",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no026",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "659": {
+    "costume_id": "cos_659",
+    "group_id": 425010,
+    "name": "Spirit of Love",
+    "card_id": 659,
+    "card_prefix": "넘쳐흐르는 마음과",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no024",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "660": {
+    "costume_id": "cos_660",
+    "group_id": 426002,
+    "name": "Spirit of Sound",
+    "card_id": 660,
+    "card_prefix": "우리와 상대의 차이를 알기 위해",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no025",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "661": {
+    "costume_id": "cos_661",
+    "group_id": 427018,
+    "name": "Spirit of Wish",
+    "card_id": 661,
+    "card_prefix": "린 일행에게 맡겨!",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no026",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "664": {
+    "costume_id": "cos_664",
+    "group_id": 428005,
+    "name": "브릴리언트 젬",
+    "card_id": 664,
+    "card_prefix": "평생의 보물이야!",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no024",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "665": {
+    "costume_id": "cos_665",
+    "group_id": 429007,
+    "name": "글리터 젬",
+    "card_id": 665,
+    "card_prefix": "더 좋은 방송을 위해",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no025",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "666": {
+    "costume_id": "cos_666",
+    "group_id": 430005,
+    "name": "스파클 젬",
+    "card_id": 666,
+    "card_prefix": "우리니까 할 수 있는 말",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no027",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "670": {
+    "costume_id": "cos_670",
+    "group_id": 431009,
+    "name": "체인스 메모리 재킷",
+    "card_id": 670,
+    "card_prefix": "발자취의 만화경",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no026",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "671": {
+    "costume_id": "cos_671",
+    "group_id": 432001,
+    "name": "오버 더 웨스트랜드",
+    "card_id": 671,
+    "card_prefix": "갈증 속 방랑자",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no026",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "672": {
+    "costume_id": "cos_672",
+    "group_id": 433004,
+    "name": "가샤도쿠로를 통솔하는 자",
+    "card_id": 672,
+    "card_prefix": "마음속에, 한 장의",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no026",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "673": {
+    "costume_id": "cos_673",
+    "group_id": 434008,
+    "name": "자시키와라시 세일러",
+    "card_id": 673,
+    "card_prefix": "때아닌 가랑눈",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no027",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "674": {
+    "costume_id": "cos_674",
+    "group_id": 435003,
+    "name": "호리 교복",
+    "card_id": 674,
+    "card_prefix": "승패 결정!",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no025",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "677": {
+    "costume_id": "cos_677",
+    "group_id": 438014,
+    "name": "Loss way home",
+    "card_id": 677,
+    "card_prefix": "진정한 마음을",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no027",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "678": {
+    "costume_id": "cos_678",
+    "group_id": 439013,
+    "name": "Close to heart",
+    "card_id": 678,
+    "card_prefix": "떨리는 등에 다정함을",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no027",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "679": {
+    "costume_id": "cos_679",
+    "group_id": 440015,
+    "name": "Become an ally",
+    "card_id": 679,
+    "card_prefix": "보이지 않는 그림자",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no028",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "683": {
+    "costume_id": "cos_683",
+    "group_id": 441001,
+    "name": "커넥트 스타",
+    "card_id": 683,
+    "card_prefix": "가슴에 품은 맹세",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no025",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "684": {
+    "costume_id": "cos_684",
+    "group_id": 442004,
+    "name": "하트비트 스타",
+    "card_id": 684,
+    "card_prefix": "오늘은 특별하니까",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no027",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "685": {
+    "costume_id": "cos_685",
+    "group_id": 443006,
+    "name": "일루미네이트 스타",
+    "card_id": 685,
+    "card_prefix": "지켜봐 온 궤적",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no028",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "689": {
+    "costume_id": "cos_689",
+    "group_id": 444007,
+    "name": "Happy deliver",
+    "card_id": 689,
+    "card_prefix": "매혹적인 해피 날름!",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no027",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "690": {
+    "costume_id": "cos_690",
+    "group_id": 445002,
+    "name": "Smile deliver",
+    "card_id": 690,
+    "card_prefix": "파티션 뒤에서",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no028",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "691": {
+    "costume_id": "cos_691",
+    "group_id": 446016,
+    "name": "American casual",
+    "card_id": 691,
+    "card_prefix": "순조로운 플레이팅!",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no027",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "694": {
+    "costume_id": "cos_694",
+    "group_id": 449009,
+    "name": "Vivid New Colors",
+    "card_id": 694,
+    "card_prefix": "나의 말로",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no027",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "695": {
+    "costume_id": "cos_695",
+    "group_id": 450001,
+    "name": "Hot New Colors",
+    "card_id": 695,
+    "card_prefix": "코디네이트 중!",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no027",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "696": {
+    "costume_id": "cos_696",
+    "group_id": 451002,
+    "name": "Cool New Colors",
+    "card_id": 696,
+    "card_prefix": "오랜만의 병문안",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no026",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "700": {
+    "costume_id": "cos_700",
+    "group_id": 452011,
+    "name": "원더랜드 트래블러!",
+    "card_id": 700,
+    "card_prefix": "미소의 세계로",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no027",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "701": {
+    "costume_id": "cos_701",
+    "group_id": 453012,
+    "name": "견습 마도사 원피스",
+    "card_id": 701,
+    "card_prefix": "슬픔도 전부",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no027",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "702": {
+    "costume_id": "cos_702",
+    "group_id": 454020,
+    "name": "베테랑 상인 여행복",
+    "card_id": 702,
+    "card_prefix": "행복을 전하는 이야기꾼",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no026",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "707": {
+    "costume_id": "cos_707",
+    "group_id": 455017,
+    "name": "스마일링 마칭",
+    "card_id": 707,
+    "card_prefix": "반짝반짝 미소의 마법",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no037",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "708": {
+    "costume_id": "cos_708",
+    "group_id": 456018,
+    "name": "릴리브 마칭",
+    "card_id": 708,
+    "card_prefix": "또 하나의 나",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no027",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "709": {
+    "costume_id": "cos_709",
+    "group_id": 457005,
+    "name": "인커리지 마칭",
+    "card_id": 709,
+    "card_prefix": "마음을 담은 연주로",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no028",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "710": {
+    "costume_id": "cos_710",
+    "group_id": 458019,
+    "name": "패러간 마칭",
+    "card_id": 710,
+    "card_prefix": "반짝임을 보여 주기 위해",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no028",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "714": {
+    "costume_id": "cos_714",
+    "group_id": 461002,
+    "name": "Wonderful days",
+    "card_id": 714,
+    "card_prefix": "추억을 끌어안고",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no029",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "715": {
+    "costume_id": "cos_715",
+    "group_id": 462004,
+    "name": "Alive with music",
+    "card_id": 715,
+    "card_prefix": "이길 수 없는 눈빛",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no028",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "716": {
+    "costume_id": "cos_716",
+    "group_id": 463006,
+    "name": "Attract attention",
+    "card_id": 716,
+    "card_prefix": "필살! 연계 플레이",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no027",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "719": {
+    "costume_id": "cos_719",
+    "group_id": 464010,
+    "name": "트러블메이커 명탐정",
+    "card_id": 719,
+    "card_prefix": "웃는 얼굴도 참 잘했어요!",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no027",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "720": {
+    "costume_id": "cos_720",
+    "group_id": 465004,
+    "name": "인텔리전스 에이전트",
+    "card_id": 720,
+    "card_prefix": "해 질 녘의 대화",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no028",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "721": {
+    "costume_id": "cos_721",
+    "group_id": 466016,
+    "name": "마스크 대괴도",
+    "card_id": 721,
+    "card_prefix": "둘이서 돌아가는 길",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no029",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "760": {
+    "costume_id": "cos_760",
+    "group_id": 479020,
+    "name": "My Way STYLE",
+    "card_id": 760,
+    "card_prefix": "그 이름을 가슴에 품고",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no030",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "761": {
+    "costume_id": "cos_761",
+    "group_id": 480006,
+    "name": "Serenity STYLE",
+    "card_id": 761,
+    "card_prefix": "초조함을 적시는 노래",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no032",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "762": {
+    "costume_id": "cos_762",
+    "group_id": 481001,
+    "name": "The Starlight",
+    "card_id": 762,
+    "card_prefix": "새로운 일들의 시작",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no028",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "763": {
+    "costume_id": "cos_763",
+    "group_id": 482005,
+    "name": "The Flowershower",
+    "card_id": 763,
+    "card_prefix": "신경 쓰이는 뒷모습",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no027",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "764": {
+    "costume_id": "cos_764",
+    "group_id": 483003,
+    "name": "The Spotlight",
+    "card_id": 764,
+    "card_prefix": "뜻밖의 반 친구",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no029",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "765": {
+    "costume_id": "cos_765",
+    "group_id": 484013,
+    "name": "The Giftedray",
+    "card_id": 765,
+    "card_prefix": "개학식은 교실에서",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no029",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "768": {
+    "costume_id": "cos_768",
+    "group_id": 487001,
+    "name": "FLAME OF ENDEAVOR",
+    "card_id": 768,
+    "card_prefix": "불꽃의 계승",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no030",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "769": {
+    "costume_id": "cos_769",
+    "group_id": 488009,
+    "name": "HOT AIR GIRL",
+    "card_id": 769,
+    "card_prefix": "잠들어 버리지 않도록",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no030",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "770": {
+    "costume_id": "cos_770",
+    "group_id": 489019,
+    "name": "SPARK SPARKLE",
+    "card_id": 770,
+    "card_prefix": "갑작스러운 도발",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no031",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "773": {
+    "costume_id": "cos_773",
+    "group_id": 490004,
+    "name": "리자운드 스카이",
+    "card_id": 773,
+    "card_prefix": "시작의 소리",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no030",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "774": {
+    "costume_id": "cos_774",
+    "group_id": 491003,
+    "name": "비욘드 클라우드",
+    "card_id": 774,
+    "card_prefix": "답을 찾으며",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no031",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "775": {
+    "costume_id": "cos_775",
+    "group_id": 492018,
+    "name": "웜 선샤인",
+    "card_id": 775,
+    "card_prefix": "추억을 들려줘",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no030",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "779": {
+    "costume_id": "cos_779",
+    "group_id": 495008,
+    "name": "멜랑콜릭 모던 걸",
+    "card_id": 779,
+    "card_prefix": "꿈으로 이끄는 손길",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no029",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "780": {
+    "costume_id": "cos_780",
+    "group_id": 496006,
+    "name": "노스탤지아 모던 걸",
+    "card_id": 780,
+    "card_prefix": "호화로운 밤",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no030",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "781": {
+    "costume_id": "cos_781",
+    "group_id": 497007,
+    "name": "센티멘털 모던 걸",
+    "card_id": 781,
+    "card_prefix": "스페셜 일상 사진!",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no030",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "785": {
+    "costume_id": "cos_785",
+    "group_id": 500013,
+    "name": "Twilight Embrace",
+    "card_id": 785,
+    "card_prefix": "그 아이에게 마음을 겹쳐",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no030",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "786": {
+    "costume_id": "cos_786",
+    "group_id": 501014,
+    "name": "Twilight Seek",
+    "card_id": 786,
+    "card_prefix": "건져 올린 '마음'",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no029",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "787": {
+    "costume_id": "cos_787",
+    "group_id": 502015,
+    "name": "Twilight Draw",
+    "card_id": 787,
+    "card_prefix": "즐거운 오후와 보이지 않는 미래",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no030",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "788": {
+    "costume_id": "cos_788",
+    "group_id": 503016,
+    "name": "Twilight Reflect",
+    "card_id": 788,
+    "card_prefix": "와 주지 않으면 싫어!",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no031",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "791": {
+    "costume_id": "cos_791",
+    "group_id": 504003,
+    "name": "더 판타즈마고리아",
+    "card_id": 791,
+    "card_prefix": "작은 주인공과",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no030",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "792": {
+    "costume_id": "cos_792",
+    "group_id": 505004,
+    "name": "트랜지션 젠틀맨",
+    "card_id": 792,
+    "card_prefix": "꿈틀거리는 호기심",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no030",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "793": {
+    "costume_id": "cos_793",
+    "group_id": 506020,
+    "name": "스파이럴 레이디",
+    "card_id": 793,
+    "card_prefix": "레츠☆삼륜차",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no032",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "796": {
+    "costume_id": "cos_796",
+    "group_id": 507012,
+    "name": "열심☆ 파티시엘",
+    "card_id": 796,
+    "card_prefix": "최고의 영화를 위해",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no030",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "797": {
+    "costume_id": "cos_797",
+    "group_id": 508001,
+    "name": "파이팅 쿡",
+    "card_id": 797,
+    "card_prefix": "끝까지 연기해 낼 각오",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no032",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "798": {
+    "costume_id": "cos_798",
+    "group_id": 509005,
+    "name": "꿈꾸는 페이스트리 셰프",
+    "card_id": 798,
+    "card_prefix": "동경하는 주인공",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no032",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "801": {
+    "costume_id": "cos_801",
+    "group_id": 512017,
+    "name": "애플 피크닉 코디",
+    "card_id": 801,
+    "card_prefix": "feat. 헬로키티",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no045",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "802": {
+    "costume_id": "cos_802",
+    "group_id": 513002,
+    "name": "느긋 피크닉 코디",
+    "card_id": 802,
+    "card_prefix": "feat. 폼폼푸린",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no032",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "803": {
+    "costume_id": "cos_803",
+    "group_id": 514007,
+    "name": "풍성한 리본과 딸기 원피스",
+    "card_id": 803,
+    "card_prefix": "feat. 마이멜로디",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no031",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "804": {
+    "costume_id": "cos_804",
+    "group_id": 515002,
+    "name": "산책 카디건 스타일",
+    "card_id": 804,
+    "card_prefix": "feat. 포차코",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no030",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "805": {
+    "costume_id": "cos_805",
+    "group_id": 516011,
+    "name": "폭신폭신 깜찍 메이드복",
+    "card_id": 805,
+    "card_prefix": "feat. 시나모롤",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no032",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "806": {
+    "costume_id": "cos_806",
+    "group_id": 517015,
+    "name": "쿨한 소녀 원피스",
+    "card_id": 806,
+    "card_prefix": "feat. 쿠로미",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no031",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "828": {
+    "costume_id": "cos_828",
+    "group_id": 518005,
+    "name": "폭신폭신 폴리스",
+    "card_id": 828,
+    "card_prefix": "재빠르게 샤샤샥",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no030",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "829": {
+    "costume_id": "cos_829",
+    "group_id": 519004,
+    "name": "복실복실 폴리스",
+    "card_id": 829,
+    "card_prefix": "두근거림을 숨기고",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no032",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "830": {
+    "costume_id": "cos_830",
+    "group_id": 520019,
+    "name": "줄무늬 폴리스",
+    "card_id": 830,
+    "card_prefix": "인사는 아이돌의 기본",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no033",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "833": {
+    "costume_id": "cos_833",
+    "group_id": 521013,
+    "name": "소망의 세일러복",
+    "card_id": 833,
+    "card_prefix": "다정한 음색의 기억",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no032",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "834": {
+    "costume_id": "cos_834",
+    "group_id": 522014,
+    "name": "근심의 세일러복",
+    "card_id": 834,
+    "card_prefix": "흘러나온 진심",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no031",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "835": {
+    "costume_id": "cos_835",
+    "group_id": 523006,
+    "name": "부추김의 세일러복",
+    "card_id": 835,
+    "card_prefix": "모르는 척할 수 없는 마음",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no034",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "840": {
+    "costume_id": "cos_840",
+    "group_id": 526005,
+    "name": "꽃피는 꿈 니트 스타일",
+    "card_id": 840,
+    "card_prefix": "꿈은 새로운 꿈으로 이어지고",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no031",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "841": {
+    "costume_id": "cos_841",
+    "group_id": 527008,
+    "name": "정원의 아름다운 꽃 스타일",
+    "card_id": 841,
+    "card_prefix": "잊을 수 없는 과거의 나비",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no032",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "842": {
+    "costume_id": "cos_842",
+    "group_id": 528016,
+    "name": "일본식 롤리타 패션",
+    "card_id": 842,
+    "card_prefix": "다정함에 힘을 얻어",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no033",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "843": {
+    "costume_id": "cos_843",
+    "group_id": 529004,
+    "name": "일본식 록 패션",
+    "card_id": 843,
+    "card_prefix": "조금의 쑥스러움과",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no033",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "844": {
+    "costume_id": "cos_844",
+    "group_id": 530020,
+    "name": "일본식 엘레강트 패션",
+    "card_id": 844,
+    "card_prefix": "가르쳐 줘! 시호 선생님",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no034",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "848": {
+    "costume_id": "cos_848",
+    "group_id": 535009,
+    "name": "Lit vivid",
+    "card_id": 848,
+    "card_prefix": "두근거리는 미래로",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no032",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "849": {
+    "costume_id": "cos_849",
+    "group_id": 536010,
+    "name": "Smashing vivid",
+    "card_id": 849,
+    "card_prefix": "도달하지 못했던 장소로",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no032",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "850": {
+    "costume_id": "cos_850",
+    "group_id": 537001,
+    "name": "Fleek vivid",
+    "card_id": 850,
+    "card_prefix": "불굴의 결의",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no034",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "851": {
+    "costume_id": "cos_851",
+    "group_id": 538002,
+    "name": "Awesome vivid",
+    "card_id": 851,
+    "card_prefix": "흑백의 색채",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no031",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "854": {
+    "costume_id": "cos_854",
+    "group_id": 539004,
+    "name": "intruder:R",
+    "card_id": 854,
+    "card_prefix": "어쩌다 들려오는 말",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no032",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "855": {
+    "costume_id": "cos_855",
+    "group_id": 540012,
+    "name": "hacker:N",
+    "card_id": 855,
+    "card_prefix": "익숙해진 준비",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no032",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "856": {
+    "costume_id": "cos_856",
+    "group_id": 541018,
+    "name": "observer:R",
+    "card_id": 856,
+    "card_prefix": "스크린에 비친",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no034",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "861": {
+    "costume_id": "cos_861",
+    "group_id": 542009,
+    "name": "소악마 스위트 초콜릿",
+    "card_id": 861,
+    "card_prefix": "동료에게 최고의 초콜릿을",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no033",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "862": {
+    "costume_id": "cos_862",
+    "group_id": 543006,
+    "name": "청초 밀크 초콜릿",
+    "card_id": 862,
+    "card_prefix": "쌉쌀한 색으로 쿨하게",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no033",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "863": {
+    "costume_id": "cos_863",
+    "group_id": 544015,
+    "name": "시크한 어른 비터 초콜릿",
+    "card_id": 863,
+    "card_prefix": "호화로운 메이크업",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no033",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "867": {
+    "costume_id": "cos_867",
+    "group_id": 547003,
+    "name": "제너럴 커맨더",
+    "card_id": 867,
+    "card_prefix": "이끄는 결의",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no034",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "868": {
+    "costume_id": "cos_868",
+    "group_id": 548001,
+    "name": "에이드 유니폼",
+    "card_id": 868,
+    "card_prefix": "천천히라도 괜찮으니까",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no032",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "869": {
+    "costume_id": "cos_869",
+    "group_id": 549006,
+    "name": "커널 유니폼",
+    "card_id": 869,
+    "card_prefix": "어느 쪽에 찬성?!",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no035",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "873": {
+    "costume_id": "cos_873",
+    "group_id": 550005,
+    "name": "SUNNY magician",
+    "card_id": 873,
+    "card_prefix": "가슴에 꽂히는 본심",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no032",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "874": {
+    "costume_id": "cos_874",
+    "group_id": 551006,
+    "name": "RAINY magician",
+    "card_id": 874,
+    "card_prefix": "경이로운 건축 연도",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no034",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "875": {
+    "costume_id": "cos_875",
+    "group_id": 552017,
+    "name": "CLOUDY magician",
+    "card_id": 875,
+    "card_prefix": "궤적이 느껴지는 상흔",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no046",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "878": {
+    "costume_id": "cos_878",
+    "group_id": 553013,
+    "name": "희미하게 흔들리는 기사복",
+    "card_id": 878,
+    "card_prefix": "당신을 위한 한 잔을",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no034",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "879": {
+    "costume_id": "cos_879",
+    "group_id": 554001,
+    "name": "빛이 비치는 정원의 기사복",
+    "card_id": 879,
+    "card_prefix": "고민하는 두 사람 앞에",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no033",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "880": {
+    "costume_id": "cos_880",
+    "group_id": 555014,
+    "name": "심연에 선 기사복",
+    "card_id": 880,
+    "card_prefix": "덧없는 평온",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no034",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "884": {
+    "costume_id": "cos_884",
+    "group_id": 558003,
+    "name": "킹 오브 스페이드",
+    "card_id": 884,
+    "card_prefix": "높은 곳으로 손을 뻗어",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no033",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "885": {
+    "costume_id": "cos_885",
+    "group_id": 559011,
+    "name": "퀸 오브 다이아",
+    "card_id": 885,
+    "card_prefix": "같이 생각하자",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no034",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "886": {
+    "costume_id": "cos_886",
+    "group_id": 560012,
+    "name": "퀸 오브 하트",
+    "card_id": 886,
+    "card_prefix": "동경을 향해",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no033",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "887": {
+    "costume_id": "cos_887",
+    "group_id": 561004,
+    "name": "킹 오브 클로버",
+    "card_id": 887,
+    "card_prefix": "답례 인사",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no033",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "890": {
+    "costume_id": "cos_890",
+    "group_id": 562002,
+    "name": "Color the past",
+    "card_id": 890,
+    "card_prefix": "족쇄가 열쇠로",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no033",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "891": {
+    "costume_id": "cos_891",
+    "group_id": 563010,
+    "name": "Cherish regret",
+    "card_id": 891,
+    "card_prefix": "밤길에 흔들리며",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no033",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "892": {
+    "costume_id": "cos_892",
+    "group_id": 564020,
+    "name": "Love suffering",
+    "card_id": 892,
+    "card_prefix": "중요하니까",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no036",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "895": {
+    "costume_id": "cos_895",
+    "group_id": 565002,
+    "name": "Come to Life",
+    "card_id": 895,
+    "card_prefix": "하늘로 날갯짓하는 기도",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no035",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "896": {
+    "costume_id": "cos_896",
+    "group_id": 566003,
+    "name": "Kind Brother",
+    "card_id": 896,
+    "card_prefix": "너와 나의 귀갓길",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no034",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "897": {
+    "costume_id": "cos_897",
+    "group_id": 567011,
+    "name": "Pretty Lady",
+    "card_id": 897,
+    "card_prefix": "덧없는 재회",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no035",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "898": {
+    "costume_id": "cos_898",
+    "group_id": 568001,
+    "name": "Naughty Dog",
+    "card_id": 898,
+    "card_prefix": "공포의 술래잡기",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no035",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "899": {
+    "costume_id": "cos_899",
+    "group_id": 569003,
+    "name": "Soothing Dog",
+    "card_id": 899,
+    "card_prefix": "푹신푹신 휴식 시간",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no035",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "900": {
+    "costume_id": "cos_900",
+    "group_id": 570006,
+    "name": "Gentle Dog",
+    "card_id": 900,
+    "card_prefix": "개구쟁이 발견자",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no039",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "903": {
+    "costume_id": "cos_903",
+    "group_id": 577015,
+    "name": "리졸브 원피스",
+    "card_id": 903,
+    "card_prefix": "그림에서 보인 마음",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no034",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "904": {
+    "costume_id": "cos_904",
+    "group_id": 578014,
+    "name": "필라이트 팬츠",
+    "card_id": 904,
+    "card_prefix": "평온한 준비",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no035",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "905": {
+    "costume_id": "cos_905",
+    "group_id": 579005,
+    "name": "스너글 셔츠",
+    "card_id": 905,
+    "card_prefix": "즐거워 보이는 개인 전시회",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no036",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "909": {
+    "costume_id": "cos_909",
+    "group_id": 582002,
+    "name": "고딕 블로키지",
+    "card_id": 909,
+    "card_prefix": "홀로 남은 방",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no036",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "910": {
+    "costume_id": "cos_910",
+    "group_id": 583004,
+    "name": "고딕 트러스트",
+    "card_id": 910,
+    "card_prefix": "간식을 들고",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no036",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "911": {
+    "costume_id": "cos_911",
+    "group_id": 584020,
+    "name": "고딕 억셉트",
+    "card_id": 911,
+    "card_prefix": "우리들의 존재 방식",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no037",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "915": {
+    "costume_id": "cos_915",
+    "group_id": 587010,
+    "name": "duel of Revolt",
+    "card_id": 915,
+    "card_prefix": "결전의 시간",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no034",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "916": {
+    "costume_id": "cos_916",
+    "group_id": 588009,
+    "name": "duel of Growth",
+    "card_id": 916,
+    "card_prefix": "모두 받아들이고",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no036",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "917": {
+    "costume_id": "cos_917",
+    "group_id": 589002,
+    "name": "Witness of duel",
+    "card_id": 917,
+    "card_prefix": "두렵다는 감정",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no034",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "921": {
+    "costume_id": "cos_921",
+    "group_id": 592005,
+    "name": "STEP-uniform",
+    "card_id": 921,
+    "card_prefix": "거듭 쌓아 온 마음은",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no036",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "922": {
+    "costume_id": "cos_922",
+    "group_id": 593006,
+    "name": "SMILE-uniform",
+    "card_id": 922,
+    "card_prefix": "가닿은 희망",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no035",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "923": {
+    "costume_id": "cos_923",
+    "group_id": 594007,
+    "name": "LOVE-uniform",
+    "card_id": 923,
+    "card_prefix": "일상의 한 페이지",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no035",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "924": {
+    "costume_id": "cos_924",
+    "group_id": 595008,
+    "name": "GIFT-uniform",
+    "card_id": 924,
+    "card_prefix": "손끝이 더듬는 것",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no034",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "927": {
+    "costume_id": "cos_927",
+    "group_id": 596011,
+    "name": "갤럭시 슬러그 걸",
+    "card_id": 927,
+    "card_prefix": "천하를 비웃는 자",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no036",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "928": {
+    "costume_id": "cos_928",
+    "group_id": 597003,
+    "name": "유니버스 젠틀맨",
+    "card_id": 928,
+    "card_prefix": "스타를 목표로 전력 질주!",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no036",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "929": {
+    "costume_id": "cos_929",
+    "group_id": 598005,
+    "name": "코스믹 래빗 보이",
+    "card_id": 929,
+    "card_prefix": "함께 특훈!",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no037",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "933": {
+    "costume_id": "cos_933",
+    "group_id": 599005,
+    "name": "fairy tale princess",
+    "card_id": 933,
+    "card_prefix": "자, 변신!",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no037",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "934": {
+    "costume_id": "cos_934",
+    "group_id": 600012,
+    "name": "lady in flowers",
+    "card_id": 934,
+    "card_prefix": "바라던 드레스로",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no035",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "935": {
+    "costume_id": "cos_935",
+    "group_id": 601019,
+    "name": "lady of charming",
+    "card_id": 935,
+    "card_prefix": "둥실둥실 드림 웨딩",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no037",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "938": {
+    "costume_id": "cos_938",
+    "group_id": 604006,
+    "name": "sparkle of resolve",
+    "card_id": 938,
+    "card_prefix": "마음에 다가가서 함께",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no036",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "939": {
+    "costume_id": "cos_939",
+    "group_id": 605008,
+    "name": "sparkle of trust",
+    "card_id": 939,
+    "card_prefix": "요리로 활력을 전해요♪",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no035",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "940": {
+    "costume_id": "cos_940",
+    "group_id": 606006,
+    "name": "sparkle of smarts",
+    "card_id": 940,
+    "card_prefix": "최고의 스테이지를 만들기 위해",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no040",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "943": {
+    "costume_id": "cos_943",
+    "group_id": 611014,
+    "name": "turning purple",
+    "card_id": 943,
+    "card_prefix": "따스한 손",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no036",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "944": {
+    "costume_id": "cos_944",
+    "group_id": 612016,
+    "name": "knitting colors",
+    "card_id": 944,
+    "card_prefix": "직접 전하고 싶어서",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no035",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "945": {
+    "costume_id": "cos_945",
+    "group_id": 613018,
+    "name": "mend a tear",
+    "card_id": 945,
+    "card_prefix": "처음 듣는 굉음",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no036",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "949": {
+    "costume_id": "cos_949",
+    "group_id": 614013,
+    "name": "블랑슈 엘르 드레스",
+    "card_id": 949,
+    "card_prefix": "추억을 되찾고",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no037",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "950": {
+    "costume_id": "cos_950",
+    "group_id": 615020,
+    "name": "누아르 클레마티트 드레스",
+    "card_id": 950,
+    "card_prefix": "'나'의 마음을 느끼며",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no038",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "951": {
+    "costume_id": "cos_951",
+    "group_id": 616009,
+    "name": "I'm a catch!!",
+    "card_id": 951,
+    "card_prefix": "두근거리는 세계",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no037",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "952": {
+    "costume_id": "cos_952",
+    "group_id": 617001,
+    "name": "Real badass",
+    "card_id": 952,
+    "card_prefix": "각오를 다지는 파이팅",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no037",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "953": {
+    "costume_id": "cos_953",
+    "group_id": 618017,
+    "name": "Stunning lady",
+    "card_id": 953,
+    "card_prefix": "문 너머로",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no047",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "956": {
+    "costume_id": "cos_956",
+    "group_id": 621003,
+    "name": "타오르는 인의의 옷",
+    "card_id": 956,
+    "card_prefix": "각별한 한때",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no037",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "957": {
+    "costume_id": "cos_957",
+    "group_id": 622004,
+    "name": "흐르는 지혜의 옷",
+    "card_id": 957,
+    "card_prefix": "쿨한 악역?",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no037",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "958": {
+    "costume_id": "cos_958",
+    "group_id": 623019,
+    "name": "몽환적인 믿음의 옷",
+    "card_id": 958,
+    "card_prefix": "화재 감시탑 위에서",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no038",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "961": {
+    "costume_id": "cos_961",
+    "group_id": 624001,
+    "name": "Youthful life",
+    "card_id": 961,
+    "card_prefix": "우리의 여행길",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no035",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "962": {
+    "costume_id": "cos_962",
+    "group_id": 625002,
+    "name": "Sparkling life",
+    "card_id": 962,
+    "card_prefix": "넷이 함께니까",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no038",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "963": {
+    "costume_id": "cos_963",
+    "group_id": 626003,
+    "name": "Jumping life",
+    "card_id": 963,
+    "card_prefix": "하지 못한 말",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no037",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "964": {
+    "costume_id": "cos_964",
+    "group_id": 627004,
+    "name": "Playing life",
+    "card_id": 964,
+    "card_prefix": "이 전철에 탈 때",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no038",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "968": {
+    "costume_id": "cos_968",
+    "group_id": 628007,
+    "name": "Cheerful Streamer",
+    "card_id": 968,
+    "card_prefix": "샤인 온 미",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no037",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "969": {
+    "costume_id": "cos_969",
+    "group_id": 629006,
+    "name": "Innocent Streamer",
+    "card_id": 969,
+    "card_prefix": "건방진 후배!",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no037",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "970": {
+    "costume_id": "cos_970",
+    "group_id": 630008,
+    "name": "Mellow Streamer",
+    "card_id": 970,
+    "card_prefix": "특별한 주문",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no036",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "973": {
+    "costume_id": "cos_973",
+    "group_id": 633002,
+    "name": "웨일 오케스트라",
+    "card_id": 973,
+    "card_prefix": "동경을 함께",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no037",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "974": {
+    "costume_id": "cos_974",
+    "group_id": 634013,
+    "name": "펭귄 왈츠",
+    "card_id": 974,
+    "card_prefix": "시련! 마우스피스",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no038",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "975": {
+    "costume_id": "cos_975",
+    "group_id": 635010,
+    "name": "흰동가리 행진곡",
+    "card_id": 975,
+    "card_prefix": "미소는 표준 장비",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no037",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "979": {
+    "costume_id": "cos_979",
+    "group_id": 636017,
+    "name": "피처 컴퍼스",
+    "card_id": 979,
+    "card_prefix": "마음을 맡기고",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no048",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "980": {
+    "costume_id": "cos_980",
+    "group_id": 637018,
+    "name": "컴퍼스 세일러복",
+    "card_id": 980,
+    "card_prefix": "맨 앞줄에서 응원!",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no038",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "981": {
+    "costume_id": "cos_981",
+    "group_id": 638005,
+    "name": "테일 코트 컴퍼스",
+    "card_id": 981,
+    "card_prefix": "어디서나 최고의 파트너",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no039",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "982": {
+    "costume_id": "cos_982",
+    "group_id": 639019,
+    "name": "무디 컴퍼스",
+    "card_id": 982,
+    "card_prefix": "마음에 다가서서",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no040",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "983": {
+    "costume_id": "cos_983",
+    "group_id": 640020,
+    "name": "스타일리시 컴퍼스",
+    "card_id": 983,
+    "card_prefix": "다정한 향기와 함께",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no039",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "984": {
+    "costume_id": "cos_984",
+    "group_id": 641006,
+    "name": "컴퍼스 재킷",
+    "card_id": 984,
+    "card_prefix": "격려하는 마음",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no041",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "987": {
+    "costume_id": "cos_987",
+    "group_id": 645011,
+    "name": "드리~밍★고스트 씨",
+    "card_id": 987,
+    "card_prefix": "제가 야옹 요괴예요!",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no038",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "988": {
+    "costume_id": "cos_988",
+    "group_id": 646014,
+    "name": "테러블★너스 씨",
+    "card_id": 988,
+    "card_prefix": "고양이 귀 유령 길잡이",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no038",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "989": {
+    "costume_id": "cos_989",
+    "group_id": 647003,
+    "name": "텐더★메이드 씨",
+    "card_id": 989,
+    "card_prefix": "담력 훈련 제2회?!",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no038",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "993": {
+    "costume_id": "cos_993",
+    "group_id": 650006,
+    "name": "Tight Player",
+    "card_id": 993,
+    "card_prefix": "응원을 날개 삼아",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no038",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "994": {
+    "costume_id": "cos_994",
+    "group_id": 651001,
+    "name": "Awesome Player",
+    "card_id": 994,
+    "card_prefix": "대회 후에는 대식가",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no038",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "995": {
+    "costume_id": "cos_995",
+    "group_id": 652003,
+    "name": "Star Player",
+    "card_id": 995,
+    "card_prefix": "사이좋게 트레이닝!",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no038",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "998": {
+    "costume_id": "cos_998",
+    "group_id": 653001,
+    "name": "앰비션 살로페트",
+    "card_id": 998,
+    "card_prefix": "미쿠와의 만남",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no037",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "999": {
+    "costume_id": "cos_999",
+    "group_id": 654002,
+    "name": "플레어 레그 살로페트",
+    "card_id": 999,
+    "card_prefix": "그날의 동경",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no040",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1000": {
+    "costume_id": "cos_1000",
+    "group_id": 655005,
+    "name": "캣 니트 보이",
+    "card_id": 1000,
+    "card_prefix": "사이다에 둘러싸여",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no040",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1003": {
+    "costume_id": "cos_1003",
+    "group_id": 668004,
+    "name": "스페큘러티브 코트",
+    "card_id": 1003,
+    "card_prefix": "보물을 바라보며",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no038",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1004": {
+    "costume_id": "cos_1004",
+    "group_id": 669018,
+    "name": "아나크로니즘 드레스",
+    "card_id": 1004,
+    "card_prefix": "내가 모르는 '나'들",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no039",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1005": {
+    "costume_id": "cos_1005",
+    "group_id": 670012,
+    "name": "디그니파이드 브릴리언스",
+    "card_id": 1005,
+    "card_prefix": "꿈을 실은 멜로디",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no038",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1006": {
+    "costume_id": "cos_1006",
+    "group_id": 671004,
+    "name": "아든트 브릴리언스",
+    "card_id": 1006,
+    "card_prefix": "답답한 메이크업",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no040",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1007": {
+    "costume_id": "cos_1007",
+    "group_id": 672007,
+    "name": "캡티베이팅 브릴리언스",
+    "card_id": 1007,
+    "card_prefix": "용기를 전하는 노래",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no038",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1008": {
+    "costume_id": "cos_1008",
+    "group_id": 673002,
+    "name": "익스프레스드 브릴리언스",
+    "card_id": 1008,
+    "card_prefix": "방과 후의 작은 봉사",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no038",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1011": {
+    "costume_id": "cos_1011",
+    "group_id": 676016,
+    "name": "고통으로 흐트러진 꽃",
+    "card_id": 1011,
+    "card_prefix": "잃어버린 것",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no038",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1012": {
+    "costume_id": "cos_1012",
+    "group_id": 677015,
+    "name": "우연히 떨어진 꽃",
+    "card_id": 1012,
+    "card_prefix": "가슴이 시릴듯한 노을 아래",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no039",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1013": {
+    "costume_id": "cos_1013",
+    "group_id": 678006,
+    "name": "말없이 바치는 꽃",
+    "card_id": 1013,
+    "card_prefix": "영도의 말다툼",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no042",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1016": {
+    "costume_id": "cos_1016",
+    "group_id": 679001,
+    "name": "Craving flame",
+    "card_id": 1016,
+    "card_prefix": "불타지 못하는 마음",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no039",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1017": {
+    "costume_id": "cos_1017",
+    "group_id": 680009,
+    "name": "Bright flame",
+    "card_id": 1017,
+    "card_prefix": "부끄럽지 않도록",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no038",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1018": {
+    "costume_id": "cos_1018",
+    "group_id": 681010,
+    "name": "Yearning flame",
+    "card_id": 1018,
+    "card_prefix": "목표는 영어 마스터!",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no039",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1022": {
+    "costume_id": "cos_1022",
+    "group_id": 682002,
+    "name": "마음이 가는 셋업 스타일",
+    "card_id": 1022,
+    "card_prefix": "즐겁고 행복한 음악",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no041",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1023": {
+    "costume_id": "cos_1023",
+    "group_id": 683001,
+    "name": "소리를 울리는 원피스 스타일",
+    "card_id": 1023,
+    "card_prefix": "평소와는 다른 나로",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no038",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1024": {
+    "costume_id": "cos_1024",
+    "group_id": 684003,
+    "name": "휴식의 살로페트 스타일",
+    "card_id": 1024,
+    "card_prefix": "MV 촬영 분투 중",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no041",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1028": {
+    "costume_id": "cos_1028",
+    "group_id": 687004,
+    "name": "우아한 단풍의 옷",
+    "card_id": 1028,
+    "card_prefix": "해 질 녘, 가을바람을 쐬며",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no042",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1029": {
+    "costume_id": "cos_1029",
+    "group_id": 688008,
+    "name": "아리따운 낙엽의 옷",
+    "card_id": 1029,
+    "card_prefix": "너와 더없이 행복한 한때를",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no038",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1030": {
+    "costume_id": "cos_1030",
+    "group_id": 689018,
+    "name": "어여쁜 잎사귀의 옷",
+    "card_id": 1030,
+    "card_prefix": "산더미 같은 포도에 부푸는 꿈",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no040",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1034": {
+    "costume_id": "cos_1034",
+    "group_id": 690012,
+    "name": "휘에 슈발리에",
+    "card_id": 1034,
+    "card_prefix": "흔들림 없는 눈동자",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no039",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1035": {
+    "costume_id": "cos_1035",
+    "group_id": 691011,
+    "name": "수리르 슈발리에",
+    "card_id": 1035,
+    "card_prefix": "꿈속에서도 공부?",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no040",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1036": {
+    "costume_id": "cos_1036",
+    "group_id": 692005,
+    "name": "하빌리티 슈발리에",
+    "card_id": 1036,
+    "card_prefix": "너를☆위한☆응원!",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no041",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1039": {
+    "costume_id": "cos_1039",
+    "group_id": 693015,
+    "name": "시즈 베스티",
+    "card_id": 1039,
+    "card_prefix": "상처투성이가 되었더라도",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no040",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1040": {
+    "costume_id": "cos_1040",
+    "group_id": 694016,
+    "name": "크루아르 베스티",
+    "card_id": 1040,
+    "card_prefix": "흘러넘친 마음",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no039",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1041": {
+    "costume_id": "cos_1041",
+    "group_id": 695020,
+    "name": "프로테제 파피용",
+    "card_id": 1041,
+    "card_prefix": "내가 해야 할 일",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no042",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1045": {
+    "costume_id": "cos_1045",
+    "group_id": 700008,
+    "name": "비상의 페더",
+    "card_id": 1045,
+    "card_prefix": "흔들림 없는 각오의 반짝임",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no040",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1046": {
+    "costume_id": "cos_1046",
+    "group_id": 701005,
+    "name": "격려의 페더",
+    "card_id": 1046,
+    "card_prefix": "말로 표현할 수 없는 감동",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no039",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1047": {
+    "costume_id": "cos_1047",
+    "group_id": 702017,
+    "name": "조력의 페더",
+    "card_id": 1047,
+    "card_prefix": "마음으로 느낀 눈빛",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no050",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1050": {
+    "costume_id": "cos_1050",
+    "group_id": 703004,
+    "name": "Bear in pocket",
+    "card_id": 1050,
+    "card_prefix": "산타를 만나자! 대작전",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no040",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1051": {
+    "costume_id": "cos_1051",
+    "group_id": 704009,
+    "name": "Hamster in pocket",
+    "card_id": 1051,
+    "card_prefix": "더없이 기다려지는 쇼이기에",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no039",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1052": {
+    "costume_id": "cos_1052",
+    "group_id": 705019,
+    "name": "Cat in pocket",
+    "card_id": 1052,
+    "card_prefix": "흥미진진 등불 만들기!",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no042",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1057": {
+    "costume_id": "cos_1057",
+    "group_id": 706006,
+    "name": "Fairlady Dress",
+    "card_id": 1057,
+    "card_prefix": "자랑스러운 아이돌이 되기 위해",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no041",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1058": {
+    "costume_id": "cos_1058",
+    "group_id": 707010,
+    "name": "Livelylady Dress",
+    "card_id": 1058,
+    "card_prefix": "세상에 둘도 없는 사람들",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no040",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1059": {
+    "costume_id": "cos_1059",
+    "group_id": 708001,
+    "name": "순풍의 날개옷",
+    "card_id": 1059,
+    "card_prefix": "생각지 못한 작별 선물",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no042",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1060": {
+    "costume_id": "cos_1060",
+    "group_id": 709007,
+    "name": "향풍의 날개옷",
+    "card_id": 1060,
+    "card_prefix": "세트 아이템♥",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no040",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1061": {
+    "costume_id": "cos_1061",
+    "group_id": 710006,
+    "name": "청풍의 날개옷",
+    "card_id": 1061,
+    "card_prefix": "콩 주머니라면 특기!",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no044",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1065": {
+    "costume_id": "cos_1065",
+    "group_id": 717002,
+    "name": "Dance of freedom",
+    "card_id": 1065,
+    "card_prefix": "이국의 거리에서",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no041",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1066": {
+    "costume_id": "cos_1066",
+    "group_id": 718009,
+    "name": "Dance of zeal",
+    "card_id": 1066,
+    "card_prefix": "힘껏 한 입",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no040",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1067": {
+    "costume_id": "cos_1067",
+    "group_id": 719005,
+    "name": "Dance of pleasure",
+    "card_id": 1067,
+    "card_prefix": "커다란 아침 식사",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no043",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1096": {
+    "costume_id": "cos_1096",
+    "group_id": 720001,
+    "name": "클로즈드 클로스 블루종",
+    "card_id": 1096,
+    "card_prefix": "창의 세카이에서",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no052",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1097": {
+    "costume_id": "cos_1097",
+    "group_id": 722013,
+    "name": "샤이니 롤리타",
+    "card_id": 1097,
+    "card_prefix": "거울 속의 낯선 나",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no042",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1098": {
+    "costume_id": "cos_1098",
+    "group_id": 723002,
+    "name": "하트풀 롤리타",
+    "card_id": 1098,
+    "card_prefix": "넘치는 감사!",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no044",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1099": {
+    "costume_id": "cos_1099",
+    "group_id": 724018,
+    "name": "시크릿 롤리타",
+    "card_id": 1099,
+    "card_prefix": "꾸미기는 어려워",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no043",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1104": {
+    "costume_id": "cos_1104",
+    "group_id": 725008,
+    "name": "Night rose-queen",
+    "card_id": 1104,
+    "card_prefix": "실로 만든 꽃에 푹 빠져",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no042",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1105": {
+    "costume_id": "cos_1105",
+    "group_id": 726014,
+    "name": "Icy rose-lady",
+    "card_id": 1105,
+    "card_prefix": "조용한 도서실에서",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no043",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1106": {
+    "costume_id": "cos_1106",
+    "group_id": 727005,
+    "name": "Shady rose-duke",
+    "card_id": 1106,
+    "card_prefix": "특별한 하트를 너에게",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no045",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1110": {
+    "costume_id": "cos_1110",
+    "group_id": 730006,
+    "name": "Unshakable belief",
+    "card_id": 1110,
+    "card_prefix": "직면하게 된 현실",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no044",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1111": {
+    "costume_id": "cos_1111",
+    "group_id": 731005,
+    "name": "Unchanged purity",
+    "card_id": 1111,
+    "card_prefix": "진지한 회의!",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no041",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1112": {
+    "costume_id": "cos_1112",
+    "group_id": 732019,
+    "name": "Unfailing kindness",
+    "card_id": 1112,
+    "card_prefix": "후회도 감싸안고",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no045",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1115": {
+    "costume_id": "cos_1115",
+    "group_id": 733001,
+    "name": "노블 스트리트 스타일",
+    "card_id": 1115,
+    "card_prefix": "공명하는 투쟁심",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no045",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1116": {
+    "costume_id": "cos_1116",
+    "group_id": 734002,
+    "name": "쉬벌러스 캐주얼 코디",
+    "card_id": 1116,
+    "card_prefix": "서로의 무기를 휘두르며",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no043",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1117": {
+    "costume_id": "cos_1117",
+    "group_id": 735003,
+    "name": "밤하늘에 빛나는 스타 슈트",
+    "card_id": 1117,
+    "card_prefix": "별처럼 빛나는 무대를",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no042",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1118": {
+    "costume_id": "cos_1118",
+    "group_id": 736004,
+    "name": "매지컬 쇼 재킷",
+    "card_id": 1118,
+    "card_prefix": "마법과 발명이 자아내는 쇼",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no042",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1122": {
+    "costume_id": "cos_1122",
+    "group_id": 743003,
+    "name": "폼 소르시에르",
+    "card_id": 1122,
+    "card_prefix": "추억의 동화책을 펼치며",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no043",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1123": {
+    "costume_id": "cos_1123",
+    "group_id": 744012,
+    "name": "팡플르무스 소르시에르",
+    "card_id": 1123,
+    "card_prefix": "스크린에 비치는 꼬리",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no041",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1124": {
+    "costume_id": "cos_1124",
+    "group_id": 745020,
+    "name": "레쟁 소르시에르",
+    "card_id": 1124,
+    "card_prefix": "비밀 윙크!",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no044",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1127": {
+    "costume_id": "cos_1127",
+    "group_id": 746002,
+    "name": "세인트 비스트 소서러",
+    "card_id": 1127,
+    "card_prefix": "난항! 기획 회의",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no045",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1128": {
+    "costume_id": "cos_1128",
+    "group_id": 747011,
+    "name": "비스트맨 서머너",
+    "card_id": 1128,
+    "card_prefix": "함께, 감사를 담아",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no043",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1129": {
+    "costume_id": "cos_1129",
+    "group_id": 748018,
+    "name": "골드 십 솔저",
+    "card_id": 1129,
+    "card_prefix": "어린애 취급은 사양할래!",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no044",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1133": {
+    "costume_id": "cos_1133",
+    "group_id": 753003,
+    "name": "peppy abyssinian",
+    "card_id": 1133,
+    "card_prefix": "히어로가 히어로에게",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no043",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1134": {
+    "costume_id": "cos_1134",
+    "group_id": 754007,
+    "name": "pretty silver tabby",
+    "card_id": 1134,
+    "card_prefix": "장난꾸러기 자매, 등장!",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no043",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1135": {
+    "costume_id": "cos_1135",
+    "group_id": 755016,
+    "name": "cute white kitty",
+    "card_id": 1135,
+    "card_prefix": "도넛과 피스!",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no042",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1139": {
+    "costume_id": "cos_1139",
+    "group_id": 756013,
+    "name": "Xylocopa",
+    "card_id": 1139,
+    "card_prefix": "보이지 않는 소리",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no044",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1140": {
+    "costume_id": "cos_1140",
+    "group_id": 757014,
+    "name": "bombyx mori",
+    "card_id": 1140,
+    "card_prefix": "정적에 싸인 부엌",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no044",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1141": {
+    "costume_id": "cos_1141",
+    "group_id": 758015,
+    "name": "Papilionidae",
+    "card_id": 1141,
+    "card_prefix": "가방 가득한 마음",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no043",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1144": {
+    "costume_id": "cos_1144",
+    "group_id": 759003,
+    "name": "Brilliant Tender",
+    "card_id": 1144,
+    "card_prefix": "그 시절의 \"우리\"들",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no044",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1145": {
+    "costume_id": "cos_1145",
+    "group_id": 760019,
+    "name": "White Attractive",
+    "card_id": 1145,
+    "card_prefix": "돌고 도는 세카이, 느껴지는 마음",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no046",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1146": {
+    "costume_id": "cos_1146",
+    "group_id": 761004,
+    "name": "stir hearts performance",
+    "card_id": 1146,
+    "card_prefix": "충동에 몸을 맡기고",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no046",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1147": {
+    "costume_id": "cos_1147",
+    "group_id": 762001,
+    "name": "touch hearts song",
+    "card_id": 1147,
+    "card_prefix": "온 힘을 다해 전하는 소리",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no042",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1148": {
+    "costume_id": "cos_1148",
+    "group_id": 763017,
+    "name": "raise hearts voice",
+    "card_id": 1148,
+    "card_prefix": "울려 퍼지는 마음에 감싸여",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no053",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1151": {
+    "costume_id": "cos_1151",
+    "group_id": 768009,
+    "name": "Bond of Sparkle",
+    "card_id": 1151,
+    "card_prefix": "노을빛 미소",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no044",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1152": {
+    "costume_id": "cos_1152",
+    "group_id": 769010,
+    "name": "Bond of belief",
+    "card_id": 1152,
+    "card_prefix": "애달픈 마음도 받아들이고",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no043",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1153": {
+    "costume_id": "cos_1153",
+    "group_id": 770001,
+    "name": "Bond of flame",
+    "card_id": 1153,
+    "card_prefix": "예상하지 못한 말",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no046",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1154": {
+    "costume_id": "cos_1154",
+    "group_id": 771002,
+    "name": "Bond of memory",
+    "card_id": 1154,
+    "card_prefix": "반짝이는 기억을 더듬어",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no044",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1156": {
+    "costume_id": "cos_1156",
+    "group_id": 772011,
+    "name": "클라주 오트쿠튀르",
+    "card_id": 1156,
+    "card_prefix": "늠름히 미래를 이야기하며",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no044",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1157": {
+    "costume_id": "cos_1157",
+    "group_id": 773012,
+    "name": "셰리르 오트쿠튀르",
+    "card_id": 1157,
+    "card_prefix": "스텝에 마음을 실어",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no043",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1158": {
+    "costume_id": "cos_1158",
+    "group_id": 774006,
+    "name": "스리르 오트쿠튀르",
+    "card_id": 1158,
+    "card_prefix": "다가가는 미소",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no048",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1162": {
+    "costume_id": "cos_1162",
+    "group_id": 775014,
+    "name": "Dark Embrace",
+    "card_id": 1162,
+    "card_prefix": "따뜻한 시간",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no045",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1163": {
+    "costume_id": "cos_1163",
+    "group_id": 776013,
+    "name": "Midnight calm",
+    "card_id": 1163,
+    "card_prefix": "텅 빈 방",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no045",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1164": {
+    "costume_id": "cos_1164",
+    "group_id": 777005,
+    "name": "Silent Devotion",
+    "card_id": 1164,
+    "card_prefix": "괴로움에 다가서서",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no047",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1169": {
+    "costume_id": "cos_1169",
+    "group_id": 780003,
+    "name": "레브 데투와르",
+    "card_id": 1169,
+    "card_prefix": "결의를 가슴에",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no045",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1170": {
+    "costume_id": "cos_1170",
+    "group_id": 781011,
+    "name": "레브 데 수리앙",
+    "card_id": 1170,
+    "card_prefix": "생글생글 웃음 가득한 스테이지에서",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no045",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1171": {
+    "costume_id": "cos_1171",
+    "group_id": 782012,
+    "name": "레브 데 토널리티",
+    "card_id": 1171,
+    "card_prefix": "초조한 마음",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no044",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1172": {
+    "costume_id": "cos_1172",
+    "group_id": 783004,
+    "name": "레브 데 마지",
+    "card_id": 1172,
+    "card_prefix": "꿈을 향한 한 걸음",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no045",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1174": {
+    "costume_id": "cos_1174",
+    "group_id": 784007,
+    "name": "스테드패스트 신데렐라",
+    "card_id": 1174,
+    "card_prefix": "도달하지 못하는 괴로움",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no045",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1175": {
+    "costume_id": "cos_1175",
+    "group_id": 785005,
+    "name": "퍼시스턴트 신데렐라",
+    "card_id": 1175,
+    "card_prefix": "함께하는 복습 타임",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no044",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1176": {
+    "costume_id": "cos_1176",
+    "group_id": 786020,
+    "name": "어펙셔네이트 신데렐라",
+    "card_id": 1176,
+    "card_prefix": "레츠 모어 모어 트레이닝!",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no046",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1180": {
+    "costume_id": "cos_1180",
+    "group_id": 787009,
+    "name": "지평선을 바라보는 맹렬한 불꽃",
+    "card_id": 1180,
+    "card_prefix": "가슴에 남는 열기",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no045",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1181": {
+    "costume_id": "cos_1181",
+    "group_id": 788002,
+    "name": "바람을 거느린 푸른 불꽃",
+    "card_id": 1181,
+    "card_prefix": "맛있는 문화 교류",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no046",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1182": {
+    "costume_id": "cos_1182",
+    "group_id": 789017,
+    "name": "새벽빛을 우러러보는 붉은 불꽃",
+    "card_id": 1182,
+    "card_prefix": "갑작스러운 위기",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no055",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1185": {
+    "costume_id": "cos_1185",
+    "group_id": 792013,
+    "name": "Faith in Shadows",
+    "card_id": 1185,
+    "card_prefix": "쉬는 시간의 한때",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no046",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1186": {
+    "costume_id": "cos_1186",
+    "group_id": 793014,
+    "name": "Tethered Calm",
+    "card_id": 1186,
+    "card_prefix": "겹쳐지는 미소",
+    "char_name": "아사히나 마후유",
+    "origin_char_id": 18,
+    "gender": "female",
+    "assetbundleName": "res018_no046",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1187": {
+    "costume_id": "cos_1187",
+    "group_id": 794015,
+    "name": "Brush of Solitude",
+    "card_id": 1187,
+    "card_prefix": "항상, 네가",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no046",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1188": {
+    "costume_id": "cos_1188",
+    "group_id": 795016,
+    "name": "Echoes of Myself",
+    "card_id": 1188,
+    "card_prefix": "귀여움을 안내해 드릴게요",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no045",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1189": {
+    "costume_id": "cos_1189",
+    "group_id": 796001,
+    "name": "Starry Identity",
+    "card_id": 1189,
+    "card_prefix": "잡을 수 없는 '마음'",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no043",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1190": {
+    "costume_id": "cos_1190",
+    "group_id": 797002,
+    "name": "Starry Vigor",
+    "card_id": 1190,
+    "card_prefix": "에이스 플레이어!",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no048",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1191": {
+    "costume_id": "cos_1191",
+    "group_id": 798003,
+    "name": "Starry Core",
+    "card_id": 1191,
+    "card_prefix": "장래를 상상하며",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no045",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1192": {
+    "costume_id": "cos_1192",
+    "group_id": 799004,
+    "name": "Starry Ability",
+    "card_id": 1192,
+    "card_prefix": "동료와 나누는 담소",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no047",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1194": {
+    "costume_id": "cos_1194",
+    "group_id": 806015,
+    "name": "Casual Painter",
+    "card_id": 1194,
+    "card_prefix": "그 그림을 함께",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no047",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1195": {
+    "costume_id": "cos_1195",
+    "group_id": 807006,
+    "name": "Noble Eternity",
+    "card_id": 1195,
+    "card_prefix": "동료의 존재",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no049",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1196": {
+    "costume_id": "cos_1196",
+    "group_id": 808004,
+    "name": "인벤티브 워커",
+    "card_id": 1196,
+    "card_prefix": "동경에 닿기까지의 거리",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no047",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1197": {
+    "costume_id": "cos_1197",
+    "group_id": 809003,
+    "name": "업비트 워커",
+    "card_id": 1197,
+    "card_prefix": "가자, 무대로",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no047",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1198": {
+    "costume_id": "cos_1198",
+    "group_id": 810012,
+    "name": "소트풀 워커",
+    "card_id": 1198,
+    "card_prefix": "간식 사는 중",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no045",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1201": {
+    "costume_id": "cos_1201",
+    "group_id": 811003,
+    "name": "Dilemma of seeker",
+    "card_id": 1201,
+    "card_prefix": "곤혹은 정적에 빠지고",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no046",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1202": {
+    "costume_id": "cos_1202",
+    "group_id": 812001,
+    "name": "Worry of walker",
+    "card_id": 1202,
+    "card_prefix": "너의 곁에",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no044",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1203": {
+    "costume_id": "cos_1203",
+    "group_id": 813018,
+    "name": "Cheer of neighbor",
+    "card_id": 1203,
+    "card_prefix": "재미 위원이 나설 차례♪",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no047",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1207": {
+    "costume_id": "cos_1207",
+    "group_id": 814005,
+    "name": "Idol lover",
+    "card_id": 1207,
+    "card_prefix": "솔직한 마음을 말해요",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no045",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1208": {
+    "costume_id": "cos_1208",
+    "group_id": 815006,
+    "name": "Penguin lover",
+    "card_id": 1208,
+    "card_prefix": "Fantastic! 트레이닝 룸",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no046",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1209": {
+    "costume_id": "cos_1209",
+    "group_id": 816008,
+    "name": "Snow Fairy lover",
+    "card_id": 1209,
+    "card_prefix": "마음이 놓이는 아침 식사",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no045",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1213": {
+    "costume_id": "cos_1213",
+    "group_id": 821010,
+    "name": "PURE FIGHTER",
+    "card_id": 1213,
+    "card_prefix": "웃으며 손을 흔들고",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no046",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1214": {
+    "costume_id": "cos_1214",
+    "group_id": 822002,
+    "name": "PURE PUNCHER",
+    "card_id": 1214,
+    "card_prefix": "최고의 선물을!",
+    "char_name": "아오야기 토우야",
+    "origin_char_id": 12,
+    "gender": "male",
+    "assetbundleName": "res012_no047",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1215": {
+    "costume_id": "cos_1215",
+    "group_id": 823019,
+    "name": "PURE WATCHER",
+    "card_id": 1215,
+    "card_prefix": "두 사람의 비밀 이야기",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no048",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1218": {
+    "costume_id": "cos_1218",
+    "group_id": 828005,
+    "name": "hope to believe",
+    "card_id": 1218,
+    "card_prefix": "꿈은 혼잡 속에 섞여서",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no046",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1219": {
+    "costume_id": "cos_1219",
+    "group_id": 829006,
+    "name": "hope to rise",
+    "card_id": 1219,
+    "card_prefix": "만나서 자라나는 인연",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no047",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1220": {
+    "costume_id": "cos_1220",
+    "group_id": 830007,
+    "name": "hope to persevere",
+    "card_id": 1220,
+    "card_prefix": "스페셜 컬래버레이션 방송!",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no047",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1221": {
+    "costume_id": "cos_1221",
+    "group_id": 831008,
+    "name": "hope to strive",
+    "card_id": 1221,
+    "card_prefix": "완벽한 미소",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no046",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1223": {
+    "costume_id": "cos_1223",
+    "group_id": 832016,
+    "name": "Petit pas",
+    "card_id": 1223,
+    "card_prefix": "내 모습 그대로 꿈꾸는 내일",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no046",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1224": {
+    "costume_id": "cos_1224",
+    "group_id": 833015,
+    "name": "Petit joie",
+    "card_id": 1224,
+    "card_prefix": "열렬한 환영에 우물쭈물!",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no048",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1225": {
+    "costume_id": "cos_1225",
+    "group_id": 834005,
+    "name": "Petit souhait",
+    "card_id": 1225,
+    "card_prefix": "맛있는 행복을 나누며",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no048",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1229": {
+    "costume_id": "cos_1229",
+    "group_id": 838003,
+    "name": "Biggest Bluff",
+    "card_id": 1229,
+    "card_prefix": "절망에 잠기다",
+    "char_name": "텐마 츠카사",
+    "origin_char_id": 13,
+    "gender": "male",
+    "assetbundleName": "res013_no048",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1230": {
+    "costume_id": "cos_1230",
+    "group_id": 839011,
+    "name": "Fake Smile",
+    "card_id": 1230,
+    "card_prefix": "스마일 페어리",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no047",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1231": {
+    "costume_id": "cos_1231",
+    "group_id": 840004,
+    "name": "Ruse Direction",
+    "card_id": 1231,
+    "card_prefix": "진심을 담은 소도구 만들기",
+    "char_name": "카미시로 루이",
+    "origin_char_id": 16,
+    "gender": "male",
+    "assetbundleName": "res016_no048",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1235": {
+    "costume_id": "cos_1235",
+    "group_id": 843017,
+    "name": "Classical Perfume",
+    "card_id": 1235,
+    "card_prefix": "약속을 가슴에",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no058",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1236": {
+    "costume_id": "cos_1236",
+    "group_id": 844018,
+    "name": "Classical Lipstick",
+    "card_id": 1236,
+    "card_prefix": "회전목마에서 예이!",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no048",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1237": {
+    "costume_id": "cos_1237",
+    "group_id": 845005,
+    "name": "Classical Gloss",
+    "card_id": 1237,
+    "card_prefix": "품에 가득한 과자",
+    "char_name": "카가미네 렌",
+    "origin_char_id": 23,
+    "gender": "male",
+    "assetbundleName": "res023_no049",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1238": {
+    "costume_id": "cos_1238",
+    "group_id": 846019,
+    "name": "Classical Blush",
+    "card_id": 1238,
+    "card_prefix": "더없이 흥분되는 스테이지!",
+    "char_name": "메구리네 루카",
+    "origin_char_id": 24,
+    "gender": "female",
+    "assetbundleName": "res024_no049",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1239": {
+    "costume_id": "cos_1239",
+    "group_id": 847020,
+    "name": "Classical Eyeshadow",
+    "card_id": 1239,
+    "card_prefix": "가득한 진수성찬!",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no048",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1240": {
+    "costume_id": "cos_1240",
+    "group_id": 848006,
+    "name": "Classical Nails",
+    "card_id": 1240,
+    "card_prefix": "'신기한 일들'에 휘둘리며",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no051",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1242": {
+    "costume_id": "cos_1242",
+    "group_id": 849017,
+    "name": "마메치풍 도트 재킷",
+    "card_id": 1242,
+    "card_prefix": "인도하는 노래",
+    "char_name": "하츠네 미쿠",
+    "origin_char_id": 21,
+    "gender": "female",
+    "assetbundleName": "res021_no059",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1243": {
+    "costume_id": "cos_1243",
+    "group_id": 850004,
+    "name": "미미치풍 큐트 후드",
+    "card_id": 1243,
+    "card_prefix": "별들을 올려다보며",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no049",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1244": {
+    "costume_id": "cos_1244",
+    "group_id": 851009,
+    "name": "메메치풍 뱅글뱅글 스타일",
+    "card_id": 1244,
+    "card_prefix": "달콤~한 한때",
+    "char_name": "아즈사와 코하네",
+    "origin_char_id": 9,
+    "gender": "female",
+    "assetbundleName": "res009_no047",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1245": {
+    "costume_id": "cos_1245",
+    "group_id": 852012,
+    "name": "구치파치풍 여유로운 코디",
+    "card_id": 1245,
+    "card_prefix": "대특훈 대회의 성과!",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no048",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1252": {
+    "costume_id": "cos_1252",
+    "group_id": 865005,
+    "name": "Pure Transparency",
+    "card_id": 1252,
+    "card_prefix": "반짝반짝 아이돌!",
+    "char_name": "하나사토 미노리",
+    "origin_char_id": 5,
+    "gender": "female",
+    "assetbundleName": "res005_no047",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1253": {
+    "costume_id": "cos_1253",
+    "group_id": 866001,
+    "name": "RAD ONEROAD",
+    "card_id": 1253,
+    "card_prefix": "멈추지 않는 걸음",
+    "char_name": "시노노메 아키토",
+    "origin_char_id": 11,
+    "gender": "male",
+    "assetbundleName": "res011_no049",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1254": {
+    "costume_id": "cos_1254",
+    "group_id": 867010,
+    "name": "Awesome Wings",
+    "card_id": 1254,
+    "card_prefix": "이 순간을 기억에 새기고",
+    "char_name": "시라이시 안",
+    "origin_char_id": 10,
+    "gender": "female",
+    "assetbundleName": "res010_no048",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1255": {
+    "costume_id": "cos_1255",
+    "group_id": 868002,
+    "name": "Awesome Star",
+    "card_id": 1255,
+    "card_prefix": "럭키 아이스크림!",
+    "char_name": "텐마 사키",
+    "origin_char_id": 2,
+    "gender": "female",
+    "assetbundleName": "res002_no049",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1256": {
+    "costume_id": "cos_1256",
+    "group_id": 869006,
+    "name": "Awesome Clover",
+    "card_id": 1256,
+    "card_prefix": "스테이지 옆의 정열",
+    "char_name": "키리타니 하루카",
+    "origin_char_id": 6,
+    "gender": "female",
+    "assetbundleName": "res006_no048",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1257": {
+    "costume_id": "cos_1257",
+    "group_id": 870016,
+    "name": "Awesome Ribbon",
+    "card_id": 1257,
+    "card_prefix": "더없이 멋진 미소를 중계!",
+    "char_name": "아키야마 미즈키",
+    "origin_char_id": 20,
+    "gender": "female",
+    "assetbundleName": "res020_no049",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1261": {
+    "costume_id": "cos_1261",
+    "group_id": 873001,
+    "name": "링크드 마치",
+    "card_id": 1261,
+    "card_prefix": "충격적인 아침",
+    "char_name": "호시노 이치카",
+    "origin_char_id": 1,
+    "gender": "female",
+    "assetbundleName": "res001_no046",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1262": {
+    "costume_id": "cos_1262",
+    "group_id": 874003,
+    "name": "소트풀 마치",
+    "card_id": 1262,
+    "card_prefix": "맛은 어때?",
+    "char_name": "모치즈키 호나미",
+    "origin_char_id": 3,
+    "gender": "female",
+    "assetbundleName": "res003_no048",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1263": {
+    "costume_id": "cos_1263",
+    "group_id": 875004,
+    "name": "언웨이버링 마치",
+    "card_id": 1263,
+    "card_prefix": "매일의 루틴",
+    "char_name": "히노모리 시호",
+    "origin_char_id": 4,
+    "gender": "female",
+    "assetbundleName": "res004_no050",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1266": {
+    "costume_id": "cos_1266",
+    "group_id": 878008,
+    "name": "브리지 컬러",
+    "card_id": 1266,
+    "card_prefix": "언젠가와 겹치는 풍경",
+    "char_name": "히노모리 시즈쿠",
+    "origin_char_id": 8,
+    "gender": "female",
+    "assetbundleName": "res008_no048",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1267": {
+    "costume_id": "cos_1267",
+    "group_id": 879007,
+    "name": "코지 컬러",
+    "card_id": 1267,
+    "card_prefix": "차가운 느낌에 깜짝!",
+    "char_name": "모모이 아이리",
+    "origin_char_id": 7,
+    "gender": "female",
+    "assetbundleName": "res007_no048",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1268": {
+    "costume_id": "cos_1268",
+    "group_id": 880020,
+    "name": "코디얼 컬러",
+    "card_id": 1268,
+    "card_prefix": "스페셜 응원을 전할게!",
+    "char_name": "MEIKO",
+    "origin_char_id": 25,
+    "gender": "female",
+    "assetbundleName": "res025_no051",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1272": {
+    "costume_id": "cos_1272",
+    "group_id": 881015,
+    "name": "어스파이어 에이프런",
+    "card_id": 1272,
+    "card_prefix": "자신의 경계를 넘어",
+    "char_name": "시노노메 에나",
+    "origin_char_id": 19,
+    "gender": "female",
+    "assetbundleName": "res019_no049",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1273": {
+    "costume_id": "cos_1273",
+    "group_id": 882013,
+    "name": "페이스 에이프런",
+    "card_id": 1273,
+    "card_prefix": "독자적인 시점",
+    "char_name": "요이사키 카나데",
+    "origin_char_id": 17,
+    "gender": "female",
+    "assetbundleName": "res017_no048",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1274": {
+    "costume_id": "cos_1274",
+    "group_id": 883006,
+    "name": "베리티 에이프런",
+    "card_id": 1274,
+    "card_prefix": "망설임 없는 '나다움'을",
+    "char_name": "KAITO",
+    "origin_char_id": 26,
+    "gender": "male",
+    "assetbundleName": "res026_no052",
+    "parts": [
+      "body",
+      "hair",
+      "head"
+    ]
+  },
+  "1279": {
+    "costume_id": "cos_1279",
+    "group_id": 890012,
+    "name": "Soar high canary",
+    "card_id": 1279,
+    "card_prefix": "그 꽃이 피어날 때",
+    "char_name": "쿠사나기 네네",
+    "origin_char_id": 15,
+    "gender": "female",
+    "assetbundleName": "res015_no049",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1280": {
+    "costume_id": "cos_1280",
+    "group_id": 891011,
+    "name": "Wings of trust",
+    "card_id": 1280,
+    "card_prefix": "해피해피해피한 서비스",
+    "char_name": "오오토리 에무",
+    "origin_char_id": 14,
+    "gender": "female",
+    "assetbundleName": "res014_no050",
+    "parts": [
+      "body",
+      "head"
+    ]
+  },
+  "1281": {
+    "costume_id": "cos_1281",
+    "group_id": 892018,
+    "name": "Wings of watch",
+    "card_id": 1281,
+    "card_prefix": "작은 수호자",
+    "char_name": "카가미네 린",
+    "origin_char_id": 22,
+    "gender": "female",
+    "assetbundleName": "res022_no049",
+    "parts": [
+      "body",
+      "head"
+    ]
+  }
+}

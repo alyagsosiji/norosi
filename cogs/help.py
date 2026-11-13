@@ -121,6 +121,15 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
     {
         "category": "cards",
         "cat_label": "🎮 출석 & 카드/가챠",
+        "name": "/의상",
+        "desc": "캐릭터별 3D 의상 착용 및 가챠로 획득한 의상을 300 크리스탈로 다른 캐릭터에게 제작/입히기",
+        "params": "캐릭터: [캐릭터이름(선택)]",
+        "example": "/의상 캐릭터:호시노 이치카",
+        "source": "cogs/gacha.py",
+    },
+    {
+        "category": "cards",
+        "cat_label": "🎮 출석 & 카드/가챠",
         "name": "/덱편성",
         "desc": "보유 카드 중 최대 5장을 골라 리더와 멤버로 나만의 5인 유닛 덱 편성 및 총 종합력 계산",
         "params": "리더: [카드] 멤버2~5: [카드 4장(선택)]",

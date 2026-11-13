@@ -246,6 +246,9 @@ SPOTIPY_CLIENT_SECRET = os.getenv("SPOTIPY_CLIENT_SECRET", "").strip()
 KST = datetime.timezone(datetime.timedelta(hours=9))
 DATA_FILE = "ddays_data.json"
 PROSEKA_CACHE_FILE = "proseka_kr_cache.json"
+PROSEKA_COSTUMES_CACHE_FILE = "proseka_costumes_cache.json"
+COSTUME_PURCHASE_PRICE = 300  # 다른 캐릭터에게 의상 제작/구매 시 소모되는 크리스탈
+MALE_CHAR_IDS = {11, 12, 13, 16, 23, 26}
 RANDOM_KEYWORDS = ["pop", "lofi", "k-pop", "indie", "jazz", "r&b", "piano", "acoustic", "chill", "synthwave", "rock"]
 
 # 실행 중인 뽀모도로 및 하드코어 스터디 타이머 태스크 관리용 딕셔너리
@@ -705,6 +708,18 @@ KR_SYSTEM_LIVE2D_URLS = [
     "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-kr-diff/main/systemLive2ds.json",
     "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-kr-diff@main/systemLive2ds.json"
 ]
+KR_CARD_COSTUMES_URLS = [
+    "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-kr-diff/main/cardCostume3ds.json",
+    "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-kr-diff@main/cardCostume3ds.json"
+]
+KR_COSTUME3DS_URLS = [
+    "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-kr-diff/main/costume3ds.json",
+    "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-kr-diff@main/costume3ds.json"
+]
+KR_COSTUME_GROUPS_URLS = [
+    "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-kr-diff/main/costume3dGroups.json",
+    "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-kr-diff@main/costume3dGroups.json"
+]
 
 SERVER_DB_URLS = {
     "kr": {
@@ -784,6 +799,7 @@ def build_fallback_proseka_quotes():
 
 PROSEKA_KR_CARDS = build_fallback_proseka_cards()
 PROSEKA_KR_QUOTES = build_fallback_proseka_quotes()
+PROSEKA_KR_COSTUMES: dict[str, dict] = {}
 
 
 def fetch_json_with_fallback(urls):
@@ -962,6 +978,327 @@ def load_proseka_kr_db():
         f"✅ 프로세카 한섭 DB 로드 완료: 카드 {len(PROSEKA_KR_CARDS)}장 | 대사 {len(PROSEKA_KR_QUOTES)}개",
         flush=True
     )
+    load_proseka_costumes_db()
+
+
+def load_proseka_costumes_db():
+    """프로세카 한국 서버 3D 의상 마스터 데이터 로드 및 캐시"""
+    global PROSEKA_KR_COSTUMES
+    if os.path.exists(PROSEKA_COSTUMES_CACHE_FILE):
+        try:
+            with open(PROSEKA_COSTUMES_CACHE_FILE, "r", encoding="utf-8") as f:
+                cached = json.load(f)
+                if cached and isinstance(cached, dict) and len(cached) > 50:
+                    PROSEKA_KR_COSTUMES.clear()
+                    PROSEKA_KR_COSTUMES.update(cached)
+                    print(f"✅ 프로세카 한섭 3D 의상 캐시 로드 완료: {len(PROSEKA_KR_COSTUMES)}개 의상", flush=True)
+                    return
+        except Exception:
+            pass
+
+    try:
+        c_costumes = fetch_json_with_fallback(KR_CARD_COSTUMES_URLS)
+        if not c_costumes or not isinstance(c_costumes, list):
+            return
+
+        target_c3d_ids = set(c.get("costume3dId") for c in c_costumes if c.get("costume3dId"))
+
+        raw_c3d = fetch_json_with_fallback(KR_COSTUME3DS_URLS)
+        filtered_c3d = {c["id"]: c for c in raw_c3d if c.get("id") in target_c3d_ids} if raw_c3d else {}
+
+        target_grp_ids = set(c["costume3dGroupId"] for c in filtered_c3d.values() if "costume3dGroupId" in c)
+        raw_groups = fetch_json_with_fallback(KR_COSTUME_GROUPS_URLS)
+        filtered_groups = {g["groupId"]: g for g in raw_groups if g.get("groupId") in target_grp_ids} if raw_groups else {}
+
+        card_map = {c["id"]: c for c in PROSEKA_KR_CARDS}
+
+        parsed_costumes = {}
+        for cc in c_costumes:
+            card_id = cc.get("cardId")
+            c_info = filtered_c3d.get(cc.get("costume3dId"))
+            if not c_info:
+                continue
+            grp_id = c_info.get("costume3dGroupId")
+            grp = filtered_groups.get(grp_id)
+            if not grp:
+                continue
+            card = card_map.get(card_id)
+            if not card:
+                continue
+            name = (grp.get("name") or "").strip()
+            if not name or name == "-":
+                continue
+
+            char_id = card.get("char_id")
+            gender = "male" if char_id in MALE_CHAR_IDS else "female"
+
+            cid_key = str(card_id)
+            if cid_key not in parsed_costumes:
+                parsed_costumes[cid_key] = {
+                    "costume_id": f"cos_{card_id}",
+                    "group_id": grp_id,
+                    "name": name,
+                    "card_id": card_id,
+                    "card_prefix": card.get("prefix", ""),
+                    "char_name": card.get("char_name", ""),
+                    "origin_char_id": char_id,
+                    "gender": gender,
+                    "assetbundleName": card.get("assetbundleName", ""),
+                    "parts": []
+                }
+            part_name = c_info.get("partType", "body")
+            if part_name not in parsed_costumes[cid_key]["parts"]:
+                parsed_costumes[cid_key]["parts"].append(part_name)
+
+        if parsed_costumes:
+            PROSEKA_KR_COSTUMES.clear()
+            PROSEKA_KR_COSTUMES.update(parsed_costumes)
+            try:
+                with open(PROSEKA_COSTUMES_CACHE_FILE, "w", encoding="utf-8") as f:
+                    json.dump(parsed_costumes, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+            print(f"✅ 프로세카 한섭 3D 의상 DB 파싱 및 캐시 저장 완료: {len(PROSEKA_KR_COSTUMES)}개 의상", flush=True)
+    except Exception as e:
+        print(f"⚠️ 프로세카 의상 DB 로드 중 예외 발생: {e}", flush=True)
+
+
+def get_default_costume(char_id: int) -> dict:
+    """캐릭터별 기본 유닛 의상 반환"""
+    c_info = CHARACTER_MAP.get(char_id, {"name": "캐릭터", "unit": "기타"})
+    gender = "male" if char_id in MALE_CHAR_IDS else "female"
+    return {
+        "costume_id": f"default_{char_id}",
+        "group_id": 0,
+        "name": "기본 유닛 의상",
+        "card_id": 0,
+        "card_prefix": "기본",
+        "char_name": c_info["name"],
+        "origin_char_id": char_id,
+        "gender": gender,
+        "assetbundleName": "",
+        "parts": ["body", "head"],
+        "is_default": True,
+        "obtained_how": "기본 지급 의상"
+    }
+
+
+def get_costume_by_id(costume_id: str) -> dict | None:
+    """의상 ID(cos_4 또는 default_1 등)로 의상 정보 조회"""
+    if not costume_id:
+        return None
+    costume_id_str = str(costume_id)
+    if costume_id_str.startswith("default_"):
+        try:
+            cid = int(costume_id_str.split("_")[1])
+            return get_default_costume(cid)
+        except Exception:
+            return None
+
+    for cos in PROSEKA_KR_COSTUMES.values():
+        if cos.get("costume_id") == costume_id_str:
+            return cos
+    if costume_id_str in PROSEKA_KR_COSTUMES:
+        return PROSEKA_KR_COSTUMES[costume_id_str]
+    return None
+
+
+def get_costume_for_card(card_id: int | str) -> dict | None:
+    """특정 카드가 제공하는 3D 의상 정보 조회"""
+    return PROSEKA_KR_COSTUMES.get(str(card_id))
+
+
+def get_user_equipped_costume(guild_id: int, user_id: int, char_id: int) -> dict:
+    """유저가 해당 캐릭터에게 현재 착용시킨 의상 반환 (미착용 시 기본 의상)"""
+    data = load_data()
+    g_key = str(guild_id or 0)
+    u_key = str(user_id)
+    g_equipped = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("equipped_costumes", {})
+    costume_id = g_equipped.get(str(char_id))
+    if not costume_id:
+        p_equipped = data.get("user_profiles", {}).get(u_key, {}).get("equipped_costumes", {})
+        costume_id = p_equipped.get(str(char_id))
+
+    if costume_id:
+        cos = get_costume_by_id(costume_id)
+        if cos:
+            return cos
+    return get_default_costume(char_id)
+
+
+def get_user_unlocked_costumes_for_char(guild_id: int, user_id: int, char_id: int) -> list[dict]:
+    """
+    해당 캐릭터가 현재 착용 가능한 모든 의상 목록:
+    1. 기본 의상
+    2. 유저가 가챠에서 뽑아 보유한 카드의 원래 캐릭터 의상
+    3. 다른 캐릭터의 의상을 크리스탈로 구매/제작한 의상
+    """
+    data = load_data()
+    g_key = str(guild_id or 0)
+    u_key = str(user_id)
+
+    unlocked = [get_default_costume(char_id)]
+    seen_ids = {unlocked[0]["costume_id"]}
+
+    # 1. 원본 캐릭터 카드 보유로 인한 자동 해금
+    u_cards = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+    for cid_str, card_obj in u_cards.items():
+        if cid_str in PROSEKA_KR_COSTUMES:
+            cos = PROSEKA_KR_COSTUMES[cid_str]
+            if cos.get("origin_char_id") == char_id and cos["costume_id"] not in seen_ids:
+                seen_ids.add(cos["costume_id"])
+                c_copy = dict(cos)
+                c_copy["obtained_how"] = f"★4 [{cos.get('card_prefix')}] 뽑기 획득"
+                unlocked.append(c_copy)
+
+    # 2. 크리스탈로 제작/구매한 의상
+    char_key = str(char_id)
+    purchased = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("purchased_costumes", {}).get(char_key, [])
+    if not purchased:
+        purchased = data.get("user_profiles", {}).get(u_key, {}).get("purchased_costumes", {}).get(char_key, [])
+    for cos_id in purchased:
+        if cos_id not in seen_ids:
+            cos = get_costume_by_id(cos_id)
+            if cos:
+                seen_ids.add(cos_id)
+                c_copy = dict(cos)
+                c_copy["obtained_how"] = f"의상실 제작 ({COSTUME_PURCHASE_PRICE} 💎)"
+                unlocked.append(c_copy)
+
+    return unlocked
+
+
+def get_purchasable_costumes_for_char(guild_id: int, user_id: int, char_id: int) -> list[dict]:
+    """
+    해당 캐릭터용으로 새로 제작(구매) 가능한 의상 목록:
+    1. 유저가 가챠에서 뽑아 보유 중인 카드의 의상 ('의상은 뽑은 것만 다른 캐릭터에게 살 수 있음')
+    2. 해당 캐릭터와 성별/체형 일치 ('한섭 의상 착용 규칙과 동일')
+    3. 원래 캐릭터가 아니어야 함 (원래 캐릭터는 이미 무료 보유)
+    4. 이미 제작/구매한 의상이 아니어야 함
+    """
+    data = load_data()
+    g_key = str(guild_id or 0)
+    u_key = str(user_id)
+
+    target_gender = "male" if char_id in MALE_CHAR_IDS else "female"
+    u_cards = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+
+    char_key = str(char_id)
+    purchased = set(data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("purchased_costumes", {}).get(char_key, []))
+    purchased.update(data.get("user_profiles", {}).get(u_key, {}).get("purchased_costumes", {}).get(char_key, []))
+
+    purchasable = []
+    seen_ids = set()
+    for cid_str, card_obj in u_cards.items():
+        if cid_str in PROSEKA_KR_COSTUMES:
+            cos = PROSEKA_KR_COSTUMES[cid_str]
+            cos_id = cos["costume_id"]
+            if cos_id in seen_ids or cos_id in purchased:
+                continue
+            if cos.get("origin_char_id") == char_id:
+                continue
+            if cos.get("gender") == target_gender:
+                seen_ids.add(cos_id)
+                c_copy = dict(cos)
+                c_copy["price"] = COSTUME_PURCHASE_PRICE
+                purchasable.append(c_copy)
+
+    return purchasable
+
+
+def equip_user_costume(guild_id: int, user_id: int, char_id: int, costume_id: str) -> tuple[bool, str, dict | None]:
+    """보유 중인 의상을 특정 캐릭터에게 착용시킵니다."""
+    with _DATA_LOCK:
+        data = load_data()
+        g_key = str(guild_id or 0)
+        u_key = str(user_id)
+
+        if char_id not in CHARACTER_MAP:
+            return False, "유효하지 않은 캐릭터 번호입니다.", None
+
+        target_char = CHARACTER_MAP[char_id]
+        costume = get_costume_by_id(costume_id)
+        if not costume:
+            if costume_id == f"default_{char_id}" or costume_id == "default":
+                costume = get_default_costume(char_id)
+            else:
+                return False, "의상 정보를 찾을 수 없습니다.", None
+
+        unlocked = get_user_unlocked_costumes_for_char(guild_id, user_id, char_id)
+        if not any(c["costume_id"] == costume["costume_id"] for c in unlocked):
+            return False, f"**{target_char['name']}**이(가) 아직 보유하지 않은 의상입니다.", None
+
+        g_users = data["gacha_users"].setdefault(g_key, {})
+        equipped = g_users.setdefault(u_key, {}).setdefault("equipped_costumes", {})
+        equipped[str(char_id)] = costume["costume_id"]
+
+        prof = ensure_user_profile(data, u_key)
+        prof.setdefault("equipped_costumes", {})[str(char_id)] = costume["costume_id"]
+
+        save_data(data)
+        return True, f"✨ **{target_char['name']}**의 의상을 **[{costume['name']}]**(으)로 변경했습니다!", costume
+
+
+def purchase_and_equip_costume(guild_id: int, user_id: int, char_id: int, costume_id: str) -> tuple[bool, str, dict | None, int]:
+    """다른 캐릭터용 의상을 300 크리스탈로 제작/구매하여 즉시 착용"""
+    with _DATA_LOCK:
+        data = load_data()
+        g_key = str(guild_id or 0)
+        u_key = str(user_id)
+
+        prof = ensure_user_profile(data, u_key)
+        crystals = prof.get("crystals", 0)
+        if crystals < COSTUME_PURCHASE_PRICE:
+            return False, f"크리스탈이 부족합니다! (필요: `{COSTUME_PURCHASE_PRICE} 💎` / 보유: `{crystals:,} 💎`)\n`/출석체크` 또는 `/중복카드변환`으로 크리스탈을 획득해 보세요!", None, crystals
+
+        if char_id not in CHARACTER_MAP:
+            return False, "유효하지 않은 캐릭터 번호입니다.", None, crystals
+
+        target_char = CHARACTER_MAP[char_id]
+        target_gender = "male" if char_id in MALE_CHAR_IDS else "female"
+
+        costume = get_costume_by_id(costume_id)
+        if not costume:
+            return False, "의상 정보를 찾을 수 없습니다.", None, crystals
+
+        if costume.get("gender") != target_gender:
+            c_type = "남성용" if costume.get("gender") == "male" else "여성용"
+            t_type = "남성" if target_gender == "male" else "여성"
+            return False, f"이 의상은 **{c_type} 의상**이므로 {t_type} 캐릭터인 **{target_char['name']}**에게 착용할 수 없습니다.", None, crystals
+
+        g_users = data["gacha_users"].setdefault(g_key, {})
+        u_cards = g_users.setdefault(u_key, {}).setdefault("cards", {})
+        cid_str = str(costume.get("card_id", 0))
+        if cid_str not in u_cards or u_cards[cid_str].get("count", 0) < 1:
+            return False, f"이 의상을 해금하려면 먼저 가챠에서 원본 카드 `[{costume.get('card_prefix')}] {costume.get('char_name')}`를 뽑아야 합니다!", None, crystals
+
+        char_key = str(char_id)
+        u_purchased = g_users[u_key].setdefault("purchased_costumes", {})
+        char_purchased = u_purchased.setdefault(char_key, [])
+        if costume_id in char_purchased or costume.get("origin_char_id") == char_id:
+            return False, f"**{target_char['name']}**은(는) 이미 이 의상을 보유하고 있습니다!", None, crystals
+
+        # 크리스탈 차감
+        prof["crystals"] = crystals - COSTUME_PURCHASE_PRICE
+        rem_crystals = prof["crystals"]
+
+        char_purchased.append(costume_id)
+        equipped = g_users[u_key].setdefault("equipped_costumes", {})
+        equipped[char_key] = costume_id
+
+        # 프로필에도 동기화
+        prof_purchased = prof.setdefault("purchased_costumes", {})
+        prof_purchased.setdefault(char_key, [])
+        if costume_id not in prof_purchased[char_key]:
+            prof_purchased[char_key].append(costume_id)
+        prof.setdefault("equipped_costumes", {})[char_key] = costume_id
+
+        save_data(data)
+        return True, f"👗 **{target_char['name']}**에게 **[{costume['name']}]** 의상을 제작하여 입혀주었습니다!", costume, rem_crystals
+
+
+# 모듈 로드 시 캐시된 의상 DB 초기화
+load_proseka_costumes_db()
 
 
 def get_random_proseka_quote(preferred_oshi: str = None) -> dict:
@@ -2661,6 +2998,11 @@ def draw_proseka_cards(pickup_cfg, count=1):
         if high_pool:
             high_weights = [c["prob"] for c in high_pool]
             drawn[-1] = random.choices(high_pool, weights=high_weights, k=1)[0]
+
+    for c in drawn:
+        cid_str = str(c.get("id"))
+        if cid_str in PROSEKA_KR_COSTUMES:
+            c["costume"] = PROSEKA_KR_COSTUMES[cid_str]
 
     return drawn
 

@@ -42,8 +42,10 @@ def build_gacha_pull_embed(drawn: list, pickup_cfg: dict, pull_count: int, user:
         unit_str = f"{c['unit']}" + (f" ({c['support_unit']})" if c.get("support_unit") else "")
         limit_badge = f"`[{c['limit_label']}]` " if c.get("limit_label") else ""
         
+        cos = core.get_costume_for_card(c.get("id"))
+        cos_badge = f" · 👗`[{cos['name']}]`" if cos else ""
         card_title = f"{p_mark}{new_mark}{limit_badge}**{rarity_badge} [{c['prefix']}] {c['char_name']}**"
-        card_sub = f"   └ 🏷️ `{unit_str}` · `{c['attr']}` · 확률 `{c['prob']:.4f}%`"
+        card_sub = f"   └ 🏷️ `{unit_str}` · `{c['attr']}` · 확률 `{c['prob']:.4f}%`{cos_badge}"
         lines.append(f"**{idx:02d}.** {card_title}\n{card_sub}")
 
     r4_cnt = sum(1 for c in drawn if c["rarity_type"] == "rarity_4")
@@ -119,6 +121,9 @@ async def send_gacha_pull_result(interaction: discord.Interaction, drawn: list, 
         ]
         if c.get("skill_name"):
             desc_lines.append(f"• ⚡ **스킬:** `{c.get('skill_name')}`")
+        cos = core.get_costume_for_card(c.get("id"))
+        if cos:
+            desc_lines.append(f"• 👗 **3D 의상 획득:** `[{cos['name']}]` (의상실에서 캐릭터 착용 가능!)")
 
         card_embed = discord.Embed(
             title=card_title[:256],
@@ -349,6 +354,12 @@ class GachaPullAgainView(core.SafeView):
         guild_id = interaction.guild_id or 0
         stats = await asyncio.to_thread(core.get_card_pokedex_stats, guild_id, interaction.user.id)
         view = CardPokedexView(interaction.user, stats, guild_id=guild_id)
+        await interaction.followup.send(embed=view.build_embed(), view=view)
+
+    @discord.ui.button(label="👗 의상실", style=discord.ButtonStyle.secondary, row=1)
+    async def open_wardrobe(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        view = CharacterCostumeWardrobeView(interaction.user, guild_id=interaction.guild_id or 0)
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
 
@@ -628,14 +639,19 @@ class CardIllustToggleView(core.SafeView):
         mode_text = "✨ 각성 후 (After Training)" if self.current_mode == "after_training" else "🌸 각성 전 (Normal)"
         lock_status = "🔒 잠금 보호 중 (교환·선물·중복변환 제외)" if self.card.get("locked", False) else "🔓 잠금 해제됨"
         unit_str = f"{self.card['unit']}" + (f" ({self.card['support_unit']})" if self.card.get("support_unit") else "")
+        desc_lines = [
+            f"• **소속 유닛:** `{unit_str}`",
+            f"• **속성:** {self.card.get('attr', '✨')} · **보유 수량:** `{self.card.get('count', 1)}장` (ID: `{self.card.get('id')}`)",
+            f"• **일러스트 상태:** `{mode_text}`",
+            f"• **보호 상태:** `{lock_status}`"
+        ]
+        cos = core.get_costume_for_card(self.card.get("id"))
+        if cos:
+            desc_lines.append(f"• **부속 3D 의상:** 👗 **`[{cos['name']}]`** (`{'/'.join(cos.get('parts', ['body']))}`)")
+
         embed = discord.Embed(
             title=f"🖼️ [{self.card.get('limit_label', '통상')}] {self.card['rarity_label']} [{self.card['prefix']}] {self.card['char_name']}",
-            description=(
-                f"• **소속 유닛:** `{unit_str}`\n"
-                f"• **속성:** {self.card.get('attr', '✨')} · **보유 수량:** `{self.card.get('count', 1)}장` (ID: `{self.card.get('id')}`)\n"
-                f"• **일러스트 상태:** `{mode_text}`\n"
-                f"• **보호 상태:** `{lock_status}`"
-            ),
+            description="\n".join(desc_lines),
             color=discord.Color.from_rgb(255, 105, 180) if self.card.get("star_num", 1) >= 4 else discord.Color.from_rgb(0, 204, 221)
         )
         return embed
@@ -704,6 +720,201 @@ class CardIllustToggleView(core.SafeView):
         else:
             embed.set_image(url=core.get_proseka_card_image_url(self.card, self.current_mode))
             await interaction.edit_original_response(embed=embed, view=self)
+
+
+class CharacterCostumeWardrobeView(core.SafeView):
+    """캐릭터별 3D 의상 착용 및 다른 캐릭터 의상 제작/구매(300 💎) 뷰"""
+    def __init__(self, user: discord.User, guild_id: int = 0, initial_char_id: int = 1):
+        super().__init__(timeout=600)
+        self.user = user
+        self.guild_id = guild_id
+        self.current_char_id = initial_char_id
+        char_info = core.CHARACTER_MAP.get(self.current_char_id, core.CHARACTER_MAP[1])
+        self.current_unit = char_info["unit"]
+        self.update_components()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(
+                interaction,
+                f"❌ 이 의상실은 **{self.user.display_name}**님의 개인 의상실입니다. `/의상` 명령어로 본인의 의상실을 열어보세요!",
+                ephemeral=True
+            )
+            return False
+        return True
+
+    def update_components(self):
+        # 1. Unit select (Row 0)
+        unit_opts = []
+        for u in core.UNIT_ORDER:
+            unit_opts.append(discord.SelectOption(
+                label=u,
+                value=u,
+                default=(u == self.current_unit),
+                emoji="🎵" if u != "버츄얼 싱어" else "✨"
+            ))
+        self.unit_select.options = unit_opts
+
+        # 2. Character select for current unit (Row 1)
+        chars_in_unit = [
+            (cid, info) for cid, info in core.CHARACTER_MAP.items()
+            if info["unit"] == self.current_unit
+        ]
+        if not any(cid == self.current_char_id for cid, _ in chars_in_unit):
+            self.current_char_id = chars_in_unit[0][0]
+
+        char_opts = []
+        for cid, info in chars_in_unit:
+            char_opts.append(discord.SelectOption(
+                label=f"{info['name']}",
+                value=str(cid),
+                description=f"{info['unit']} 소속",
+                default=(cid == self.current_char_id)
+            ))
+        self.char_select.options = char_opts
+
+        # 3. Equip costume select (Row 2)
+        unlocked = core.get_user_unlocked_costumes_for_char(self.guild_id, self.user.id, self.current_char_id)
+        equipped = core.get_user_equipped_costume(self.guild_id, self.user.id, self.current_char_id)
+        eq_id = equipped.get("costume_id")
+
+        equip_opts = []
+        for c in unlocked[:25]:
+            is_active = (c["costume_id"] == eq_id)
+            tag = "[착용 중] " if is_active else ""
+            label = f"{tag}{c['name']}"[:100]
+            desc = f"{c.get('obtained_how', '기본')} | 구성:{'/'.join(c.get('parts', ['body']))}"[:100]
+            equip_opts.append(discord.SelectOption(
+                label=label,
+                value=c["costume_id"],
+                description=desc,
+                default=is_active
+            ))
+        self.equip_select.options = equip_opts
+        self.equip_select.disabled = False
+
+        # 4. Shop / purchase select (Row 3)
+        purchasable = core.get_purchasable_costumes_for_char(self.guild_id, self.user.id, self.current_char_id)
+        if not purchasable:
+            self.shop_select.options = [
+                discord.SelectOption(
+                    label="제작 가능한 새 의상이 없습니다",
+                    value="NONE",
+                    description="가챠에서 ★4 카드를 뽑으면 해당 의상을 300💎로 제작할 수 있습니다."
+                )
+            ]
+            self.shop_select.disabled = True
+        else:
+            shop_opts = []
+            for c in purchasable[:25]:
+                label = f"💎 [300💎] {c['name']}"[:100]
+                desc = f"★4 [{c.get('card_prefix')}] 기반 | 원래:{c.get('char_name')}"[:100]
+                shop_opts.append(discord.SelectOption(
+                    label=label,
+                    value=c["costume_id"],
+                    description=desc
+                ))
+            self.shop_select.options = shop_opts
+            self.shop_select.disabled = False
+
+    def build_embed(self):
+        self.update_components()
+        char_info = core.CHARACTER_MAP.get(self.current_char_id, core.CHARACTER_MAP[1])
+        gender_kr = "남성 모델 (Men)" if self.current_char_id in core.MALE_CHAR_IDS else "여성 모델 (Ladies)"
+        equipped = core.get_user_equipped_costume(self.guild_id, self.user.id, self.current_char_id)
+        unlocked = core.get_user_unlocked_costumes_for_char(self.guild_id, self.user.id, self.current_char_id)
+        purchasable = core.get_purchasable_costumes_for_char(self.guild_id, self.user.id, self.current_char_id)
+
+        data = core.load_data()
+        prof = core.ensure_user_profile(data, self.user.id, self.user.display_name)
+        crystals = prof.get("crystals", 0)
+
+        parts_str = " / ".join(equipped.get("parts", ["body", "head"]))
+        source_str = equipped.get("obtained_how", "기본 지급 의상")
+        if equipped.get("card_prefix") and equipped.get("card_prefix") != "기본":
+            source_str = f"★4 [{equipped.get('card_prefix')}] {equipped.get('char_name')} 뽑기 획득"
+
+        embed = discord.Embed(
+            title=f"👗 {char_info['name']}의 세카이 3D 의상실",
+            description=(
+                f"• **소속 유닛:** `{char_info['unit']}`  ·  **체형:** `{gender_kr}`\n"
+                f"• **현재 착용 의상:** 👗 **`[{equipped['name']}]`**\n"
+                f"   └ 획득 경로: `{source_str}`\n"
+                f"   └ 의상 구성 파츠: `{parts_str}`\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"• 💎 **보유 크리스탈:** **`{crystals:,} 💎`**\n"
+                f"• 👕 **착용 가능한 보유 의상:** `{len(unlocked)}벌`  ·  🛍️ **새로 제작 가능한 의상:** `{len(purchasable)}벌`\n\n"
+                f"*💡 가챠에서 뽑은 카드의 3D 의상을 `{core.COSTUME_PURCHASE_PRICE} 💎`로 제작하여 다른 동일 체형 캐릭터에게 자유롭게 입힐 수 있습니다.*"
+            ),
+            color=discord.Color.from_rgb(255, 105, 180) if gender_kr.startswith("여성") else discord.Color.from_rgb(0, 204, 221),
+            timestamp=datetime.datetime.now(core.KST)
+        )
+
+        card_id = equipped.get("card_id")
+        if card_id and card_id > 0:
+            embed.set_image(url=core.get_proseka_card_image_url({"id": card_id, "assetbundleName": equipped.get("assetbundleName")}, "auto"))
+        else:
+            rep_card = next((c for c in core.PROSEKA_KR_CARDS if c.get("char_id") == self.current_char_id), None)
+            if rep_card:
+                embed.set_image(url=core.get_proseka_card_image_url(rep_card, "normal"))
+
+        embed.set_footer(text=f"요청자: {self.user.display_name} • 하단 메뉴에서 유닛·캐릭터를 전환하거나 의상을 착용/제작하세요.")
+        return embed
+
+    @discord.ui.select(placeholder="🏷️ 1단계: 유닛(그룹)을 선택하세요...", row=0)
+    async def unit_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        self.current_unit = select.values[0]
+        for cid, info in core.CHARACTER_MAP.items():
+            if info["unit"] == self.current_unit:
+                self.current_char_id = cid
+                break
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.select(placeholder="👤 2단계: 캐릭터를 선택하세요...", row=1)
+    async def char_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        self.current_char_id = int(select.values[0])
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.select(placeholder="👗 3단계: 착용할 보유 의상을 선택하세요...", row=2)
+    async def equip_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        cos_id = select.values[0]
+        ok, msg, cos = await asyncio.to_thread(core.equip_user_costume, self.guild_id, interaction.user.id, self.current_char_id, cos_id)
+        if ok:
+            await interaction.response.edit_message(embed=self.build_embed(), view=self)
+            await core.safe_send_response(interaction, msg, ephemeral=True)
+        else:
+            await core.safe_send_response(interaction, f"❌ {msg}", ephemeral=True)
+
+    @discord.ui.select(placeholder="🛍️ 4단계: 다른 캐릭터 의상 제작/구매 (300 💎)...", row=3)
+    async def shop_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        cos_id = select.values[0]
+        if cos_id == "NONE":
+            await core.safe_defer(interaction)
+            return
+        ok, msg, cos, rem = await asyncio.to_thread(core.purchase_and_equip_costume, self.guild_id, interaction.user.id, self.current_char_id, cos_id)
+        if ok:
+            await interaction.response.edit_message(embed=self.build_embed(), view=self)
+            await core.safe_send_response(interaction, f"🎉 {msg} (남은 크리스탈: `{rem:,} 💎`)", ephemeral=True)
+        else:
+            await core.safe_send_response(interaction, f"❌ {msg}", ephemeral=True)
+
+    @discord.ui.button(label="ℹ️ 의상 시스템 안내", style=discord.ButtonStyle.secondary, row=4)
+    async def btn_info(self, interaction: discord.Interaction, button: discord.ui.Button):
+        info_text = (
+            "👗 **세카이 3D 의상 시스템 안내**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "• **의상 획득 (가챠 연동):**\n"
+            "  - `/프로세카뽑기`에서 3D 의상이 포함된 ★4 카드를 뽑으면, 해당 원본 캐릭터에게 의상이 **자동 무료 해금**됩니다.\n\n"
+            "• **다른 캐릭터에게 의상 제작/입히기:**\n"
+            "  - 뽑기로 보유 중인 카드의 의상은 **동일 체형(여성/남성)의 다른 캐릭터**에게 `300 💎(크리스탈)`로 제작하여 입혀줄 수 있습니다.\n"
+            "  - 한 번 제작한 의상은 해당 캐릭터의 영구 보유 목록에 추가되어 언제든 갈아입을 수 있습니다.\n\n"
+            "• **크리스탈 획득처:**\n"
+            "  - `/출석체크` (매일 출석 및 주간/월간 마일스톤 보너스)\n"
+            "  - `/중복카드변환` (가챠 중복 카드 크리스탈 환급)\n"
+            "  - `/하드코어스터디` (50분/10분 집중 완료 보상)"
+        )
+        await core.safe_send_response(interaction, info_text, ephemeral=True)
 
 
 class ProsekaRatePaginationView(core.SafeView):
@@ -969,9 +1180,11 @@ class MyInventoryView(core.SafeView):
                 cur_lvl = c.get("level", 1)
                 max_lvl = core.get_card_max_level(c)
                 power_val = core.get_card_power(c)
+                cos = core.get_costume_for_card(c.get("id"))
+                cos_tag = f" · 👗`[{cos['name']}]`" if cos else ""
                 lines.append(
                     f"**{idx}.** {lock_badge}`[{c.get('limit_label', '통상')}]` **{c['rarity_label']} [{c['prefix']}] {c['char_name']}** (보유: `{c.get('count', 1)}장`)\n"
-                    f"   └ 🏷️ {unit_str} · {c.get('attr', '✨')} · 📈 `Lv.{cur_lvl}/{max_lvl}` (`⚔️ {power_val:,}`) · 🕒 `{c.get('last_obtained_at', '-')[:10]}`"
+                    f"   └ 🏷️ {unit_str} · {c.get('attr', '✨')}{cos_tag} · 📈 `Lv.{cur_lvl}/{max_lvl}` (`⚔️ {power_val:,}`) · 🕒 `{c.get('last_obtained_at', '-')[:10]}`"
                 )
             full_text = "\n".join(lines)
             if len(full_text) <= 1000:
@@ -2247,6 +2460,11 @@ class GachaCog(commands.Cog):
         bday_count = sum(c.get("count", 1) for c in cards if c.get("rarity_type") == "rarity_birthday")
         oshi_cards = [c for c in cards if oshi_raw and c.get("char_name") == oshi_raw]
         oshi_card_count = sum(c.get("count", 1) for c in oshi_cards)
+        oshi_char_id = next((cid for cid, info in core.CHARACTER_MAP.items() if info["name"] == oshi_raw), None)
+        oshi_cos_str = ""
+        if oshi_char_id:
+            oshi_cos = core.get_user_equipped_costume(interaction.guild_id or 0, target_user.id, oshi_char_id)
+            oshi_cos_str = f" · 👗`[{oshi_cos['name']}]`"
 
         embed = discord.Embed(
             title=f"🌟 {target_user.display_name}님의 norosi 프로필",
@@ -2254,7 +2472,7 @@ class GachaCog(commands.Cog):
             timestamp=datetime.datetime.now(core.KST)
         )
         embed.set_thumbnail(url=target_user.display_avatar.url)
-        embed.add_field(name="👑 나의 오시 (최애)", value=f"**{oshi_name}** (`{oshi_card_count}장`)", inline=True)
+        embed.add_field(name="👑 나의 오시 (최애)", value=f"**{oshi_name}** (`{oshi_card_count}장`){oshi_cos_str}", inline=True)
         embed.add_field(name="💑 파트너 (짝꿍)", value=f"<@{partner_id}>" if partner_id else "미등록 (`/파트너`)", inline=True)
         embed.add_field(name="💎 보유 크리스탈", value=f"**`{crystals:,}개`**", inline=True)
         embed.add_field(name="🎰 누적 뽑기", value=f"`{total_pulls:,}회`", inline=True)
@@ -2573,6 +2791,20 @@ class GachaCog(commands.Cog):
         target_user = 유저 or interaction.user
         data = await asyncio.to_thread(core.load_data)
         view = MySekaiHubView(interaction.user, target_user, interaction.guild_id or 0, data)
+        await interaction.followup.send(embed=view.build_embed(), view=view)
+
+    @app_commands.command(name="의상", description="캐릭터별 3D 의상을 착용하거나 뽑은 카드의 의상을 300 크리스탈로 제작하여 다른 캐릭터에게 입힙니다.")
+    @app_commands.describe(캐릭터="(선택) 의상실을 열 캐릭터를 선택합니다.")
+    @app_commands.autocomplete(캐릭터=core.oshi_char_autocomplete)
+    async def costume_wardrobe_cmd(self, interaction: discord.Interaction, 캐릭터: Optional[str] = None):
+        await core.safe_defer(interaction)
+        initial_cid = 1
+        if 캐릭터:
+            matched_cid = next((cid for cid, info in core.CHARACTER_MAP.items() if info["name"] == 캐릭터 or 캐릭터 in info["name"]), None)
+            if matched_cid:
+                initial_cid = matched_cid
+
+        view = CharacterCostumeWardrobeView(interaction.user, guild_id=interaction.guild_id or 0, initial_char_id=initial_cid)
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
 
