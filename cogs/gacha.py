@@ -58,8 +58,7 @@ def build_gacha_pull_embed(drawn: list, pickup_cfg: dict, pull_count: int, user:
     default_rgb = b_cfg.get("color", (0, 204, 221))
     embed_color = discord.Color.from_rgb(255, 105, 180) if has_4star else discord.Color.from_rgb(*default_rgb)
 
-    p_unit = pickup_cfg.get("unit") or "없음"
-    p_char = pickup_cfg.get("character") or "없음"
+    pickup_summary = core.format_pickup_summary(pickup_cfg)
 
     lines = []
     for idx, c in enumerate(drawn, start=1):
@@ -132,7 +131,7 @@ def build_gacha_pull_embed(drawn: list, pickup_cfg: dict, pull_count: int, user:
         author_icon = user.display_avatar.url if hasattr(user, "display_avatar") else None
         embed.set_author(name=f"{user.display_name}님의 가챠 결과", icon_url=author_icon)
 
-    embed.set_footer(text=f"배너: {b_cfg['short_name']} • 적용 픽업: 유닛({p_unit}) / 캐릭터({p_char}) • 하단에서 배너 전환 및 연출 스킵 가능")
+    embed.set_footer(text=f"배너: {b_cfg['short_name']} • 적용 픽업: {pickup_summary} • 하단에서 배너 전환 및 연출 스킵 가능")
     return embed, has_4star
 
 
@@ -145,7 +144,7 @@ async def send_gacha_pull_result(
     banner_type: str = "normal",
     skip_anim: bool = False
 ):
-    """뽑기 결과 전송: 연출 보기 시 1.2초 승격 연출+대사 선공개 후 일러스트와 함께 결과를 표시합니다."""
+    """뽑기 결과 전송: 연출 보기 시 2.5초 승격 연출+대사 선공개 후 일러스트와 함께 결과를 표시합니다."""
     embed, has_4star = build_gacha_pull_embed(drawn, pickup_cfg, pull_count, user=interaction.user, banner_type=banner_type)
     high_cards = [c for c in drawn if c.get("star_num", 0) >= 4] if has_4star else []
     total_high = len(high_cards)
@@ -161,11 +160,11 @@ async def send_gacha_pull_result(
         if high_cards:
             results, _ = await asyncio.gather(
                 asyncio.gather(*(asyncio.to_thread(core.fetch_proseka_card_image_bytes, c, "auto") for c in high_cards[:9])),
-                asyncio.sleep(1.2)
+                asyncio.sleep(2.5)
             )
         else:
             results = []
-            await asyncio.sleep(1.2)
+            await asyncio.sleep(2.5)
     else:
         if high_cards:
             results = await asyncio.gather(*(
@@ -1282,8 +1281,7 @@ class ProsekaRatePaginationView(core.SafeView):
         page_items = self.filtered_cards[start_idx:start_idx + self.items_per_page]
 
         b_cfg = core.BANNER_CONFIGS.get(self.banner_type, core.BANNER_CONFIGS["normal"])
-        p_unit = self.pickup_cfg.get("unit") or "미지정"
-        p_char = self.pickup_cfg.get("character") or "미지정"
+        pickup_summary = core.format_pickup_summary(self.pickup_cfg)
         inc_lim = "포함 (통상+한정+페스+생일)" if (self.banner_type in ("fes", "birthday") or self.pickup_cfg.get("include_limited", True)) else "제외 (통상만)"
 
         embed = discord.Embed(
@@ -1292,7 +1290,7 @@ class ProsekaRatePaginationView(core.SafeView):
                 f"• **적용 배너:** `{b_cfg['name']}`\n"
                 f"• **기준 DB:** 프로세카 한국 서버 (총 **{len(self.all_prob_cards):,}장** · 필터 `{self.current_filter}` **{total_cards:,}장**)\n"
                 f"• **등급 합산 확률:** `★4 / 🎀생일: {b_cfg['top_rate']:.1f}%` · `★3: {b_cfg['mid_rate']:.1f}%` · `★2 / ★1: {b_cfg['low_rate']:.1f}%`\n"
-                f"• **현재 픽업 설정:** 유닛 `{p_unit}` · 캐릭터 `{p_char}` · 한정 `{inc_lim}`"
+                f"• **현재 픽업 설정:** `{pickup_summary}` · 한정 `{inc_lim}`"
             ),
             color=discord.Color.from_rgb(*b_cfg.get("color", (0, 204, 221)))
         )
@@ -2249,7 +2247,7 @@ class EventForecastView(core.SafeView):
 
 
 class EventInfoView(core.SafeView):
-    """실시간 이벤트 조회 시 미래시 달력으로 바로 연결하는 뷰"""
+    """실시간 이벤트 조회 시 미래시 달력 및 봇주 전용 이벤트 픽업 동기화 바로가기 뷰"""
     def __init__(self, bot_instance, user: discord.User):
         super().__init__(timeout=300)
         self.bot_instance = bot_instance
@@ -2260,6 +2258,38 @@ class EventInfoView(core.SafeView):
         now = datetime.datetime.now(core.KST)
         view = EventForecastView(interaction.user, now.year, now.month)
         await core.safe_send_response(interaction, embed=view.build_embed(), view=view, ephemeral=True)
+
+    @discord.ui.button(label="🎯 이벤트 픽업 맞추기 (봇주 전용)", style=discord.ButtonStyle.success)
+    async def sync_event_pickup(self, interaction: discord.Interaction, button: discord.ui.Button):
+        bot_ref = self.bot_instance or interaction.client
+        if not bot_ref or not hasattr(bot_ref, "is_bot_owner_user") or not await bot_ref.is_bot_owner_user(interaction.user):
+            await core.safe_send_response(
+                interaction,
+                content="❌ 이 기능은 **봇주인(Bot Owner)**만 사용할 수 있습니다.",
+                ephemeral=True
+            )
+            return
+
+        await core.safe_defer(interaction, ephemeral=True)
+        ok, msg, pickup_obj = await asyncio.to_thread(core.sync_gacha_pickup_to_live_event)
+        if not ok:
+            await interaction.followup.send(f"❌ {msg}", ephemeral=True)
+            return
+
+        labels = pickup_obj.get("pickup_card_labels") or []
+        cards_txt = "\n".join(f"• `{lbl}`" for lbl in labels) if labels else f"• 유닛 픽업: `{pickup_obj.get('unit') or '전체'}`"
+        embed = discord.Embed(
+            title="🎯 [봇주인 전용] 현재 한섭 이벤트 픽업 자동 연동 완료",
+            description=(
+                f"{msg}\n\n"
+                f"**적용 이벤트:** `{pickup_obj.get('event_name')}` (`{pickup_obj.get('event_status', '진행 중')}`)\n"
+                f"**픽업 ★4 카드 ({len(labels)}종):**\n{cards_txt}\n\n"
+                "이제 `/프로세카뽑기` 및 `/프로세카확률목록`에 즉시 반영됩니다!"
+            ),
+            color=discord.Color.from_rgb(0, 204, 221),
+            timestamp=datetime.datetime.now(core.KST)
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 class MasterRankView(core.SafeView):
@@ -3449,25 +3479,34 @@ class GachaCog(commands.Cog):
 
         await interaction.followup.send(embed=embed)
 
-    @app_commands.command(name="픽업설정", description="[봇주인 전용] 프로세카 뽑기의 픽업 유닛, 픽업 캐릭터, 한정 포함 여부를 설정합니다.")
+    @app_commands.command(name="픽업설정", description="[봇주인 전용] 현재 한섭 이벤트에 맞춰 픽업을 자동 연동하거나 유닛/캐릭터/한정 여부를 직접 설정합니다.")
     @app_commands.autocomplete(캐릭터=core.proseka_char_autocomplete)
     @app_commands.describe(
-        유닛="픽업 확률을 높일 유닛 선택 ('해제' 선택 시 유닛 픽업 해제)",
-        캐릭터="픽업 확률을 높일 캐릭터 선택 ('해제' 선택 시 캐릭터 픽업 해제)",
-        한정포함="기간한정/페스한정/생일한정 카드를 뽑기 풀에 포함할지 여부 (기본: True)"
+        모드="픽업 설정 방식 (현재 한섭 이벤트 자동 맞춤 / 수동 지정 / 픽업 해제)",
+        유닛="[수동] 픽업 확률을 높일 유닛 선택 ('해제' 선택 시 유닛 픽업 해제)",
+        캐릭터="[수동] 픽업 확률을 높일 캐릭터 선택 ('해제' 선택 시 캐릭터 픽업 해제)",
+        한정포함="[수동] 기간한정/페스한정/생일한정 카드를 뽑기 풀에 포함할지 여부 (기본: True)"
     )
-    @app_commands.choices(유닛=[
-        app_commands.Choice(name="해제 (유닛 픽업 안 함)", value="NONE"),
-        app_commands.Choice(name="Leo/need", value="Leo/need"),
-        app_commands.Choice(name="MORE MORE JUMP!", value="MORE MORE JUMP!"),
-        app_commands.Choice(name="Vivid BAD SQUAD", value="Vivid BAD SQUAD"),
-        app_commands.Choice(name="원더랜즈×쇼타임", value="원더랜즈×쇼타임"),
-        app_commands.Choice(name="25시, 나이트 코드에서.", value="25시, 나이트 코드에서."),
-        app_commands.Choice(name="버츄얼 싱어", value="버츄얼 싱어")
-    ])
+    @app_commands.choices(
+        모드=[
+            app_commands.Choice(name="🎯 현재 한섭 이벤트에 자동 맞추기 (실시간 DB)", value="event_sync"),
+            app_commands.Choice(name="🎛️ 수동 설정 (유닛 / 캐릭터 직접 선택)", value="manual"),
+            app_commands.Choice(name="🧹 픽업 초기화 (전체 해제)", value="reset"),
+        ],
+        유닛=[
+            app_commands.Choice(name="해제 (유닛 픽업 안 함)", value="NONE"),
+            app_commands.Choice(name="Leo/need", value="Leo/need"),
+            app_commands.Choice(name="MORE MORE JUMP!", value="MORE MORE JUMP!"),
+            app_commands.Choice(name="Vivid BAD SQUAD", value="Vivid BAD SQUAD"),
+            app_commands.Choice(name="원더랜즈×쇼타임", value="원더랜즈×쇼타임"),
+            app_commands.Choice(name="25시, 나이트 코드에서.", value="25시, 나이트 코드에서."),
+            app_commands.Choice(name="버츄얼 싱어", value="버츄얼 싱어")
+        ]
+    )
     async def set_pickup_cmd(
         self,
         interaction: discord.Interaction,
+        모드: app_commands.Choice[str] = None,
         유닛: app_commands.Choice[str] = None,
         캐릭터: str = None,
         한정포함: bool = True
@@ -3477,13 +3516,52 @@ class GachaCog(commands.Cog):
             return
 
         await core.safe_defer(interaction)
+        mode_val = 모드.value if 모드 else None
+
+        if mode_val == "event_sync":
+            ok, msg, pickup_obj = await asyncio.to_thread(core.sync_gacha_pickup_to_live_event)
+            if not ok:
+                await core.safe_send_response(interaction, content=f"❌ {msg}", ephemeral=True)
+                return
+
+            labels = pickup_obj.get("pickup_card_labels") or []
+            cards_txt = "\n".join(f"• `{lbl}`" for lbl in labels) if labels else f"• 유닛 픽업: `{pickup_obj.get('unit') or '전체 동일'}`"
+            embed = discord.Embed(
+                title="🎯 [봇주인 전용] 현재 한섭 이벤트 픽업 자동 연동 완료",
+                description=(
+                    f"• **적용 이벤트:** `{pickup_obj.get('event_name')}` ({pickup_obj.get('event_status', '진행 중')})\n"
+                    f"• **한정/페스/생일 카드 포함:** `포함됨`\n"
+                    f"• **픽업 대상 ({len(labels)}종):**\n{cards_txt}\n\n"
+                    "이제 `/프로세카뽑기` 및 `/프로세카확률목록`에 이벤트 픽업 확률(등급 내 50% 집중 배분)이 즉시 반영됩니다!"
+                ),
+                color=discord.Color.from_rgb(0, 204, 221),
+                timestamp=datetime.datetime.now(core.KST)
+            )
+            await core.safe_send_response(interaction, embed=embed)
+            return
+
         data = await asyncio.to_thread(core.load_data)
+        if mode_val == "reset":
+            data["gacha_pickup"] = copy.deepcopy(core.DEFAULT_CONFIG["gacha_pickup"])
+            await asyncio.to_thread(core.save_data, data)
+            embed = discord.Embed(
+                title="🧹 [봇주인 전용] 프로세카 픽업 설정 초기화 완료",
+                description="이벤트/유닛/캐릭터 픽업 설정이 모두 해제되어 전체 카드 동일 확률(기본값)로 복원되었습니다.",
+                color=discord.Color.from_rgb(0, 204, 221)
+            )
+            await core.safe_send_response(interaction, embed=embed)
+            return
+
         selected_unit = None if (not 유닛 or 유닛.value == "NONE") else 유닛.value
         selected_char = None if (not 캐릭터 or 캐릭터 == "NONE") else 캐릭터
 
         data["gacha_pickup"] = {
             "unit": selected_unit,
             "character": selected_char,
+            "card_ids": [],
+            "event_id": None,
+            "event_name": None,
+            "pickup_card_labels": [],
             "include_limited": 한정포함
         }
         await asyncio.to_thread(core.save_data, data)

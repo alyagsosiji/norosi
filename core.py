@@ -720,6 +720,10 @@ KR_COSTUME_GROUPS_URLS = [
     "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-kr-diff/main/costume3dGroups.json",
     "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-kr-diff@main/costume3dGroups.json"
 ]
+KR_EVENT_CARDS_URLS = [
+    "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-kr-diff/main/eventCards.json",
+    "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-kr-diff@main/eventCards.json"
+]
 
 SERVER_DB_URLS = {
     "kr": {
@@ -2271,6 +2275,10 @@ DEFAULT_CONFIG = {
     "gacha_pickup": {
         "unit": None,
         "character": None,
+        "card_ids": [],
+        "event_id": None,
+        "event_name": None,
+        "pickup_card_labels": [],
         "include_limited": True
     },
     "gacha_users": {},
@@ -3314,8 +3322,16 @@ def get_todo_galaxy_grass(profile: dict) -> tuple[str, str]:
 # 4. 프로세카 확률 계산, 가챠(뽑기), 잠금, 중복 변환, 카드 교환 및 선물 엔진
 # ==========================================
 def is_card_pickup(card, pickup_cfg):
+    p_card_ids = pickup_cfg.get("card_ids") or []
     p_unit = pickup_cfg.get("unit")
     p_char = pickup_cfg.get("character")
+
+    if p_card_ids:
+        if int(card.get("id", 0)) in {int(x) for x in p_card_ids}:
+            return True
+        if not p_unit and not p_char:
+            return False
+
     if not p_unit and not p_char:
         return False
 
@@ -3326,6 +3342,86 @@ def is_card_pickup(card, pickup_cfg):
     if p_char:
         char_match = (card["char_name"] == p_char)
     return unit_match and char_match
+
+
+def format_pickup_summary(pickup_cfg: dict | None) -> str:
+    """현재 적용된 픽업 설정을 임베드/푸터 표시용 한 줄 문자열로 반환"""
+    cfg = pickup_cfg or {}
+    ev_name = cfg.get("event_name")
+    card_ids = cfg.get("card_ids") or []
+    p_unit = cfg.get("unit")
+    p_char = cfg.get("character")
+    if ev_name and card_ids:
+        return f"🎪 이벤트 [{ev_name}] (★4 {len(card_ids)}종 픽업)"
+    if ev_name and p_unit:
+        return f"🎪 이벤트 [{ev_name}] (유닛: {p_unit})"
+    if p_unit or p_char:
+        return f"유닛({p_unit or '없음'}) / 캐릭터({p_char or '없음'})"
+    return "미지정 (전체 동일)"
+
+
+def sync_gacha_pickup_to_live_event() -> tuple[bool, str, dict]:
+    """실시간 한섭(KR) 진행 중 이벤트에 맞춰 가챠 픽업(gacha_pickup)을 자동 연동합니다."""
+    info = fetch_live_event_and_gacha_info("kr")
+    ev = info.get("event")
+    if not ev:
+        return False, "현재 한국 서버 이벤트 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.", {}
+
+    ev_id = ev.get("id")
+    ev_name = ev.get("name", "진행 중 이벤트")
+    ev_start = ev.get("startAt", 0)
+    ev_unit_raw = ev.get("unit", "")
+    ev_unit = UNIT_MAP.get(ev_unit_raw) if ev_unit_raw and ev_unit_raw != "none" else None
+
+    card_map = {int(c["id"]): c for c in PROSEKA_KR_CARDS if c.get("id")}
+    matched_ids: list[int] = []
+
+    raw_event_cards = fetch_json_with_fallback(KR_EVENT_CARDS_URLS) or []
+    if isinstance(raw_event_cards, list):
+        for ec in raw_event_cards:
+            if ec.get("eventId") != ev_id:
+                continue
+            cid = ec.get("cardId")
+            if cid and int(cid) in card_map and card_map[int(cid)].get("star_num", 1) >= 4:
+                if int(cid) not in matched_ids:
+                    matched_ids.append(int(cid))
+
+    # 이벤트 시작 시점과 일치하는 실시간 이벤트 가챠 배너의 픽업 카드도 보조 확인
+    for g in info.get("gachas", []):
+        g_start = g.get("startAt", 0)
+        if ev_start and abs(g_start - ev_start) <= 86400 * 1000:
+            for gp in (g.get("gachaPickups") or []):
+                cid = gp.get("cardId")
+                if cid and int(cid) in card_map and card_map[int(cid)].get("star_num", 1) >= 4:
+                    if int(cid) not in matched_ids:
+                        matched_ids.append(int(cid))
+
+    if not matched_ids and not ev_unit:
+        return False, f"이벤트 `[{ev_name}]`에서 픽업 대상 카드 또는 유닛 정보를 찾지 못했습니다.", {}
+
+    labels = [
+        f"{card_map[cid]['rarity_label']} [{card_map[cid]['prefix']}] {card_map[cid]['char_name']}"
+        for cid in matched_ids if cid in card_map
+    ]
+
+    pickup_obj = {
+        "unit": None if matched_ids else ev_unit,
+        "character": None,
+        "card_ids": matched_ids,
+        "event_id": ev_id,
+        "event_name": ev_name,
+        "event_status": info.get("event_status", "진행 중"),
+        "pickup_card_labels": labels,
+        "include_limited": True,
+        "synced_at": datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M"),
+    }
+
+    with _DATA_LOCK:
+        data = load_data()
+        data["gacha_pickup"] = copy.deepcopy(pickup_obj)
+        save_data(data)
+
+    return True, f"🎯 현재 한섭 이벤트 **[{ev_name}]**에 맞춰 픽업 설정이 자동 연동되었습니다!", pickup_obj
 
 
 def _is_banner_pickup(card: dict, pickup_cfg: dict, banner_type: str = "normal", current_month: int | None = None) -> bool:
