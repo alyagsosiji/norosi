@@ -216,13 +216,13 @@ class DuplicateConvertConfirmView(core.SafeView):
         )
 
 
-# 모든 뽑기 경로(슬래시 명령어, 단차/10연차 버튼, 재뽑기 버튼)에서 예외 없이 공유되는 엄격한 10초 쿨타임
+# 모든 뽑기 경로(슬래시 명령어, 단차/10연차 버튼, 재뽑기 버튼)에서 예외 없이 공유되는 엄격한 5초 쿨타임
 GACHA_GLOBAL_COOLDOWN: dict[int, float] = {}
-GACHA_COOLDOWN_SECONDS: float = 10.0
+GACHA_COOLDOWN_SECONDS: float = 5.0
 
 
 def check_and_update_gacha_cooldown(user_id: int) -> tuple[bool, float]:
-    """모든 뽑기 경로에서 예외 없이 10초 쿨타임을 강제 검사하고 갱신합니다."""
+    """모든 뽑기 경로에서 예외 없이 5초 쿨타임을 강제 검사하고 갱신합니다."""
     now = time.time()
     last_t = GACHA_GLOBAL_COOLDOWN.get(user_id, 0.0)
     elapsed = now - last_t
@@ -1611,13 +1611,13 @@ class GachaCog(commands.Cog):
         app_commands.Choice(name="🎵 1회 뽑기 (단차)", value=1),
         app_commands.Choice(name="🌈 10회 뽑기 (10연차 - ★3 이상 확정!)", value=10)
     ])
-    @app_commands.checks.cooldown(1, 10.0, key=lambda i: i.user.id)
+    @app_commands.checks.cooldown(1, 5.0, key=lambda i: i.user.id)
     async def proseka_pull_cmd(self, interaction: discord.Interaction, 횟수: app_commands.Choice[int] = None):
         can_pull, rem = check_and_update_gacha_cooldown(interaction.user.id)
         if not can_pull:
             await core.safe_send_response(
                 interaction,
-                f"⏳ **뽑기 쿨타임입니다!** `{rem:.1f}초` 후에 다시 뽑을 수 있습니다. (모든 뽑기 10초 쿨타임 엄격 적용)",
+                content=f"⏳ **봇의 원활한 서비스를 위해, 뽑기 쿨타임입니다!** `{rem:.1f}초` 후에 다시 눌러주세요.",
                 ephemeral=True
             )
             return
@@ -1658,8 +1658,9 @@ class GachaCog(commands.Cog):
     @proseka_pull_cmd.error
     async def proseka_pull_cmd_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         if isinstance(error, app_commands.CommandOnCooldown):
-            msg = f"⏳ **뽑기 쿨타임입니다!** `{error.retry_after:.1f}초` 후에 다시 뽑을 수 있습니다."
-            await core.safe_send_response(interaction, msg, ephemeral=True)
+            rem = error.retry_after
+            msg = f"⏳ **봇의 원활한 서비스를 위해, 뽑기 쿨타임입니다!** `{rem:.1f}초` 후에 다시 눌러주세요."
+            await core.safe_send_response(interaction, content=msg, ephemeral=True)
         else:
             err_msg = f"❌ 뽑기 처리 중 오류가 발생했습니다: `{error}`"
             await core.safe_send_response(interaction, err_msg, ephemeral=True)
