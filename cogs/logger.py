@@ -344,17 +344,22 @@ class ServerLogHubView(core.SafeView):
 
 
 AUDIT_LOG_ACTION_KOREAN = {
-    "ban": "유저 차단",
-    "unban": "유저 차단 해제",
-    "kick": "유저 추방",
-    "member_prune": "멤버 정원 정리",
-    "member_update": "멤버 정보 변경",
-    "member_role_update": "멤버 역할 변경",
-    "member_disconnect": "음성 연결 끊기",
-    "member_move": "음성 채널 이동",
+    "guild_update": "서버 설정 변경",
     "channel_create": "채널 생성",
     "channel_update": "채널 설정 변경",
     "channel_delete": "채널 삭제",
+    "overwrite_create": "채널 권한 덮어쓰기 생성",
+    "overwrite_update": "채널 권한 덮어쓰기 수정",
+    "overwrite_delete": "채널 권한 덮어쓰기 삭제",
+    "kick": "유저 추방",
+    "member_prune": "멤버 정원 정리",
+    "ban": "유저 차단",
+    "unban": "유저 차단 해제",
+    "member_update": "멤버 정보 변경",
+    "member_role_update": "멤버 역할 변경",
+    "member_move": "음성 채널 이동",
+    "member_disconnect": "음성 연결 끊기",
+    "bot_add": "봇 서버 추가",
     "role_create": "역할 생성",
     "role_update": "역할 설정 변경",
     "role_delete": "역할 삭제",
@@ -371,12 +376,250 @@ AUDIT_LOG_ACTION_KOREAN = {
     "message_bulk_delete": "메시지 대량 삭제",
     "message_pin": "메시지 고정",
     "message_unpin": "메시지 고정 해제",
-    "bot_add": "봇 서버 추가",
-    "app_command_permission_update": "명령어 권한 변경",
+    "integration_create": "통합(연동) 추가",
+    "integration_update": "통합(연동) 수정",
+    "integration_delete": "통합(연동) 삭제",
+    "stage_instance_create": "스테이지 생성",
+    "stage_instance_update": "스테이지 수정",
+    "stage_instance_delete": "스테이지 삭제",
+    "sticker_create": "스티커 추가",
+    "sticker_update": "스티커 수정",
+    "sticker_delete": "스티커 삭제",
+    "scheduled_event_create": "이벤트 생성",
+    "scheduled_event_update": "이벤트 수정",
+    "scheduled_event_delete": "이벤트 삭제",
     "thread_create": "스레드 생성",
     "thread_update": "스레드 수정",
     "thread_delete": "스레드 삭제",
+    "app_command_permission_update": "명령어 권한 변경",
+    "automod_rule_create": "오토모드 규칙 생성",
+    "automod_rule_update": "오토모드 규칙 수정",
+    "automod_rule_delete": "오토모드 규칙 삭제",
+    "automod_block_message": "오토모드 메시지 차단",
+    "automod_flag_message": "오토모드 메시지 플래그",
+    "automod_timeout_member": "오토모드 유저 타임아웃",
+    "automod_quarantine_user": "오토모드 유저 격리",
+    "soundboard_sound_create": "사운드보드 사운드 추가",
+    "soundboard_sound_update": "사운드보드 사운드 수정",
+    "soundboard_sound_delete": "사운드보드 사운드 삭제",
+    "voice_channel_status_create": "음성 채널 상태 생성",
+    "voice_channel_status_delete": "음성 채널 상태 삭제",
 }
+
+PERM_KR_MAP = {
+    "administrator": "관리자",
+    "manage_guild": "서버 관리",
+    "manage_roles": "역할 관리",
+    "manage_channels": "채널 관리",
+    "kick_members": "멤버 추방",
+    "ban_members": "멤버 차단",
+    "create_instant_invite": "초대 링크 생성",
+    "change_nickname": "별명 변경",
+    "manage_nicknames": "별명 관리",
+    "manage_emojis": "이모지 관리",
+    "manage_emojis_and_stickers": "이모지/스티커 관리",
+    "manage_webhooks": "웹훅 관리",
+    "view_audit_log": "감사 로그 보기",
+    "view_channel": "채널 보기",
+    "view_guild_insights": "서버 인사이트 보기",
+    "send_messages": "메시지 보내기",
+    "send_messages_in_threads": "스레드에서 메시지 보내기",
+    "create_public_threads": "공개 스레드 만들기",
+    "create_private_threads": "비공개 스레드 만들기",
+    "embed_links": "링크 첨부",
+    "attach_files": "파일 첨부",
+    "add_reactions": "반응 추가",
+    "use_external_emojis": "외부 이모지 사용",
+    "use_external_stickers": "외부 스티커 사용",
+    "mention_everyone": "@everyone, @here 멘션",
+    "manage_messages": "메시지 관리",
+    "manage_threads": "스레드 관리",
+    "read_message_history": "메시지 기록 보기",
+    "send_tts_messages": "TTS 메시지 전송",
+    "use_application_commands": "명령어(슬래시) 사용",
+    "connect": "음성 연결",
+    "speak": "음성 발언",
+    "mute_members": "멤버 음소거",
+    "deafen_members": "멤버 헤드셋 음소거",
+    "move_members": "멤버 이동",
+    "use_voice_activation": "음성 감지 사용",
+    "priority_speaker": "우선 발언권",
+    "stream": "화면 공유",
+    "request_to_speak": "발언 요청",
+    "manage_events": "이벤트 관리",
+    "moderate_members": "멤버 타임아웃(활동 제한)",
+    "send_voice_messages": "음성 메시지 전송",
+    "use_soundboard": "사운드보드 사용",
+    "use_external_sounds": "외부 사운드 사용",
+}
+
+VERIFICATION_LEVEL_KR = {
+    discord.VerificationLevel.none: "없음 (제한 없음)",
+    discord.VerificationLevel.low: "낮음 (이메일 인증 필수)",
+    discord.VerificationLevel.medium: "중간 (가입 5분 경과)",
+    discord.VerificationLevel.high: "높음 (서버 체류 10분 경과)",
+    discord.VerificationLevel.highest: "최고 (전화번호 인증 필수)",
+}
+
+NOTIFICATION_LEVEL_KR = {
+    discord.NotificationLevel.all_messages: "모든 메시지",
+    discord.NotificationLevel.only_mentions: "@mentions만",
+}
+
+CONTENT_FILTER_KR = {
+    discord.ContentFilter.disabled: "비활성화 (스캔 안 함)",
+    discord.ContentFilter.no_role: "역할 없는 멤버만 스캔",
+    discord.ContentFilter.all_members: "모든 멤버 스캔 (권장)",
+}
+
+ATTR_KR_MAP = {
+    "name": "이름",
+    "topic": "채널 주제",
+    "rate_limit_per_user": "슬로우 모드",
+    "slowmode_delay": "슬로우 모드",
+    "nsfw": "연령 제한(NSFW)",
+    "bitrate": "음성 비트레이트",
+    "user_limit": "음성 인원 제한",
+    "color": "역할 색상",
+    "colour": "역할 색상",
+    "hoist": "역할 멤버 분리 표시",
+    "mentionable": "역할 멘션 허용",
+    "permissions": "역할 권한",
+    "icon": "아이콘",
+    "banner": "배너",
+    "splash": "초대 배경",
+    "discovery_splash": "발견 배경",
+    "description": "서버 설명",
+    "preferred_locale": "기본 언어",
+    "verification_level": "보안/인증 수준",
+    "explicit_content_filter": "유해 콘텐츠 필터",
+    "default_notifications": "기본 알림 설정",
+    "afk_timeout": "잠수(AFK) 시간",
+    "afk_channel": "잠수(AFK) 채널",
+    "system_channel": "시스템 채널",
+    "rules_channel": "규칙 채널",
+    "public_updates_channel": "업데이트 채널",
+    "mfa_level": "2단계 인증(MFA) 요구",
+    "nick": "별명(닉네임)",
+    "mute": "서버 음소거",
+    "deaf": "서버 헤드셋 음소거",
+    "communication_disabled_until": "타임아웃(활동 제한)",
+    "roles": "역할 목록",
+    "type": "유형",
+    "vanity_url_code": "커스텀 초대 코드(Vanity)",
+    "archived": "보관 상태",
+    "locked": "잠금 상태",
+    "invitable": "초대 가능 여부",
+    "auto_archive_duration": "자동 보관 시간",
+    "allow": "허용된 권한",
+    "deny": "거부된 권한"
+}
+
+
+def format_audit_log_diff(entry: discord.AuditLogEntry) -> list[str]:
+    """감사 로그 항목의 세부 변경 내역(diff)을 읽기 쉬운 한국어로 포맷팅"""
+    diff_lines = []
+    if not hasattr(entry, "after") or not entry.after:
+        return diff_lines
+
+    after_dict = dict(entry.after)
+    before_dict = dict(entry.before) if hasattr(entry, "before") and entry.before else {}
+
+    for attr, val in after_dict.items():
+        if attr.startswith("_"):
+            continue
+        b_val = before_dict.get(attr)
+
+        if attr == "name":
+            diff_lines.append(f"• **이름:** `{b_val or '(없음)'}` ➡️ `{val}`")
+        elif attr == "topic":
+            b_top = (b_val or "(없음)")[:80]
+            a_top = (val or "(없음)")[:80]
+            diff_lines.append(f"• **채널 주제:** `{b_top}` ➡️ `{a_top}`")
+        elif attr in ("rate_limit_per_user", "slowmode_delay"):
+            diff_lines.append(f"• **슬로우 모드(느린 모드):** `{b_val or 0}초` ➡️ `{val}초`")
+        elif attr == "nsfw":
+            b_n = "설정" if b_val else "해제"
+            a_n = "설정" if val else "해제"
+            diff_lines.append(f"• **연령 제한(NSFW):** `{b_n}` ➡️ `{a_n}`")
+        elif attr in ("color", "colour"):
+            b_hex = f"#{b_val.value:06x}" if hasattr(b_val, "value") and b_val.value else "기본값"
+            a_hex = f"#{val.value:06x}" if hasattr(val, "value") and val.value else "기본값"
+            diff_lines.append(f"• **역할 색상:** `{b_hex}` ➡️ `{a_hex}`")
+        elif attr == "hoist":
+            b_h = "분리 표시" if b_val else "일반 표시"
+            a_h = "분리 표시" if val else "일반 표시"
+            diff_lines.append(f"• **멤버 목록 분리 표시:** `{b_h}` ➡️ `{a_h}`")
+        elif attr == "mentionable":
+            b_m = "허용" if b_val else "비허용"
+            a_m = "허용" if val else "비허용"
+            diff_lines.append(f"• **멘션 허용 여부:** `{b_m}` ➡️ `{a_m}`")
+        elif attr == "permissions":
+            if isinstance(val, discord.Permissions) and isinstance(b_val, discord.Permissions):
+                granted = [PERM_KR_MAP.get(name, name) for name, p in val if p and not getattr(b_val, name, False)]
+                revoked = [PERM_KR_MAP.get(name, name) for name, p in b_val if p and not getattr(val, name, False)]
+                if granted:
+                    diff_lines.append(f"• **➕ 새로 부여된 권한:** `{', '.join(granted)}`")
+                if revoked:
+                    diff_lines.append(f"• **➖ 회수/제거된 권한:** `{', '.join(revoked)}`")
+            else:
+                diff_lines.append("• **역할 권한(Permissions) 변경**")
+        elif attr == "verification_level":
+            b_vl = VERIFICATION_LEVEL_KR.get(b_val, str(b_val))
+            a_vl = VERIFICATION_LEVEL_KR.get(val, str(val))
+            diff_lines.append(f"• **보안/인증 수준:** `{b_vl}` ➡️ `{a_vl}`")
+        elif attr == "default_notifications":
+            b_dn = NOTIFICATION_LEVEL_KR.get(b_val, str(b_val))
+            a_dn = NOTIFICATION_LEVEL_KR.get(val, str(val))
+            diff_lines.append(f"• **기본 알림:** `{b_dn}` ➡️ `{a_dn}`")
+        elif attr == "explicit_content_filter":
+            b_ec = CONTENT_FILTER_KR.get(b_val, str(b_val))
+            a_ec = CONTENT_FILTER_KR.get(val, str(val))
+            diff_lines.append(f"• **유해 콘텐츠 필터:** `{b_ec}` ➡️ `{a_ec}`")
+        elif attr == "afk_timeout":
+            diff_lines.append(f"• **잠수(AFK) 시간:** `{(b_val or 0) // 60}분` ➡️ `{val // 60}분`")
+        elif attr == "description":
+            b_d = (b_val or "(없음)")[:80]
+            a_d = (val or "(없음)")[:80]
+            diff_lines.append(f"• **서버 설명:** `{b_d}` ➡️ `{a_d}`")
+        elif attr == "vanity_url_code":
+            diff_lines.append(f"• **커스텀 초대 코드:** `{b_val or '(없음)'}` ➡️ `{val or '(없음)'}`")
+        elif attr == "roles":
+            if isinstance(val, (list, tuple)):
+                role_names = [f"@{r.name}" if hasattr(r, 'name') else str(r) for r in val]
+                diff_lines.append(f"• **역할 목록 변경:** `{', '.join(role_names)}`")
+        elif attr == "nick":
+            diff_lines.append(f"• **별명(닉네임):** `{b_val or '(없음)'}` ➡️ `{val or '(없음)'}`")
+        elif attr == "mute":
+            diff_lines.append(f"• **서버 음소거:** `{'설정' if val else '해제'}`")
+        elif attr == "deaf":
+            diff_lines.append(f"• **서버 헤드셋 음소거:** `{'설정' if val else '해제'}`")
+        elif attr == "communication_disabled_until":
+            if val:
+                ts_str = val.astimezone(core.KST).strftime('%Y-%m-%d %H:%M:%S KST') if hasattr(val, 'astimezone') else str(val)
+                diff_lines.append(f"• **타임아웃(활동 제한):** `{ts_str}`까지")
+            else:
+                diff_lines.append("• **타임아웃(활동 제한) 해제**")
+        elif attr in ("allow", "deny"):
+            mode_kr = "허용" if attr == "allow" else "거부"
+            if isinstance(val, discord.Permissions):
+                p_list = [PERM_KR_MAP.get(name, name) for name, p in val if p]
+                if p_list:
+                    diff_lines.append(f"• **권한 {mode_kr}:** `{', '.join(p_list)}`")
+        elif attr in ("bitrate",):
+            diff_lines.append(f"• **비트레이트:** `{(b_val or 0) // 1000}kbps` ➡️ `{val // 1000}kbps`")
+        elif attr in ("user_limit",):
+            b_u = f"{b_val}명" if b_val else "무제한"
+            a_u = f"{val}명" if val else "무제한"
+            diff_lines.append(f"• **인원 제한:** `{b_u}` ➡️ `{a_u}`")
+        else:
+            kr_name = ATTR_KR_MAP.get(attr, attr)
+            if b_val is not None:
+                diff_lines.append(f"• **{kr_name}:** `{b_val}` ➡️ `{val}`")
+            else:
+                diff_lines.append(f"• **{kr_name}:** `{val}`")
+
+    return diff_lines
 
 
 class GithubWebhookView(core.SafeView):
@@ -1179,6 +1422,38 @@ class LoggerCog(commands.Cog):
                 try: await ch_mem.send(embed=embed)
                 except Exception: pass
 
+        # 3. Timeout (타임아웃 / 활동 제한) -> Mod/Admin
+        b_timeout = getattr(before, "timed_out_until", None)
+        a_timeout = getattr(after, "timed_out_until", None)
+        if b_timeout != a_timeout:
+            ch_mod = self._get_log_channel(before.guild, data, category_key="mod_admin")
+            if ch_mod:
+                if a_timeout:
+                    ts_str = a_timeout.astimezone(core.KST).strftime('%Y-%m-%d %H:%M:%S KST')
+                    desc = (
+                        f"👤 **대상 멤버:** {after.mention} (`{after.name}` / **ID: `{after.id}`**)\n"
+                        f"⏳ **타임아웃(활동 제한) 적용:** `{ts_str}`까지"
+                    )
+                    col = discord.Color.red()
+                    t_title = "⏳ 멤버 타임아웃(활동 제한) 적용"
+                else:
+                    desc = (
+                        f"👤 **대상 멤버:** {after.mention} (`{after.name}` / **ID: `{after.id}`**)\n"
+                        f"🔓 **타임아웃(활동 제한) 해제됨**"
+                    )
+                    col = discord.Color.green()
+                    t_title = "🔓 멤버 타임아웃(활동 제한) 해제"
+
+                embed = discord.Embed(
+                    title=t_title,
+                    description=desc,
+                    color=col,
+                    timestamp=datetime.datetime.now(core.KST)
+                )
+                embed.set_thumbnail(url=after.display_avatar.url if hasattr(after, "display_avatar") else None)
+                try: await ch_mod.send(embed=embed)
+                except Exception: pass
+
     # ==========================================
     # 4. 🛡️ Mod/Admin (Mod Actions - 감사 로그 기반 밴/킥/뮤트/경고)
     # ==========================================
@@ -1201,12 +1476,16 @@ class LoggerCog(commands.Cog):
         target_info = f"{target.mention} (`{target}` / **ID: `{target.id}`**)" if isinstance(target, (discord.abc.User, discord.Role, discord.abc.GuildChannel)) else f"`{target}`"
         mod_info = f"{user.mention} (`{user}` / **ID: `{user.id}`**)" if user else "시스템"
 
+        diff_lines = format_audit_log_diff(entry)
+        diff_str = ("\n\n📝 **상세 변경 내역:**\n" + "\n".join(diff_lines)) if diff_lines else ""
+
         embed = discord.Embed(
             title=f"⚖️ 모더레이션 조치: {kr_action} (`{raw_action}`)",
             description=(
                 f"👮 **조치자 (Mod):** {mod_info}\n"
                 f"🎯 **조치 대상:** {target_info}\n"
                 f"💬 **사유:** `{entry.reason or '사유 미입력'}`"
+                f"{diff_str}"
             ),
             color=discord.Color.dark_gold(),
             timestamp=datetime.datetime.now(core.KST)
@@ -1258,14 +1537,69 @@ class LoggerCog(commands.Cog):
 
         changes = []
         if before.name != after.name:
-            changes.append(f"• **이름 변경:** `{before.name}` ➡️ `{after.name}`")
-        if hasattr(before, "topic") and before.topic != after.topic:
-            changes.append(f"• **채널 주제 변경**")
+            changes.append(f"• **채널 이름:** `#{before.name}` ➡️ `#{after.name}`")
+        if hasattr(before, "topic") and hasattr(after, "topic") and before.topic != after.topic:
+            b_top = f"`{before.topic[:80]}`" if before.topic else "(없음)"
+            a_top = f"`{after.topic[:80]}`" if after.topic else "(없음)"
+            changes.append(f"• **채널 주제:** {b_top} ➡️ {a_top}")
+        if getattr(before, "category", None) != getattr(after, "category", None):
+            b_cat = f"`{before.category.name}`" if getattr(before, "category", None) else "(카테고리 없음)"
+            a_cat = f"`{after.category.name}`" if getattr(after, "category", None) else "(카테고리 없음)"
+            changes.append(f"• **상위 카테고리:** {b_cat} ➡️ {a_cat}")
+        if getattr(before, "position", 0) != getattr(after, "position", 0):
+            changes.append(f"• **채널 위치(순서):** `{before.position}` ➡️ `{after.position}`")
+        if getattr(before, "slowmode_delay", 0) != getattr(after, "slowmode_delay", 0):
+            changes.append(f"• **슬로우 모드(느린 모드):** `{getattr(before, 'slowmode_delay', 0)}초` ➡️ `{getattr(after, 'slowmode_delay', 0)}초`")
+        if getattr(before, "nsfw", False) != getattr(after, "nsfw", False):
+            b_nsfw = "연령 제한(NSFW)" if before.nsfw else "일반 채널"
+            a_nsfw = "연령 제한(NSFW)" if after.nsfw else "일반 채널"
+            changes.append(f"• **연령 제한(NSFW):** `{b_nsfw}` ➡️ `{a_nsfw}`")
+        if getattr(before, "bitrate", 0) != getattr(after, "bitrate", 0):
+            changes.append(f"• **음성 비트레이트:** `{before.bitrate // 1000}kbps` ➡️ `{after.bitrate // 1000}kbps`")
+        if getattr(before, "user_limit", 0) != getattr(after, "user_limit", 0):
+            b_lim = f"{before.user_limit}명" if before.user_limit else "무제한"
+            a_lim = f"{after.user_limit}명" if after.user_limit else "무제한"
+            changes.append(f"• **음성 인원 제한:** `{b_lim}` ➡️ `{a_lim}`")
+        if getattr(before, "rtc_region", None) != getattr(after, "rtc_region", None):
+            changes.append(f"• **음성 채널 지역:** `{before.rtc_region or '자동'}` ➡️ `{after.rtc_region or '자동'}`")
+        if getattr(before, "default_auto_archive_duration", None) != getattr(after, "default_auto_archive_duration", None):
+            changes.append(f"• **스레드 자동 보관 시간:** `{before.default_auto_archive_duration}분` ➡️ `{after.default_auto_archive_duration}분`")
+
+        # 권한 덮어쓰기(Permissions Overwrites) 비교
+        if hasattr(before, "overwrites") and hasattr(after, "overwrites") and before.overwrites != after.overwrites:
+            b_targets = set(before.overwrites.keys())
+            a_targets = set(after.overwrites.keys())
+
+            for target in a_targets - b_targets:
+                target_str = target.mention if hasattr(target, "mention") else f"`{getattr(target, 'name', str(target))}`"
+                changes.append(f"• **🔐 권한 덮어쓰기 추가:** {target_str}")
+
+            for target in b_targets - a_targets:
+                target_str = target.mention if hasattr(target, "mention") else f"`{getattr(target, 'name', str(target))}`"
+                changes.append(f"• **🔓 권한 덮어쓰기 제거:** {target_str}")
+
+            for target in a_targets & b_targets:
+                b_ow, a_ow = before.overwrites[target], after.overwrites[target]
+                if b_ow != a_ow:
+                    target_str = target.mention if hasattr(target, "mention") else f"`{getattr(target, 'name', str(target))}`"
+                    p_allowed, p_denied, p_neutral = [], [], []
+                    for perm, val in a_ow:
+                        old_val = getattr(b_ow, perm)
+                        if val != old_val:
+                            kr_perm = PERM_KR_MAP.get(perm, perm)
+                            if val is True: p_allowed.append(kr_perm)
+                            elif val is False: p_denied.append(kr_perm)
+                            elif val is None: p_neutral.append(kr_perm)
+                    ow_details = []
+                    if p_allowed: ow_details.append(f"✅ 허용: {', '.join(p_allowed)}")
+                    if p_denied: ow_details.append(f"❌ 거부: {', '.join(p_denied)}")
+                    if p_neutral: ow_details.append(f"⚪ 초기화: {', '.join(p_neutral)}")
+                    changes.append(f"• **🔐 권한 덮어쓰기 변경 ({target_str}):** {' / '.join(ow_details)}")
 
         if changes:
             embed = discord.Embed(
                 title="✏️ 채널 설정 변경",
-                description=f"📢 **대상 채널:** {after.mention} (**ID: `{after.id}`**)\n" + "\n".join(changes),
+                description=f"📢 **대상 채널:** {after.mention} (`#{after.name}` / **ID: `{after.id}`**)\n\n" + "\n".join(changes),
                 color=discord.Color.gold(),
                 timestamp=datetime.datetime.now(core.KST)
             )
@@ -1316,17 +1650,42 @@ class LoggerCog(commands.Cog):
 
         changes = []
         if before.name != after.name:
-            changes.append(f"• **이름 변경:** `{before.name}` ➡️ `{after.name}`")
+            changes.append(f"• **역할 이름:** `{before.name}` ➡️ `{after.name}`")
         if before.color != after.color:
-            changes.append(f"• **색상 변경:** `{before.color}` ➡️ `{after.color}`")
+            b_hex = f"#{before.color.value:06x}" if before.color.value else "기본값"
+            a_hex = f"#{after.color.value:06x}" if after.color.value else "기본값"
+            changes.append(f"• **역할 색상:** `{b_hex}` ➡️ `{a_hex}`")
+        if before.hoist != after.hoist:
+            b_h = "분리 표시" if before.hoist else "일반 표시"
+            a_h = "분리 표시" if after.hoist else "일반 표시"
+            changes.append(f"• **멤버 목록 분리 표시:** `{b_h}` ➡️ `{a_h}`")
+        if before.mentionable != after.mentionable:
+            b_m = "허용" if before.mentionable else "비허용"
+            a_m = "허용" if after.mentionable else "비허용"
+            changes.append(f"• **모든 멤버 멘션 가능 여부:** `{b_m}` ➡️ `{a_m}`")
+        if hasattr(before, "icon") and hasattr(after, "icon") and before.icon != after.icon:
+            b_icon = f"[이전 아이콘]({before.icon.url})" if before.icon else "없음"
+            a_icon = f"[새 아이콘]({after.icon.url})" if after.icon else "제거됨"
+            changes.append(f"• **역할 아이콘:** {b_icon} ➡️ {a_icon}")
+        if hasattr(before, "unicode_emoji") and hasattr(after, "unicode_emoji") and before.unicode_emoji != after.unicode_emoji:
+            changes.append(f"• **역할 이모지:** `{before.unicode_emoji or '없음'}` ➡️ `{after.unicode_emoji or '없음'}`")
+        if before.position != after.position:
+            changes.append(f"• **역할 서열/순서:** `{before.position}` ➡️ `{after.position}`")
+
+        # 역할 권한 변경 세부 내역
         if before.permissions.value != after.permissions.value:
-            changes.append(f"• **역할 권한(Permissions) 변경**")
+            granted = [PERM_KR_MAP.get(name, name) for name, p in after.permissions if p and not getattr(before.permissions, name, False)]
+            revoked = [PERM_KR_MAP.get(name, name) for name, p in before.permissions if p and not getattr(after.permissions, name, False)]
+            if granted:
+                changes.append(f"• **➕ 새로 부여된 권한:** `{', '.join(granted)}`")
+            if revoked:
+                changes.append(f"• **➖ 회수/제거된 권한:** `{', '.join(revoked)}`")
 
         if changes:
             embed = discord.Embed(
                 title="✏️ 역할 설정 변경",
-                description=f"🛡️ **대상 역할:** {after.mention} (**ID: `{after.id}`**)\n" + "\n".join(changes),
-                color=discord.Color.gold(),
+                description=f"🛡️ **대상 역할:** {after.mention} (`{after.name}` / **ID: `{after.id}`**)\n\n" + "\n".join(changes),
+                color=after.color if after.color.value else discord.Color.gold(),
                 timestamp=datetime.datetime.now(core.KST)
             )
             try: await ch.send(embed=embed)
@@ -1343,21 +1702,93 @@ class LoggerCog(commands.Cog):
 
         changes = []
         if before.name != after.name:
-            changes.append(f"• **서버 이름 변경:** `{before.name}` ➡️ `{after.name}`")
+            changes.append(f"• **서버 이름:** `{before.name}` ➡️ `{after.name}`")
+        if before.description != after.description:
+            b_desc = (before.description or "(없음)")[:80]
+            a_desc = (after.description or "(없음)")[:80]
+            changes.append(f"• **서버 설명:** `{b_desc}` ➡️ `{a_desc}`")
         if before.icon != after.icon:
-            changes.append(f"• **서버 아이콘 변경**")
+            b_url = f"[이전 아이콘]({before.icon.url})" if before.icon else "없음"
+            a_url = f"[새 아이콘]({after.icon.url})" if after.icon else "제거됨"
+            changes.append(f"• **서버 아이콘:** {b_url} ➡️ {a_url}")
         if before.banner != after.banner:
-            changes.append(f"• **서버 배너 변경**")
+            b_url = f"[이전 배너]({before.banner.url})" if before.banner else "없음"
+            a_url = f"[새 배너]({after.banner.url})" if after.banner else "제거됨"
+            changes.append(f"• **서버 배너:** {b_url} ➡️ {a_url}")
+        if before.splash != after.splash:
+            changes.append("• **초대 배경(Splash) 이미지 변경**")
+        if getattr(before, "discovery_splash", None) != getattr(after, "discovery_splash", None):
+            changes.append("• **서버 찾기 배경(Discovery Splash) 이미지 변경**")
+        if before.owner_id != after.owner_id:
+            changes.append(f"• **👑 서버 소유자 이전:** <@{before.owner_id}> ➡️ <@{after.owner_id}>")
+        if before.afk_channel != after.afk_channel:
+            b_afk = before.afk_channel.mention if before.afk_channel else "(없음)"
+            a_afk = after.afk_channel.mention if after.afk_channel else "(없음)"
+            changes.append(f"• **잠수(AFK) 채널:** {b_afk} ➡️ {a_afk}")
+        if before.afk_timeout != after.afk_timeout:
+            changes.append(f"• **잠수(AFK) 대기 시간:** `{before.afk_timeout // 60}분` ➡️ `{after.afk_timeout // 60}분`")
+        if before.system_channel != after.system_channel:
+            b_sys = before.system_channel.mention if before.system_channel else "(없음)"
+            a_sys = after.system_channel.mention if after.system_channel else "(없음)"
+            changes.append(f"• **시스템 메시지 채널:** {b_sys} ➡️ {a_sys}")
+        if before.rules_channel != after.rules_channel:
+            b_rul = before.rules_channel.mention if before.rules_channel else "(없음)"
+            a_rul = after.rules_channel.mention if after.rules_channel else "(없음)"
+            changes.append(f"• **규칙 채널:** {b_rul} ➡️ {a_rul}")
+        if before.public_updates_channel != after.public_updates_channel:
+            b_upd = before.public_updates_channel.mention if before.public_updates_channel else "(없음)"
+            a_upd = after.public_updates_channel.mention if after.public_updates_channel else "(없음)"
+            changes.append(f"• **커뮤니티 업데이트 채널:** {b_upd} ➡️ {a_upd}")
+        if before.verification_level != after.verification_level:
+            b_vl = VERIFICATION_LEVEL_KR.get(before.verification_level, str(before.verification_level))
+            a_vl = VERIFICATION_LEVEL_KR.get(after.verification_level, str(after.verification_level))
+            changes.append(f"• **보안/인증 수준:** `{b_vl}` ➡️ `{a_vl}`")
+        if before.default_notifications != after.default_notifications:
+            b_dn = NOTIFICATION_LEVEL_KR.get(before.default_notifications, str(before.default_notifications))
+            a_dn = NOTIFICATION_LEVEL_KR.get(after.default_notifications, str(after.default_notifications))
+            changes.append(f"• **기본 알림 설정:** `{b_dn}` ➡️ `{a_dn}`")
+        if before.explicit_content_filter != after.explicit_content_filter:
+            b_ec = CONTENT_FILTER_KR.get(before.explicit_content_filter, str(before.explicit_content_filter))
+            a_ec = CONTENT_FILTER_KR.get(after.explicit_content_filter, str(after.explicit_content_filter))
+            changes.append(f"• **유해 콘텐츠 필터:** `{b_ec}` ➡️ `{a_ec}`")
+        if before.mfa_level != after.mfa_level:
+            b_mfa = "2단계 인증 필수" if before.mfa_level else "비활성화"
+            a_mfa = "2단계 인증 필수" if after.mfa_level else "비활성화"
+            changes.append(f"• **2단계 인증(2FA) 관리자 요구:** `{b_mfa}` ➡️ `{a_mfa}`")
+        if before.preferred_locale != after.preferred_locale:
+            changes.append(f"• **서버 기본 언어:** `{before.preferred_locale}` ➡️ `{after.preferred_locale}`")
+        if getattr(before, "vanity_url_code", None) != getattr(after, "vanity_url_code", None):
+            b_van = f"`discord.gg/{before.vanity_url_code}`" if getattr(before, "vanity_url_code", None) else "(없음)"
+            a_van = f"`discord.gg/{after.vanity_url_code}`" if getattr(after, "vanity_url_code", None) else "(없음)"
+            changes.append(f"• **커스텀 초대 코드(Vanity):** {b_van} ➡️ {a_van}")
+        if getattr(before, "premium_tier", None) != getattr(after, "premium_tier", None):
+            changes.append(f"• **서버 부스트 레벨:** `레벨 {before.premium_tier}` ➡️ `레벨 {after.premium_tier}`")
+        if getattr(before, "premium_subscription_count", 0) != getattr(after, "premium_subscription_count", 0):
+            changes.append(f"• **서버 부스트 개수:** `{before.premium_subscription_count}개` ➡️ `{after.premium_subscription_count}개`")
 
-        if changes:
-            embed = discord.Embed(
-                title="🌐 서버 설정 변경",
-                description="\n".join(changes),
-                color=discord.Color.blue(),
-                timestamp=datetime.datetime.now(core.KST)
-            )
-            try: await ch.send(embed=embed)
-            except Exception: pass
+        if not changes:
+            try:
+                async for entry in after.audit_logs(limit=2, action=discord.AuditLogAction.guild_update):
+                    audit_changes = format_audit_log_diff(entry)
+                    if audit_changes:
+                        changes.extend(audit_changes)
+                        break
+            except Exception:
+                pass
+
+        if not changes:
+            changes.append("• **서버 위젯 / 커뮤니티 활성화 / 기타 내부 설정 변경**")
+
+        embed = discord.Embed(
+            title="🌐 서버 설정 변경",
+            description=f"🏠 **서버:** **{after.name}** (**ID: `{after.id}`**)\n\n" + "\n".join(changes),
+            color=discord.Color.blue(),
+            timestamp=datetime.datetime.now(core.KST)
+        )
+        if after.icon:
+            embed.set_thumbnail(url=after.icon.url)
+        try: await ch.send(embed=embed)
+        except Exception: pass
 
     @commands.Cog.listener()
     async def on_guild_emojis_update(self, guild: discord.Guild, before: list[discord.Emoji], after: list[discord.Emoji]):
@@ -1367,10 +1798,22 @@ class LoggerCog(commands.Cog):
 
         b_set, a_set = set(before), set(after)
         added, removed = a_set - b_set, b_set - a_set
-        if added or removed:
+
+        # 이모지 이름 변경(Rename) 감지
+        renamed = []
+        b_dict = {e.id: e for e in before}
+        for a_e in after:
+            if a_e.id in b_dict:
+                b_e = b_dict[a_e.id]
+                if b_e.name != a_e.name:
+                    renamed.append(f"✏️ **이모지 이름 변경:** `:{b_e.name}:` ➡️ `:{a_e.name}:` ({a_e})")
+
+        if added or removed or renamed:
             lines = []
             if added: lines.append(f"➕ **이모지 추가:** {', '.join([str(e) for e in added])}")
-            if removed: lines.append(f"➖ **이모지 삭제:** {', '.join([e.name for e in removed])}")
+            if removed: lines.append(f"➖ **이모지 삭제:** {', '.join([f'`:{e.name}:`' for e in removed])}")
+            if renamed: lines.extend(renamed)
+
             embed = discord.Embed(
                 title="🎨 이모지 변경",
                 description="\n".join(lines),
