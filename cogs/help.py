@@ -1,5 +1,5 @@
 """
-cogs/help.py - norosi bot help: 전체 74개 슬래시 명령어 통합 도움말 & 가독성 최적화 가이드
+cogs/help.py - norosi bot help: 전체 76개 슬래시 명령어 통합 도움말 & 가독성 최적화 가이드
 """
 
 import math
@@ -15,10 +15,10 @@ PRIVACY_URL = "https://app.notion.com/p/40f0518d06038048b0c6ea1052ce23e7?source=
 SUPPORT_SERVER_URL = "https://discord.gg/6utpaS7s52"
 
 # ==========================================
-# 전체 74개 슬래시 명령어 완벽 카탈로그 (7대 카테고리 분류)
+# 전체 76개 슬래시 명령어 완벽 카탈로그 (7대 카테고리 분류)
 # ==========================================
 COMMAND_CATALOG: List[Dict[str, Any]] = [
-    # 1. 🎮 출석 & 카드/가챠 (18종)
+    # 1. 🎮 출석 & 카드/가챠 (21종)
     {
         "category": "cards",
         "cat_label": "🎮 출석 & 카드/가챠",
@@ -50,16 +50,16 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "cards",
         "cat_label": "🎮 출석 & 카드/가챠",
         "name": "/프로세카뽑기",
-        "desc": "프로세카 한국 서버 캐릭터 뽑기 (1회 단차 또는 ★3 이상 확정 10회 연차, ★4 다중 획득 시 전체 일러스트 표시)",
-        "params": "횟수: [1회 뽑기(단차) / 10회 뽑기(10연차)]",
-        "example": "/프로세카뽑기 횟수:10회 뽑기",
+        "desc": "프로세카 한섭 뽑기 (🌟일반·🎊페스 ★4 2배·🎂생일 배너 선택 / 연출·스킵 / 4성 다중 일러 & 대사 표시)",
+        "params": "횟수: [1회/10회] 배너: [일반/페스/생일(선택)] 연출: [표시/스킵(선택)]",
+        "example": "/프로세카뽑기 횟수:10회 뽑기 배너:🎊 컬러풀 페스티벌 (★4 2배)",
         "source": "cogs/gacha.py",
     },
     {
         "category": "cards",
         "cat_label": "🎮 출석 & 카드/가챠",
         "name": "/내캐릭터",
-        "desc": "내가 뽑은 카드 보관함 페이지당 10장 목록 조회 및 검색, 일러스트(각성 전·후), 🔒잠금, 중복 변환 관리",
+        "desc": "내가 뽑은 카드 보관함 페이지당 10장 목록 조회 및 검색, 일러스트(각성 전·후), ✦MR, 🔒잠금, 중복 변환 관리",
         "params": "유저: [@유저(선택)] 검색어: [캐릭터명(선택)]",
         "example": "/내캐릭터 검색어:카나데",
         "source": "cogs/gacha.py",
@@ -80,6 +80,24 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "desc": "크리스탈을 소모하여 보유 카드의 레벨과 종합력 상승 (MAX 달성 시 보너스 💎 지급)",
         "params": "카드선택: [보유카드] 강화단계: [+1레벨/+10레벨/MAX]",
         "example": "/카드강화 카드선택:101 강화단계:MAX",
+        "source": "cogs/gacha.py",
+    },
+    {
+        "category": "cards",
+        "cat_label": "🎮 출석 & 카드/가챠",
+        "name": "/마스터랭크",
+        "desc": "중복 카드 1장(0💎) 또는 크리스탈로 마스터 랭크(✦0~5) 돌파 (랭크당 종합력 +8%, MR.2 시 어나더 컬러·한정 헤어 해금)",
+        "params": "카드선택: [보유카드(선택)]",
+        "example": "/마스터랭크 카드선택:101",
+        "source": "cogs/gacha.py",
+    },
+    {
+        "category": "cards",
+        "cat_label": "🎮 출석 & 카드/가챠",
+        "name": "/라이브",
+        "desc": "5인 유닛 덱·속성·유닛·3D 의상·어나더 컬러 시너지로 세카이 라이브 플레이 (1일 3회 보상 & 7스탬프 완주 +300💎)",
+        "params": "곡: [세카이 라이브 10곡 중 선택(선택)]",
+        "example": "/라이브",
         "source": "cogs/gacha.py",
     },
     {
@@ -122,7 +140,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "cards",
         "cat_label": "🎮 출석 & 카드/가챠",
         "name": "/의상",
-        "desc": "캐릭터별 3D 의상 착용 및 가챠로 획득한 의상을 300 크리스탈로 다른 캐릭터에게 제작/입히기",
+        "desc": "캐릭터별 3D 의상 착용, 어나더 컬러 3종 전환(✦MR.2 해금) 및 가챠 의상을 300💎으로 제작·입히기",
         "params": "캐릭터: [캐릭터이름(선택)]",
         "example": "/의상 캐릭터:호시노 이치카",
         "source": "cogs/gacha.py",
@@ -149,7 +167,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "cards",
         "cat_label": "🎮 출석 & 카드/가챠",
         "name": "/내프로필",
-        "desc": "오시 일러스트, 마이세카이, 5인 덱 종합력, 출석 일수, 크리스탈, 은하수 잔디, 가챠 통계 종합 조회",
+        "desc": "오시 일러스트, 마이세카이, 5인 덱(✦MR), 라이브 기록, 출석 일수, 크리스탈, 은하수 잔디, 가챠 통계 종합 조회",
         "params": "유저: [@유저(선택)]",
         "example": "/내프로필",
         "source": "cogs/gacha.py",
@@ -167,9 +185,9 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "cards",
         "cat_label": "🎮 출석 & 카드/가챠",
         "name": "/프로세카확률목록",
-        "desc": "한국 서버 모든 캐릭터(한정 포함) 텍스트 명단 및 성급별 상세 확률 조회",
-        "params": "없음",
-        "example": "/프로세카확률목록",
+        "desc": "한국 서버 배너별(🌟일반·🎊페스·🎂생일) 상세 확률 및 전체 카드 명단 조회",
+        "params": "배너: [일반/페스/생일(선택)]",
+        "example": "/프로세카확률목록 배너:🎊 컬러풀 페스티벌 (★4 2배)",
         "source": "cogs/gacha.py",
     },
     {
@@ -701,7 +719,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "admin",
         "cat_label": "⚙️ 봇 관리 & 안내",
         "name": "/도움말",
-        "desc": "전체 74개 슬래시 명령어의 카테고리별 상세 가이드 및 대화형 페이지별 열람",
+        "desc": "전체 77개 슬래시 명령어의 카테고리별 상세 가이드 및 대화형 페이지별 열람",
         "params": "category: [카테고리(선택)] search: [검색어(선택)]",
         "example": "/도움말 category:admin search:반응역할",
         "source": "cogs/help.py",
@@ -709,7 +727,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
 ]
 
 CATEGORY_META = [
-    ("cards", "🎮 출석 & 카드/가챠 (18종 · 4페이지)", "출석체크, 프로세카 뽑기, 마이세카이, 카드교환, 카드강화, 덱편성 등"),
+    ("cards", "🎮 출석 & 카드/가챠 (21종 · 5페이지)", "출석체크, 배너별 프로세카 뽑기, 마스터랭크, 세카이라이브, 3D 의상·어나더컬러 등"),
     ("dday", "📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", "멤버 생일 전광판, 공용/비밀 D-Day, 파트너, 하드코어스터디, 뽀모도로 집중모드 등"),
     ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", "올인원 /대시보드, /메뉴, /깃허브연동, /터미널로그채널, 반응역할, 공지발송 등"),
     ("games", "🎲 미니게임 & 파티 모집 (5종 · 1페이지)", "파티원 모집, 끝말잇기(두음법칙), 러시안룰렛, 초정밀 실시간 날씨, 스마트 알림예약"),
@@ -719,8 +737,8 @@ CATEGORY_META = [
 ]
 
 CATEGORY_DROPDOWN_OPTIONS = [
-    ("all", "🌟 전체 명령어 한눈에 보기 (74종 요약판)", "7대 카테고리 요약 보드 (다음 버튼으로 상세 가이드 열람)", "🌐"),
-    ("cards", "🎮 출석 & 카드/가챠 (18종 · 4페이지)", "/출석체크, /프로세카뽑기, /마이세카이, /카드교환, /카드강화 등", "🎮"),
+    ("all", "🌟 전체 명령어 한눈에 보기 (77종 요약판)", "7대 카테고리 요약 보드 (다음 버튼으로 상세 가이드 열람)", "🌐"),
+    ("cards", "🎮 출석 & 카드/가챠 (21종 · 5페이지)", "/프로세카뽑기, /마스터랭크, /라이브, /의상, /마이세카이 등", "🎮"),
     ("dday", "📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", "/디데이추가, /하드코어스터디, /생일등록, /파트너, /집중모드 등", "📅"),
     ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", "/대시보드, /메뉴, /깃허브연동, /터미널로그채널, /반응역할 등", "⚙️"),
     ("games", "🎲 미니게임 & 파티 모집 (5종 · 1페이지)", "/모집, /끝말잇기, /러시안룰렛, /날씨, /알림예약", "🎲"),
@@ -733,7 +751,7 @@ CATEGORY_DROPDOWN_OPTIONS = [
 def build_help_embed(category: str = "all", search_kw: str = "", page: int = 0) -> discord.Embed:
     """
     가독성을 극대화한 norosi bot help 임베드 빌더.
-    - category=='all' & page==0 & 검색어 없음: 전체 74개 명령어를 7대 카테고리별로 한눈에 볼 수 있는 요약 대시보드 제공
+    - category=='all' & page==0 & 검색어 없음: 전체 77개 명령어를 7대 카테고리별로 한눈에 볼 수 있는 요약 대시보드 제공
     - 특정 카테고리 선택 또는 페이지 이동 시: 페이지당 5개씩 깔끔하고 가독성 높은 카드 레이아웃 제공
     """
     total_cmds = len(COMMAND_CATALOG)
@@ -983,14 +1001,14 @@ class HelpCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="도움말", description="norosi bot help - 전체 74개 슬래시 명령어 한눈에 보기 및 카테고리별 상세 가이드")
+    @app_commands.command(name="도움말", description="norosi bot help - 전체 77개 슬래시 명령어 한눈에 보기 및 카테고리별 상세 가이드")
     @app_commands.describe(
         category="안내받을 카테고리 (all/games/cards/dday/stats/ai/music/admin)",
-        search="검색할 명령어 이름 또는 키워드 (예: 반응역할, 플레이리스트, 플리재생, 플리곡추가, 오디오테스트, 헤드셋, 배속, 깃허브연동, 터미널로그채널)"
+        search="검색할 명령어 이름 또는 키워드 (예: 마스터랭크, 라이브, 프로세카뽑기, 의상, 반응역할, 플레이리스트)"
     )
     @app_commands.choices(category=[
-        app_commands.Choice(name="🌟 전체 명령어 한눈에 보기 (74종 요약판)", value="all"),
-        app_commands.Choice(name="🎮 출석 & 카드/가챠 (18종 · 4페이지)", value="cards"),
+        app_commands.Choice(name="🌟 전체 명령어 한눈에 보기 (77종 요약판)", value="all"),
+        app_commands.Choice(name="🎮 출석 & 카드/가챠 (21종 · 5페이지)", value="cards"),
         app_commands.Choice(name="📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", value="dday"),
         app_commands.Choice(name="⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", value="admin"),
         app_commands.Choice(name="🎲 미니게임 & 파티 모집 (5종 · 1페이지)", value="games"),
@@ -1012,7 +1030,7 @@ class HelpCog(commands.Cog):
 
     @commands.command(name="도움말", aliases=["help", "도움", "명령어"])
     async def prefix_help(self, ctx: commands.Context, *, 검색: Optional[str] = ""):
-        """채팅창에 !도움말 또는 !help 입력 시 즉시 74종 올인원 가이드 및 카테고리 대시보드 호출"""
+        """채팅창에 !도움말 또는 !help 입력 시 즉시 77종 올인원 가이드 및 카테고리 대시보드 호출"""
         embed = build_help_embed(category="all", search_kw=검색 or "", page=0)
         view = HelpCategoryView(bot_instance=self.bot, category="all", search_kw=검색 or "", author=ctx.author)
         await ctx.send(embed=embed, view=view)

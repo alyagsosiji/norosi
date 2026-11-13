@@ -17,7 +17,9 @@ from cogs.gacha import (
     EventForecastView,
     EventInfoView,
     MySekaiHubView,
-    CharacterCostumeWardrobeView
+    CharacterCostumeWardrobeView,
+    MasterRankView,
+    SekaiLiveView
 )
 from cogs.stats import RecruitModal, SuggestionTypeSelectView
 from cogs.help import build_help_embed, HelpCategoryView
@@ -325,7 +327,6 @@ class CommandRemoteSelect(discord.ui.Select):
         options = [
             discord.SelectOption(label="📅 /출석체크", value="attendance", description="자정 기준 하루 1회 출석하고 +100💎 및 마일스톤 받기"),
             discord.SelectOption(label="🗓️ /출석달력", value="att_calendar", description="이번 달 출석 도장 캘린더 및 개근 보상 조회"),
-            discord.SelectOption(label="🏆 /출석랭킹", value="att_rank", description="현재 서버 & 전체 서버 통합 출석 랭킹 조회"),
             discord.SelectOption(label="🌱 /오늘목표", value="todo", description="오늘의 To-Do 체크 및 7일 은하수 잔디 심기"),
             discord.SelectOption(label="🎮 /모집", value="recruit", description="프로세카 및 모든 게임 파티/팀원 자유 작성 모집"),
             discord.SelectOption(label="🎂 /생일등록", value="birthday", description="멤버 생일 전광판 조회 및 내 생일 등록 (+500💎 축하)"),
@@ -334,13 +335,13 @@ class CommandRemoteSelect(discord.ui.Select):
             discord.SelectOption(label="🔤 /끝말잇기", value="word_chain", description="표준 두음법칙 적용 실시간 끝말잇기 대결 (+150💎)"),
             discord.SelectOption(label="🔫 /러시안룰렛", value="roulette", description="6연발 리볼버 스릴 만점 생존 게임"),
             discord.SelectOption(label="🪪 /유저정보", value="user_info", description="멤버 가입일, 서버 입장 순번, 역할, 활동량 상세 조회"),
-            discord.SelectOption(label="📅 /미래시", value="forecast", description="프로세카 한섭 다가오는 이벤트 미래시 월별 달력"),
             discord.SelectOption(label="🎶 /이벤트", value="event_info", description="한섭/일섭 실시간 이벤트 및 가챠 배너 정보"),
             discord.SelectOption(label="🎰 /프로세카뽑기 (10회)", value="pull_10", description="10회 연속 뽑기 (★3 이상 1장 확정 / 2,000💎 소모)"),
             discord.SelectOption(label="🎒 /내캐릭터", value="my_chars", description="뽑은 캐릭터 보관함 & 잠금(🔒) 관리"),
-            discord.SelectOption(label="👗 /의상", value="wardrobe", description="캐릭터 3D 의상 착용 및 다른 캐릭터 의상 제작"),
+            discord.SelectOption(label="👗 /의상", value="wardrobe", description="캐릭터 3D 의상 착용·어나더 컬러 및 타 캐릭터 의상 제작"),
+            discord.SelectOption(label="🏆 /마스터랭크", value="master_rank", description="카드 한계 돌파(MR 0~5) 및 어나더 컬러·한정 헤어 해금"),
+            discord.SelectOption(label="⚔️ /라이브", value="sekai_live", description="5인 유닛 덱 & 3D 의상 시너지 세카이 라이브 + 스탬프 랠리"),
             discord.SelectOption(label="📖 /카드도감", value="pokedex", description="캐릭터별 수집률(%) 및 미보유 카드 조회"),
-            discord.SelectOption(label="💎 /중복카드변환", value="dup_convert", description="중복 카드를 크리스탈로 일괄 환전"),
             discord.SelectOption(label="🌟 /내프로필", value="profile", description="오시 일러, 덱, 출석, 가챠 통계 프로필 카드"),
             discord.SelectOption(label="🏆 /가챠랭킹", value="gacha_rank", description="도감 수집률 & ★4/생일 카드 최다 보유 랭킹"),
             discord.SelectOption(label="🎧 /음악지금추천", value="music_now", description="현재 설정 조건으로 세카이 감성 음악 선곡"),
@@ -348,7 +349,7 @@ class CommandRemoteSelect(discord.ui.Select):
             discord.SelectOption(label="📋 /디데이목록", value="dday_list", description="등록된 모든 D-Day 전광판 진행 상황 확인"),
             discord.SelectOption(label="💌 /비밀디데이", value="dday_secret", description="나만 볼 수 있는 비밀 D-Day & 타임캡슐 DM"),
             discord.SelectOption(label="💑 /파트너", value="partner", description="연인·친구 파트너 맺기 및 공동 D-Day 관리"),
-            discord.SelectOption(label="❓ /도움말", value="help", description="norosi 봇 전체 55개 명령어 카테고리별 도움말"),
+            discord.SelectOption(label="❓ /도움말", value="help", description="norosi 봇 전체 명령어 카테고리별 상세 도움말"),
         ]
         super().__init__(
             placeholder="🔍 올인원 원클릭 리모컨 (기능 선택)...",
@@ -465,6 +466,14 @@ class CommandRemoteSelect(discord.ui.Select):
         elif val == "wardrobe":
             await core.safe_defer(interaction)
             view = CharacterCostumeWardrobeView(interaction.user, guild_id=interaction.guild_id or 0)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        elif val == "master_rank":
+            await core.safe_defer(interaction)
+            view = MasterRankView(interaction.user, guild_id=interaction.guild_id or 0)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        elif val == "sekai_live":
+            await core.safe_defer(interaction)
+            view = SekaiLiveView(interaction.user, guild_id=interaction.guild_id or 0)
             await interaction.followup.send(embed=view.build_embed(), view=view)
         elif val == "profile":
             gacha_cog = self.bot_instance.get_cog("GachaCog")
@@ -643,7 +652,7 @@ class QuickMenuHubView(core.SafeView):
             timestamp=datetime.datetime.now(core.KST)
         )
         embed.set_thumbnail(url=self.user.display_avatar.url)
-        embed.set_footer(text="💡 드롭다운 또는 핫키 버튼으로 55개 슬래시 명령어 기능을 즉시 실행할 수 있습니다.")
+        embed.set_footer(text="💡 드롭다운 또는 핫키 버튼으로 모든 슬래시 명령어 기능을 즉시 실행할 수 있습니다.")
         return embed
 
     @discord.ui.button(label="📅 즉시 출석체크", style=discord.ButtonStyle.primary, row=1)
@@ -748,6 +757,18 @@ class QuickMenuHubView(core.SafeView):
     async def btn_help(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = build_help_embed("all")
         await core.safe_send_response(interaction, embed=embed, view=HelpCategoryView(bot_instance=self.bot_instance), ephemeral=True)
+
+    @discord.ui.button(label="⚔️ 세카이 라이브", style=discord.ButtonStyle.success, row=4)
+    async def btn_sekai_live(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        view = SekaiLiveView(interaction.user, guild_id=interaction.guild_id or 0)
+        await interaction.followup.send(embed=view.build_embed(), view=view)
+
+    @discord.ui.button(label="🏆 마스터 랭크", style=discord.ButtonStyle.primary, row=4)
+    async def btn_master_rank(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        view = MasterRankView(interaction.user, guild_id=interaction.guild_id or 0)
+        await interaction.followup.send(embed=view.build_embed(), view=view)
 
     @discord.ui.button(label="🏠 마이세카이 꾸미기", style=discord.ButtonStyle.success, row=4)
     async def btn_my_sekai(self, interaction: discord.Interaction, button: discord.ui.Button):

@@ -1108,22 +1108,400 @@ def get_costume_for_card(card_id: int | str) -> dict | None:
     return PROSEKA_KR_COSTUMES.get(str(card_id))
 
 
+CHARACTER_BIRTHDAYS: dict[int, tuple[int, int]] = {
+    1: (8, 11), 2: (5, 9), 3: (10, 27), 4: (1, 8),
+    5: (4, 14), 6: (10, 5), 7: (3, 19), 8: (12, 6),
+    9: (3, 2), 10: (7, 26), 11: (11, 12), 12: (5, 25),
+    13: (5, 17), 14: (9, 9), 15: (7, 20), 16: (6, 24),
+    17: (2, 10), 18: (1, 27), 19: (4, 30), 20: (8, 27),
+    21: (8, 31), 22: (12, 27), 23: (12, 27), 24: (1, 30),
+    25: (11, 5), 26: (2, 17),
+}
+
+BANNER_CONFIGS = {
+    "normal": {
+        "key": "normal",
+        "name": "🌟 일반 / 현재 픽업 가챠",
+        "short_name": "🌟 일반/픽업",
+        "desc": "설정된 픽업 캐릭터/유닛 적용 (★4·생일 3.0%)",
+        "top_rate": 3.0,
+        "mid_rate": 8.5,
+        "low_rate": 88.5,
+        "color": (0, 204, 221),
+    },
+    "fes": {
+        "key": "fes",
+        "name": "🎊 컬러풀 페스티벌 (페스 ★4 2배!)",
+        "short_name": "🎊 페스티벌 (★4 2배)",
+        "desc": "★4 출현율 2배 (6.0%) & 페스/블룸페스 한정 카드 확률 UP!",
+        "top_rate": 6.0,
+        "mid_rate": 8.5,
+        "low_rate": 85.5,
+        "color": (255, 105, 180),
+    },
+    "birthday": {
+        "key": "birthday",
+        "name": "🎂 생일 / 기념일 스페셜 가챠",
+        "short_name": "🎂 생일 스페셜",
+        "desc": "이번 달 생일 캐릭터 & 🎀생일 한정 카드 확률 대폭 UP!",
+        "top_rate": 3.5,
+        "mid_rate": 8.5,
+        "low_rate": 88.0,
+        "color": (255, 182, 193),
+    },
+}
+
+ANOTHER_COLOR_VARIANTS = OrderedDict([
+    ("orig", {"key": "orig", "name": "기본 오리지널 컬러", "emoji": "🎨"}),
+    ("pastel", {"key": "pastel", "name": "🌸 어나더 컬러 1 (파스텔/화이트)", "emoji": "🌸"}),
+    ("dark", {"key": "dark", "name": "🌙 어나더 컬러 2 (다크/미드나잇)", "emoji": "🌙"}),
+    ("gold", {"key": "gold", "name": "👑 어나더 컬러 3 (골드/로열)", "emoji": "👑"}),
+])
+
+ANOTHER_COLOR_ORDER = ["orig", "pastel", "dark", "gold"]
+
+PROSEKA_LIVE_SONGS = [
+    {"id": "gunjou", "title": "군청 찬가 (群青讃歌)", "unit": "버추얼 싱어", "attr": "❄️쿨", "level": 28, "bpm": 175},
+    {"id": "stella", "title": "스텔라 (Stella)", "unit": "Leo/need", "attr": "❄️쿨", "level": 28, "bpm": 178},
+    {"id": "more_jump", "title": "모어! 점프! 모어! (MORE! JUMP! MORE!)", "unit": "MORE MORE JUMP!", "attr": "🧡해피", "level": 29, "bpm": 182},
+    {"id": "ready_steady", "title": "레디 스테디 (Ready Steady)", "unit": "Vivid BAD SQUAD", "attr": "🌿퓨어", "level": 27, "bpm": 132},
+    {"id": "sekai_hajimatte", "title": "세카이는 아직 시작조차 하지 않았어", "unit": "원더랜즈×쇼타임", "attr": "🧡해피", "level": 28, "bpm": 190},
+    {"id": "bug", "title": "버그 (Bug)", "unit": "25시, 나이트 코드에서.", "attr": "🌙미스테리어스", "level": 32, "bpm": 185},
+    {"id": "idsmile", "title": "아이디스마일 (IDSMILE)", "unit": "25시, 나이트 코드에서.", "attr": "🌸큐트", "level": 28, "bpm": 152},
+    {"id": "senbonzakura", "title": "천본앵 (千本桜)", "unit": "버추얼 싱어", "attr": "🌸큐트", "level": 28, "bpm": 154},
+    {"id": "tondemo", "title": "톤데모 원더즈 (Tondemo-Wonderz)", "unit": "원더랜즈×쇼타임", "attr": "🧡해피", "level": 32, "bpm": 178},
+    {"id": "shoushitsu", "title": "하츠네 미쿠의 소실", "unit": "버추얼 싱어", "attr": "🌙미스테리어스", "level": 33, "bpm": 240},
+]
+
+
+def is_costume_another_color_unlocked(guild_id: int, user_id: int, costume: dict | None, data: dict | None = None) -> tuple[bool, bool]:
+    """
+    해당 의상의 원본 카드 마스터 랭크가 2 이상인지 확인.
+    반환: (어나더 컬러 해금 여부, 한정 헤어스타일 해금 여부)
+    """
+    if not costume or costume.get("is_default"):
+        return False, False
+    card_id = costume.get("card_id")
+    if not card_id:
+        return False, False
+    d = data if data is not None else load_data()
+    g_key = str(guild_id or 0)
+    u_key = str(user_id)
+    u_cards = d.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+    c_obj = u_cards.get(str(card_id))
+    if not c_obj:
+        return False, False
+    mr = int(c_obj.get("master_rank", 0))
+    ac_unlocked = mr >= 2
+    is_lim = bool(c_obj.get("is_limited"))
+    hair_unlocked = ac_unlocked and is_lim
+    return ac_unlocked, hair_unlocked
+
+
 def get_user_equipped_costume(guild_id: int, user_id: int, char_id: int) -> dict:
-    """유저가 해당 캐릭터에게 현재 착용시킨 의상 반환 (미착용 시 기본 의상)"""
+    """유저가 해당 캐릭터에게 현재 착용시킨 의상 반환 (미착용 시 기본 의상, 어나더 컬러 정보 포함)"""
     data = load_data()
     g_key = str(guild_id or 0)
     u_key = str(user_id)
-    g_equipped = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("equipped_costumes", {})
+    g_user = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {})
+    g_equipped = g_user.get("equipped_costumes", {})
     costume_id = g_equipped.get(str(char_id))
     if not costume_id:
         p_equipped = data.get("user_profiles", {}).get(u_key, {}).get("equipped_costumes", {})
         costume_id = p_equipped.get(str(char_id))
 
+    cos = None
     if costume_id:
         cos = get_costume_by_id(costume_id)
-        if cos:
-            return cos
-    return get_default_costume(char_id)
+    if not cos:
+        cos = get_default_costume(char_id)
+    else:
+        cos = dict(cos)
+
+    ac_unlocked, hair_unlocked = is_costume_another_color_unlocked(guild_id, user_id, cos, data=data)
+    g_variants = g_user.get("equipped_costume_variants", {})
+    p_variants = data.get("user_profiles", {}).get(u_key, {}).get("equipped_costume_variants", {})
+    var_key = g_variants.get(str(char_id)) or p_variants.get(str(char_id)) or "orig"
+    if not ac_unlocked or var_key not in ANOTHER_COLOR_VARIANTS:
+        var_key = "orig"
+    var_info = ANOTHER_COLOR_VARIANTS[var_key]
+
+    cos["color_variant"] = var_key
+    cos["color_variant_label"] = var_info["name"]
+    cos["color_variant_emoji"] = var_info["emoji"]
+    cos["another_color_unlocked"] = ac_unlocked
+    cos["hair_unlocked"] = hair_unlocked
+    return cos
+
+
+def cycle_user_costume_color(guild_id: int, user_id: int, char_id: int) -> tuple[bool, str, dict | None]:
+    """착용 중인 의상의 어나더 컬러를 순환 변경합니다 (마스터 랭크 2 이상 해금 필요)."""
+    with _DATA_LOCK:
+        data = load_data()
+        g_key = str(guild_id or 0)
+        u_key = str(user_id)
+        g_user = data.get("gacha_users", {}).setdefault(g_key, {}).setdefault(u_key, {})
+        cos_id = g_user.get("equipped_costumes", {}).get(str(char_id))
+        if not cos_id:
+            cos_id = data.get("user_profiles", {}).get(u_key, {}).get("equipped_costumes", {}).get(str(char_id))
+        cos = get_costume_by_id(cos_id) if cos_id else None
+        if not cos or cos.get("is_default"):
+            return False, "기본 유닛 의상은 어나더 컬러를 변경할 수 없습니다. 3D 의상을 먼저 착용해 주세요!", None
+
+        ac_unlocked, _ = is_costume_another_color_unlocked(guild_id, user_id, cos, data=data)
+        if not ac_unlocked:
+            card_prefix = cos.get("card_prefix", "")
+            char_name = cos.get("char_name", "")
+            return False, f"🔒 어나더 컬러가 아직 잠겨 있습니다!\n원본 카드 `[{card_prefix}] {char_name}`를 `/마스터랭크`에서 **✦MR.2 이상**으로 한계 돌파하면 어나더 컬러 3종이 해금됩니다!", None
+
+        g_variants = g_user.setdefault("equipped_costume_variants", {})
+        cur_var = g_variants.get(str(char_id), "orig")
+        idx = ANOTHER_COLOR_ORDER.index(cur_var) if cur_var in ANOTHER_COLOR_ORDER else 0
+        next_var = ANOTHER_COLOR_ORDER[(idx + 1) % len(ANOTHER_COLOR_ORDER)]
+        g_variants[str(char_id)] = next_var
+
+        prof = ensure_user_profile(data, u_key)
+        prof.setdefault("equipped_costume_variants", {})[str(char_id)] = next_var
+        save_data(data)
+
+        v_info = ANOTHER_COLOR_VARIANTS[next_var]
+        target_name = CHARACTER_MAP.get(char_id, {}).get("name", "캐릭터")
+        return True, f"🎨 **{target_name}**의 **[{cos['name']}]** 색상을 **{v_info['name']}**(으)로 변경했습니다!", v_info
+
+
+def get_master_rank_crystal_cost(star_num: int, current_rank: int) -> int:
+    """다음 마스터 랭크(current_rank -> current_rank + 1) 돌파에 필요한 크리스탈 비용"""
+    step = max(1, min(5, int(current_rank) + 1))
+    if star_num >= 4:
+        return step * 300
+    elif star_num == 3:
+        return step * 100
+    else:
+        return step * 30
+
+
+def upgrade_card_master_rank(guild_id: int, user_id: int, card_id_str: str, use_duplicate: bool = True) -> tuple[bool, str, dict]:
+    """
+    보유 카드의 마스터 랭크(0 -> 5)를 상승시킵니다.
+    - use_duplicate=True: 중복 보유 카드 1장 소모 (0💎)
+    - use_duplicate=False: 크리스탈 소모
+    """
+    with _DATA_LOCK:
+        data = load_data()
+        g_key = str(guild_id or 0)
+        u_key = str(user_id)
+        prof = ensure_user_profile(data, u_key)
+        u_cards = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+        cid_str = str(card_id_str)
+        if cid_str not in u_cards:
+            return False, "보유하지 않은 카드입니다.", {}
+
+        card = u_cards[cid_str]
+        cur_mr = int(card.get("master_rank", 0))
+        if cur_mr >= 5:
+            return False, f"**[{card.get('prefix')}] {card.get('char_name')}** 카드는 이미 최고 **마스터 랭크 5(✦5/5)**에 도달했습니다!", {}
+
+        star_num = card.get("star_num", 3)
+        old_power = get_card_power(card)
+        cost_crystals = 0
+        consumed_dup = 0
+
+        if use_duplicate:
+            cnt = int(card.get("count", 1))
+            if cnt < 2:
+                return False, "중복 보유 카드가 부족합니다! (최소 2장 보유 시 중복 1장 소모 가능 — 크리스탈 돌파를 이용해 보세요)", {}
+            card["count"] = cnt - 1
+            consumed_dup = 1
+        else:
+            cost_crystals = get_master_rank_crystal_cost(star_num, cur_mr)
+            cur_crystals = int(prof.get("crystals", 0))
+            if cur_crystals < cost_crystals:
+                return False, f"크리스탈이 부족합니다! (필요: `{cost_crystals:,}💎` / 보유: `{cur_crystals:,}💎`)", {}
+            prof["crystals"] = cur_crystals - cost_crystals
+
+        new_mr = cur_mr + 1
+        card["master_rank"] = new_mr
+        new_power = get_card_power(card)
+        save_data(data)
+
+        cos = get_costume_for_card(card.get("id"))
+        unlocked_ac_now = (cur_mr < 2 and new_mr >= 2 and cos is not None)
+        unlocked_hair_now = (unlocked_ac_now and bool(card.get("is_limited")))
+
+        return True, f"🏆 **[{card.get('prefix')}] {card.get('char_name')}** 마스터 랭크 돌파 성공! (**✦{cur_mr} ➔ ✦{new_mr}**)", {
+            "card": copy.deepcopy(card),
+            "old_mr": cur_mr,
+            "new_mr": new_mr,
+            "old_power": old_power,
+            "new_power": new_power,
+            "diff_power": new_power - old_power,
+            "cost_crystals": cost_crystals,
+            "consumed_dup": consumed_dup,
+            "current_crystals": prof.get("crystals", 0),
+            "unlocked_ac_now": unlocked_ac_now,
+            "unlocked_hair_now": unlocked_hair_now,
+            "costume": cos,
+        }
+
+
+def execute_sekai_live(guild_id: int, user_id: int, song_id: str | None = None, user_name: str = "") -> tuple[bool, str, dict]:
+    """
+    내 5인 유닛 덱(미편성 시 보유 상위 5장 자동 편성)으로 세카이 라이브를 실행하고
+    스코어/랭크/보상/7일 스탬프 랠리를 처리합니다. (보상은 1일 최대 3회, 연습 라이브는 무제한)
+    """
+    with _DATA_LOCK:
+        data = load_data()
+        g_key = str(guild_id or 0)
+        u_key = str(user_id)
+        prof = ensure_user_profile(data, u_key, user_name)
+        g_user = data.setdefault("gacha_users", {}).setdefault(g_key, {}).setdefault(u_key, {})
+        u_cards = g_user.get("cards", {})
+
+        if not u_cards:
+            return False, "보유한 프로세카 카드가 없습니다! 먼저 `/프로세카뽑기`로 캐릭터를 뽑아주세요.", {}
+
+        # 1. 곡 선택
+        song = next((s for s in PROSEKA_LIVE_SONGS if s["id"] == song_id), None) if song_id else None
+        if not song:
+            song = random.choice(PROSEKA_LIVE_SONGS)
+
+        # 2. 5인 덱 구성 (저장된 덱 우선, 없으면 상위 5장 자동 편성)
+        saved_deck_ids = prof.get("deck") or g_user.get("deck", [])
+        deck_cards = [u_cards[str(cid)] for cid in saved_deck_ids if str(cid) in u_cards]
+        used_auto_deck = False
+        if not deck_cards:
+            used_auto_deck = True
+            sorted_cards = sorted(u_cards.values(), key=lambda c: (-get_card_power(c), -c.get("star_num", 1)))
+            deck_cards = sorted_cards[:5]
+
+        # 3. 종합력 & 시너지 계산
+        base_power = sum(get_card_power(c) for c in deck_cards)
+        attr_matches = sum(1 for c in deck_cards if c.get("attr") == song["attr"])
+        unit_matches = sum(1 for c in deck_cards if c.get("unit") == song["unit"] or c.get("support_unit") == song["unit"])
+
+        # 의상 & 어나더 컬러 & 파트너 보너스
+        costume_bonus_pct = 0
+        equipped_members = []
+        seen_char_ids = set()
+        for c in deck_cards:
+            cid = c.get("char_id")
+            if cid and cid not in seen_char_ids:
+                seen_char_ids.add(cid)
+                eq_cos = get_user_equipped_costume(guild_id, user_id, cid)
+                if not eq_cos.get("is_default"):
+                    costume_bonus_pct += 10 if eq_cos.get("color_variant", "orig") != "orig" else 5
+                    equipped_members.append(f"{c.get('char_name')}({eq_cos.get('name')})")
+
+        has_partner = bool(prof.get("partner_id"))
+        partner_bonus_pct = 5 if has_partner else 0
+        attr_bonus_pct = attr_matches * 12
+        unit_bonus_pct = unit_matches * 8
+        total_bonus_pct = attr_bonus_pct + unit_bonus_pct + costume_bonus_pct + partner_bonus_pct
+
+        # 리듬 판정 시뮬레이션
+        avg_mr = sum(int(c.get("master_rank", 0)) for c in deck_cards) / max(1, len(deck_cards))
+        skill_roll = random.uniform(0.95, 1.15) + (avg_mr * 0.02)
+        fc_chance = min(0.85, 0.35 + (len(deck_cards) * 0.05) + (avg_mr * 0.05) + (0.10 if not used_auto_deck else 0.0))
+        is_full_combo = (random.random() < fc_chance)
+        is_all_perfect = is_full_combo and (random.random() < (0.20 + avg_mr * 0.04))
+
+        combo_mult = 1.15 if is_all_perfect else (1.08 if is_full_combo else 1.0)
+        effective_power = int(base_power * (1.0 + total_bonus_pct / 100.0))
+        score = int(effective_power * 3.0 * skill_roll * combo_mult)
+
+        # 랭크 판정
+        if is_all_perfect and score >= 900000:
+            rank = "SS"
+            rank_label = "🌈 SS (ALL PERFECT!)"
+            base_reward = 150
+        elif score >= 800000:
+            rank = "S"
+            rank_label = "🏆 S 랭크"
+            base_reward = 120
+        elif score >= 400000:
+            rank = "A"
+            rank_label = "🥇 A 랭크"
+            base_reward = 90
+        elif score >= 180000:
+            rank = "B"
+            rank_label = "🥈 B 랭크"
+            base_reward = 60
+        else:
+            rank = "C"
+            rank_label = "🥉 C 랭크"
+            base_reward = 40
+
+        # 일일 보상 (1일 3회) & 7일 스탬프 랠리
+        today_str = get_today_str()
+        live_stats = prof.setdefault("sekai_live", {
+            "last_date": today_str,
+            "daily_count": 0,
+            "stamps": 0,
+            "total_lives": 0,
+            "best_score": 0,
+            "rally_clears": 0,
+        })
+        if live_stats.get("last_date") != today_str:
+            live_stats["last_date"] = today_str
+            live_stats["daily_count"] = 0
+
+        daily_used = int(live_stats.get("daily_count", 0))
+        is_practice = (daily_used >= 3)
+        gained_crystals = 0
+        rally_bonus = 0
+
+        if not is_practice:
+            live_stats["daily_count"] = daily_used + 1
+            live_stats["stamps"] = int(live_stats.get("stamps", 0)) + 1
+            gained_crystals = base_reward
+            if live_stats["stamps"] >= 7:
+                live_stats["stamps"] = 0
+                live_stats["rally_clears"] = int(live_stats.get("rally_clears", 0)) + 1
+                rally_bonus = 300
+                gained_crystals += rally_bonus
+            prof["crystals"] = int(prof.get("crystals", 0)) + gained_crystals
+
+        live_stats["total_lives"] = int(live_stats.get("total_lives", 0)) + 1
+        prev_best = int(live_stats.get("best_score", 0))
+        is_new_best = (score > prev_best)
+        if is_new_best:
+            live_stats["best_score"] = score
+
+        save_data(data)
+
+        return True, "라이브 클리어!", {
+            "song": song,
+            "deck_cards": deck_cards,
+            "used_auto_deck": used_auto_deck,
+            "base_power": base_power,
+            "effective_power": effective_power,
+            "attr_matches": attr_matches,
+            "unit_matches": unit_matches,
+            "attr_bonus_pct": attr_bonus_pct,
+            "unit_bonus_pct": unit_bonus_pct,
+            "costume_bonus_pct": costume_bonus_pct,
+            "partner_bonus_pct": partner_bonus_pct,
+            "total_bonus_pct": total_bonus_pct,
+            "equipped_members": equipped_members,
+            "is_full_combo": is_full_combo,
+            "is_all_perfect": is_all_perfect,
+            "score": score,
+            "rank": rank,
+            "rank_label": rank_label,
+            "is_new_best": is_new_best,
+            "best_score": live_stats["best_score"],
+            "is_practice": is_practice,
+            "daily_count": live_stats["daily_count"],
+            "stamps": live_stats["stamps"],
+            "rally_clears": live_stats.get("rally_clears", 0),
+            "gained_crystals": gained_crystals,
+            "rally_bonus": rally_bonus,
+            "current_crystals": prof.get("crystals", 0),
+            "total_lives": live_stats["total_lives"],
+        }
+
+
+
 
 
 def get_user_unlocked_costumes_for_char(guild_id: int, user_id: int, char_id: int) -> list[dict]:
@@ -1938,14 +2316,18 @@ MY_SEKAI_FURNITURE = {
 
 
 def get_card_power(card: dict) -> int:
-    """보유 카드의 성급, 레벨, 각성 여부를 바탕으로 정확한 종합력(전투력)을 계산합니다."""
+    """보유 카드의 성급, 레벨, 각성 여부, 마스터 랭크(0~5)를 바탕으로 정확한 종합력(전투력)을 계산합니다."""
     if not isinstance(card, dict):
         return 0
     star_num = card.get("star_num", 3)
     cur_lvl = max(1, int(card.get("level", 1)))
     base_p = 3000 if star_num <= 1 else 7500 if star_num == 2 else 18000 if star_num == 3 else 32000
     p_per_lvl = 150 if star_num <= 1 else 350 if star_num == 2 else 750 if star_num == 3 else 1200
-    return base_p + (cur_lvl - 1) * p_per_lvl + (3000 if card.get("awakened") else 0)
+    raw_pwr = base_p + (cur_lvl - 1) * p_per_lvl + (3000 if card.get("awakened") else 0)
+    mr = max(0, min(5, int(card.get("master_rank", 0))))
+    if mr > 0:
+        raw_pwr = int(raw_pwr * (1.0 + 0.08 * mr))
+    return raw_pwr
 
 
 def get_card_max_level(card: dict) -> int:
@@ -2946,8 +3328,28 @@ def is_card_pickup(card, pickup_cfg):
     return unit_match and char_match
 
 
-def calculate_card_probabilities(pickup_cfg):
-    include_lim = pickup_cfg.get("include_limited", True)
+def _is_banner_pickup(card: dict, pickup_cfg: dict, banner_type: str = "normal", current_month: int | None = None) -> bool:
+    if banner_type == "fes":
+        lbl = card.get("limit_label", "")
+        if "페스" in lbl:
+            return True
+        return is_card_pickup(card, pickup_cfg)
+    elif banner_type == "birthday":
+        if card.get("rarity_type") == "rarity_birthday":
+            if current_month:
+                cid = card.get("char_id")
+                bday = CHARACTER_BIRTHDAYS.get(cid)
+                if bday and bday[0] == current_month:
+                    return True
+            return True
+        return False
+    return is_card_pickup(card, pickup_cfg)
+
+
+def calculate_card_probabilities(pickup_cfg, banner_type: str = "normal"):
+    b_key = banner_type if banner_type in BANNER_CONFIGS else "normal"
+    b_cfg = BANNER_CONFIGS[b_key]
+    include_lim = True if b_key in ("fes", "birthday") else pickup_cfg.get("include_limited", True)
     pool = [c for c in PROSEKA_KR_CARDS if include_lim or not c["is_limited"]]
     if not pool:
         pool = list(PROSEKA_KR_CARDS)
@@ -2961,15 +3363,56 @@ def calculate_card_probabilities(pickup_cfg):
         else:
             tier_groups["low"].append(c)
 
-    tier_rates = {"top": 3.0, "mid": 8.5, "low": 88.5}
+    tier_rates = {
+        "top": b_cfg["top_rate"],
+        "mid": b_cfg["mid_rate"],
+        "low": b_cfg["low_rate"],
+    }
+    cur_month = datetime.datetime.now(KST).month
     result_list = []
 
     for tier_key, cards in tier_groups.items():
         if not cards:
             continue
         total_tier_prob = tier_rates[tier_key]
-        pickup_cards = [c for c in cards if is_card_pickup(c, pickup_cfg)]
-        normal_cards = [c for c in cards if not is_card_pickup(c, pickup_cfg)]
+
+        if b_key == "birthday" and tier_key == "top":
+            # 생일 가챠: 이달의 생일 캐릭터 생일카드(45%) + 전체 생일카드(35%) + 일반/기타 ★4(20%)
+            bday_cards = [c for c in cards if c.get("rarity_type") == "rarity_birthday"]
+            month_bdays = [c for c in bday_cards if CHARACTER_BIRTHDAYS.get(c.get("char_id"), (0, 0))[0] == cur_month]
+            other_bdays = [c for c in bday_cards if c not in month_bdays]
+            non_bdays = [c for c in cards if c.get("rarity_type") != "rarity_birthday"]
+
+            if bday_cards and non_bdays:
+                if month_bdays and other_bdays:
+                    m_each = (total_tier_prob * 0.45) / len(month_bdays)
+                    o_each = (total_tier_prob * 0.35) / len(other_bdays)
+                    n_each = (total_tier_prob * 0.20) / len(non_bdays)
+                    for c in cards:
+                        item = dict(c)
+                        if c in month_bdays:
+                            item["prob"] = m_each
+                            item["is_pickup"] = True
+                        elif c in other_bdays:
+                            item["prob"] = o_each
+                            item["is_pickup"] = True
+                        else:
+                            item["prob"] = n_each
+                            item["is_pickup"] = False
+                        result_list.append(item)
+                else:
+                    b_each = (total_tier_prob * 0.80) / len(bday_cards)
+                    n_each = (total_tier_prob * 0.20) / len(non_bdays)
+                    for c in cards:
+                        is_p = (c.get("rarity_type") == "rarity_birthday")
+                        item = dict(c)
+                        item["prob"] = b_each if is_p else n_each
+                        item["is_pickup"] = is_p
+                        result_list.append(item)
+                continue
+
+        pickup_cards = [c for c in cards if _is_banner_pickup(c, pickup_cfg, b_key, cur_month)]
+        normal_cards = [c for c in cards if not _is_banner_pickup(c, pickup_cfg, b_key, cur_month)]
 
         if pickup_cards and normal_cards:
             pickup_share = total_tier_prob * 0.50
@@ -2977,7 +3420,7 @@ def calculate_card_probabilities(pickup_cfg):
             p_each = pickup_share / len(pickup_cards)
             n_each = normal_share / len(normal_cards)
             for c in cards:
-                is_p = is_card_pickup(c, pickup_cfg)
+                is_p = _is_banner_pickup(c, pickup_cfg, b_key, cur_month)
                 prob = p_each if is_p else n_each
                 item = dict(c)
                 item["prob"] = prob
@@ -2986,7 +3429,7 @@ def calculate_card_probabilities(pickup_cfg):
         else:
             each_prob = total_tier_prob / len(cards)
             for c in cards:
-                is_p = is_card_pickup(c, pickup_cfg)
+                is_p = _is_banner_pickup(c, pickup_cfg, b_key, cur_month)
                 item = dict(c)
                 item["prob"] = each_prob
                 item["is_pickup"] = is_p
@@ -2996,8 +3439,8 @@ def calculate_card_probabilities(pickup_cfg):
     return result_list
 
 
-def draw_proseka_cards(pickup_cfg, count=1):
-    prob_cards = calculate_card_probabilities(pickup_cfg)
+def draw_proseka_cards(pickup_cfg, count=1, banner_type: str = "normal"):
+    prob_cards = calculate_card_probabilities(pickup_cfg, banner_type=banner_type)
     if not prob_cards:
         return []
 
@@ -3042,6 +3485,7 @@ def save_pulled_cards_to_user(guild_id: int, user_id: int, drawn_cards: list):
                 user_cards[cid_str].setdefault("locked", False)
                 user_cards[cid_str].setdefault("level", 1)
                 user_cards[cid_str].setdefault("awakened", False)
+                user_cards[cid_str].setdefault("master_rank", 0)
                 if c.get("assetbundleName"):
                     user_cards[cid_str]["assetbundleName"] = c["assetbundleName"]
             else:
@@ -3065,6 +3509,7 @@ def save_pulled_cards_to_user(guild_id: int, user_id: int, drawn_cards: list):
                     "count": 1,
                     "level": 1,
                     "awakened": False,
+                    "master_rank": 0,
                     "locked": False
                 }
 
