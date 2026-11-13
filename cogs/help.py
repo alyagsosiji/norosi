@@ -68,7 +68,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "cards",
         "cat_label": "🎮 출석 & 카드/가챠",
         "name": "/카드도감",
-        "desc": "캐릭터별 수집률(%)과 아직 획득하지 못한 미보유 카드 탭별 확인",
+        "desc": "캐릭터별 수집률(%)과 미보유/보유 카드를 탭별 10개씩 페이지로 확인",
         "params": "유저: [@유저(선택)] 초기탭: [수집률/미보유카드/보유카드(선택)]",
         "example": "/카드도감 초기탭:미보유 카드",
         "source": "cogs/gacha.py",

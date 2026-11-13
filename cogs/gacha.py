@@ -1150,7 +1150,7 @@ class CardPokedexView(core.SafeView):
 
     @property
     def items_per_page(self):
-        return 9 if self.active_tab == "char_rates" else 6
+        return 10
 
     @property
     def max_page(self):
@@ -1248,11 +1248,25 @@ class CardPokedexView(core.SafeView):
                         f"• **{c_stat['char_name']}** (`{c_stat['unit']}`)\n"
                         f"  └ {c_stat['bar']} **`{c_stat['rate']:.1f}%`** (`{c_stat['owned_count']}/{c_stat['total_count']}종`) {badge}"
                     )
-                embed.add_field(
-                    name=f"📊 캐릭터별 수집률 현황 (페이지 {self.current_page + 1} / {self.max_page + 1})",
-                    value="\n".join(lines),
-                    inline=False
-                )
+                full_text = "\n".join(lines)
+                if len(full_text) <= 1000:
+                    embed.add_field(
+                        name=f"📊 캐릭터별 수집률 현황 (페이지 {self.current_page + 1} / {self.max_page + 1})",
+                        value=full_text,
+                        inline=False
+                    )
+                else:
+                    mid = (len(lines) + 1) // 2
+                    embed.add_field(
+                        name=f"📊 캐릭터별 수집률 현황 (페이지 {self.current_page + 1} / {self.max_page + 1}) - 1",
+                        value="\n".join(lines[:mid]),
+                        inline=False
+                    )
+                    embed.add_field(
+                        name=f"📊 캐릭터별 수집률 현황 (페이지 {self.current_page + 1} / {self.max_page + 1}) - 2",
+                        value="\n".join(lines[mid:]),
+                        inline=False
+                    )
         elif self.active_tab == "unowned":
             if not page_items:
                 embed.add_field(
@@ -1268,11 +1282,25 @@ class CardPokedexView(core.SafeView):
                         f"**{idx}.** 🔒 `[{c.get('limit_label', '통상')}]` **{c['rarity_label']} [{c['prefix']}] {c['char_name']}**\n"
                         f"   └ 🏷️ {unit_str} · {c.get('attr', '✨')} · 도감 ID: `{c['id']}` *(미보유)*"
                     )
-                embed.add_field(
-                    name=f"🔒 아직 획득하지 못한 카드 목록 (페이지 {self.current_page + 1} / {self.max_page + 1})",
-                    value="\n\n".join(lines),
-                    inline=False
-                )
+                full_text = "\n".join(lines)
+                if len(full_text) <= 1000:
+                    embed.add_field(
+                        name=f"🔒 아직 획득하지 못한 카드 목록 (페이지 {self.current_page + 1} / {self.max_page + 1})",
+                        value=full_text,
+                        inline=False
+                    )
+                else:
+                    mid = (len(lines) + 1) // 2
+                    embed.add_field(
+                        name=f"🔒 아직 획득하지 못한 카드 목록 (페이지 {self.current_page + 1} / {self.max_page + 1}) - 1",
+                        value="\n".join(lines[:mid]),
+                        inline=False
+                    )
+                    embed.add_field(
+                        name=f"🔒 아직 획득하지 못한 카드 목록 (페이지 {self.current_page + 1} / {self.max_page + 1}) - 2",
+                        value="\n".join(lines[mid:]),
+                        inline=False
+                    )
         else:
             if not page_items:
                 embed.add_field(
@@ -1288,11 +1316,25 @@ class CardPokedexView(core.SafeView):
                         f"**{idx}.** ✨ {lock_icon}`[{c.get('limit_label', '통상')}]` **{c['rarity_label']} [{c['prefix']}] {c['char_name']}** (`x{c.get('count', 1)}장`)\n"
                         f"   └ 🏷️ {c.get('unit', '')} · {c.get('attr', '✨')} · 도감 ID: `{c['id']}`"
                     )
-                embed.add_field(
-                    name=f"✨ 보유 완료 도감 목록 (페이지 {self.current_page + 1} / {self.max_page + 1})",
-                    value="\n\n".join(lines),
-                    inline=False
-                )
+                full_text = "\n".join(lines)
+                if len(full_text) <= 1000:
+                    embed.add_field(
+                        name=f"✨ 보유 완료 도감 목록 (페이지 {self.current_page + 1} / {self.max_page + 1})",
+                        value=full_text,
+                        inline=False
+                    )
+                else:
+                    mid = (len(lines) + 1) // 2
+                    embed.add_field(
+                        name=f"✨ 보유 완료 도감 목록 (페이지 {self.current_page + 1} / {self.max_page + 1}) - 1",
+                        value="\n".join(lines[:mid]),
+                        inline=False
+                    )
+                    embed.add_field(
+                        name=f"✨ 보유 완료 도감 목록 (페이지 {self.current_page + 1} / {self.max_page + 1}) - 2",
+                        value="\n".join(lines[mid:]),
+                        inline=False
+                    )
 
         embed.set_footer(text="상단 버튼으로 [캐릭터별 수집률 %] / [🔒 미획득 카드] / [✨ 보유 카드] 탭을 자유롭게 전환하세요!")
         return embed
