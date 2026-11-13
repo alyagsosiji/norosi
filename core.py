@@ -1,4 +1,5 @@
 import os
+import io
 import re
 import copy
 import json
@@ -8,6 +9,7 @@ import asyncio
 import datetime
 import calendar
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict, defaultdict, deque
 from typing import Optional, List, Dict, Any, Union
 import inspect
@@ -16,6 +18,13 @@ import urllib.parse
 import urllib.error
 import tempfile
 import base64
+
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except ImportError:
+    Image = None
+    ImageDraw = None
+    ImageFont = None
 
 class _RequestsResponse:
     def __init__(self, status_code, content_bytes):
@@ -279,8 +288,11 @@ _FIREBASE_DISABLED_UNTIL = 0.0
 
 # 일러스트 바이트 & 성공 URL LRU 캐시 (응답 지연 및 타임아웃 방지용)
 _IMAGE_BYTES_CACHE = OrderedDict()
+_THUMB_BYTES_CACHE = OrderedDict()
+_THUMB_CACHE_LOCK = threading.Lock()
 _ASSET_URL_CACHE = {}
 MAX_IMAGE_CACHE_SIZE = 80
+MAX_THUMB_CACHE_SIZE = 240
 
 
 def get_today_str():
@@ -1809,6 +1821,227 @@ def get_proseka_card_image_url(card: dict, mode: str = "auto") -> str:
     return f"https://storage.sekai.best/sekai-jp-assets/character/member/{asset_name}/card_{target_sfx}.webp"
 
 
+def _get_grid_font(size: int, bold: bool = True):
+    """한글/영문/숫자를 선명하게 지원하는 시스템 트루타입 폰트를 반환합니다."""
+    if ImageFont is None:
+        return None
+    font_candidates = (
+        [
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "C:\\Windows\\Fonts\\malgunbd.ttf",
+            "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+        ]
+        if bold
+        else [
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "C:\\Windows\\Fonts\\malgun.ttf",
+            "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+        ]
+    )
+    for fp in font_candidates:
+        if os.path.exists(fp):
+            try:
+                return ImageFont.truetype(fp, size)
+            except Exception:
+                continue
+    try:
+        return ImageFont.load_default()
+    except Exception:
+        return None
+
+
+def fetch_proseka_card_thumbnail_bytes(card: dict) -> bytes | None:
+    """10연차 5x2 격자 시트용 경량 캐릭터 썸네일 바이트를 LRU 캐시 기반으로 빠르게 가져옵니다."""
+    if not card:
+        return None
+    asset_name = card.get("assetbundleName")
+    if not asset_name:
+        cid = card.get("id")
+        for c in PROSEKA_KR_CARDS:
+            if c.get("id") == cid and c.get("assetbundleName"):
+                asset_name = c["assetbundleName"]
+                break
+    if not asset_name:
+        return None
+
+    cache_key = f"thumb:{asset_name}:normal"
+    with _THUMB_CACHE_LOCK:
+        if cache_key in _THUMB_BYTES_CACHE:
+            _THUMB_BYTES_CACHE.move_to_end(cache_key)
+            return _THUMB_BYTES_CACHE[cache_key]
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Referer": "https://sekai.best/",
+        "Origin": "https://sekai.best",
+    }
+    urls = [
+        f"https://storage.sekai.best/sekai-jp-assets/thumbnail/chara/{asset_name}_normal.webp",
+        f"https://storage.sekai.best/sekai-kr-assets/thumbnail/chara/{asset_name}_normal.webp",
+        f"https://storage.sekai.best/sekai-jp-assets/thumbnail/chara/{asset_name}_after_training.webp",
+    ]
+    for url in urls:
+        try:
+            res = requests.get(url, headers=headers, timeout=2.0)
+            if res.status_code == 200 and len(res.content) > 500:
+                with _THUMB_CACHE_LOCK:
+                    _THUMB_BYTES_CACHE[cache_key] = res.content
+                    if len(_THUMB_BYTES_CACHE) > MAX_THUMB_CACHE_SIZE:
+                        _THUMB_BYTES_CACHE.popitem(last=False)
+                return res.content
+        except Exception:
+            continue
+
+    img_bytes, _ = fetch_proseka_card_image_bytes(card, "normal")
+    if img_bytes:
+        with _THUMB_CACHE_LOCK:
+            _THUMB_BYTES_CACHE[cache_key] = img_bytes
+            if len(_THUMB_BYTES_CACHE) > MAX_THUMB_CACHE_SIZE:
+                _THUMB_BYTES_CACHE.popitem(last=False)
+        return img_bytes
+    return None
+
+
+def build_10pull_grid_image_bytes(
+    drawn_cards: list,
+    banner_type: str = "normal",
+    header_tag: str = "",
+) -> tuple[bytes | None, str | None]:
+    """
+    10연차(또는 다중 뽑기) 결과를 프로세카 인게임 결과판 스타일의 5x2 썸네일 격자 PNG로 합성합니다.
+    Pillow 미설치 시 (None, None)을 반환하여 안전하게 텍스트/일러스트 폴백을 유지합니다.
+    """
+    if Image is None or ImageDraw is None or not drawn_cards:
+        return None, None
+
+    cards = list(drawn_cards[:10])
+    thumb_bytes_list: list[bytes | None] = [None] * len(cards)
+    try:
+        with ThreadPoolExecutor(max_workers=min(10, max(1, len(cards)))) as pool:
+            thumb_bytes_list = list(pool.map(fetch_proseka_card_thumbnail_bytes, cards))
+    except Exception:
+        thumb_bytes_list = [fetch_proseka_card_thumbnail_bytes(c) for c in cards]
+
+    cols = 5
+    rows = 2 if len(cards) > 5 else 1
+    tile_w, tile_h = 196, 220
+    gap_x, gap_y = 20, 18
+    pad_x, header_h, pad_bottom = 30, 62, 26
+    width = pad_x * 2 + cols * tile_w + (cols - 1) * gap_x
+    height = header_h + rows * tile_h + max(0, rows - 1) * gap_y + pad_bottom
+
+    canvas = Image.new("RGBA", (width, height), (19, 22, 41, 255))
+    draw = ImageDraw.Draw(canvas)
+
+    b_cfg = BANNER_CONFIGS.get(banner_type, BANNER_CONFIGS["normal"])
+    accent_rgb = tuple(b_cfg.get("color", (0, 204, 221)))
+    draw.rectangle([0, 0, width, 46], fill=(28, 34, 64, 255))
+    draw.rectangle([0, 46, width, 49], fill=(*accent_rgb, 255))
+
+    font_header = _get_grid_font(20, bold=True)
+    font_sub = _get_grid_font(15, bold=False)
+    font_name = _get_grid_font(14, bold=True)
+    font_badge = _get_grid_font(12, bold=True)
+
+    r4_cnt = sum(1 for c in cards if c.get("star_num", 0) >= 4)
+    r3_cnt = sum(1 for c in cards if c.get("star_num", 0) == 3)
+    left_title = f"PROSEKA {len(cards)}연차 결과  |  {b_cfg.get('short_name', '가챠')}"
+    if header_tag:
+        left_title = f"{header_tag}  |  {left_title}"
+    right_stats = f"★4/생일: {r4_cnt}장   ★3: {r3_cnt}장"
+    draw.text((pad_x, 11), left_title, fill=(242, 246, 255, 255), font=font_header)
+    if font_sub:
+        bbox = draw.textbbox((0, 0), right_stats, font=font_sub)
+        tw = bbox[2] - bbox[0]
+        draw.text((width - pad_x - tw, 14), right_stats, fill=(170, 238, 255, 255), font=font_sub)
+
+    for idx, c in enumerate(cards):
+        col = idx % cols
+        row = idx // cols
+        x = pad_x + col * (tile_w + gap_x)
+        y = header_h + row * (tile_h + gap_y)
+
+        s_num = int(c.get("star_num", 2))
+        r_type = c.get("rarity_type", "")
+        if r_type == "rarity_birthday":
+            outer_col, inner_col, label_bg = (255, 130, 185, 255), (255, 210, 230, 255), (65, 28, 52, 255)
+            star_str = "BD"
+        elif s_num >= 4:
+            outer_col, inner_col, label_bg = (255, 215, 0, 255), (0, 229, 255, 255), (56, 38, 78, 255)
+            star_str = "★4"
+        elif s_num == 3:
+            outer_col, inner_col, label_bg = (242, 184, 48, 255), (255, 232, 140, 255), (50, 42, 26, 255)
+            star_str = "★3"
+        elif s_num == 2:
+            outer_col, inner_col, label_bg = (115, 195, 230, 255), (175, 225, 250, 255), (30, 42, 66, 255)
+            star_str = "★2"
+        else:
+            outer_col, inner_col, label_bg = (110, 120, 148, 255), (150, 160, 185, 255), (32, 36, 54, 255)
+            star_str = "★1"
+
+        # 카드 슬롯 배경 & 테두리
+        draw.rounded_rectangle([x, y, x + tile_w, y + tile_h], radius=12, fill=(25, 30, 52, 255), outline=outer_col, width=4)
+        if s_num >= 4:
+            draw.rounded_rectangle([x + 4, y + 4, x + tile_w - 4, y + tile_h - 4], radius=9, outline=inner_col, width=2)
+
+        art_size = 176
+        art_x = x + (tile_w - art_size) // 2
+        art_y = y + 8
+
+        raw_img = thumb_bytes_list[idx] if idx < len(thumb_bytes_list) else None
+        pasted = False
+        if raw_img:
+            try:
+                with Image.open(io.BytesIO(raw_img)) as im:
+                    im = im.convert("RGBA")
+                    w0, h0 = im.size
+                    if w0 > h0 * 1.2:
+                        # 가로형 전체 일러스트 폴백 시 중앙 정사각형 크롭
+                        side = min(w0, h0)
+                        left = (w0 - side) // 2
+                        top = (h0 - side) // 2
+                        im = im.crop((left, top, left + side, top + side))
+                    im = im.resize((art_size, art_size), Image.Resampling.LANCZOS)
+                    canvas.paste(im, (art_x, art_y), im)
+                    pasted = True
+            except Exception:
+                pasted = False
+
+        if not pasted:
+            draw.rounded_rectangle([art_x, art_y, art_x + art_size, art_y + art_size], radius=8, fill=label_bg)
+            draw.text((art_x + 56, art_y + 72), star_str, fill=(255, 255, 255, 255), font=font_header)
+
+        # 하단 라벨 바
+        bar_y = y + tile_h - 32
+        draw.rectangle([x + 4, bar_y, x + tile_w - 4, y + tile_h - 4], fill=label_bg)
+        short_name = str(c.get("char_name", ""))
+        if len(short_name) > 7:
+            short_name = short_name.split()[-1]
+        caption = f"{star_str} {short_name}"[:13]
+        if font_name:
+            cbbox = draw.textbbox((0, 0), caption, font=font_name)
+            cw = cbbox[2] - cbbox[0]
+            draw.text((x + max(6, (tile_w - cw) // 2), bar_y + 6), caption, fill=(255, 255, 255, 255), font=font_name)
+
+        # NEW! / PICKUP 배지
+        if c.get("is_new"):
+            draw.rounded_rectangle([x + 8, y + 8, x + 58, y + 28], radius=6, fill=(255, 72, 92, 240))
+            draw.text((x + 15, y + 10), "NEW!", fill=(255, 255, 255, 255), font=font_badge)
+        if c.get("is_pickup"):
+            draw.rounded_rectangle([x + tile_w - 68, y + 8, x + tile_w - 8, y + 28], radius=6, fill=(176, 56, 232, 240))
+            draw.text((x + tile_w - 61, y + 10), "PICKUP", fill=(255, 255, 255, 255), font=font_badge)
+
+    out = io.BytesIO()
+    canvas.convert("RGB").save(out, format="PNG", optimize=True)
+    return out.getvalue(), "gacha_grid_10pull.png"
+
+
 def fetch_live_event_and_gacha_info(server_key: str = "kr"):
     """한국 서버(kr) 또는 일본 서버(jp)의 실시간 이벤트 및 가챠 배너 정보 조회"""
     cfg = SERVER_DB_URLS.get(server_key, SERVER_DB_URLS["kr"])
@@ -2282,6 +2515,7 @@ DEFAULT_CONFIG = {
         "include_limited": True
     },
     "gacha_users": {},
+    "gacha_hall_of_fame": {},
     "user_profiles": {},
     "partners": {},
     "guild_attendance": {},
@@ -2663,6 +2897,9 @@ def normalize_data(data):
                         for cid_str, c_obj in u_info["cards"].items():
                             if isinstance(c_obj, dict):
                                 c_obj.setdefault("locked", False)
+
+    if "gacha_hall_of_fame" not in data or not isinstance(data["gacha_hall_of_fame"], dict):
+        data["gacha_hall_of_fame"] = {}
 
     if "user_profiles" not in data or not isinstance(data["user_profiles"], dict):
         data["user_profiles"] = {}
@@ -3424,6 +3661,24 @@ def sync_gacha_pickup_to_live_event() -> tuple[bool, str, dict]:
     return True, f"🎯 현재 한섭 이벤트 **[{ev_name}]**에 맞춰 픽업 설정이 자동 연동되었습니다!", pickup_obj
 
 
+def get_today_birthday_characters(now_dt: datetime.datetime | None = None) -> list[dict]:
+    """오늘(KST 기준) 생일인 프로세카 캐릭터 목록을 반환합니다."""
+    now = now_dt or datetime.datetime.now(KST)
+    md = (now.month, now.day)
+    result = []
+    for cid, bday in CHARACTER_BIRTHDAYS.items():
+        if bday == md:
+            cinfo = CHARACTER_MAP.get(cid, {})
+            result.append({
+                "char_id": cid,
+                "char_name": cinfo.get("name", f"캐릭터 #{cid}"),
+                "unit": cinfo.get("unit", ""),
+                "month": bday[0],
+                "day": bday[1],
+            })
+    return result
+
+
 def _is_banner_pickup(card: dict, pickup_cfg: dict, banner_type: str = "normal", current_month: int | None = None) -> bool:
     if banner_type == "fes":
         lbl = card.get("limit_label", "")
@@ -3464,7 +3719,9 @@ def calculate_card_probabilities(pickup_cfg, banner_type: str = "normal"):
         "mid": b_cfg["mid_rate"],
         "low": b_cfg["low_rate"],
     }
-    cur_month = datetime.datetime.now(KST).month
+    now_kst = datetime.datetime.now(KST)
+    cur_month = now_kst.month
+    today_bday_ids = {b["char_id"] for b in get_today_birthday_characters(now_kst)}
     result_list = []
 
     for tier_key, cards in tier_groups.items():
@@ -3473,14 +3730,32 @@ def calculate_card_probabilities(pickup_cfg, banner_type: str = "normal"):
         total_tier_prob = tier_rates[tier_key]
 
         if b_key == "birthday" and tier_key == "top":
-            # 생일 가챠: 이달의 생일 캐릭터 생일카드(45%) + 전체 생일카드(35%) + 일반/기타 ★4(20%)
+            # 생일 가챠: 당일 생일 캐릭터 최우선 픽업 강조 + 이달의 생일 + 전체 생일카드
             bday_cards = [c for c in cards if c.get("rarity_type") == "rarity_birthday"]
-            month_bdays = [c for c in bday_cards if CHARACTER_BIRTHDAYS.get(c.get("char_id"), (0, 0))[0] == cur_month]
-            other_bdays = [c for c in bday_cards if c not in month_bdays]
+            today_bdays = [c for c in bday_cards if c.get("char_id") in today_bday_ids] if today_bday_ids else []
+            month_bdays = [c for c in bday_cards if CHARACTER_BIRTHDAYS.get(c.get("char_id"), (0, 0))[0] == cur_month and c not in today_bdays]
+            other_bdays = [c for c in bday_cards if c not in today_bdays and c not in month_bdays]
             non_bdays = [c for c in cards if c.get("rarity_type") != "rarity_birthday"]
 
             if bday_cards and non_bdays:
-                if month_bdays and other_bdays:
+                if today_bdays and (month_bdays or other_bdays):
+                    t_each = (total_tier_prob * 0.45) / len(today_bdays)
+                    rem_bdays = month_bdays + other_bdays
+                    r_each = (total_tier_prob * 0.35) / len(rem_bdays)
+                    n_each = (total_tier_prob * 0.20) / len(non_bdays)
+                    for c in cards:
+                        item = dict(c)
+                        if c in today_bdays:
+                            item["prob"] = t_each
+                            item["is_pickup"] = True
+                        elif c in rem_bdays:
+                            item["prob"] = r_each
+                            item["is_pickup"] = True
+                        else:
+                            item["prob"] = n_each
+                            item["is_pickup"] = False
+                        result_list.append(item)
+                elif month_bdays and other_bdays:
                     m_each = (total_tier_prob * 0.45) / len(month_bdays)
                     o_each = (total_tier_prob * 0.35) / len(other_bdays)
                     n_each = (total_tier_prob * 0.20) / len(non_bdays)
@@ -3541,13 +3816,13 @@ def draw_proseka_cards(pickup_cfg, count=1, banner_type: str = "normal"):
         return []
 
     weights = [c["prob"] for c in prob_cards]
-    drawn = random.choices(prob_cards, weights=weights, k=count)
+    drawn = [dict(c) for c in random.choices(prob_cards, weights=weights, k=count)]
 
     if count >= 10 and not any(c["star_num"] >= 3 for c in drawn):
         high_pool = [c for c in prob_cards if c["star_num"] >= 3]
         if high_pool:
             high_weights = [c["prob"] for c in high_pool]
-            drawn[-1] = random.choices(high_pool, weights=high_weights, k=1)[0]
+            drawn[-1] = dict(random.choices(high_pool, weights=high_weights, k=1)[0])
 
     for c in drawn:
         cid_str = str(c.get("id"))
@@ -3557,60 +3832,310 @@ def draw_proseka_cards(pickup_cfg, count=1, banner_type: str = "normal"):
     return drawn
 
 
+def annotate_drawn_is_new(guild_id: int, user_id: int, drawn_cards: list) -> list:
+    """실제 저장 없이도 현재 보관함 기준으로 NEW! 여부를 표시합니다 (연습/운명 미리보기용)."""
+    data = load_data()
+    g_key = str(guild_id or 0)
+    u_key = str(user_id)
+    user_cards = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+    seen_in_pull = set()
+    for c in drawn_cards:
+        cid_str = str(c["id"])
+        is_new = (cid_str not in user_cards) and (cid_str not in seen_in_pull)
+        c["is_new"] = is_new
+        seen_in_pull.add(cid_str)
+    return drawn_cards
+
+
+def _save_pulled_cards_in_data(data: dict, guild_id: int, user_id: int, drawn_cards: list) -> dict:
+    g_key = str(guild_id or 0)
+    u_key = str(user_id)
+
+    if g_key not in data["gacha_users"]:
+        data["gacha_users"][g_key] = {}
+    if u_key not in data["gacha_users"][g_key]:
+        data["gacha_users"][g_key][u_key] = {"cards": {}}
+
+    user_cards = data["gacha_users"][g_key][u_key].setdefault("cards", {})
+    now_str = get_now_datetime_str()
+
+    for c in drawn_cards:
+        cid_str = str(c["id"])
+        if cid_str in user_cards:
+            c["is_new"] = False
+            user_cards[cid_str]["count"] = user_cards[cid_str].get("count", 1) + 1
+            user_cards[cid_str]["last_obtained_at"] = now_str
+            user_cards[cid_str].setdefault("locked", False)
+            user_cards[cid_str].setdefault("level", 1)
+            user_cards[cid_str].setdefault("awakened", False)
+            user_cards[cid_str].setdefault("master_rank", 0)
+            if c.get("assetbundleName"):
+                user_cards[cid_str]["assetbundleName"] = c["assetbundleName"]
+        else:
+            c["is_new"] = True
+            user_cards[cid_str] = {
+                "id": c["id"],
+                "char_id": c["char_id"],
+                "char_name": c["char_name"],
+                "unit": c["unit"],
+                "support_unit": c.get("support_unit"),
+                "rarity_type": c["rarity_type"],
+                "rarity_label": c["rarity_label"],
+                "star_num": c["star_num"],
+                "prefix": c["prefix"],
+                "attr": c["attr"],
+                "limit_label": c["limit_label"],
+                "is_limited": c["is_limited"],
+                "assetbundleName": c.get("assetbundleName", ""),
+                "obtained_at": now_str,
+                "last_obtained_at": now_str,
+                "count": 1,
+                "level": 1,
+                "awakened": False,
+                "master_rank": 0,
+                "locked": False
+            }
+    return user_cards
+
+
+def _record_hall_of_fame_in_data(data: dict, guild_id: int, user_id: int, drawn_cards: list, banner_type: str = "normal"):
+    """서버별 최고 비틱 10연차 명예의 전당과 최근 픽업/★4 획득 로그를 기록합니다."""
+    if not drawn_cards:
+        return
+    hof_root = data.setdefault("gacha_hall_of_fame", {})
+    g_key = str(guild_id or 0)
+    u_key = str(user_id)
+    g_hof = hof_root.setdefault(g_key, {
+        "user_best_10pull": {},
+        "recent_pickup_logs": [],
+        "recent_high_logs": [],
+    })
+    user_best = g_hof.setdefault("user_best_10pull", {})
+    recent_pickup = g_hof.setdefault("recent_pickup_logs", [])
+    recent_high = g_hof.setdefault("recent_high_logs", [])
+
+    now_str = get_now_datetime_str()
+    b_short = BANNER_CONFIGS.get(banner_type, BANNER_CONFIGS["normal"]).get("short_name", banner_type)
+
+    high_cards = [c for c in drawn_cards if int(c.get("star_num", 0)) >= 4]
+    if len(drawn_cards) >= 10 and high_cards:
+        high_cnt = len(high_cards)
+        pickup_cnt = sum(1 for c in high_cards if c.get("is_pickup"))
+        star4_cnt = sum(1 for c in high_cards if c.get("rarity_type") == "rarity_4")
+        bday_cnt = sum(1 for c in high_cards if c.get("rarity_type") == "rarity_birthday")
+        prev = user_best.get(u_key)
+        new_score = (high_cnt, pickup_cnt, star4_cnt)
+        prev_score = (
+            int(prev.get("high_count", 0)),
+            int(prev.get("pickup_count", 0)),
+            int(prev.get("star4_count", 0)),
+        ) if prev else (-1, -1, -1)
+
+        if new_score >= prev_score:
+            card_summaries = [
+                f"{'🎯' if c.get('is_pickup') else ('🎂' if c.get('rarity_type') == 'rarity_birthday' else '🌟')}[{c.get('prefix', '')}] {c.get('char_name', '')}"
+                for c in high_cards[:5]
+            ]
+            user_best[u_key] = {
+                "uid": u_key,
+                "high_count": high_cnt,
+                "pickup_count": pickup_cnt,
+                "star4_count": star4_cnt,
+                "bday_count": bday_cnt,
+                "banner": b_short,
+                "cards": card_summaries,
+                "achieved_at": now_str,
+            }
+
+    for c in high_cards:
+        entry = {
+            "uid": u_key,
+            "card_id": c.get("id"),
+            "label": f"[{c.get('prefix', '')}] {c.get('char_name', '')}",
+            "rarity_type": c.get("rarity_type", "rarity_4"),
+            "is_pickup": bool(c.get("is_pickup")),
+            "banner": b_short,
+            "obtained_at": now_str,
+        }
+        recent_high.insert(0, entry)
+        if c.get("is_pickup"):
+            recent_pickup.insert(0, entry)
+
+    del recent_high[20:]
+    del recent_pickup[20:]
+
+
 def save_pulled_cards_to_user(guild_id: int, user_id: int, drawn_cards: list):
     """뽑은 카드를 내 캐릭터 보관함에 즉시 저장"""
     with _DATA_LOCK:
         data = load_data()
-        g_key = str(guild_id or 0)
-        u_key = str(user_id)
-
-        if g_key not in data["gacha_users"]:
-            data["gacha_users"][g_key] = {}
-        if u_key not in data["gacha_users"][g_key]:
-            data["gacha_users"][g_key][u_key] = {"cards": {}}
-
-        user_cards = data["gacha_users"][g_key][u_key].setdefault("cards", {})
-        now_str = get_now_datetime_str()
-
-        for c in drawn_cards:
-            cid_str = str(c["id"])
-            if cid_str in user_cards:
-                c["is_new"] = False
-                user_cards[cid_str]["count"] = user_cards[cid_str].get("count", 1) + 1
-                user_cards[cid_str]["last_obtained_at"] = now_str
-                user_cards[cid_str].setdefault("locked", False)
-                user_cards[cid_str].setdefault("level", 1)
-                user_cards[cid_str].setdefault("awakened", False)
-                user_cards[cid_str].setdefault("master_rank", 0)
-                if c.get("assetbundleName"):
-                    user_cards[cid_str]["assetbundleName"] = c["assetbundleName"]
-            else:
-                c["is_new"] = True
-                user_cards[cid_str] = {
-                    "id": c["id"],
-                    "char_id": c["char_id"],
-                    "char_name": c["char_name"],
-                    "unit": c["unit"],
-                    "support_unit": c.get("support_unit"),
-                    "rarity_type": c["rarity_type"],
-                    "rarity_label": c["rarity_label"],
-                    "star_num": c["star_num"],
-                    "prefix": c["prefix"],
-                    "attr": c["attr"],
-                    "limit_label": c["limit_label"],
-                    "is_limited": c["is_limited"],
-                    "assetbundleName": c.get("assetbundleName", ""),
-                    "obtained_at": now_str,
-                    "last_obtained_at": now_str,
-                    "count": 1,
-                    "level": 1,
-                    "awakened": False,
-                    "master_rank": 0,
-                    "locked": False
-                }
-
+        user_cards = _save_pulled_cards_in_data(data, guild_id, user_id, drawn_cards)
         save_data(data)
         return user_cards
+
+
+def save_real_pull_and_records(guild_id: int, user_id: int, drawn_cards: list, banner_type: str = "normal"):
+    """실제 뽑기 결과를 보관함에 저장하고 서버 명예의 전당·픽업 로그를 원자적으로 갱신합니다."""
+    with _DATA_LOCK:
+        data = load_data()
+        user_cards = _save_pulled_cards_in_data(data, guild_id, user_id, drawn_cards)
+        _record_hall_of_fame_in_data(data, guild_id, user_id, drawn_cards, banner_type=banner_type)
+        save_data(data)
+        return user_cards
+
+
+def get_gacha_hall_of_fame(guild_id: int) -> dict:
+    """서버의 최고 비틱 10연차 명예의 전당과 최근 픽업 ★4 획득 로그를 반환합니다."""
+    data = load_data()
+    g_key = str(guild_id or 0)
+    g_hof = data.get("gacha_hall_of_fame", {}).get(g_key, {})
+    user_best_map = g_hof.get("user_best_10pull", {})
+    top_records = sorted(
+        user_best_map.values(),
+        key=lambda x: (-int(x.get("high_count", 0)), -int(x.get("pickup_count", 0)), -int(x.get("star4_count", 0))),
+    )[:5]
+    return {
+        "top_records": top_records,
+        "recent_pickup_logs": list(g_hof.get("recent_pickup_logs", []))[:8],
+        "recent_high_logs": list(g_hof.get("recent_high_logs", []))[:8],
+    }
+
+
+def can_use_daily_birthday_free_pull(guild_id: int, user_id: int, now_dt: datetime.datetime | None = None) -> tuple[bool, list[dict], str]:
+    """오늘 생일 캐릭터 존재 여부 및 해당 유저의 일일 1회 무료 생일 뽑기 가능 여부를 확인합니다."""
+    now = now_dt or datetime.datetime.now(KST)
+    bday_chars = get_today_birthday_characters(now)
+    if not bday_chars:
+        return False, [], "오늘은 생일인 프로세카 캐릭터가 없습니다."
+
+    today_str = now.strftime("%Y-%m-%d")
+    data = load_data()
+    g_key = str(guild_id or 0)
+    u_key = str(user_id)
+    u_info = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {})
+    if u_info.get("last_bday_free_date") == today_str:
+        names = ", ".join(b["char_name"] for b in bday_chars)
+        return False, bday_chars, f"오늘은 이미 **{names}** 생일 무료 단차를 사용하셨습니다!"
+    return True, bday_chars, "사용 가능"
+
+
+def draw_birthday_free_pull(guild_id: int, user_id: int, now_dt: datetime.datetime | None = None) -> tuple[bool, str, list[dict], list[dict]]:
+    """오늘 생일인 캐릭터의 생일 축하 무료 단차 1회를 실행하고 보관함 및 명예의 전당에 반영합니다."""
+    now = now_dt or datetime.datetime.now(KST)
+    bday_chars = get_today_birthday_characters(now)
+    if not bday_chars:
+        return False, "오늘은 생일인 프로세카 캐릭터가 없습니다.", [], []
+
+    today_str = now.strftime("%Y-%m-%d")
+    bday_ids = {b["char_id"] for b in bday_chars}
+    bday_names = ", ".join(b["char_name"] for b in bday_chars)
+
+    char_cards = [c for c in PROSEKA_KR_CARDS if c.get("char_id") in bday_ids]
+    if not char_cards:
+        return False, "생일 캐릭터 카드 DB를 불러오지 못했습니다.", bday_chars, []
+
+    bday_limited = [c for c in char_cards if c.get("rarity_type") == "rarity_birthday"]
+    star4 = [c for c in char_cards if c.get("rarity_type") == "rarity_4"]
+    star3 = [c for c in char_cards if c.get("rarity_type") == "rarity_3"]
+    low = [c for c in char_cards if int(c.get("star_num", 1)) <= 2]
+
+    weighted_pool = []
+    # 생일 특별 확률: 🎀생일/★4 합산 6.0% (생일한정 집중), ★3 19.0%, ★1~2 75.0%
+    top_total = 6.0
+    if bday_limited and star4:
+        b_each = (top_total * 0.70) / len(bday_limited)
+        s4_each = (top_total * 0.30) / len(star4)
+        for c in bday_limited:
+            item = dict(c); item["prob"] = b_each; item["is_pickup"] = True; weighted_pool.append(item)
+        for c in star4:
+            item = dict(c); item["prob"] = s4_each; item["is_pickup"] = True; weighted_pool.append(item)
+    elif bday_limited or star4:
+        top_all = bday_limited + star4
+        each = top_total / len(top_all)
+        for c in top_all:
+            item = dict(c); item["prob"] = each; item["is_pickup"] = True; weighted_pool.append(item)
+
+    if star3:
+        s3_each = 19.0 / len(star3)
+        for c in star3:
+            item = dict(c); item["prob"] = s3_each; item["is_pickup"] = False; weighted_pool.append(item)
+
+    if low:
+        low_each = 75.0 / len(low)
+        for c in low:
+            item = dict(c); item["prob"] = low_each; item["is_pickup"] = False; weighted_pool.append(item)
+
+    if not weighted_pool:
+        return False, "생일 뽑기 풀을 구성할 수 없습니다.", bday_chars, []
+
+    with _DATA_LOCK:
+        data = load_data()
+        g_key = str(guild_id or 0)
+        u_key = str(user_id)
+        u_obj = data.setdefault("gacha_users", {}).setdefault(g_key, {}).setdefault(u_key, {"cards": {}})
+        if u_obj.get("last_bday_free_date") == today_str:
+            return False, f"오늘은 이미 **{bday_names}** 생일 무료 단차를 사용하셨습니다!", bday_chars, []
+
+        weights = [c["prob"] for c in weighted_pool]
+        drawn = [dict(random.choices(weighted_pool, weights=weights, k=1)[0])]
+        for c in drawn:
+            cid_str = str(c.get("id"))
+            if cid_str in PROSEKA_KR_COSTUMES:
+                c["costume"] = PROSEKA_KR_COSTUMES[cid_str]
+
+        u_obj["last_bday_free_date"] = today_str
+        _save_pulled_cards_in_data(data, guild_id, user_id, drawn)
+        _record_hall_of_fame_in_data(data, guild_id, user_id, drawn, banner_type="birthday")
+        save_data(data)
+
+    return True, f"🎂 오늘은 **{bday_names}**의 생일! 생일 축하 무료 단차 1회 결과입니다!", bday_chars, drawn
+
+
+def can_use_daily_destiny_reroll(guild_id: int, user_id: int, now_dt: datetime.datetime | None = None) -> tuple[bool, str]:
+    """일일 1회 '운명 다시 뽑기(최대 3세트 중 택1)' 사용 가능 여부를 확인합니다."""
+    now = now_dt or datetime.datetime.now(KST)
+    today_str = now.strftime("%Y-%m-%d")
+    data = load_data()
+    g_key = str(guild_id or 0)
+    u_key = str(user_id)
+    u_info = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {})
+    if u_info.get("last_destiny_date") == today_str:
+        return False, "오늘의 **🔮 운명 다시 뽑기**를 이미 사용하셨습니다! 내일 자정(KST)에 다시 도전할 수 있어요."
+    return True, "사용 가능"
+
+
+def start_daily_destiny_reroll(
+    guild_id: int,
+    user_id: int,
+    pickup_cfg: dict,
+    banner_type: str = "normal",
+    now_dt: datetime.datetime | None = None,
+) -> tuple[bool, str, list[dict]]:
+    """일일 1회 운명 다시 뽑기를 시작(당일 사용 잠금)하고 첫 10연차 세트를 반환합니다."""
+    now = now_dt or datetime.datetime.now(KST)
+    today_str = now.strftime("%Y-%m-%d")
+    with _DATA_LOCK:
+        data = load_data()
+        g_key = str(guild_id or 0)
+        u_key = str(user_id)
+        u_obj = data.setdefault("gacha_users", {}).setdefault(g_key, {}).setdefault(u_key, {"cards": {}})
+        if u_obj.get("last_destiny_date") == today_str:
+            return False, "오늘의 **🔮 운명 다시 뽑기**를 이미 사용하셨습니다! 내일 자정(KST)에 다시 도전할 수 있어요.", []
+
+        drawn = draw_proseka_cards(pickup_cfg, count=10, banner_type=banner_type)
+        if not drawn:
+            return False, "한국 서버 캐릭터 DB를 불러오지 못했습니다.", []
+
+        user_cards = u_obj.get("cards", {})
+        seen = set()
+        for c in drawn:
+            cid_str = str(c["id"])
+            c["is_new"] = (cid_str not in user_cards) and (cid_str not in seen)
+            seen.add(cid_str)
+
+        u_obj["last_destiny_date"] = today_str
+        save_data(data)
+        return True, "🔮 오늘의 운명 다시 뽑기가 시작되었습니다! (최대 3세트 중 원하는 1세트 확정 수령)", drawn
 
 
 def toggle_user_card_lock(guild_id: int, user_id: int, card_id_str: str) -> tuple[bool, bool, dict | None]:

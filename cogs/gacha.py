@@ -52,7 +52,14 @@ def build_gacha_intro_embed(drawn: list, banner_type: str = "normal", pull_count
     return embed
 
 
-def build_gacha_pull_embed(drawn: list, pickup_cfg: dict, pull_count: int, user: discord.User = None, banner_type: str = "normal"):
+def build_gacha_pull_embed(
+    drawn: list,
+    pickup_cfg: dict,
+    pull_count: int,
+    user: discord.User = None,
+    banner_type: str = "normal",
+    mode_note: str | None = None,
+):
     has_4star = any(c["star_num"] >= 4 for c in drawn)
     b_cfg = core.BANNER_CONFIGS.get(banner_type, core.BANNER_CONFIGS["normal"])
     default_rgb = b_cfg.get("color", (0, 204, 221))
@@ -119,7 +126,15 @@ def build_gacha_pull_embed(drawn: list, pickup_cfg: dict, pull_count: int, user:
     elif has_4star:
         title_str = "🎉✨ " + title_str + " (최고 등급 카드 등장!)"
 
-    banner_line = f"🎰 **선택 배너:** `{b_cfg['name']}`\n\n"
+    header_lines = [f"🎰 **선택 배너:** `{b_cfg['name']}`"]
+    if mode_note:
+        header_lines.append(mode_note)
+    today_bdays = core.get_today_birthday_characters()
+    if today_bdays:
+        bday_names = ", ".join(b["char_name"] for b in today_bdays)
+        header_lines.append(f"🎂 **오늘의 생일 픽업:** `{bday_names}` (하단 무료 단차 / 생일 배너 픽업 강조!)")
+
+    banner_line = "\n".join(header_lines) + "\n\n"
     embed = discord.Embed(
         title=title_str[:256],
         description=banner_line + "\n\n".join(lines) + f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{summary_line}",
@@ -142,12 +157,20 @@ async def send_gacha_pull_result(
     pull_count: int,
     view: discord.ui.View,
     banner_type: str = "normal",
-    skip_anim: bool = False
+    skip_anim: bool = False,
+    mode_note: str | None = None,
+    grid_tag: str = "",
 ):
-    """뽑기 결과 전송: 연출 보기 시 3.5초 승격 연출+대사 선공개 후 일러스트와 함께 결과를 표시합니다."""
-    embed, has_4star = build_gacha_pull_embed(drawn, pickup_cfg, pull_count, user=interaction.user, banner_type=banner_type)
+    """뽑기 결과 전송: 연출 보기 시 3.5초 승격 연출+대사 선공개 후 5x2 결과판 & 일러스트와 함께 결과를 표시합니다."""
+    embed, has_4star = build_gacha_pull_embed(
+        drawn, pickup_cfg, pull_count, user=interaction.user, banner_type=banner_type, mode_note=mode_note
+    )
     high_cards = [c for c in drawn if c.get("star_num", 0) >= 4] if has_4star else []
     total_high = len(high_cards)
+    want_grid = len(drawn) >= 2
+
+    async def _empty_grid():
+        return None, None
 
     intro_msg = None
     if not skip_anim:
@@ -157,35 +180,52 @@ async def send_gacha_pull_result(
         except Exception:
             intro_msg = None
 
-        if high_cards:
-            results, _ = await asyncio.gather(
-                asyncio.gather(*(asyncio.to_thread(core.fetch_proseka_card_image_bytes, c, "auto") for c in high_cards[:9])),
-                asyncio.sleep(3.5)
-            )
-        else:
-            results = []
-            await asyncio.sleep(3.5)
+        img_coro = (
+            asyncio.gather(*(asyncio.to_thread(core.fetch_proseka_card_image_bytes, c, "auto") for c in high_cards[:9]))
+            if high_cards else asyncio.sleep(0, result=[])
+        )
+        grid_coro = (
+            asyncio.to_thread(core.build_10pull_grid_image_bytes, drawn, banner_type, grid_tag)
+            if want_grid else _empty_grid()
+        )
+        results, (grid_bytes, grid_fn), _ = await asyncio.gather(img_coro, grid_coro, asyncio.sleep(3.5))
     else:
-        if high_cards:
-            results = await asyncio.gather(*(
-                asyncio.to_thread(core.fetch_proseka_card_image_bytes, c, "auto")
-                for c in high_cards[:9]
-            ))
-        else:
-            results = []
+        img_coro = (
+            asyncio.gather(*(asyncio.to_thread(core.fetch_proseka_card_image_bytes, c, "auto") for c in high_cards[:9]))
+            if high_cards else asyncio.sleep(0, result=[])
+        )
+        grid_coro = (
+            asyncio.to_thread(core.build_10pull_grid_image_bytes, drawn, banner_type, grid_tag)
+            if want_grid else _empty_grid()
+        )
+        results, (grid_bytes, grid_fn) = await asyncio.gather(img_coro, grid_coro)
+
+    grid_file = None
+    if grid_bytes and grid_fn:
+        grid_file = discord.File(io.BytesIO(grid_bytes), filename=grid_fn)
+        embed.set_image(url=f"attachment://{grid_fn}")
 
     if not has_4star:
         if intro_msg is not None:
             try:
-                await intro_msg.edit(embed=embed, view=view)
+                if grid_file is not None:
+                    await intro_msg.edit(embed=embed, attachments=[grid_file], view=view)
+                else:
+                    await intro_msg.edit(embed=embed, view=view)
                 return
             except Exception:
                 pass
-        await interaction.followup.send(embed=embed, view=view)
+        if grid_file is not None:
+            await interaction.followup.send(embed=embed, file=discord.File(io.BytesIO(grid_bytes), filename=grid_fn), view=view)
+        else:
+            await interaction.followup.send(embed=embed, view=view)
         return
 
     embeds = [embed]
     files = []
+    if grid_file is not None:
+        files.append(grid_file)
+
     for idx, (c, (img_bytes, filename)) in enumerate(zip(high_cards[:9], results), start=1):
         card_badge = "🎂 [Birthday]" if c.get("rarity_type") == "rarity_birthday" else "🌟 ★4"
         pickup_txt = "🎯 **[픽업!]** " if c.get("is_pickup") else ""
@@ -235,7 +275,13 @@ async def send_gacha_pull_result(
             pass
 
     if files:
-        await interaction.followup.send(embeds=embeds, files=files, view=view)
+        fresh_files = []
+        if grid_bytes and grid_fn:
+            fresh_files.append(discord.File(io.BytesIO(grid_bytes), filename=grid_fn))
+        for idx, (c, (img_bytes, filename)) in enumerate(zip(high_cards[:9], results), start=1):
+            if img_bytes and filename:
+                fresh_files.append(discord.File(io.BytesIO(img_bytes), filename=f"pull_{idx}_{filename}"))
+        await interaction.followup.send(embeds=embeds, files=fresh_files, view=view)
     else:
         await interaction.followup.send(embeds=embeds, view=view)
 
@@ -388,7 +434,7 @@ def check_and_update_gacha_cooldown(user_id: int, skip_anim: bool = False) -> tu
 
 
 class GachaPullAgainView(core.SafeView):
-    """가챠 결과 화면에서 배너 전환, 연출 스킵, 재뽑기, 마스터랭크, 라이브 등을 바로 여는 뷰"""
+    """가챠 결과 화면에서 배너 전환, 연출 스킵, 재뽑기, 생일 무료 단차, 마스터랭크, 라이브 등을 바로 여는 뷰"""
 
     def __init__(self, user: discord.User, banner_type: str = "normal", skip_anim: bool = False):
         super().__init__(timeout=600)
@@ -404,6 +450,14 @@ class GachaPullAgainView(core.SafeView):
         else:
             self.toggle_skip_anim.label = "✨ 연출 스킵: OFF"
             self.toggle_skip_anim.style = discord.ButtonStyle.secondary
+
+        bday_chars = core.get_today_birthday_characters()
+        if bday_chars:
+            names = ", ".join(b["char_name"].split()[-1] for b in bday_chars)
+            self.birthday_free_pull.label = f"🎂 [{names}] 생일 무료 단차!"[:80]
+        else:
+            if self.birthday_free_pull in self.children:
+                self.remove_item(self.birthday_free_pull)
 
         self.banner_select.options = [
             discord.SelectOption(
@@ -445,7 +499,7 @@ class GachaPullAgainView(core.SafeView):
             return
 
         guild_id = interaction.guild_id or 0
-        await asyncio.to_thread(core.save_pulled_cards_to_user, guild_id, interaction.user.id, drawn)
+        await asyncio.to_thread(core.save_real_pull_and_records, guild_id, interaction.user.id, drawn, self.banner_type)
         new_view = GachaPullAgainView(interaction.user, banner_type=self.banner_type, skip_anim=self.skip_anim)
         await send_gacha_pull_result(
             interaction,
@@ -537,6 +591,447 @@ class GachaPullAgainView(core.SafeView):
             f"🎰 다음 뽑기 배너가 **`{b_cfg['name']}`**(으)로 변경되었습니다!\n└ *{b_cfg['desc']}*",
             ephemeral=True
         )
+
+    @discord.ui.button(label="🎂 생일 무료 단차!", style=discord.ButtonStyle.danger, row=3)
+    async def birthday_free_pull(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        guild_id = interaction.guild_id or 0
+        ok, msg, bday_chars, drawn = await asyncio.to_thread(
+            core.draw_birthday_free_pull, guild_id, interaction.user.id
+        )
+        if not ok:
+            await interaction.followup.send(f"❌ {msg}", ephemeral=True)
+            return
+        data = await asyncio.to_thread(core.load_data)
+        pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
+        new_view = GachaPullAgainView(interaction.user, banner_type="birthday", skip_anim=self.skip_anim)
+        await send_gacha_pull_result(
+            interaction,
+            drawn,
+            pickup_cfg,
+            1,
+            new_view,
+            banner_type="birthday",
+            skip_anim=self.skip_anim,
+            mode_note=f"🎂 **[생일 당일 무료 1회!]** {msg}",
+        )
+
+
+class RerollSimulatorView(core.SafeView):
+    """보관함/랭킹/쿨타임 영향 없이 10연차와 픽업 저격 확률을 체험하는 리세마라 연습 시뮬레이터 뷰"""
+
+    def __init__(self, user: discord.User, guild_id: int, pickup_cfg: dict, banner_type: str = "normal", initial_drawn: list | None = None):
+        super().__init__(timeout=600)
+        self.user = user
+        self.guild_id = guild_id
+        self.pickup_cfg = pickup_cfg
+        self.banner_type = banner_type if banner_type in core.BANNER_CONFIGS else "normal"
+        self.attempt_count = 1
+        self.drawn = initial_drawn or []
+        self.total_high = sum(1 for c in self.drawn if c.get("star_num", 0) >= 4)
+        self.total_pickup = sum(1 for c in self.drawn if c.get("star_num", 0) >= 4 and c.get("is_pickup"))
+        self.last_auto_note: str | None = None
+        self._lock = asyncio.Lock()
+        self._refresh_select()
+
+    def _refresh_select(self):
+        self.sim_banner_select.options = [
+            discord.SelectOption(
+                label="🌟 일반 / 현재 픽업 가챠 (★4 3.0%)",
+                value="normal",
+                default=(self.banner_type == "normal"),
+            ),
+            discord.SelectOption(
+                label="🎊 컬러풀 페스티벌 (★4 2배 · 6.0%!)",
+                value="fes",
+                default=(self.banner_type == "fes"),
+            ),
+            discord.SelectOption(
+                label="🎂 생일 / 기념일 스페셜 가챠",
+                value="birthday",
+                default=(self.banner_type == "birthday"),
+            ),
+        ]
+
+    def build_sim_embed(self, grid_filename: str | None = None) -> discord.Embed:
+        b_cfg = core.BANNER_CONFIGS.get(self.banner_type, core.BANNER_CONFIGS["normal"])
+        lines = []
+        for idx, c in enumerate(self.drawn, start=1):
+            p_mark = "🎯**[픽업!]** " if c.get("is_pickup") else ""
+            new_mark = "✨**[미보유]** " if c.get("is_new") else ""
+            s_num = int(c.get("star_num", 2))
+            badge = "🎂 [Birthday]" if c.get("rarity_type") == "rarity_birthday" else ("🌟 ★★★★" if s_num >= 4 else ("💫 ★★★" if s_num == 3 else f"⭐ ★{s_num}"))
+            lines.append(f"**{idx:02d}.** {p_mark}{new_mark}**{badge} [{c.get('prefix', '')}] {c.get('char_name', '')}** (`{c.get('prob', 0):.3f}%`)")
+
+        cur_high = sum(1 for c in self.drawn if c.get("star_num", 0) >= 4)
+        cur_pickup = sum(1 for c in self.drawn if c.get("star_num", 0) >= 4 and c.get("is_pickup"))
+        crystal_used = self.attempt_count * 3000
+
+        header_lines = [
+            "🧪 **[연습 시뮬레이터 · 보관함/쿨타임/랭킹 미반영]**",
+            f"• **선택 배너:** `{b_cfg['name']}` · **적용 픽업:** `{core.format_pickup_summary(self.pickup_cfg)}`",
+            f"• **누적 시도:** `{self.attempt_count}회` (`{self.attempt_count * 10:,}연차` / 가상 소모 `{crystal_used:,}💎`) · **누적 ★4·생일:** `{self.total_high}장` (🎯픽업 `{self.total_pickup}장`)",
+            f"• **이번 세트:** ★4·생일 `{cur_high}장` · 🎯픽업 `{cur_pickup}장`",
+        ]
+        if self.last_auto_note:
+            header_lines.append(f"• {self.last_auto_note}")
+
+        embed = discord.Embed(
+            title=f"🧪 리세마라 연습 시뮬레이터 — {self.attempt_count}회차 결과",
+            description="\n".join(header_lines) + "\n\n" + "\n".join(lines),
+            color=discord.Color.from_rgb(255, 105, 180) if cur_high > 0 else discord.Color.from_rgb(*b_cfg.get("color", (0, 204, 221))),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.set_author(name=f"{self.user.display_name}님의 연습 시뮬레이션", icon_url=getattr(self.user.display_avatar, "url", None))
+        if grid_filename:
+            embed.set_image(url=f"attachment://{grid_filename}")
+        embed.set_footer(text="연습 모드로 뽑은 카드는 보관함/도감/랭킹에 저장되지 않습니다.")
+        return embed
+
+    @discord.ui.button(label="🔁 10연차 다시 돌리기", style=discord.ButtonStyle.primary, row=0)
+    async def reroll_once(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 연습 시뮬레이션을 시작한 본인만 조작할 수 있습니다.", ephemeral=True)
+            return
+        async with self._lock:
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            self.pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
+            drawn = core.draw_proseka_cards(self.pickup_cfg, count=10, banner_type=self.banner_type)
+            core.annotate_drawn_is_new(self.guild_id, self.user.id, drawn)
+            self.drawn = drawn
+            self.attempt_count += 1
+            self.total_high += sum(1 for c in drawn if c.get("star_num", 0) >= 4)
+            self.total_pickup += sum(1 for c in drawn if c.get("star_num", 0) >= 4 and c.get("is_pickup"))
+            self.last_auto_note = None
+            grid_bytes, grid_fn = await asyncio.to_thread(
+                core.build_10pull_grid_image_bytes, drawn, self.banner_type, f"연습 {self.attempt_count}회차"
+            )
+            embed = self.build_sim_embed(grid_fn if grid_bytes else None)
+            if grid_bytes and grid_fn:
+                await interaction.edit_original_response(
+                    embed=embed, attachments=[discord.File(io.BytesIO(grid_bytes), filename=grid_fn)], view=self
+                )
+            else:
+                await interaction.edit_original_response(embed=embed, view=self)
+
+    @discord.ui.button(label="🎯 픽업/★4 뜰 때까지 돌리기 (최대 50회)", style=discord.ButtonStyle.success, row=0)
+    async def auto_reroll_until_hit(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 연습 시뮬레이션을 시작한 본인만 조작할 수 있습니다.", ephemeral=True)
+            return
+        async with self._lock:
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            self.pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
+            prob_cards = core.calculate_card_probabilities(self.pickup_cfg, banner_type=self.banner_type)
+            has_pickup_target = any(c.get("is_pickup") and c.get("star_num", 0) >= 4 for c in prob_cards)
+
+            batch_tries = 0
+            last_drawn = []
+            hit = False
+            while batch_tries < 50:
+                batch_tries += 1
+                drawn = core.draw_proseka_cards(self.pickup_cfg, count=10, banner_type=self.banner_type)
+                self.attempt_count += 1
+                self.total_high += sum(1 for c in drawn if c.get("star_num", 0) >= 4)
+                self.total_pickup += sum(1 for c in drawn if c.get("star_num", 0) >= 4 and c.get("is_pickup"))
+                last_drawn = drawn
+                if has_pickup_target:
+                    if any(c.get("is_pickup") and c.get("star_num", 0) >= 4 for c in drawn):
+                        hit = True
+                        break
+                else:
+                    if any(c.get("star_num", 0) >= 4 for c in drawn):
+                        hit = True
+                        break
+
+            core.annotate_drawn_is_new(self.guild_id, self.user.id, last_drawn)
+            self.drawn = last_drawn
+            target_label = "목표 픽업 ★4" if has_pickup_target else "★4·생일"
+            if hit:
+                self.last_auto_note = f"🎉 **자동 시뮬 성공:** 이번 도전 `{batch_tries}회` (`{batch_tries * 10}연차`, 가상 `{batch_tries * 3000:,}💎`) 만에 {target_label} 등장!"
+            else:
+                self.last_auto_note = f"💦 **자동 시뮬 50회({500}연차) 완료:** 이번 50회에서는 {target_label} 미등장"
+
+            grid_bytes, grid_fn = await asyncio.to_thread(
+                core.build_10pull_grid_image_bytes, last_drawn, self.banner_type, f"연습 {self.attempt_count}회차"
+            )
+            embed = self.build_sim_embed(grid_fn if grid_bytes else None)
+            if grid_bytes and grid_fn:
+                await interaction.edit_original_response(
+                    embed=embed, attachments=[discord.File(io.BytesIO(grid_bytes), filename=grid_fn)], view=self
+                )
+            else:
+                await interaction.edit_original_response(embed=embed, view=self)
+
+    @discord.ui.select(
+        placeholder="🧪 연습 배너 선택...",
+        row=1,
+        options=[discord.SelectOption(label="일반", value="normal")]
+    )
+    async def sim_banner_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 연습 시뮬레이션을 시작한 본인만 배너를 바꿀 수 있습니다.", ephemeral=True)
+            return
+        self.banner_type = select.values[0]
+        self._refresh_select()
+        await interaction.response.edit_message(view=self)
+
+
+class DestinyRerollView(core.SafeView):
+    """일일 1회 '운명 다시 뽑기': 최대 3세트의 10연차를 굴려보고 가장 마음에 드는 1세트를 확정 수령하는 뷰"""
+
+    def __init__(self, user: discord.User, guild_id: int, pickup_cfg: dict, banner_type: str, first_set: list[dict]):
+        super().__init__(timeout=600)
+        self.user = user
+        self.guild_id = guild_id
+        self.pickup_cfg = pickup_cfg
+        self.banner_type = banner_type if banner_type in core.BANNER_CONFIGS else "normal"
+        self.sets: list[list[dict]] = [first_set]
+        self.current_idx: int = 0
+        self.confirmed: bool = False
+        self._lock = asyncio.Lock()
+        self._refresh_buttons()
+
+    def _refresh_buttons(self):
+        rem_rerolls = max(0, 3 - len(self.sets))
+        self.reroll_set.label = f"🔁 다시 뽑기 (남은 {rem_rerolls}/2회)"
+        self.reroll_set.disabled = self.confirmed or (rem_rerolls == 0)
+        self.prev_set.disabled = self.confirmed or (self.current_idx <= 0)
+        self.next_set.disabled = self.confirmed or (self.current_idx >= len(self.sets) - 1)
+        self.confirm_set.label = f"✅ {self.current_idx + 1}세트 확정 수령!" if not self.confirmed else "✅ 수령 완료!"
+        self.confirm_set.disabled = self.confirmed
+
+    def build_destiny_embed(self, grid_filename: str | None = None) -> discord.Embed:
+        b_cfg = core.BANNER_CONFIGS.get(self.banner_type, core.BANNER_CONFIGS["normal"])
+        cur_cards = self.sets[self.current_idx]
+        lines = []
+        for idx, c in enumerate(cur_cards, start=1):
+            p_mark = "🎯**[픽업!]** " if c.get("is_pickup") else ""
+            new_mark = "✨**[NEW!]** " if c.get("is_new") else ""
+            s_num = int(c.get("star_num", 2))
+            badge = "🎂 [Birthday]" if c.get("rarity_type") == "rarity_birthday" else ("🌟 ★★★★" if s_num >= 4 else ("💫 ★★★" if s_num == 3 else f"⭐ ★{s_num}"))
+            lines.append(f"**{idx:02d}.** {p_mark}{new_mark}**{badge} [{c.get('prefix', '')}] {c.get('char_name', '')}**")
+
+        compare_parts = []
+        for s_i, s_cards in enumerate(self.sets):
+            h_cnt = sum(1 for c in s_cards if c.get("star_num", 0) >= 4)
+            p_cnt = sum(1 for c in s_cards if c.get("star_num", 0) >= 4 and c.get("is_pickup"))
+            n_cnt = sum(1 for c in s_cards if c.get("is_new"))
+            marker = "👉" if s_i == self.current_idx else "•"
+            compare_parts.append(f"{marker} **{s_i + 1}세트:** ★4·생일 `{h_cnt}` (픽업 `{p_cnt}`) · NEW `{n_cnt}`")
+
+        status_txt = "✅ **선택 확정 완료! 보관함에 저장되었습니다.**" if self.confirmed else "💡 최대 3세트까지 뽑아보고, `이전/다음 세트`로 비교한 뒤 **원하는 1세트를 확정 수령**하세요!"
+        desc = (
+            f"🔮 **일일 1회 운명 다시 뽑기** · 배너: `{b_cfg['name']}`\n"
+            f"{status_txt}\n\n"
+            + " | ".join(compare_parts)
+            + "\n\n"
+            + "\n".join(lines)
+        )
+        cur_high = sum(1 for c in cur_cards if c.get("star_num", 0) >= 4)
+        embed = discord.Embed(
+            title=f"🔮 운명 다시 뽑기 — 세트 {self.current_idx + 1} / {len(self.sets)} (최대 3세트)",
+            description=desc,
+            color=discord.Color.from_rgb(255, 105, 180) if cur_high > 0 else discord.Color.purple(),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.set_author(name=f"{self.user.display_name}님의 운명 다시 뽑기", icon_url=getattr(self.user.display_avatar, "url", None))
+        if grid_filename:
+            embed.set_image(url=f"attachment://{grid_filename}")
+        embed.set_footer(text="확정 수령 버튼을 누르기 전까지 카드가 보관함에 저장되지 않습니다.")
+        return embed
+
+    async def _render_current(self, interaction: discord.Interaction):
+        self._refresh_buttons()
+        cur_cards = self.sets[self.current_idx]
+        grid_bytes, grid_fn = await asyncio.to_thread(
+            core.build_10pull_grid_image_bytes, cur_cards, self.banner_type, f"운명 {self.current_idx + 1}세트"
+        )
+        embed = self.build_destiny_embed(grid_fn if grid_bytes else None)
+        if grid_bytes and grid_fn:
+            await interaction.edit_original_response(
+                embed=embed, attachments=[discord.File(io.BytesIO(grid_bytes), filename=grid_fn)], view=self
+            )
+        else:
+            await interaction.edit_original_response(embed=embed, view=self)
+
+    @discord.ui.button(label="🔁 다시 뽑기 (남은 2/2회)", style=discord.ButtonStyle.primary, row=0)
+    async def reroll_set(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 운명 다시 뽑기를 시작한 본인만 조작할 수 있습니다.", ephemeral=True)
+            return
+        async with self._lock:
+            if self.confirmed or len(self.sets) >= 3:
+                await core.safe_send_response(interaction, "❌ 더 이상 다시 뽑을 수 없습니다.", ephemeral=True)
+                return
+            await core.safe_defer(interaction)
+            new_set = core.draw_proseka_cards(self.pickup_cfg, count=10, banner_type=self.banner_type)
+            core.annotate_drawn_is_new(self.guild_id, self.user.id, new_set)
+            self.sets.append(new_set)
+            self.current_idx = len(self.sets) - 1
+            await self._render_current(interaction)
+
+    @discord.ui.button(label="◀️ 이전 세트", style=discord.ButtonStyle.secondary, row=0)
+    async def prev_set(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 본인만 세트를 전환할 수 있습니다.", ephemeral=True)
+            return
+        async with self._lock:
+            if self.current_idx <= 0:
+                return
+            await core.safe_defer(interaction)
+            self.current_idx -= 1
+            await self._render_current(interaction)
+
+    @discord.ui.button(label="▶️ 다음 세트", style=discord.ButtonStyle.secondary, row=0)
+    async def next_set(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 본인만 세트를 전환할 수 있습니다.", ephemeral=True)
+            return
+        async with self._lock:
+            if self.current_idx >= len(self.sets) - 1:
+                return
+            await core.safe_defer(interaction)
+            self.current_idx += 1
+            await self._render_current(interaction)
+
+    @discord.ui.button(label="✅ 1세트 확정 수령!", style=discord.ButtonStyle.success, row=0)
+    async def confirm_set(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 본인만 세트를 확정 수령할 수 있습니다.", ephemeral=True)
+            return
+        async with self._lock:
+            if self.confirmed:
+                await core.safe_send_response(interaction, "✅ 이미 확정 수령을 완료했습니다.", ephemeral=True)
+                return
+            await core.safe_defer(interaction)
+            self.confirmed = True
+            chosen_idx = self.current_idx
+            chosen_cards = self.sets[chosen_idx]
+            await asyncio.to_thread(
+                core.save_real_pull_and_records, self.guild_id, self.user.id, chosen_cards, self.banner_type
+            )
+            await self._render_current(interaction)
+
+            repull_view = GachaPullAgainView(self.user, banner_type=self.banner_type, skip_anim=True)
+            await send_gacha_pull_result(
+                interaction,
+                chosen_cards,
+                self.pickup_cfg,
+                10,
+                repull_view,
+                banner_type=self.banner_type,
+                skip_anim=True,
+                mode_note=f"🔮 **[운명 다시 뽑기 확정 수령!]** 총 {len(self.sets)}세트 중 **{chosen_idx + 1}세트**를 선택하여 보관함에 저장했습니다!",
+                grid_tag=f"운명 확정 ({chosen_idx + 1}세트)",
+            )
+
+
+class GachaRankingView(core.SafeView):
+    """종합 가챠 랭킹 + 최고 비틱 명예의 전당 & 최근 픽업 ★4 로그를 전환하는 2탭 뷰"""
+
+    def __init__(self, user: discord.User, guild_name: str, total_db_cards: int, stats_list: list[dict], hall_of_fame: dict):
+        super().__init__(timeout=300)
+        self.user = user
+        self.guild_name = guild_name
+        self.total_db_cards = max(1, total_db_cards)
+        self.stats_list = stats_list
+        self.hall_of_fame = hall_of_fame
+        self.current_tab = "overall"  # overall | hof
+        self._refresh_buttons()
+
+    def _refresh_buttons(self):
+        self.tab_overall.style = discord.ButtonStyle.primary if self.current_tab == "overall" else discord.ButtonStyle.secondary
+        self.tab_hof.style = discord.ButtonStyle.primary if self.current_tab == "hof" else discord.ButtonStyle.secondary
+
+    def build_embed(self) -> discord.Embed:
+        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+        if self.current_tab == "overall":
+            embed = discord.Embed(
+                title=f"🏆 {self.guild_name} 프로세카 가챠 랭킹 보드",
+                description=f"한국 서버 전체 도감(`{self.total_db_cards:,}종`) 기준 실시간 순위입니다.",
+                color=discord.Color.gold(),
+                timestamp=datetime.datetime.now(core.KST),
+            )
+            if self.stats_list:
+                by_collect = sorted(self.stats_list, key=lambda x: (-x["unique"], -x["high"], -x["pulls"]))[:5]
+                collect_lines = [
+                    f"{medals[i]} <@{s['uid']}> — **`{s['unique']:,}종`** (`{s['rate']:.1f}%`)"
+                    for i, s in enumerate(by_collect)
+                ]
+                by_high = sorted(self.stats_list, key=lambda x: (-x["high"], -x["star4"], -x["unique"]))[:5]
+                high_lines = [
+                    f"{medals[i]} <@{s['uid']}> — 합계 **`{s['high']:,}장`** (`★4 {s['star4']}` · `🎀 {s['bday']}`)"
+                    for i, s in enumerate(by_high)
+                ]
+                by_pulls = sorted(self.stats_list, key=lambda x: (-x["pulls"], -x["unique"]))[:5]
+                pull_lines = [
+                    f"{medals[i]} <@{s['uid']}> — 누적 **`{s['pulls']:,}회`** 뽑기"
+                    for i, s in enumerate(by_pulls)
+                ]
+                embed.add_field(name="📚 도감 수집률 TOP 5", value="\n".join(collect_lines), inline=False)
+                embed.add_field(name="✨ ★4 & 🎀생일 최다 보유 TOP 5", value="\n".join(high_lines), inline=False)
+                embed.add_field(name="🎰 누적 뽑기 횟수 TOP 5", value="\n".join(pull_lines), inline=False)
+            else:
+                embed.add_field(name="📭 데이터 없음", value="아직 집계된 보관함 기록이 없습니다.", inline=False)
+            embed.set_footer(text="하단 버튼으로 [👑 명예의 전당 & 비틱 로그]를 확인할 수 있습니다.")
+            return embed
+
+        # 명예의 전당 & 픽업 ★4 로그 탭
+        embed = discord.Embed(
+            title=f"👑 {self.guild_name} 최고 비틱 명예의 전당 & 픽업 로그",
+            description="단일 10연차 최다 ★4·생일 신기록과 서버 내 최근 픽업 ★4 획득 현황입니다. *(연습 모드 제외)*",
+            color=discord.Color.from_rgb(255, 105, 180),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        top_records = self.hall_of_fame.get("top_records") or []
+        if top_records:
+            hof_lines = []
+            for i, r in enumerate(top_records[:5]):
+                cards_preview = ", ".join(r.get("cards", [])[:3])
+                pickup_info = f" · 🎯픽업 `{r.get('pickup_count', 0)}`" if r.get("pickup_count", 0) > 0 else ""
+                hof_lines.append(
+                    f"{medals[i]} <@{r['uid']}> — 10연차 **★4·생일 `{r.get('high_count', 0)}장`**{pickup_info} (`{r.get('banner', '')}` · {r.get('achieved_at', '')[:10]})\n"
+                    f"   └ {cards_preview}"
+                )
+            embed.add_field(name="🌟 단일 10연차 최고 비틱 TOP 5", value="\n".join(hof_lines), inline=False)
+        else:
+            embed.add_field(name="🌟 단일 10연차 최고 비틱 TOP 5", value="아직 10연차 ★4 명예의 전당 기록이 없습니다. 첫 주인공이 되어보세요!", inline=False)
+
+        pickup_logs = self.hall_of_fame.get("recent_pickup_logs") or []
+        if pickup_logs:
+            p_lines = [
+                f"🎯 <@{e['uid']}> — **{e['label']}** (`{e['banner']}` · `{e['obtained_at'][5:16]}`)"
+                for e in pickup_logs[:7]
+            ]
+            embed.add_field(name="🎯 최근 서버 내 픽업 ★4 획득 로그", value="\n".join(p_lines), inline=False)
+        else:
+            embed.add_field(name="🎯 최근 서버 내 픽업 ★4 획득 로그", value="최근 픽업 ★4 획득 기록이 아직 없습니다.", inline=False)
+
+        high_logs = self.hall_of_fame.get("recent_high_logs") or []
+        if high_logs:
+            h_lines = [
+                f"{'🎯' if e.get('is_pickup') else ('🎂' if e.get('rarity_type') == 'rarity_birthday' else '🌟')} <@{e['uid']}> — **{e['label']}** (`{e['obtained_at'][5:16]}`)"
+                for e in high_logs[:5]
+            ]
+            embed.add_field(name="✨ 최근 서버 내 ★4 · 생일 획득 로그", value="\n".join(h_lines), inline=False)
+
+        embed.set_footer(text="하단 버튼으로 [🏆 종합 랭킹]과 [👑 명예의 전당]을 전환할 수 있습니다.")
+        return embed
+
+    @discord.ui.button(label="🏆 종합 랭킹", style=discord.ButtonStyle.primary, row=0)
+    async def tab_overall(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_tab = "overall"
+        self._refresh_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="👑 명예의 전당 & 비틱 로그", style=discord.ButtonStyle.secondary, row=0)
+    async def tab_hof(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_tab = "hof"
+        self._refresh_buttons()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
 
 class CardTradeAcceptView(core.SafeView):
@@ -2004,8 +2499,14 @@ class GuildGachaResetConfirmView(core.SafeView):
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
         g_key = str(self.guild.id)
+        changed = False
         if g_key in data.get("gacha_users", {}):
             del data["gacha_users"][g_key]
+            changed = True
+        if g_key in data.get("gacha_hall_of_fame", {}):
+            del data["gacha_hall_of_fame"][g_key]
+            changed = True
+        if changed:
             await asyncio.to_thread(core.save_data, data)
 
         embed = discord.Embed(
@@ -2035,6 +2536,7 @@ class AllGachaResetConfirmView(core.SafeView):
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
         data["gacha_users"] = {}
+        data["gacha_hall_of_fame"] = {}
         data["gacha_pickup"] = copy.deepcopy(core.DEFAULT_CONFIG["gacha_pickup"])
         await asyncio.to_thread(core.save_data, data)
 
@@ -2736,11 +3238,12 @@ class GachaCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="프로세카뽑기", description="프로세카 한국 서버 캐릭터를 배너(일반/페스티벌/생일)별로 뽑고 보관함에 저장합니다.")
+    @app_commands.command(name="프로세카뽑기", description="프로세카 한섭 뽑기 (일반·페스·생일 / 리세마라 연습 / 일일 운명 다시 뽑기 / 생일 무료 단차)")
     @app_commands.describe(
         횟수="1회 뽑기(단차) 또는 10회 뽑기(10연차 - ★3 이상 확정)를 선택하세요.",
         배너="(선택) 뽑기 배너를 선택하세요 (일반·페스티벌 ★4 2배·생일 스페셜)",
-        연출="(선택) 무지개 승격 & 대사 선공개 연출 표시 여부를 선택하세요."
+        연출="(선택) 무지개 승격 & 대사 선공개 연출 표시 여부를 선택하세요.",
+        모드="(선택) 일반 뽑기 / 리세마라 연습(무저장·무쿨타임) / 운명 다시 뽑기(1일 1회) / 생일 무료 단차"
     )
     @app_commands.choices(
         횟수=[
@@ -2755,6 +3258,12 @@ class GachaCog(commands.Cog):
         연출=[
             app_commands.Choice(name="✨ 무지개 승격 & 대사 연출 보기 (기본)", value="anim"),
             app_commands.Choice(name="⏭️ 연출 스킵 (결과 즉시 표시)", value="skip"),
+        ],
+        모드=[
+            app_commands.Choice(name="💎 일반 뽑기 (보관함 저장 · 기본)", value="normal"),
+            app_commands.Choice(name="🧪 리세마라 연습 모드 (저장 안 됨 · 무쿨타임)", value="practice"),
+            app_commands.Choice(name="🔮 운명 다시 뽑기 (1일 1회 · 3세트 중 택1)", value="destiny"),
+            app_commands.Choice(name="🎂 오늘의 생일 무료 단차 (생일 당일 1회)", value="birthday_free"),
         ]
     )
     async def proseka_pull_cmd(
@@ -2762,9 +3271,100 @@ class GachaCog(commands.Cog):
         interaction: discord.Interaction,
         횟수: app_commands.Choice[int] = None,
         배너: app_commands.Choice[str] = None,
-        연출: app_commands.Choice[str] = None
+        연출: app_commands.Choice[str] = None,
+        모드: app_commands.Choice[str] = None,
     ):
+        mode_val = 모드.value if 모드 else "normal"
+        banner_key = 배너.value if 배너 else "normal"
         skip_anim = (연출 is not None and 연출.value == "skip")
+        guild_id = interaction.guild_id or 0
+
+        if mode_val == "practice":
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
+            drawn = core.draw_proseka_cards(pickup_cfg, count=10, banner_type=banner_key)
+            if not drawn:
+                await interaction.followup.send("❌ 한국 서버 캐릭터 DB를 불러오지 못했습니다.")
+                return
+            core.annotate_drawn_is_new(guild_id, interaction.user.id, drawn)
+            sim_view = RerollSimulatorView(interaction.user, guild_id, pickup_cfg, banner_type=banner_key, initial_drawn=drawn)
+            grid_bytes, grid_fn = await asyncio.to_thread(
+                core.build_10pull_grid_image_bytes, drawn, banner_key, "연습 1회차"
+            )
+            embed = sim_view.build_sim_embed(grid_fn if grid_bytes else None)
+            if grid_bytes and grid_fn:
+                await interaction.followup.send(
+                    embed=embed, file=discord.File(io.BytesIO(grid_bytes), filename=grid_fn), view=sim_view
+                )
+            else:
+                await interaction.followup.send(embed=embed, view=sim_view)
+            return
+
+        if mode_val == "birthday_free":
+            can_bday, _, b_reason = await asyncio.to_thread(
+                core.can_use_daily_birthday_free_pull, guild_id, interaction.user.id
+            )
+            if not can_bday:
+                await core.safe_send_response(interaction, content=f"❌ {b_reason}", ephemeral=True)
+                return
+            await core.safe_defer(interaction)
+            ok, msg, _, drawn = await asyncio.to_thread(core.draw_birthday_free_pull, guild_id, interaction.user.id)
+            if not ok:
+                await interaction.followup.send(f"❌ {msg}", ephemeral=True)
+                return
+            data = await asyncio.to_thread(core.load_data)
+            pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
+            repull_view = GachaPullAgainView(interaction.user, banner_type="birthday", skip_anim=skip_anim)
+            await send_gacha_pull_result(
+                interaction,
+                drawn,
+                pickup_cfg,
+                1,
+                repull_view,
+                banner_type="birthday",
+                skip_anim=skip_anim,
+                mode_note=f"🎂 **[생일 당일 무료 1회!]** {msg}",
+            )
+            return
+
+        if mode_val == "destiny":
+            can_dest, d_reason = await asyncio.to_thread(
+                core.can_use_daily_destiny_reroll, guild_id, interaction.user.id
+            )
+            if not can_dest:
+                await core.safe_send_response(interaction, content=f"❌ {d_reason}", ephemeral=True)
+                return
+            can_pull, rem = check_and_update_gacha_cooldown(interaction.user.id, skip_anim=True)
+            if not can_pull:
+                await core.safe_send_response(
+                    interaction,
+                    content=f"⏳ **봇의 원활한 서비스를 위해, 뽑기 쿨타임입니다!** `{rem:.1f}초` 후에 다시 눌러주세요.",
+                    ephemeral=True
+                )
+                return
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
+            ok, msg, first_set = await asyncio.to_thread(
+                core.start_daily_destiny_reroll, guild_id, interaction.user.id, pickup_cfg, banner_key
+            )
+            if not ok:
+                await interaction.followup.send(f"❌ {msg}", ephemeral=True)
+                return
+            destiny_view = DestinyRerollView(interaction.user, guild_id, pickup_cfg, banner_key, first_set)
+            grid_bytes, grid_fn = await asyncio.to_thread(
+                core.build_10pull_grid_image_bytes, first_set, banner_key, "운명 1세트"
+            )
+            embed = destiny_view.build_destiny_embed(grid_fn if grid_bytes else None)
+            if grid_bytes and grid_fn:
+                await interaction.followup.send(
+                    embed=embed, file=discord.File(io.BytesIO(grid_bytes), filename=grid_fn), view=destiny_view
+                )
+            else:
+                await interaction.followup.send(embed=embed, view=destiny_view)
+            return
+
         can_pull, rem = check_and_update_gacha_cooldown(interaction.user.id, skip_anim=skip_anim)
         if not can_pull:
             await core.safe_send_response(
@@ -2776,7 +3376,6 @@ class GachaCog(commands.Cog):
 
         await core.safe_defer(interaction)
         pull_count = 횟수.value if 횟수 else 1
-        banner_key = 배너.value if 배너 else "normal"
 
         data = await asyncio.to_thread(core.load_data)
         pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
@@ -2786,8 +3385,7 @@ class GachaCog(commands.Cog):
             await interaction.followup.send("❌ 한국 서버 캐릭터 DB를 불러오지 못했습니다.")
             return
 
-        guild_id = interaction.guild_id or 0
-        await asyncio.to_thread(core.save_pulled_cards_to_user, guild_id, interaction.user.id, drawn)
+        await asyncio.to_thread(core.save_real_pull_and_records, guild_id, interaction.user.id, drawn, banner_key)
 
         repull_view = GachaPullAgainView(interaction.user, banner_type=banner_key, skip_anim=skip_anim)
         await send_gacha_pull_result(
@@ -3410,16 +4008,14 @@ class GachaCog(commands.Cog):
 
         await interaction.followup.send(embed=embed)
 
-    @app_commands.command(name="가챠랭킹", description="현재 서버의 도감 수집률, ★4·생일 최다 보유자, 최다 뽑기 유저 순위를 확인합니다.")
+    @app_commands.command(name="가챠랭킹", description="서버의 수집률/★4 보유 순위 및 단일 10연차 최고 비틱 명예의 전당·픽업 로그를 확인합니다.")
     async def gacha_ranking_cmd(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
-        g_key = str(interaction.guild_id or 0)
+        guild_id = interaction.guild_id or 0
+        g_key = str(guild_id)
         guild_users = data.get("gacha_users", {}).get(g_key, {})
-
-        if not guild_users:
-            await interaction.followup.send("📭 아직 이 서버에서 가챠를 진행한 유저가 없습니다. `/프로세카뽑기`로 첫 주인공이 되어보세요!")
-            return
+        hall_of_fame = core.get_gacha_hall_of_fame(guild_id)
 
         total_db_cards = max(1, len(core.PROSEKA_KR_CARDS))
         stats_list = []
@@ -3443,42 +4039,14 @@ class GachaCog(commands.Cog):
                 "pulls": pull_cnt
             })
 
-        if not stats_list:
-            await interaction.followup.send("📭 아직 집계된 가챠 데이터가 없습니다.")
+        has_hof = bool(hall_of_fame.get("top_records") or hall_of_fame.get("recent_pickup_logs") or hall_of_fame.get("recent_high_logs"))
+        if not stats_list and not has_hof:
+            await interaction.followup.send("📭 아직 이 서버에서 가챠를 진행한 유저가 없습니다. `/프로세카뽑기`로 첫 주인공이 되어보세요!")
             return
 
-        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
-
-        by_collect = sorted(stats_list, key=lambda x: (-x["unique"], -x["high"], -x["pulls"]))[:5]
-        collect_lines = [
-            f"{medals[i]} <@{s['uid']}> — **`{s['unique']:,}종`** (`{s['rate']:.1f}%`)"
-            for i, s in enumerate(by_collect)
-        ]
-
-        by_high = sorted(stats_list, key=lambda x: (-x["high"], -x["star4"], -x["unique"]))[:5]
-        high_lines = [
-            f"{medals[i]} <@{s['uid']}> — 합계 **`{s['high']:,}장`** (`★4 {s['star4']}` · `🎀 {s['bday']}`)"
-            for i, s in enumerate(by_high)
-        ]
-
-        by_pulls = sorted(stats_list, key=lambda x: (-x["pulls"], -x["unique"]))[:5]
-        pull_lines = [
-            f"{medals[i]} <@{s['uid']}> — 누적 **`{s['pulls']:,}회`** 뽑기"
-            for i, s in enumerate(by_pulls)
-        ]
-
         guild_name = interaction.guild.name if interaction.guild else "서버"
-        embed = discord.Embed(
-            title=f"🏆 {guild_name} 프로세카 가챠 랭킹 보드",
-            description=f"한국 서버 전체 도감(`{total_db_cards:,}종`) 기준 실시간 순위입니다.",
-            color=discord.Color.gold(),
-            timestamp=datetime.datetime.now(core.KST)
-        )
-        embed.add_field(name="📚 도감 수집률 TOP 5", value="\n".join(collect_lines), inline=False)
-        embed.add_field(name="✨ ★4 & 🎀생일 최다 보유 TOP 5", value="\n".join(high_lines), inline=False)
-        embed.add_field(name="🎰 누적 뽑기 횟수 TOP 5", value="\n".join(pull_lines), inline=False)
-
-        await interaction.followup.send(embed=embed)
+        view = GachaRankingView(interaction.user, guild_name, total_db_cards, stats_list, hall_of_fame)
+        await interaction.followup.send(embed=view.build_embed(), view=view)
 
     @app_commands.command(name="픽업설정", description="[봇주인 전용] 현재 한섭 이벤트에 맞춰 픽업을 자동 연동하거나 유닛/캐릭터/한정 여부를 직접 설정합니다.")
     @app_commands.autocomplete(캐릭터=core.proseka_char_autocomplete)
