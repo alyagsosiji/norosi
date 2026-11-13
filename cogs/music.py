@@ -878,9 +878,6 @@ class JitterFreeAudioBuffer(discord.AudioSource):
         self._thread = threading.Thread(target=self._worker, daemon=True, name="NorosiAudioBufferWorker")
         self._thread.start()
 
-        # 재생 시작 전 0.5초(25프레임) 분량의 쿠션 버퍼를 최대 2.5초간 안전하게 대기
-        self._ready.wait(timeout=2.5)
-
     def _worker(self):
         while not self._stopped.is_set():
             try:
@@ -1435,6 +1432,21 @@ class VoicePlayerControlView(core.SafeView):
         super().__init__(timeout=3600)
         self.player = player
         self.update_components()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
+        vc = self.player.guild.voice_client
+        if not vc or not vc.channel:
+            await core.safe_send_response(interaction, "❌ 봇이 현재 음성채널에 연결되어 있지 않습니다.", ephemeral=True)
+            return False
+        if not interaction.user.voice or interaction.user.voice.channel != vc.channel:
+            await core.safe_send_response(
+                interaction,
+                f"❌ 봇과 동일한 음성채널(**{vc.channel.name}**)에 접속 중인 유저만 리모컨을 조작할 수 있습니다!",
+                ephemeral=True
+            )
+            return False
+        return True
 
     def update_components(self):
         vc = self.player.guild.voice_client
@@ -3097,6 +3109,17 @@ class PlaylistStudioView(core.SafeView):
 
         self.update_components()
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
+        if interaction.user.id != self.viewer.id:
+            await core.safe_send_response(
+                interaction,
+                f"❌ 이 플레이리스트 스튜디오는 **{self.viewer.display_name}**님 전용입니다. `/플레이리스트` 명령어로 본인의 스튜디오를 열어보세요!",
+                ephemeral=True
+            )
+            return False
+        return True
+
     def get_playlists(self) -> list:
         profile = core.ensure_user_profile(self.data, self.owner.id, self.owner.display_name)
         return core.ensure_user_playlists(profile, self.owner.display_name)
@@ -3293,7 +3316,7 @@ class PlaylistStudioView(core.SafeView):
                     await asyncio.to_thread(core.save_data, data)
                     self.data = data
                 except Exception as e:
-                    logger.warning(f"플랫폼 변경 비동기 저장 중 예외 발생: {e}")
+                    print(f"⚠️ 플랫폼 변경 비동기 저장 중 예외 발생: {e}", flush=True)
             asyncio.create_task(_bg_save())
 
     @discord.ui.button(label="🔀 랜덤 선곡", style=discord.ButtonStyle.secondary, row=0)
@@ -4053,7 +4076,7 @@ class MusicCog(commands.Cog):
             title=f"📁 {target_user.display_name}님의 플레이리스트 보관함 ({len(pls)}/20)",
             description="원하는 플레이리스트를 선택하여 스튜디오를 열거나 바로 감상해 보세요 ✨",
             color=0x5865F2,
-            timestamp=datetime.now(KST)
+            timestamp=datetime.datetime.now(core.KST)
         )
         embed.set_thumbnail(url=target_user.display_avatar.url)
 
@@ -4159,6 +4182,7 @@ class MusicCog(commands.Cog):
             await interaction.followup.send("🗑️ 선택한 음악 알림 타이머가 삭제되었습니다.", embed=hub_view.build_embed(), view=hub_view)
 
     @app_commands.command(name="음악추천설정", description="매일 오전 7시 음악 추천을 받을 채널과 조건을 설정합니다.")
+    @app_commands.default_permissions(manage_guild=True)
     @app_commands.describe(
         채널="매일 오전 7시 추천 음악을 전송받을 텍스트 채널을 선택하세요.",
         플랫폼="추천받을 사이트 선택 (기본: 모두 랜덤)",
@@ -4181,6 +4205,10 @@ class MusicCog(commands.Cog):
         아티스트: str = None,
         플레이리스트링크: str = None
     ):
+        if interaction.guild and not interaction.user.guild_permissions.manage_guild and not await self.bot.is_bot_owner_user(interaction.user):
+            await core.safe_send_response(interaction, "❌ 서버 관리 권한(`서버 관리`)이 있는 유저만 음악 추천 설정을 변경할 수 있습니다.", ephemeral=True)
+            return
+
         if 플레이리스트링크 and not any(k in 플레이리스트링크 for k in ("youtube.com/", "youtu.be/", "spotify.com/", "soundcloud.com/")):
             await core.safe_send_response(
                 interaction,
@@ -4192,13 +4220,17 @@ class MusicCog(commands.Cog):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
         selected_platform = 플랫폼.value if 플랫폼 else "all"
-        data["music_prefs"] = {
+        g_id = str(interaction.guild_id or 0)
+        pref_obj = {
             "channel_id": 채널.id,
             "platform": selected_platform,
             "genre": 장르,
             "artist": 아티스트,
             "playlist_url": 플레이리스트링크
         }
+        guild_prefs = data.setdefault("guild_music_prefs", {})
+        guild_prefs[g_id] = pref_obj
+        data["music_prefs"] = pref_obj
         await asyncio.to_thread(core.save_data, data)
 
         embed = discord.Embed(title="🎧 모닝 음악 추천 설정 완료", color=discord.Color.from_rgb(0, 204, 221))
@@ -4210,7 +4242,7 @@ class MusicCog(commands.Cog):
                 inline=False
             )
         else:
-            platform_label = 플랫폼.name if 플랫폼 else "랜덤 (Spotify + SoundCloud)"
+            platform_label = 플랫폼.name if 플랫폼 else "랜덤 (YouTube + Spotify + SoundCloud)"
             embed.add_field(name="🌐 플랫폼", value=f"`{platform_label}`", inline=True)
             embed.add_field(name="🎸 장르", value=f"`{장르 if 장르 else '요일·시간대별 감성 자동'}`", inline=True)
             embed.add_field(name="🎤 아티스트", value=f"`{아티스트 if 아티스트 else '랜덤 (미지정)'}`", inline=True)
@@ -4221,7 +4253,8 @@ class MusicCog(commands.Cog):
     async def test_music_now(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
-        prefs = data.get("music_prefs", core.DEFAULT_CONFIG["music_prefs"])
+        g_id = str(interaction.guild_id or 0)
+        prefs = data.get("guild_music_prefs", {}).get(g_id) or data.get("music_prefs", core.DEFAULT_CONFIG["music_prefs"])
         track_info, error = await core.get_recommended_music(prefs)
 
         if error or not track_info:
@@ -4854,7 +4887,7 @@ class MusicCog(commands.Cog):
             title=f"📁 {ctx.author.display_name}님의 플레이리스트 보관함 ({len(pls)}/20)",
             description="원하는 플레이리스트를 선택하여 스튜디오를 열거나 바로 감상해 보세요 ✨",
             color=0x5865F2,
-            timestamp=datetime.now(KST)
+            timestamp=datetime.datetime.now(core.KST)
         )
         embed.set_thumbnail(url=ctx.author.display_avatar.url)
 

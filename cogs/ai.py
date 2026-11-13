@@ -1,8 +1,7 @@
 import time
-import json
-import urllib.request
 import datetime
 import asyncio
+from typing import Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -159,9 +158,11 @@ class AiCog(commands.Cog):
         if custom_prompt and not 캐릭터:
             sys_prompt = f"너는 프로세카 캐릭터야. 다음 유저의 프롬프트와 어조를 따라 대답해줘:\n{custom_prompt}"
 
+        # 쿨타임 및 일일 한도 선반영 (API 응답 대기 중 동시 다발적 쿨타임 우회 방지)
+        await self._update_rate_limit(usage, data, interaction.user.id)
+
         # Request reply via internal helper or simulation text
         reply = await self._call_gemini_api(sys_prompt, 메시지, char_key=char_key)
-        await self._update_rate_limit(usage, data, interaction.user.id)
 
         rem = max(0, 15 - usage["daily_count"])
 
@@ -173,7 +174,7 @@ class AiCog(commands.Cog):
         )
         embed.set_author(name=f"{char_info['unit']} • {char_info['name']}")
         embed.set_footer(text=f"요청자: {interaction.user.display_name} • 💡 오늘 남은 AI 대화: {rem}/15회 (15초 쿨타임)")
-        view = AiChatReplyView(self, char_key, interaction.user)
+        view = AiChatReplyView(self, char_key, interaction.user, prev_q=메시지, prev_a=reply)
         await interaction.followup.send(embed=embed, view=view)
 
     @app_commands.command(name="인공지능캐릭터설정", description="[AI 세카이] 내가 기본으로 대화할 프로세카 오시 캐릭터나 맞춤 프롬프트를 지정합니다.")
@@ -300,10 +301,12 @@ class AiContinueChatModal(core.SafeModal, title="💬 세카이 AI 이어서 대
         max_length=500
     )
 
-    def __init__(self, ai_cog: AiCog, char_key: str):
+    def __init__(self, ai_cog: AiCog, char_key: str, prev_q: str = "", prev_a: str = ""):
         super().__init__()
         self.ai_cog = ai_cog
         self.char_key = char_key
+        self.prev_q = prev_q
+        self.prev_a = prev_a
         char_info = AI_PERSONAS.get(char_key, AI_PERSONAS["kanade"])
         self.title = f"💬 {char_info['emoji']} {char_info['name']}에게 답장하기"[:45]
 
@@ -315,18 +318,24 @@ class AiContinueChatModal(core.SafeModal, title="💬 세카이 AI 이어서 대
             await interaction.followup.send(err_msg, ephemeral=True)
             return
 
+        # 쿨타임 및 일일 한도 선반영 (API 응답 대기 중 동시 다발적 쿨타임 우회 방지)
+        await self.ai_cog._update_rate_limit(usage, data, interaction.user.id)
+
         u_key = str(interaction.user.id)
         user_cfg = data.get("user_ai_config", {}).get(u_key, {})
         custom_prompt = user_cfg.get("custom_prompt", "")
 
         char_info = AI_PERSONAS.get(self.char_key, AI_PERSONAS["kanade"])
         sys_prompt = char_info["prompt"]
-        if custom_prompt and self.char_key == user_cfg.get("default_char"):
+        if custom_prompt and self.char_key == user_cfg.get("default_char", "kanade"):
             sys_prompt = f"너는 프로세카 캐릭터야. 다음 유저의 프롬프트와 어조를 따라 대답해줘:\n{custom_prompt}"
+
+        # 이전 대화 맥락이 있는 경우 프롬프트에 연결
+        if self.prev_q and self.prev_a:
+            sys_prompt = f"{sys_prompt}\n\n[이전 대화 맥락]\n유저: {self.prev_q}\n너의 이전 답변: {self.prev_a}"
 
         user_text = self.message_input.value.strip()
         reply = await self.ai_cog._call_gemini_api(sys_prompt, user_text, char_key=self.char_key)
-        await self.ai_cog._update_rate_limit(usage, data, interaction.user.id)
 
         rem = max(0, 15 - usage["daily_count"])
         embed = discord.Embed(
@@ -337,15 +346,16 @@ class AiContinueChatModal(core.SafeModal, title="💬 세카이 AI 이어서 대
         )
         embed.set_author(name=f"{char_info['unit']} • {char_info['name']}")
         embed.set_footer(text=f"요청자: {interaction.user.display_name} • 💡 오늘 남은 AI 대화: {rem}/15회 (15초 쿨타임)")
-        view = AiChatReplyView(self.ai_cog, self.char_key, interaction.user)
+        view = AiChatReplyView(self.ai_cog, self.char_key, interaction.user, prev_q=user_text, prev_a=reply)
         await interaction.followup.send(embed=embed, view=view)
 
 
 class AiPersonaSelect(discord.ui.Select):
     """대화 캐릭터 즉시 변경 드롭다운 (현재 캐릭터 default 체크)"""
-    def __init__(self, ai_cog: AiCog, user: discord.User, current_char: str = "kanade"):
+    def __init__(self, ai_cog: AiCog, user: discord.User, current_char: str = "kanade", parent_reply_view: Optional["AiChatReplyView"] = None):
         self.ai_cog = ai_cog
         self.user = user
+        self.parent_reply_view = parent_reply_view
         options = [
             discord.SelectOption(
                 label=f"{info['name']} ({info['unit']})",
@@ -359,6 +369,9 @@ class AiPersonaSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         chosen_key = self.values[0]
+        if self.parent_reply_view:
+            self.parent_reply_view.char_key = chosen_key
+
         data = await asyncio.to_thread(core.load_data)
         u_key = str(self.user.id)
         user_cfg = data.setdefault("user_ai_config", {}).setdefault(u_key, {})
@@ -380,18 +393,20 @@ class AiPersonaSelect(discord.ui.Select):
 
 class AiChatReplyView(core.SafeView):
     """AI 응답 화면에서 원클릭으로 다음 대화를 이어가거나 캐릭터를 변경하는 뷰"""
-    def __init__(self, ai_cog: AiCog, char_key: str, user: discord.User):
+    def __init__(self, ai_cog: AiCog, char_key: str, user: discord.User, prev_q: str = "", prev_a: str = ""):
         super().__init__(timeout=300)
         self.ai_cog = ai_cog
         self.char_key = char_key
         self.user = user
+        self.prev_q = prev_q
+        self.prev_a = prev_a
 
     @discord.ui.button(label="💬 이어서 대화하기", style=discord.ButtonStyle.primary, emoji="💬")
     async def continue_chat_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, content="❌ 질문자 본인만 이어서 대화할 수 있습니다.", ephemeral=True)
             return
-        await interaction.response.send_modal(AiContinueChatModal(self.ai_cog, self.char_key))
+        await interaction.response.send_modal(AiContinueChatModal(self.ai_cog, self.char_key, prev_q=self.prev_q, prev_a=self.prev_a))
 
     @discord.ui.button(label="🎭 캐릭터 변경", style=discord.ButtonStyle.secondary, emoji="🎭")
     async def change_char_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -399,7 +414,7 @@ class AiChatReplyView(core.SafeView):
             await core.safe_send_response(interaction, content="❌ 본인만 설정을 변경할 수 있습니다.", ephemeral=True)
             return
         v = core.SafeView(timeout=180)
-        v.add_item(AiPersonaSelect(self.ai_cog, self.user, current_char=self.char_key))
+        v.add_item(AiPersonaSelect(self.ai_cog, self.user, current_char=self.char_key, parent_reply_view=self))
         await core.safe_send_response(interaction, content="👇 **대화할 기본 캐릭터를 선택해 주세요:**", view=v, ephemeral=True)
 
 

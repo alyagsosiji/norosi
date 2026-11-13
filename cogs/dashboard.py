@@ -944,8 +944,7 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
-            ddays_dict = data.get("ddays", {})
-            view = dday.DDayListBoardView(ddays_dict, self.bot)
+            view = dday.DDayListBoardView(self.bot, interaction.user, data)
             await interaction.followup.send(embed=view.build_embed(), view=view)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ D-Day 목록 조회 중 오류: {e}", ephemeral=True)
@@ -1025,13 +1024,19 @@ class MasterDashboardView(core.SafeView):
 
     async def _on_partner_clicked(self, interaction: discord.Interaction):
         try:
-            await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
             profile = core.ensure_user_profile(data, interaction.user.id, interaction.user.display_name)
             partner_id = profile.get("partner_id")
-            partner_member = interaction.guild.get_member(int(partner_id)) if (interaction.guild and partner_id) else None
-            view = dday.PartnerStudioView(interaction.user, partner_member, profile)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            if not partner_id:
+                await core.safe_send_response(
+                    interaction,
+                    "ℹ️ 아직 등록된 파트너가 없습니다. `/짝꿍신청` 명령어로 소중한 친구나 연인과 파트너를 맺어보세요! 💖",
+                    ephemeral=True
+                )
+                return
+            await core.safe_defer(interaction, ephemeral=True)
+            view = dday.PartnerHubView(interaction.user, partner_id, data)
+            await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 파트너 스튜디오 조회 중 오류: {e}", ephemeral=True)
 
@@ -1179,10 +1184,10 @@ class MasterDashboardView(core.SafeView):
 
     async def _on_remind_clicked(self, interaction: discord.Interaction):
         try:
-            await core.safe_defer(interaction)
+            await core.safe_defer(interaction, ephemeral=True)
             data = await asyncio.to_thread(core.load_data)
             view = dday.ReminderHubView(interaction.user, interaction.channel_id, interaction.guild_id, data)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 알림 예약 허브 로드 중 오류: {e}", ephemeral=True)
 
@@ -1195,7 +1200,8 @@ class MasterDashboardView(core.SafeView):
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
             embed = stats.build_server_stats_embed(interaction.guild, data)
-            await interaction.followup.send(embed=embed)
+            view = stats.ServerStatsDashboardView(interaction.guild, data, user=interaction.user)
+            await interaction.followup.send(embed=embed, view=view)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 서버 통계 생성 중 오류: {e}", ephemeral=True)
 

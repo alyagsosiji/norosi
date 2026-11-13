@@ -8,7 +8,10 @@ import json
 import shutil
 import random
 import platform
-import resource
+try:
+    import resource
+except ImportError:
+    resource = None
 import datetime
 import asyncio
 import discord
@@ -215,13 +218,21 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
 
 
 class ServerStatsDashboardView(core.SafeView):
-    def __init__(self, guild: discord.Guild, data: dict, timeframe: str = "daily", mode: str = "summary"):
+    def __init__(self, guild: discord.Guild, data: dict, timeframe: str = "daily", mode: str = "summary", user: Optional[discord.User] = None):
         super().__init__(timeout=180)
         self.guild = guild
         self.data = data
         self.timeframe = timeframe
         self.mode = mode
+        self.user = user
         self._update_button_styles()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
+        if self.user and interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 대시보드를 연 당사자만 조작할 수 있습니다.", ephemeral=True)
+            return False
+        return True
 
     def _update_button_styles(self):
         self.toggle_mode_btn.label = "📊 요약 보기" if self.mode == "detailed" else "📜 상세 리포트"
@@ -294,15 +305,15 @@ class RecruitEditModal(core.SafeModal, title="✏️ 파티 모집 정보 수정
         max_length=60,
         required=True
     )
-    room_code_input = discord.ui.TextInput(
-        label="방 번호 / 룸 코드 / 링크 (선택)",
-        placeholder="예: 게임 룸코드, 비밀번호, 음성 채널 안내",
+    departure_input = discord.ui.TextInput(
+        label="출발 예정 시간 (선택)",
+        placeholder="예: 지금 바로 출발 / 10분 뒤 / 22:00",
         required=False,
-        max_length=100
+        max_length=50
     )
     memo_input = discord.ui.TextInput(
-        label="출발 시간 및 안내 / 메모 (선택)",
-        placeholder="예: 지금 바로 출발 / 디코 마이크 자유",
+        label="방 번호 / 룸 코드 및 안내 메모 (선택)",
+        placeholder="예: 룸코드 12345 / 디코 마이크 필수",
         style=discord.TextStyle.paragraph,
         required=False,
         max_length=300
@@ -314,8 +325,11 @@ class RecruitEditModal(core.SafeModal, title="✏️ 파티 모집 정보 수정
         self.game_input.default = lobby_view.game
         self.capacity_input.default = str(lobby_view.capacity)
         self.goal_input.default = lobby_view.goal
-        self.room_code_input.default = lobby_view.room_code or ""
-        self.memo_input.default = lobby_view.memo or ""
+        self.departure_input.default = lobby_view.departure_time or ""
+        self.memo_input.default = (
+            f"방코드: {lobby_view.room_code}\n{lobby_view.memo or ''}".strip()
+            if lobby_view.room_code else (lobby_view.memo or "")
+        )
 
     async def on_submit(self, interaction: discord.Interaction):
         lv = self.lobby_view
@@ -326,7 +340,7 @@ class RecruitEditModal(core.SafeModal, title="✏️ 파티 모집 정보 수정
         lv.game = self.game_input.value.strip() or lv.game
         lv.capacity = new_cap
         lv.goal = self.goal_input.value.strip() or lv.goal
-        lv.room_code = self.room_code_input.value.strip() if self.room_code_input.value and self.room_code_input.value.strip() else None
+        lv.departure_time = self.departure_input.value.strip() if self.departure_input.value and self.departure_input.value.strip() else None
         lv.memo = self.memo_input.value.strip() if self.memo_input.value and self.memo_input.value.strip() else None
 
         if lv.status not in ("departed", "cancelled"):
@@ -599,15 +613,15 @@ class RecruitModal(core.SafeModal, title="🎮 파티 / 팀원 모집 작성"):
         max_length=60,
         required=True
     )
-    room_code_input = discord.ui.TextInput(
-        label="방 번호 / 룸 코드 / 링크 (선택)",
-        placeholder="예: 게임 룸코드, 비밀번호, 또는 음성 채널 링크",
+    departure_input = discord.ui.TextInput(
+        label="출발 예정 시간 (선택)",
+        placeholder="예: 지금 바로 출발 / 10분 뒤 / 22:00 (기본: 충원 즉시 출발)",
         required=False,
-        max_length=100
+        max_length=50
     )
     memo_input = discord.ui.TextInput(
-        label="출발 시간 및 전할 말 / 메모 (선택)",
-        placeholder="예: 지금 바로 출발 / 디코 마이크 필수 / 편하게 오세요",
+        label="방 번호 / 룸 코드 및 안내 메모 (선택)",
+        placeholder="예: 룸코드 12345 / 디코 마이크 필수 / 편하게 오세요",
         style=discord.TextStyle.paragraph,
         required=False,
         max_length=300
@@ -622,7 +636,7 @@ class RecruitModal(core.SafeModal, title="🎮 파티 / 팀원 모집 작성"):
 
         game_val = self.game_input.value.strip() or "게임"
         goal_val = self.goal_input.value.strip() or "즐겜 / 친목"
-        room_code_val = self.room_code_input.value.strip() if self.room_code_input.value and self.room_code_input.value.strip() else None
+        departure_val = self.departure_input.value.strip() if self.departure_input.value and self.departure_input.value.strip() else None
         memo_val = self.memo_input.value.strip() if self.memo_input.value and self.memo_input.value.strip() else None
 
         view = RecruitLobbyView(
@@ -630,8 +644,8 @@ class RecruitModal(core.SafeModal, title="🎮 파티 / 팀원 모집 작성"):
             game=game_val,
             capacity=capacity,
             goal=goal_val,
-            room_code=room_code_val,
-            departure_time=None,
+            room_code=None,
+            departure_time=departure_val,
             memo=memo_val
         )
         msg_obj = await core.safe_send_response(interaction, embed=view.build_embed(), view=view)
@@ -672,10 +686,11 @@ class StatsCog(commands.Cog):
             "active_users": {}
         })
 
-        # 자정이 지난 경우 오늘 일간 카운트 갱신
+        # 자정이 지난 경우 오늘 일간 카운트 갱신 (일간 채널 점유율 100% 초과 방지)
         if g_stat.get("today_date") != today_str:
             g_stat["today_date"] = today_str
             g_stat["today_msgs"] = 0
+            g_stat["channel_msgs"] = {}
             g_stat["hourly_msgs"] = {}
 
         g_stat["today_msgs"] = g_stat.get("today_msgs", 0) + 1
@@ -694,7 +709,11 @@ class StatsCog(commands.Cog):
         u_map = g_stat.setdefault("active_users", {})
         u_map[u_id] = u_map.get(u_id, 0) + 1
 
-        await asyncio.to_thread(core.save_data, data)
+        # 채팅마다 동기식 I/O를 배제하고 25메시지마다 배치 저장하여 디스크/네트워크 병목 방지
+        self._msg_save_counter = getattr(self, "_msg_save_counter", 0) + 1
+        if self._msg_save_counter >= 25:
+            self._msg_save_counter = 0
+            await asyncio.to_thread(core.save_data, data)
 
     @app_commands.command(name="서버통계", description="서버의 실제 일일/주간 채팅량, 채널별 점유율, 음성 실시간 현황, 출석율을 분석한 대시보드를 출력합니다.")
     @app_commands.describe(
@@ -724,7 +743,7 @@ class StatsCog(commands.Cog):
         mode = 상세보기.value if 상세보기 else "summary"
 
         embed = build_server_stats_embed(interaction.guild, data, tf, mode)
-        view = ServerStatsDashboardView(interaction.guild, data, tf, mode)
+        view = ServerStatsDashboardView(interaction.guild, data, tf, mode, user=interaction.user)
         await interaction.followup.send(embed=embed, view=view)
 
     @app_commands.command(name="봇상태", description="[서버 관리자 전용] norosi 봇의 호스트 시스템 리소스(RAM, CPU, 디스크, 핑, 업타임) 상태를 확인합니다.")
@@ -751,10 +770,16 @@ class StatsCog(commands.Cog):
         data = await asyncio.to_thread(core.load_data)
         data_disk_ms = round((time.perf_counter() - start_ping) * 1000, 2)
 
-        # 메모리 사용량 (RSS)
+        # 메모리 사용량 (RSS - OS별 단위 보정: Linux KB / Darwin Byte / Windows fallback)
         try:
-            mem_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            mem_mb = round(mem_kb / 1024, 2)
+            if resource:
+                mem_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+                if sys.platform == "darwin":
+                    mem_mb = round(mem_kb / (1024 * 1024), 2)
+                else:
+                    mem_mb = round(mem_kb / 1024, 2)
+            else:
+                mem_mb = 0.0
         except Exception:
             mem_mb = 0.0
 
@@ -1004,7 +1029,7 @@ class StatsCog(commands.Cog):
             await interaction.followup.send(f"❌ **날씨 조회 실패:** {err}", ephemeral=True)
             return
 
-        view = WeatherRefreshView(지역, w_info)
+        view = WeatherRefreshView(지역, w_info, user=interaction.user)
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
     # ==========================================
@@ -1334,10 +1359,18 @@ class StatsCog(commands.Cog):
 # 실시간 날씨 새로고침 뷰
 # ==========================================
 class WeatherRefreshView(core.SafeView):
-    def __init__(self, query: str, weather_info: dict):
+    def __init__(self, query: str, weather_info: dict, user: Optional[discord.User] = None):
         super().__init__(timeout=300)
         self.query = query
         self.w = weather_info
+        self.user = user
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
+        if self.user and interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 날씨를 조회한 당사자만 새로고침할 수 있습니다.", ephemeral=True)
+            return False
+        return True
 
     def build_embed(self) -> discord.Embed:
         w = self.w
@@ -1483,6 +1516,14 @@ class WordChainGameView(core.SafeView):
             await core.safe_send_response(interaction, content="❌ **2글자 이상의 순수 한글 단어**만 입력할 수 있습니다!", ephemeral=True)
             return
 
+        if not core.is_valid_word_chain_word(clean_w):
+            await core.safe_send_response(
+                interaction,
+                content=f"❌ **`{clean_w}`** 단어는 사전에 등재되지 않은 단어입니다! (실제 표준 명사를 입력해 주세요)",
+                ephemeral=True
+            )
+            return
+
         valid_starts = core.get_dueum_chars(self.current_word[-1])
         if clean_w[0] not in valid_starts:
             dueum_hint = " 또는 ".join([f"'{c}'" for c in valid_starts])
@@ -1603,6 +1644,7 @@ class RussianRouletteView(core.SafeView):
         random.shuffle(self.chambers)
         self.current_idx = 0
         self.survivor_streak = 0
+        self.last_survivor_user: Optional[discord.User] = None
         self.pot_crystals = bet_crystals
         self.participants = []
         self.finished = False
@@ -1650,6 +1692,7 @@ class RussianRouletteView(core.SafeView):
 
         if is_bullet:
             self.finished = True
+            self.last_survivor_user = None
             self.pull_trigger_btn.disabled = True
             self.cashout_btn.disabled = True
             self.spin_btn.disabled = True
@@ -1663,6 +1706,7 @@ class RussianRouletteView(core.SafeView):
         else:
             self.current_idx += 1
             self.survivor_streak += 1
+            self.last_survivor_user = interaction.user
             bonus = 30 * self.bullets + (self.survivor_streak * 20)
             self.pot_crystals += bonus
             if interaction.user.display_name not in self.participants:
@@ -1694,8 +1738,15 @@ class RussianRouletteView(core.SafeView):
     async def cashout_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.finished:
             return
-        if self.survivor_streak < 1:
+        if self.survivor_streak < 1 or not self.last_survivor_user:
             await core.safe_send_response(interaction, content="⚠️ 최소 1번 이상 방아쇠를 당겨 생존한 후에만 상금을 수령할 수 있습니다!", ephemeral=True)
+            return
+        if interaction.user.id != self.last_survivor_user.id:
+            await core.safe_send_response(
+                interaction,
+                content=f"❌ 직전에 방아쇠를 당겨 생존한 **{self.last_survivor_user.display_name}**님만 상금을 수령(생존 스톱)할 수 있습니다!",
+                ephemeral=True
+            )
             return
 
         await core.safe_defer(interaction)
@@ -1723,8 +1774,10 @@ class RussianRouletteView(core.SafeView):
         import random
         random.shuffle(self.chambers)
         self.current_idx = 0
+        self.survivor_streak = 0
+        self.last_survivor_user = None
         self.spin_btn.disabled = True
-        self.last_log = f"🔄 {interaction.user.mention}님이 리볼버 실린더를 힘껏 돌려 약실 위치를 처음부터 다시 섞었습니다!"
+        self.last_log = f"🔄 {interaction.user.mention}님이 리볼버 실린더를 힘껏 돌려 약실 위치를 다시 섞었습니다! (생존 콤보가 초기화되었습니다)"
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
 

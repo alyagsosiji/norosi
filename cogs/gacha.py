@@ -822,6 +822,17 @@ class MyInventoryView(core.SafeView):
         self.apply_sort("obtained_desc")
         self.update_illust_select()
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(
+                interaction,
+                f"❌ 이 보관함은 **{self.user.display_name}**님의 개인 보관함입니다. `/내캐릭터` 명령어로 본인의 보관함을 열어보세요!",
+                ephemeral=True
+            )
+            return False
+        return True
+
     @property
     def max_page(self):
         if not self.cards:
@@ -1041,6 +1052,17 @@ class CardPokedexView(core.SafeView):
         self.filter_label = "전체 (26명)"
         self.current_page = 0
         self.update_components()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(
+                interaction,
+                f"❌ 이 도감은 **{self.user.display_name}**님의 개인 도감입니다. `/카드도감` 명령어로 본인의 도감을 열어보세요!",
+                ephemeral=True
+            )
+            return False
+        return True
 
     def get_filtered_items(self):
         if self.active_tab == "char_rates":
@@ -1445,6 +1467,17 @@ class EventForecastView(core.SafeView):
         self.month = month
         self.selected_event_id = selected_event_id
         self.update_components()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(
+                interaction,
+                f"❌ 이 미래시 달력은 **{self.user.display_name}**님이 조회한 창입니다. `/미래시` 명령어로 직접 조회해 보세요!",
+                ephemeral=True
+            )
+            return False
+        return True
 
     def update_components(self):
         self.clear_items()
@@ -2024,9 +2057,20 @@ class GachaCog(commands.Cog):
 
         raw_slots = [리더, 멤버2, 멤버3, 멤버4, 멤버5]
         chosen_ids = []
+        chosen_chars = set()
         for cid in raw_slots:
-            if cid and cid in user_cards_dict and cid not in chosen_ids:
-                chosen_ids.append(cid)
+            if not cid or cid not in user_cards_dict or cid in chosen_ids:
+                continue
+            c = user_cards_dict[cid]
+            char_ident = c.get("char_id") or c.get("char_name")
+            if char_ident in chosen_chars:
+                await interaction.followup.send(
+                    f"❌ **동일 캐릭터 중복 편성 불가:** `{c.get('char_name')}` 카드가 덱에 2장 이상 포함되어 있습니다. 프로세카 덱은 서로 다른 5명의 캐릭터로만 구성할 수 있습니다!",
+                    ephemeral=True
+                )
+                return
+            chosen_chars.add(char_ident)
+            chosen_ids.append(cid)
 
         if not chosen_ids:
             await interaction.followup.send("❌ 보유 중인 올바른 카드를 목록에서 선택해 주세요.", ephemeral=True)

@@ -156,6 +156,16 @@ class AttendanceCalendarView(core.SafeView):
         if self.check_now_btn.disabled:
             self.check_now_btn.label = "✅ 오늘 출석 완료됨"
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(
+                interaction,
+                content="❌ 본인의 출석 캘린더만 조작할 수 있습니다.",
+                ephemeral=True
+            )
+            return False
+        return True
+
     def build_embed(self):
         c = self.cal_info
         guild_stats = c.get("guild_stats", {})
@@ -344,16 +354,15 @@ class CommandRemoteSelect(discord.ui.Select):
             await interaction.response.send_modal(RecruitModal())
             return
 
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-
         if val == "attendance":
+            await core.safe_defer(interaction)
             embed, file, view = await execute_and_build_attendance_response(interaction, self.bot_instance)
             if file:
                 await interaction.followup.send(embed=embed, file=file, view=view)
             else:
                 await interaction.followup.send(embed=embed, view=view)
         elif val == "att_calendar":
+            await core.safe_defer(interaction)
             guild_id = interaction.guild_id or 0
             guild_name = interaction.guild.name if interaction.guild else "개인 메시지(DM)"
             cal_info = await asyncio.to_thread(
@@ -366,20 +375,26 @@ class CommandRemoteSelect(discord.ui.Select):
             view = AttendanceCalendarView(self.bot_instance, interaction.user, cal_info)
             await interaction.followup.send(embed=view.build_embed(), view=view)
         elif val == "att_rank":
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
             init_scope = "guild" if interaction.guild else "global"
             view = AttendanceRankingView(interaction, data, initial_scope=init_scope, initial_sort="total")
             await interaction.followup.send(embed=view.build_embed(), view=view)
         elif val == "todo":
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
             profile = core.ensure_user_profile(data, interaction.user.id, interaction.user.display_name)
             core.ensure_user_todo_today(profile)
             await asyncio.to_thread(core.save_data, data)
             view = TodoTrackerView(interaction.user, profile)
             await interaction.followup.send(embed=view.build_embed(), view=view)
         elif val == "forecast":
+            await core.safe_defer(interaction)
             now = datetime.datetime.now(core.KST)
             view = EventForecastView(interaction.user, now.year, now.month)
             await interaction.followup.send(embed=view.build_embed(), view=view)
         elif val == "event_info":
+            await core.safe_defer(interaction)
             info = await asyncio.to_thread(core.fetch_live_event_and_gacha_info, "kr")
             ev = info.get("event")
             gachas = info.get("gachas", [])
@@ -416,12 +431,15 @@ class CommandRemoteSelect(discord.ui.Select):
             repull_view = GachaPullAgainView(interaction.user)
             await repull_view._handle_repull(interaction, count)
         elif val == "my_chars":
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
             g_key = str(interaction.guild_id or 0)
             u_key = str(interaction.user.id)
             user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
             view = MyInventoryView(interaction.user, list(user_cards_dict.values()), items_per_page=5, guild_id=interaction.guild_id or 0)
             await interaction.followup.send(embed=view.build_embed(), view=view)
         elif val == "pokedex":
+            await core.safe_defer(interaction)
             guild_id = interaction.guild_id or 0
             stats = await asyncio.to_thread(core.get_card_pokedex_stats, guild_id, interaction.user.id)
             view = CardPokedexView(interaction.user, stats, guild_id=guild_id)
@@ -444,6 +462,8 @@ class CommandRemoteSelect(discord.ui.Select):
             if logger_cog:
                 await logger_cog.set_server_log_channel_cmd.callback(logger_cog, interaction, None, None)
         elif val == "music_now":
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
             prefs = data.get("music_prefs", core.DEFAULT_CONFIG["music_prefs"])
             track_info, error = await core.get_recommended_music(prefs)
             if error or not track_info:
@@ -456,6 +476,8 @@ class CommandRemoteSelect(discord.ui.Select):
             if music_cog:
                 await music_cog.my_music_library_cmd.callback(music_cog, interaction)
         elif val == "playlist":
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
             studio = PlaylistStudioView(interaction.user, interaction.user, data)
             await interaction.followup.send(embed=studio.build_embed(), view=studio)
         elif val == "dday_list":
@@ -467,9 +489,13 @@ class CommandRemoteSelect(discord.ui.Select):
             if dday_cog:
                 await dday_cog.past_dday_cmd.callback(dday_cog, interaction)
         elif val == "birthday":
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
             view = BirthdayBoardView(interaction.user, interaction.guild, data)
             await interaction.followup.send(embed=view.build_embed(), view=view)
         elif val == "reminder":
+            await core.safe_defer(interaction, ephemeral=True)
+            data = await asyncio.to_thread(core.load_data)
             view = ReminderHubView(interaction.user, interaction.channel_id, interaction.guild_id, data)
             await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
         elif val == "weather":
@@ -493,6 +519,8 @@ class CommandRemoteSelect(discord.ui.Select):
             if stats_cog:
                 await stats_cog.server_stats_cmd.callback(stats_cog, interaction, None, None)
         elif val == "dday_secret":
+            await core.safe_defer(interaction, ephemeral=True)
+            data = await asyncio.to_thread(core.load_data)
             u_key = str(interaction.user.id)
             prof = core.ensure_user_profile(data, u_key, interaction.user.display_name)
             view = SecretDDayHubView(interaction.user, prof.get("secret_ddays", {}))
@@ -520,6 +548,16 @@ class QuickMenuHubView(core.SafeView):
         self.guild = guild
         self.data = data
         self.add_item(CommandRemoteSelect(bot_instance, user))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(
+                interaction,
+                content="❌ 본인의 리모컨 메뉴만 조작할 수 있습니다.",
+                ephemeral=True
+            )
+            return False
+        return True
 
     def build_embed(self):
         g_key = str(self.guild.id if self.guild else 0)
@@ -1665,24 +1703,52 @@ class ResetConfirmView(core.SafeView):
 
         old_data = await asyncio.to_thread(core.load_data)
         deleted_ch_count = 0
-        for _, info in old_data.get("ddays", {}).items():
-            ch_id = info.get("channel_id")
-            if ch_id:
-                ch = self.bot_instance.get_channel(int(ch_id))
-                if ch:
-                    try:
-                        await ch.delete(reason="관리자 데이터 초기화 실행")
-                        deleted_ch_count += 1
-                    except Exception:
-                        pass
+        guild_id = interaction.guild_id
 
-        await asyncio.to_thread(core.reset_dday_and_music_data)
+        ddays = old_data.get("ddays", {})
+        remaining_ddays = {}
+        for name, info in ddays.items():
+            d_guild_id = info.get("guild_id")
+            ch_id = info.get("channel_id")
+            is_this_guild = False
+            if d_guild_id and guild_id and d_guild_id == guild_id:
+                is_this_guild = True
+            elif ch_id and interaction.guild:
+                ch = interaction.guild.get_channel(int(ch_id))
+                if ch:
+                    is_this_guild = True
+            elif not d_guild_id and not guild_id:
+                is_this_guild = True
+
+            if is_this_guild:
+                if ch_id:
+                    ch = self.bot_instance.get_channel(int(ch_id))
+                    if ch:
+                        try:
+                            await ch.delete(reason="관리자 데이터 초기화 실행")
+                            deleted_ch_count += 1
+                        except Exception:
+                            pass
+            else:
+                remaining_ddays[name] = info
+
+        old_data["ddays"] = remaining_ddays
+        if guild_id:
+            if "guild_music_prefs" in old_data:
+                old_data["guild_music_prefs"].pop(str(guild_id), None)
+            if "guild_settings" in old_data:
+                old_data["guild_settings"].pop(str(guild_id), None)
+        else:
+            old_data["music_prefs"] = copy.deepcopy(core.DEFAULT_CONFIG["music_prefs"])
+            old_data["music_schedules"] = []
+
+        await asyncio.to_thread(core.save_data, old_data)
         embed = discord.Embed(
             title="🔄 D-Day 및 음악 설정 초기화 완료",
             description=(
-                "데이터베이스의 모든 **D-Day 일정**과 **알림/음악 설정**이 완전히 초기화되었습니다.\n"
+                "현재 서버의 모든 **D-Day 일정**과 **알림/음악 설정**이 안전하게 초기화되었습니다.\n"
                 f"• 함께 삭제된 디데이 채널 수: `{deleted_ch_count}개`\n"
-                "• 🛡️ **안전 보호됨:** 모든 유저의 **출석 기록, 크리스탈, 보유 캐릭터, 파트너 정보**는 삭제되지 않고 안전하게 보존되었습니다."
+                "• 🛡️ **안전 보호됨:** 타 서버의 D-Day 및 모든 유저의 **출석 기록, 크리스탈, 보유 캐릭터, 파트너 정보**는 안전하게 보존되었습니다."
             ),
             color=discord.Color.red()
         )
@@ -1775,7 +1841,8 @@ class DDayCog(commands.Cog):
             "start_date": actual_start,
             "emoji": 이모지,
             "channel_id": created_channel.id if created_channel else existing_ch_id,
-            "category_id": target_category.id if target_category else existing_info.get("category_id")
+            "category_id": target_category.id if target_category else existing_info.get("category_id"),
+            "guild_id": interaction.guild_id
         }
         await asyncio.to_thread(core.save_data, data)
 
@@ -2266,6 +2333,16 @@ class DDayCog(commands.Cog):
                 await core.safe_send_response(interaction, "ℹ️ 현재 실행 중인 집중모드 타이머가 없습니다.", ephemeral=True)
                 return
             task_info["task"].cancel()
+            muted_ids = task_info.get("muted_member_ids", set())
+            guild = interaction.guild
+            if guild:
+                for m_id in muted_ids:
+                    member = guild.get_member(m_id)
+                    if member:
+                        try:
+                            await member.edit(mute=False, reason="집중모드 수동 중지")
+                        except Exception:
+                            pass
             v_ch = task_info.get("voice_channel")
             if v_ch:
                 for member in v_ch.members:
@@ -2304,6 +2381,8 @@ class DDayCog(commands.Cog):
         )
         await core.safe_send_response(interaction, embed=embed)
 
+        muted_member_ids: set[int] = set()
+
         async def run_pomodoro_cycle():
             try:
                 for cycle in range(1, 세트수 + 1):
@@ -2313,6 +2392,7 @@ class DDayCog(commands.Cog):
                             if not member.bot:
                                 try:
                                     await member.edit(mute=True, reason=f"뽀모도로 집중모드 {cycle}세트 시작")
+                                    muted_member_ids.add(member.id)
                                     muted_count += 1
                                 except Exception:
                                     pass
@@ -2335,6 +2415,15 @@ class DDayCog(commands.Cog):
 
                     await asyncio.sleep(집중시간 * 60)
 
+                    guild = interaction.guild
+                    if guild:
+                        for m_id in list(muted_member_ids):
+                            member = guild.get_member(m_id)
+                            if member:
+                                try:
+                                    await member.edit(mute=False, reason=f"뽀모도로 휴식 시간 ({cycle}세트 완료)")
+                                except Exception:
+                                    pass
                     if target_vc:
                         for member in target_vc.members:
                             if not member.bot:
@@ -2342,6 +2431,7 @@ class DDayCog(commands.Cog):
                                     await member.edit(mute=False, reason=f"뽀모도로 휴식 시간 ({cycle}세트 완료)")
                                 except Exception:
                                     pass
+                    muted_member_ids.clear()
 
                     break_prefs = {"platform": "all", "genre": "lofi chill piano", "artist": None, "playlist_url": None}
                     track_info, _ = await core.get_recommended_music(break_prefs)
@@ -2383,9 +2473,19 @@ class DDayCog(commands.Cog):
                 pass
             finally:
                 core.ACTIVE_POMODORO_TASKS.pop(key, None)
+                guild = interaction.guild
+                if guild and muted_member_ids:
+                    for m_id in list(muted_member_ids):
+                        member = guild.get_member(m_id)
+                        if member:
+                            try:
+                                await member.edit(mute=False, reason="뽀모도로 종료")
+                            except Exception:
+                                pass
+                    muted_member_ids.clear()
 
         task = asyncio.create_task(run_pomodoro_cycle())
-        core.ACTIVE_POMODORO_TASKS[key] = {"task": task, "voice_channel": target_vc}
+        core.ACTIVE_POMODORO_TASKS[key] = {"task": task, "voice_channel": target_vc, "muted_member_ids": muted_member_ids}
 
     @app_commands.command(
         name="하드코어스터디",
@@ -2476,6 +2576,16 @@ class DDayCog(commands.Cog):
                 return
 
             task_info["task"].cancel()
+            muted_ids = task_info.get("muted_member_ids", set())
+            guild = interaction.guild
+            if guild:
+                for m_id in muted_ids:
+                    member = guild.get_member(m_id)
+                    if member:
+                        try:
+                            await member.edit(mute=False, reason="하드코어 스터디 수동 중지")
+                        except Exception:
+                            pass
             v_ch = task_info.get("voice_channel")
             if v_ch:
                 for member in v_ch.members:
@@ -2540,6 +2650,8 @@ class DDayCog(commands.Cog):
             except Exception as vc_err:
                 print(f"⚠️ [하드코어 스터디 음성 연결 예외] {vc_err}", flush=True)
 
+        muted_member_ids: set[int] = set()
+
         info_dict = {
             "voice_channel": target_vc,
             "voice_client": voice_client,
@@ -2547,7 +2659,8 @@ class DDayCog(commands.Cog):
             "num_sets": num_sets,
             "current_set": 1,
             "topic": 목표,
-            "reward_crystals": reward_crystals
+            "reward_crystals": reward_crystals,
+            "muted_member_ids": muted_member_ids
         }
 
         async def run_hardcore_cycle():
@@ -2560,6 +2673,7 @@ class DDayCog(commands.Cog):
                             if not member.bot:
                                 try:
                                     await member.edit(mute=True, reason=f"하드코어 스터디 {cycle}세트 집중 시작")
+                                    muted_member_ids.add(member.id)
                                     muted_count += 1
                                 except Exception:
                                     pass
@@ -2590,14 +2704,25 @@ class DDayCog(commands.Cog):
                     await asyncio.sleep(50 * 60)
 
                     # 2) 50분 집중 완료 및 10분 휴식 시작
+                    unmuted_count = 0
                     if target_vc and 자동음소거:
+                        guild = interaction.guild
+                        if guild:
+                            for m_id in list(muted_member_ids):
+                                member = guild.get_member(m_id)
+                                if member:
+                                    try:
+                                        await member.edit(mute=False, reason=f"하드코어 스터디 {cycle}세트 완료 휴식")
+                                        unmuted_count += 1
+                                    except Exception:
+                                        pass
                         for member in target_vc.members:
                             if not member.bot:
                                 try:
                                     await member.edit(mute=False, reason=f"하드코어 스터디 {cycle}세트 완료 휴식")
-                                    muted_count += 1
                                 except Exception:
                                     pass
+                        muted_member_ids.clear()
 
                     if voice_client and voice_client.is_connected() and 음성안내:
                         tts_break_text = f"딩동댕! 50분 집중 시간이 끝났습니다. 음소거가 해제되었으니 10분간 편안하게 휴식을 취하세요."
@@ -2690,6 +2815,16 @@ class DDayCog(commands.Cog):
                 pass
             finally:
                 core.ACTIVE_HARDCORE_STUDY_TASKS.pop(key, None)
+                guild = interaction.guild
+                if guild and muted_member_ids:
+                    for m_id in list(muted_member_ids):
+                        member = guild.get_member(m_id)
+                        if member:
+                            try:
+                                await member.edit(mute=False, reason="하드코어 스터디 종료")
+                            except Exception:
+                                pass
+                    muted_member_ids.clear()
 
         task = asyncio.create_task(run_hardcore_cycle())
         info_dict["task"] = task
@@ -2903,6 +3038,8 @@ class BirthdayBoardView(core.SafeView):
         entries = []
         for u_key, info in b_map.items():
             if not isinstance(info, dict) or "month" not in info or "day" not in info:
+                continue
+            if self.guild and not self.guild.get_member(int(u_key)):
                 continue
             rem_days = self._days_until_birthday(info["month"], info["day"], today)
             entries.append((rem_days, info))

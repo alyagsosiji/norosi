@@ -520,6 +520,20 @@ class ReactionRoleBuilderView(core.SafeView):
         self.roles_list: list[dict] = []
         self.target_channel: Optional[discord.TextChannel] = None
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
+        is_admin = False
+        if interaction.guild and isinstance(interaction.user, discord.Member):
+            is_admin = (
+                interaction.user.guild_permissions.administrator
+                or interaction.user.guild_permissions.manage_roles
+                or interaction.user.guild_permissions.manage_guild
+            )
+        if not is_admin and not await interaction.client.is_bot_owner_user(interaction.user):
+            await core.safe_send_response(interaction, "❌ 관리자 또는 역할 관리 권한이 있는 멤버만 반응역할 빌더를 조작할 수 있습니다.", ephemeral=True)
+            return False
+        return True
+
     def build_builder_embed(self) -> discord.Embed:
         embed = discord.Embed(
             title="🛠️ 반응역할 패널 제작 스튜디오",
@@ -818,6 +832,20 @@ class ReactionRoleListView(core.SafeView):
         self.page_size = 5
         self._update_components()
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
+        is_admin = False
+        if interaction.guild and isinstance(interaction.user, discord.Member):
+            is_admin = (
+                interaction.user.guild_permissions.administrator
+                or interaction.user.guild_permissions.manage_roles
+                or interaction.user.guild_permissions.manage_guild
+            )
+        if not is_admin and not await interaction.client.is_bot_owner_user(interaction.user):
+            await core.safe_send_response(interaction, "❌ 관리자 또는 역할 관리 권한이 있는 멤버만 반응역할 목록을 관리할 수 있습니다.", ephemeral=True)
+            return False
+        return True
+
     @property
     def max_page(self) -> int:
         return max(0, (len(self.entries) - 1) // self.page_size)
@@ -928,6 +956,20 @@ class ReactionRoleStudioView(core.SafeView):
         super().__init__(timeout=600)
         self.guild = guild
         self.author = author
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
+        is_admin = False
+        if interaction.guild and isinstance(interaction.user, discord.Member):
+            is_admin = (
+                interaction.user.guild_permissions.administrator
+                or interaction.user.guild_permissions.manage_roles
+                or interaction.user.guild_permissions.manage_guild
+            )
+        if not is_admin and not await interaction.client.is_bot_owner_user(interaction.user):
+            await core.safe_send_response(interaction, "❌ 관리자 또는 역할 관리 권한이 있는 멤버만 반응역할 스튜디오를 조작할 수 있습니다.", ephemeral=True)
+            return False
+        return True
 
     def build_dashboard_embed(self) -> discord.Embed:
         data = core.get_cached_data()
@@ -1085,9 +1127,31 @@ class Roles(commands.Cog, name="역할"):
         역할2="두 번째 역할 (선택)",
         버튼이름2="두 번째 버튼 텍스트 (선택)",
         버튼이모지2="두 번째 버튼 이모지 (선택)",
+        버튼색상2="두 번째 버튼 색상 (기본: 보라)",
         역할3="세 번째 역할 (선택)",
         버튼이름3="세 번째 버튼 텍스트 (선택)",
-        버튼이모지3="세 번째 버튼 이모지 (선택)"
+        버튼이모지3="세 번째 버튼 이모지 (선택)",
+        버튼색상3="세 번째 버튼 색상 (기본: 보라)"
+    )
+    @app_commands.choices(
+        버튼색상=[
+            app_commands.Choice(name="🟣 보라색 (Primary / Blurple)", value="보라"),
+            app_commands.Choice(name="🟢 초록색 (Success / Green)", value="초록"),
+            app_commands.Choice(name="⚪ 회색 (Secondary / Grey)", value="회색"),
+            app_commands.Choice(name="🔴 빨간색 (Danger / Red)", value="빨강")
+        ],
+        버튼색상2=[
+            app_commands.Choice(name="🟣 보라색 (Primary / Blurple)", value="보라"),
+            app_commands.Choice(name="🟢 초록색 (Success / Green)", value="초록"),
+            app_commands.Choice(name="⚪ 회색 (Secondary / Grey)", value="회색"),
+            app_commands.Choice(name="🔴 빨간색 (Danger / Red)", value="빨강")
+        ],
+        버튼색상3=[
+            app_commands.Choice(name="🟣 보라색 (Primary / Blurple)", value="보라"),
+            app_commands.Choice(name="🟢 초록색 (Success / Green)", value="초록"),
+            app_commands.Choice(name="⚪ 회색 (Secondary / Grey)", value="회색"),
+            app_commands.Choice(name="🔴 빨간색 (Danger / Red)", value="빨강")
+        ]
     )
     async def slash_create_custom_role_button(
         self,
@@ -1103,9 +1167,11 @@ class Roles(commands.Cog, name="역할"):
         역할2: Optional[discord.Role] = None,
         버튼이름2: Optional[str] = None,
         버튼이모지2: Optional[str] = None,
+        버튼색상2: Optional[str] = "보라",
         역할3: Optional[discord.Role] = None,
         버튼이름3: Optional[str] = None,
-        버튼이모지3: Optional[str] = None
+        버튼이모지3: Optional[str] = None,
+        버튼색상3: Optional[str] = "보라"
     ):
         guild = interaction.guild
         if not guild:
@@ -1131,8 +1197,8 @@ class Roles(commands.Cog, name="역할"):
 
         items = [
             (역할, 버튼이름, 버튼이모지, 버튼색상),
-            (역할2, 버튼이름2, 버튼이모지2, "보라"),
-            (역할3, 버튼이름3, 버튼이모지3, "보라"),
+            (역할2, 버튼이름2, 버튼이모지2, 버튼색상2),
+            (역할3, 버튼이름3, 버튼이모지3, 버튼색상3),
         ]
 
         roles_list = []
@@ -1487,6 +1553,22 @@ class Roles(commands.Cog, name="역할"):
                     await member.remove_roles(*roles_to_remove, reason="반응역할 단일선택 모드: 이전 역할 교체")
                 except Exception:
                     pass
+
+            # 메시지에서 유저가 이전에 달았던 다른 반응 이모지 자동 제거
+            try:
+                ch_obj = guild.get_channel(payload.channel_id) or await guild.fetch_channel(payload.channel_id)
+                if ch_obj and hasattr(ch_obj, "fetch_message"):
+                    orig_msg = await ch_obj.fetch_message(payload.message_id)
+                    for r_entry in roles_list:
+                        if r_entry["role_id"] != role_id:
+                            for rx in orig_msg.reactions:
+                                if core.match_payload_emoji(rx.emoji, r_entry):
+                                    try:
+                                        await orig_msg.remove_reaction(rx.emoji, member)
+                                    except Exception:
+                                        pass
+            except Exception:
+                pass
 
         # 6. 대상 역할 부여
         if target_role not in member.roles:

@@ -1083,9 +1083,19 @@ class NorosiBot(commands.Bot):
                         color=discord.Color.from_rgb(255, 105, 180),
                         timestamp=datetime.datetime.now(core.KST)
                     )
-                    if alert_ch:
+                    target_ch = None
+                    g_id = b_info.get("guild_id")
+                    if g_id:
+                        g_settings = data.get("guild_settings", {}).get(str(g_id), {})
+                        g_ch_id = g_settings.get("dday_alert_channel_id")
+                        if g_ch_id:
+                            target_ch = await self.resolve_channel(g_ch_id)
+                    if not target_ch and alert_ch:
+                        target_ch = alert_ch
+
+                    if target_ch:
                         try:
-                            await alert_ch.send(content=f"🎉 <@{uid}>님 생일 축하합니다!!", embed=bday_embed)
+                            await target_ch.send(content=f"🎉 <@{uid}>님 생일 축하합니다!!", embed=bday_embed)
                         except Exception:
                             pass
                     try:
@@ -1096,7 +1106,13 @@ class NorosiBot(commands.Bot):
                         pass
 
         if updated:
-            await asyncio.to_thread(core.save_data, data)
+            fresh_data = await asyncio.to_thread(core.load_data)
+            fresh_data["ddays"] = data["ddays"]
+            fresh_data["birthdays"] = data["birthdays"]
+            for u_k, u_prof in data.get("user_profiles", {}).items():
+                if u_k in fresh_data.get("user_profiles", {}):
+                    fresh_data["user_profiles"][u_k]["crystals"] = u_prof.get("crystals", 0)
+            await asyncio.to_thread(core.save_data, fresh_data)
 
         await self.update_all_dday_channels()
 
@@ -1219,7 +1235,11 @@ class NorosiBot(commands.Bot):
             updated = True
 
         if updated:
-            await asyncio.to_thread(core.save_data, data)
+            fresh_data = await asyncio.to_thread(core.load_data)
+            fresh_data["music_schedules"] = data.get("music_schedules", [])
+            fresh_reminders = [r for r in fresh_data.get("reminders", []) if isinstance(r, dict) and r.get("trigger_ts", 0) > now_ts]
+            fresh_data["reminders"] = fresh_reminders
+            await asyncio.to_thread(core.save_data, fresh_data)
 
     @custom_music_schedules_loop.before_loop
     async def before_custom_music_loop(self):
@@ -1612,6 +1632,7 @@ async def sync_guild_command(ctx: commands.Context, *args):
     try:
         app_id = bot.application_id or (bot.application.id if bot.application else bot.user.id)
         is_clean_mode = any(k in mode for k in ("정리", "clean", "삭제", "초기화"))
+        is_guild_only = any(k in mode for k in ("길드", "guild", "서버"))
 
         if is_clean_mode and ctx.guild:
             try:
@@ -1624,25 +1645,52 @@ async def sync_guild_command(ctx: commands.Context, *args):
             except Exception:
                 pass
             guild_cnt = 0
-        elif ctx.guild:
+            synced_global = await bot.tree.sync()
+        elif is_guild_only and ctx.guild:
             bot.tree.copy_global_to(guild=ctx.guild)
             synced_guild = await bot.tree.sync(guild=ctx.guild)
             guild_cnt = len(synced_guild)
+            synced_global = []
         else:
+            # 기본 동기화: 중복 커맨드 방지를 위해 길드 로컬 캐시를 정리하고 글로벌 단일 세트로 동기화
+            if ctx.guild:
+                try:
+                    await bot.http.bulk_upsert_guild_commands(app_id, ctx.guild.id, [])
+                except Exception:
+                    pass
+                bot.tree.clear_commands(guild=ctx.guild)
+                try:
+                    await bot.tree.sync(guild=ctx.guild)
+                except Exception:
+                    pass
             guild_cnt = 0
-
-        synced_global = await bot.tree.sync()
+            synced_global = await bot.tree.sync()
 
         view = SyncControlView(author=ctx.author, guild=ctx.guild)
-        embed = discord.Embed(
-            title=f"⚡ [{g_name}] 슬래시 명령어 0초 즉시 동기화 완료!",
-            description=(
-                f"🎉 **현재 서버에 슬래시 명령어 총 `{guild_cnt}개`가 0초 만에 즉시 반영되었습니다!**\n\n"
-                "📊 **등록 상태:**\n"
+        if is_guild_only:
+            reg_status = (
                 f"• 🏠 현재 서버({g_name}) 즉시 등록: **`{guild_cnt}개`**\n"
-                f"• 🌐 글로벌 전역 명령어: **`{len(synced_global)}개`**\n\n"
+                f"• 💡 길드 전용 즉시 동기화 모드로 반영되었습니다."
+            )
+            title_text = f"⚡ [{g_name}] 길드 슬래시 명령어 동기화 완료!"
+            desc_lead = f"🎉 **현재 서버에 길드 전용 슬래시 명령어 총 `{guild_cnt}개`가 등록되었습니다!**"
+        else:
+            reg_status = (
+                f"• 🌐 글로벌 전역 명령어: **`{len(synced_global)}개`**\n"
+                f"• 🧹 길드 캐시 정리: 중복 슬래시 커맨드 방지 완료"
+            )
+            title_text = f"⚡ [{g_name}] 글로벌 슬래시 명령어 동기화 완료!"
+            desc_lead = f"🎉 **글로벌 슬래시 명령어 총 `{len(synced_global)}개`가 동기화되었습니다! (중복 방지됨)**"
+
+        embed = discord.Embed(
+            title=title_text,
+            description=(
+                f"{desc_lead}\n\n"
+                "📊 **등록 상태:**\n"
+                f"{reg_status}\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 "💡 **지금 바로 채팅창에서 `/`를 눌러 사용해 보세요!**\n"
+                "• `/깃허브연동` 또는 `/깃허브알림` : GitHub 푸시 및 Actions 알림 채널 연동\n"
                 "• `/터미널로그채널` 또는 `!터미널로그 #채널` : VM 터미널 로그 실시간 채널 기록\n"
                 "• `/반응역할` 또는 `!반응역할` : 이모지 반응역할 스튜디오 호출\n"
                 "• `/플레이리스트` 또는 `!플레이리스트` : 플레이리스트 스튜디오 호출"

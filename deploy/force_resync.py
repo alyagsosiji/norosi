@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ==============================================================================
-# norosi 디스코드 봇 - 슬래시 명령어 36개 강제 재등록 유틸리티 (force_resync.py)
+# norosi 디스코드 봇 - 슬래시 명령어 74개 강제 재등록 유틸리티 (force_resync.py)
 # ==============================================================================
 import os
 import sys
@@ -13,9 +13,15 @@ if BASE_DIR not in sys.path:
 
 # ⚡ 가상환경(venv) 자동 재전환 (시스템 파이썬으로 실행 시 venv 인터프리터로 재실행)
 VENV_PYTHON = os.path.join(BASE_DIR, "venv", "bin", "python3")
+VENV_PYTHON_WIN = os.path.join(BASE_DIR, "venv", "Scripts", "python.exe")
 HOME_VENV = os.path.join(os.path.expanduser("~"), "norosi", "venv", "bin", "python3")
 
-target_venv = VENV_PYTHON if os.path.exists(VENV_PYTHON) else (HOME_VENV if os.path.exists(HOME_VENV) else None)
+target_venv = None
+for p in (VENV_PYTHON, VENV_PYTHON_WIN, HOME_VENV):
+    if os.path.exists(p):
+        target_venv = p
+        break
+
 if target_venv and os.path.abspath(sys.executable) != os.path.abspath(target_venv):
     os.execv(target_venv, [target_venv] + sys.argv)
 
@@ -84,7 +90,7 @@ class ForceSyncBot(commands.Bot):
 
     async def on_ready(self):
         print(f"✅ [2/3] Discord 로그인 성공: {self.user} (ID: {self.user.id})", flush=True)
-        print("🧹 [3/3] 슬래시 명령어 캐시 완전 초기화 및 36개 재등록 시작...", flush=True)
+        print("🧹 [3/3] 슬래시 명령어 캐시 완전 초기화 및 74개 재등록 시작...", flush=True)
 
         try:
             # 1. 연결된 모든 서버의 길드 캐시 명령어 완전 삭제

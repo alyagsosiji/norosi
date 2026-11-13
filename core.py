@@ -23,6 +23,10 @@ class _RequestsResponse:
         self._content = content_bytes
 
     @property
+    def content(self):
+        return self._content
+
+    @property
     def text(self):
         return self._content.decode("utf-8", errors="ignore")
 
@@ -432,10 +436,18 @@ class SafeView(discord.ui.View):
 
     def add_item(self, item: discord.ui.Item):
         # 동적으로 add_item 된 요소에도 재시작 시 식별 가능한 deterministic custom_id 자동 부여
-        if hasattr(item, "_provided_custom_id") and not item._provided_custom_id:
+        # 디스코드 API 규격상 Link 버튼(url 설정 또는 ButtonStyle.link) 및 SKU 버튼은 custom_id를 가질 수 없음
+        is_link = (
+            getattr(item, "url", None) is not None
+            or getattr(item, "sku_id", None) is not None
+            or getattr(item, "style", None) == discord.ButtonStyle.link
+        )
+        if not is_link and hasattr(item, "_provided_custom_id") and not item._provided_custom_id:
             lbl = getattr(item, "label", "") or getattr(item, "placeholder", "") or str(len(self.children))
-            item.custom_id = f"norosi:{self.__class__.__name__}:{lbl}"
+            item.custom_id = f"norosi:{self.__class__.__name__}:{lbl}"[:100]
             item._provided_custom_id = True
+        elif not is_link and getattr(item, "custom_id", None):
+            item.custom_id = str(item.custom_id)[:100]
         return super().add_item(item)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -494,12 +506,25 @@ def reconstruct_safe_view(view_cls_or_name: Union[type[SafeView], str], interact
                 continue
             if name in ("bot", "bot_instance"):
                 kwargs[name] = interaction.client
-            elif name in ("user", "member", "viewer", "target_user", "owner"):
+            elif name in ("owner",):
+                orig_user = getattr(getattr(interaction, "message", None), "interaction", None)
+                kwargs[name] = getattr(orig_user, "user", None) or interaction.user
+            elif name in ("user", "member", "viewer", "target_user", "host_user", "author", "host"):
                 kwargs[name] = interaction.user
             elif name in ("guild",):
                 kwargs[name] = interaction.guild
+            elif name in ("guild_id",):
+                kwargs[name] = interaction.guild.id if interaction.guild else 0
             elif name in ("data",):
                 kwargs[name] = get_cached_data()
+            elif name in ("card_list", "items", "options"):
+                kwargs[name] = []
+            elif name in ("stats", "profile", "user_cfg", "config", "cal_info", "game"):
+                kwargs[name] = {}
+            elif name in ("year",):
+                kwargs[name] = datetime.datetime.now(KST).year
+            elif name in ("month",):
+                kwargs[name] = datetime.datetime.now(KST).month
             elif name in ("player",):
                 import cogs.music
                 kwargs[name] = cogs.music.get_voice_player(interaction.client, interaction.guild)
@@ -2115,11 +2140,25 @@ def load_data():
         return copy.deepcopy(_DATA_CACHE)
 
 
+def _sync_firebase_background(endpoint, payload):
+    global _FIREBASE_DISABLED_UNTIL
+    try:
+        res = requests.put(endpoint, json=payload, timeout=5)
+        if res.status_code in (401, 403, 404):
+            _FIREBASE_DISABLED_UNTIL = time.time() + 3600
+    except Exception as e:
+        print(f"⚠️ Firebase 저장 오류 (로컬 백업에는 정상 저장됨): {e}", flush=True)
+        _FIREBASE_DISABLED_UNTIL = time.time() + 300
+
+
 def save_data(data):
     """
-    인메모리 캐시 갱신 + 원자적 로컬 파일 저장 + Firebase RTDB 동기화.
+    인메모리 캐시 갱신 + 원자적 로컬 파일 저장 + Firebase RTDB 비동기 백그라운드 동기화.
+    _DATA_LOCK 점유 중 동기식 네트워크 I/O(requests.put)를 배제하여 봇 프리징 및 타임아웃을 방지합니다.
     """
-    global _DATA_CACHE, _FIREBASE_DISABLED_UNTIL
+    global _DATA_CACHE
+    endpoint = None
+    payload = None
     with _DATA_LOCK:
         normalized = normalize_data(copy.deepcopy(data))
         _DATA_CACHE = normalized
@@ -2127,13 +2166,11 @@ def save_data(data):
 
         endpoint = get_firebase_endpoint()
         if endpoint:
-            try:
-                res = requests.put(endpoint, json=normalized, timeout=5)
-                if res.status_code in (401, 403, 404):
-                    _FIREBASE_DISABLED_UNTIL = time.time() + 3600
-            except Exception as e:
-                print(f"⚠️ Firebase 저장 오류 (로컬 백업에는 정상 저장됨): {e}", flush=True)
-                _FIREBASE_DISABLED_UNTIL = time.time() + 300
+            payload = copy.deepcopy(normalized)
+
+    if endpoint and payload:
+        t = threading.Thread(target=_sync_firebase_background, args=(endpoint, payload), daemon=True)
+        t.start()
 
 
 def reset_dday_and_music_data():
@@ -3418,6 +3455,47 @@ def fetch_soundcloud_track_sync(genre=None, artist=None, playlist_url=None):
         return None, f"SoundCloud 검색 오류: {e}"
 
 
+def fetch_youtube_track_sync(genre, artist, playlist_url=None):
+    """유튜브에서 장르/아티스트 맞춤 또는 플레이리스트 곡을 1곡 추출하여 반환합니다."""
+    if not yt_dlp:
+        return None, "yt-dlp 모듈이 설치되어 있지 않습니다."
+    try:
+        ydl_flat_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "extract_flat": True,
+            "nocheckcertificate": True,
+            "logger": _QuietYdlLogger(),
+            "default_search": "ytsearch",
+        }
+        with yt_dlp.YoutubeDL(ydl_flat_opts) as ydl:
+            if playlist_url:
+                info = ydl.extract_info(playlist_url, download=False)
+                entries = info.get("entries", [])
+                if not entries:
+                    return None, "유튜브 플레이리스트에서 곡을 찾을 수 없습니다."
+                chosen = random.choice(entries)
+            else:
+                search_terms = [t.strip() for t in [artist, genre] if t and t.strip()]
+                query = " ".join(search_terms) if search_terms else get_mood_keyword()
+                info = ydl.extract_info(f"ytsearch25:{query} official audio", download=False)
+                entries = info.get("entries", [])
+                if not entries:
+                    return None, "조건에 맞는 유튜브 곡을 찾지 못했습니다."
+                chosen = random.choice(entries)
+
+        track_url = chosen.get("url") or chosen.get("webpage_url") or f"https://www.youtube.com/watch?v={chosen.get('id')}"
+        return {
+            "platform": "YouTube",
+            "title": chosen.get("title", "제목 없음"),
+            "artist": chosen.get("uploader", chosen.get("channel", "알 수 없는 아티스트")),
+            "url": chosen.get("webpage_url", track_url),
+            "image": chosen.get("thumbnail")
+        }, None
+    except Exception as e:
+        return None, f"YouTube 검색 오류: {e}"
+
+
 async def get_recommended_music(prefs):
     playlist_url = prefs.get("playlist_url")
     genre = prefs.get("genre")
@@ -3444,9 +3522,16 @@ async def get_recommended_music(prefs):
         else:
             return None, "지원하지 않는 플레이리스트 링크입니다."
 
-    chosen_platform = random.choice(["spotify", "soundcloud"]) if platform == "all" else platform
+    chosen_platform = random.choice(["spotify", "soundcloud", "youtube"]) if platform == "all" else platform
     if chosen_platform == "spotify":
         track_info, err = await asyncio.to_thread(fetch_spotify_track, genre, artist, None)
+        if err and platform == "all":
+            track_info, err = await asyncio.to_thread(fetch_youtube_track_sync, genre, artist, None)
+            if err:
+                return await asyncio.to_thread(fetch_soundcloud_track_sync, genre, artist, None)
+        return track_info, err
+    elif chosen_platform == "youtube":
+        track_info, err = await asyncio.to_thread(fetch_youtube_track_sync, genre, artist, None)
         if err and platform == "all":
             return await asyncio.to_thread(fetch_soundcloud_track_sync, genre, artist, None)
         return track_info, err
@@ -4894,8 +4979,27 @@ WORD_CHAIN_DICT = [
     "키보드", "타조", "탁구", "태양", "택시", "텔레비전", "토끼", "토마토", "통기타", "파도", "파란색", "파인애플", "편지", "평화",
     "포도", "포스터", "피아노", "하늘", "학교", "한강", "할머니", "항구", "해바라기", "햄버거", "행복", "향기", "호랑이", "호수",
     "화분", "화요일", "환경", "휴식", "희망", "힘찬", "강릉", "리본", "본능", "능력", "력사", "사랑", "랑데부", "부엌", "일기",
-    "기쁨", "쁨이", "미쿠", "쿠키", "키위", "위성", "성악", "악보", "보름달", "달리기", "기차표", "표정", "정류장", "장갑", "갑옷"
+    "기쁨", "쁨이", "미쿠", "쿠키", "키위", "위성", "성악", "악보", "보름달", "달리기", "기차표", "표정", "정류장", "장갑", "갑옷",
+    "그릇", "이름", "기름", "고슴도치", "치약", "악어", "어항", "항아리", "듬직", "보물", "물병", "병아리", "통장", "장수",
+    "수건", "건포도", "도마", "마차", "차표", "표범", "범선", "선장", "터널", "지갑", "물개", "개미", "미역", "원피스",
+    "풍선", "선생", "생물", "울타리", "위인", "인사", "경치", "치마", "마당", "당일", "일손", "건강", "변호사", "사탕",
+    "탕수육", "육교", "교문", "문학", "교과서", "서점", "점토", "토요일", "목걸이", "이모", "모기", "기러기", "기둥", "둥지",
+    "지붕", "붕어빵", "빵집", "집게", "살구", "구슬", "슬기", "음식", "식초", "초원", "두더지", "옥수수", "물안개", "개울",
+    "울림", "보리", "치킨", "판자", "자두", "물감", "감초", "초록", "스타", "타일", "일식", "기운", "운동", "동화", "화가",
+    "가면", "국기", "기구", "품질", "질서", "서랍", "터치", "치즈"
 ]
+
+WORD_CHAIN_SET = set(WORD_CHAIN_DICT)
+
+
+def is_valid_word_chain_word(word: str) -> bool:
+    """단어가 끝말잇기 규칙에 맞는지(사전에 등재된 유효한 2글자 이상 순수 한글 단어인지) 검증합니다."""
+    if not word or not isinstance(word, str):
+        return False
+    w = word.strip()
+    if len(w) < 2 or not all("가" <= ch <= "힣" for ch in w):
+        return False
+    return w in WORD_CHAIN_SET
 
 
 def pick_bot_word(last_char: str, used_words: set[str]) -> str | None:

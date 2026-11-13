@@ -610,10 +610,19 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
     {
         "category": "admin",
         "cat_label": "⚙️ 봇 관리 & 배포 알림",
-        "name": "/깃허브연동 (또는 /깃허브알림)",
+        "name": "/깃허브연동",
         "desc": "현재 채널 또는 지정한 채널에 GitHub 푸시 및 Actions 배포 알림을 즉시 연동 및 Webhook 주소 발급 (전체 서버 채널 동시 전송)",
         "params": "채널: [#채널(선택, 미입력 시 현재 채널)] 역할멘션: [@역할(선택)] 연동해제: [True/False(선택)]",
         "example": "/깃허브연동 채널:#공지-업데이트",
+        "source": "cogs/logger.py",
+    },
+    {
+        "category": "admin",
+        "cat_label": "⚙️ 봇 관리 & 배포 알림",
+        "name": "/깃허브알림",
+        "desc": "GitHub 커밋 푸시 및 배포 완료 알림 채널을 원클릭으로 간편하게 지정하거나 해제 (/깃허브연동 단축 명령어)",
+        "params": "채널: [#채널(선택, 미입력 시 현재 채널)] 역할멘션: [@역할(선택)] 연동해제: [True/False(선택)]",
+        "example": "/깃허브알림 채널:#공지-업데이트",
         "source": "cogs/logger.py",
     },
     {
@@ -683,7 +692,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "admin",
         "cat_label": "⚙️ 봇 관리 & 안내",
         "name": "/도움말",
-        "desc": "전체 69개 슬래시 명령어의 카테고리별 상세 가이드 및 대화형 페이지별 열람",
+        "desc": "전체 74개 슬래시 명령어의 카테고리별 상세 가이드 및 대화형 페이지별 열람",
         "params": "category: [카테고리(선택)] search: [검색어(선택)]",
         "example": "/도움말 category:admin search:반응역할",
         "source": "cogs/help.py",
@@ -693,7 +702,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
 CATEGORY_META = [
     ("cards", "🎮 출석 & 카드/가챠 (18종 · 4페이지)", "출석체크, 프로세카 뽑기, 마이세카이, 카드교환, 카드강화, 덱편성 등"),
     ("dday", "📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", "멤버 생일 전광판, 공용/비밀 D-Day, 파트너, 하드코어스터디, 뽀모도로 집중모드 등"),
-    ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (16종 · 4페이지)", "올인원 /대시보드, /메뉴, /깃허브연동, /터미널로그채널, 반응역할, 공지발송 등"),
+    ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", "올인원 /대시보드, /메뉴, /깃허브연동, /터미널로그채널, 반응역할, 공지발송 등"),
     ("games", "🎲 미니게임 & 파티 모집 (5종 · 1페이지)", "파티원 모집, 끝말잇기(두음법칙), 러시안룰렛, 초정밀 실시간 날씨, 스마트 알림예약"),
     ("stats", "📊 서버/유저 통계 & 건의 (4종 · 1페이지)", "멤버 상세 유저정보, 실시간 서버통계 보드, 호스트 봇상태, 익명/공개 건의"),
     ("music", "🎵 음악 & 플레이리스트 (13종 · 3페이지)", "나만의 음악 플레이리스트 제작·공유(유튜브/스포티파이/사클), 음성 순차재생, 배속(0.5x~2.0x), 헤드셋제어, 오디오테스트 등"),
@@ -704,7 +713,7 @@ CATEGORY_DROPDOWN_OPTIONS = [
     ("all", "🌟 전체 명령어 한눈에 보기 (74종 요약판)", "7대 카테고리 요약 보드 (다음 버튼으로 상세 가이드 열람)", "🌐"),
     ("cards", "🎮 출석 & 카드/가챠 (18종 · 4페이지)", "/출석체크, /프로세카뽑기, /마이세카이, /카드교환, /카드강화 등", "🎮"),
     ("dday", "📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", "/디데이추가, /하드코어스터디, /생일등록, /파트너, /집중모드 등", "📅"),
-    ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (16종 · 4페이지)", "/대시보드, /메뉴, /깃허브연동, /터미널로그채널, /반응역할 등", "⚙️"),
+    ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", "/대시보드, /메뉴, /깃허브연동, /터미널로그채널, /반응역할 등", "⚙️"),
     ("games", "🎲 미니게임 & 파티 모집 (5종 · 1페이지)", "/모집, /끝말잇기, /러시안룰렛, /날씨, /알림예약", "🎲"),
     ("stats", "📊 서버/유저 통계 & 건의 (4종 · 1페이지)", "/서버통계, /유저정보, /건의, /봇상태", "📊"),
     ("music", "🎵 음악 & 플레이리스트 (13종 · 3페이지)", "/플레이리스트, /플리재생, /배속, /헤드셋, /플리곡추가 등", "🎵"),
@@ -715,7 +724,7 @@ CATEGORY_DROPDOWN_OPTIONS = [
 def build_help_embed(category: str = "all", search_kw: str = "", page: int = 0) -> discord.Embed:
     """
     가독성을 극대화한 norosi bot help 임베드 빌더.
-    - category=='all' & page==0 & 검색어 없음: 전체 54개 명령어를 7대 카테고리별로 한눈에 볼 수 있는 요약 대시보드 제공
+    - category=='all' & page==0 & 검색어 없음: 전체 74개 명령어를 7대 카테고리별로 한눈에 볼 수 있는 요약 대시보드 제공
     - 특정 카테고리 선택 또는 페이지 이동 시: 페이지당 5개씩 깔끔하고 가독성 높은 카드 레이아웃 제공
     """
     total_cmds = len(COMMAND_CATALOG)
@@ -860,15 +869,26 @@ class HelpCategorySelect(discord.ui.Select):
 
 class HelpCategoryView(core.SafeView):
     """페이지네이션(◀/▶) 및 카테고리 빠른 전환, 올인원 메뉴 바로가기를 지원하는 도움말 뷰"""
-    def __init__(self, bot_instance=None, category: str = "all", search_kw: str = ""):
+    def __init__(self, bot_instance=None, category: str = "all", search_kw: str = "", author=None):
         super().__init__(timeout=300)
         self.bot_instance = bot_instance
         self.category = category
         self.search_kw = search_kw
+        self.author = author
         self.page = 0
         self.category_select = HelpCategorySelect(self)
         self.add_item(self.category_select)
         self.update_buttons()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if self.author and interaction.user.id != self.author.id:
+            await core.safe_send_response(
+                interaction,
+                content="❌ 도움말 메뉴를 호출한 유저만 조작할 수 있습니다.",
+                ephemeral=True
+            )
+            return False
+        return True
 
     def _get_filtered(self):
         filtered = COMMAND_CATALOG
@@ -963,7 +983,7 @@ class HelpCog(commands.Cog):
         app_commands.Choice(name="🌟 전체 명령어 한눈에 보기 (74종 요약판)", value="all"),
         app_commands.Choice(name="🎮 출석 & 카드/가챠 (18종 · 4페이지)", value="cards"),
         app_commands.Choice(name="📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", value="dday"),
-        app_commands.Choice(name="⚙️ 봇 관리 & 마스터 대시보드 (16종 · 4페이지)", value="admin"),
+        app_commands.Choice(name="⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", value="admin"),
         app_commands.Choice(name="🎲 미니게임 & 파티 모집 (5종 · 1페이지)", value="games"),
         app_commands.Choice(name="📊 서버/유저 통계 & 건의 (4종 · 1페이지)", value="stats"),
         app_commands.Choice(name="🎵 음악 & 플레이리스트 (13종 · 3페이지)", value="music"),
@@ -978,14 +998,14 @@ class HelpCog(commands.Cog):
         await core.safe_defer(interaction, ephemeral=True)
         cat_val = category.value if category else "all"
         embed = build_help_embed(category=cat_val, search_kw=search or "", page=0)
-        view = HelpCategoryView(bot_instance=self.bot, category=cat_val, search_kw=search or "")
+        view = HelpCategoryView(bot_instance=self.bot, category=cat_val, search_kw=search or "", author=interaction.user)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     @commands.command(name="도움말", aliases=["help", "도움", "명령어"])
     async def prefix_help(self, ctx: commands.Context, *, 검색: Optional[str] = ""):
-        """채팅창에 !도움말 또는 !help 입력 시 즉시 57종 올인원 가이드 및 카테고리 대시보드 호출"""
+        """채팅창에 !도움말 또는 !help 입력 시 즉시 74종 올인원 가이드 및 카테고리 대시보드 호출"""
         embed = build_help_embed(category="all", search_kw=검색 or "", page=0)
-        view = HelpCategoryView(bot_instance=self.bot, category="all", search_kw=검색 or "")
+        view = HelpCategoryView(bot_instance=self.bot, category="all", search_kw=검색 or "", author=ctx.author)
         await ctx.send(embed=embed, view=view)
 
 

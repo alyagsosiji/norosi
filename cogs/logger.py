@@ -1,5 +1,6 @@
 import os
 import io
+import re
 import asyncio
 import datetime
 import urllib.request
@@ -387,6 +388,13 @@ class GithubWebhookView(core.SafeView):
         self.bot = bot
         self.role = role
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
+        if interaction.user.id != self.author.id:
+            await core.safe_send_response(interaction, "❌ 연동을 설정한 관리자만 조작할 수 있습니다.", ephemeral=True)
+            return False
+        return True
+
     @discord.ui.button(label="테스트 알림 발송", style=discord.ButtonStyle.success, emoji="🚀", row=0)
     async def send_test_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
@@ -677,6 +685,8 @@ class LoggerCog(commands.Cog):
         data = await core.asyncio.to_thread(core.load_data)
         g_attendance = data.get("guild_attendance", {}).get(g_key, {})
         u_profiles = data.get("user_profiles", {})
+        g_stats = data.get("server_stats", {}).get(g_key, {})
+        chat_active_users = g_stats.get("active_users", {})
 
         # 서버 멤버 스캔 (봇 제외)
         members = [m for m in interaction.guild.members if not m.bot]
@@ -687,32 +697,38 @@ class LoggerCog(commands.Cog):
             m_key = str(m.id)
             last_date_str = None
 
-            # 1. 서버 출석 기록 확인
-            if m_key in g_attendance and isinstance(g_attendance[m_key], dict):
-                last_date_str = g_attendance[m_key].get("last_date")
-
-            # 2. 글로벌 프로필 출석 기록 확인
-            if not last_date_str and m_key in u_profiles and isinstance(u_profiles[m_key], dict):
-                att = u_profiles[m_key].get("attendance", {})
-                last_date_str = att.get("last_date")
-
-            if last_date_str:
-                try:
-                    last_dt = datetime.datetime.strptime(last_date_str, "%Y-%m-%d").replace(tzinfo=core.KST)
-                    days_inactive = max(0, (now_dt.date() - last_dt.date()).days)
-                    last_act_str = f"{last_date_str} (출석)"
-                except Exception:
-                    days_inactive = 999
-                    last_act_str = "기록 오류"
+            # 1. 서버 채팅 활동 기록 확인 (당일 활동 멤버는 미활동에서 제외)
+            chat_count = chat_active_users.get(m_key, 0)
+            if chat_count > 0:
+                days_inactive = 0
+                last_act_str = f"최근 채팅 활동 ({chat_count}회)"
             else:
-                # 출석 기록이 전혀 없는 경우 서버 가입일 기준
-                if m.joined_at:
-                    j_kst = m.joined_at.astimezone(core.KST)
-                    days_inactive = max(0, (now_dt.date() - j_kst.date()).days)
-                    last_act_str = f"{j_kst.strftime('%Y-%m-%d')} (가입 후 무활동)"
+                # 2. 서버 출석 기록 확인
+                if m_key in g_attendance and isinstance(g_attendance[m_key], dict):
+                    last_date_str = g_attendance[m_key].get("last_date")
+
+                # 3. 글로벌 프로필 출석 기록 확인
+                if not last_date_str and m_key in u_profiles and isinstance(u_profiles[m_key], dict):
+                    att = u_profiles[m_key].get("attendance", {})
+                    last_date_str = att.get("last_date")
+
+                if last_date_str:
+                    try:
+                        last_dt = datetime.datetime.strptime(last_date_str, "%Y-%m-%d").replace(tzinfo=core.KST)
+                        days_inactive = max(0, (now_dt.date() - last_dt.date()).days)
+                        last_act_str = f"{last_date_str} (출석)"
+                    except Exception:
+                        days_inactive = 999
+                        last_act_str = "기록 오류"
                 else:
-                    days_inactive = 999
-                    last_act_str = "활동 기록 없음"
+                    # 출석/채팅 기록이 전혀 없는 경우 서버 가입일 기준
+                    if m.joined_at:
+                        j_kst = m.joined_at.astimezone(core.KST)
+                        days_inactive = max(0, (now_dt.date() - j_kst.date()).days)
+                        last_act_str = f"{j_kst.strftime('%Y-%m-%d')} (가입 후 무활동)"
+                    else:
+                        days_inactive = 999
+                        last_act_str = "활동 기록 없음"
 
             if days_inactive >= days_threshold:
                 inactive_list.append({
@@ -823,7 +839,7 @@ class LoggerCog(commands.Cog):
             embed.set_footer(text=f"총 {total_linked}개 연동 서버 채널 동시 방송 모드 활성화됨")
 
         view = GithubWebhookView(interaction.user, target_ch, self.bot, 역할멘션)
-        await core.safe_send_response(interaction, embed=embed, view=view)
+        await core.safe_send_response(interaction, embed=embed, view=view, ephemeral=True)
 
     @app_commands.command(
         name="깃허브연동",
@@ -1169,6 +1185,8 @@ class LoggerCog(commands.Cog):
     @commands.Cog.listener()
     async def on_audit_log_entry_create(self, entry: discord.AuditLogEntry):
         if not entry.guild:
+            return
+        if entry.user and self.bot.user and entry.user.id == self.bot.user.id:
             return
         data = await core.asyncio.to_thread(core.load_data)
         ch = self._get_log_channel(entry.guild, data, category_key="mod_admin")
