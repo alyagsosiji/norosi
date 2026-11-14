@@ -2823,6 +2823,8 @@ DEFAULT_CONFIG = {
     },
     "hsr_users": {},
     "hsr_hall_of_fame": {},
+    "fishing_users": {},
+    "fishing_records": {},
     "user_profiles": {},
     "partners": {},
     "guild_attendance": {},
@@ -3231,6 +3233,11 @@ def normalize_data(data):
         if hof_key not in data or not isinstance(data[hof_key], dict):
             data[hof_key] = {}
 
+    if "fishing_users" not in data or not isinstance(data["fishing_users"], dict):
+        data["fishing_users"] = {}
+    if "fishing_records" not in data or not isinstance(data["fishing_records"], dict):
+        data["fishing_records"] = {}
+
     if "user_profiles" not in data or not isinstance(data["user_profiles"], dict):
         data["user_profiles"] = {}
     else:
@@ -3370,6 +3377,34 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
         for g_key, local_hof in local_norm.get(hof_key, {}).items():
             if g_key not in merged[hof_key]:
                 merged[hof_key][g_key] = copy.deepcopy(local_hof)
+
+    for g_key, local_f_users in local_norm.get("fishing_users", {}).items():
+        if g_key not in merged["fishing_users"]:
+            merged["fishing_users"][g_key] = copy.deepcopy(local_f_users)
+        elif isinstance(local_f_users, dict):
+            rem_g = merged["fishing_users"].setdefault(g_key, {})
+            for u_key, local_fu in local_f_users.items():
+                rem_fu = rem_g.get(u_key)
+                if not isinstance(rem_fu, dict) or (
+                    isinstance(local_fu, dict)
+                    and local_fu.get("total_catches", 0) > rem_fu.get("total_catches", 0)
+                ):
+                    rem_g[u_key] = copy.deepcopy(local_fu)
+
+    for g_key, local_f_rec in local_norm.get("fishing_records", {}).items():
+        if g_key not in merged["fishing_records"]:
+            merged["fishing_records"][g_key] = copy.deepcopy(local_f_rec)
+        elif isinstance(local_f_rec, dict):
+            rem_rec = merged["fishing_records"].setdefault(g_key, {})
+            for fid, l_obj in local_f_rec.items():
+                if fid not in rem_rec:
+                    rem_rec[fid] = copy.deepcopy(l_obj)
+                elif isinstance(l_obj, dict) and isinstance(rem_rec.get(fid), dict):
+                    for metric_k in ("max_cm", "max_kg"):
+                        l_m = l_obj.get(metric_k)
+                        r_m = rem_rec[fid].get(metric_k)
+                        if isinstance(l_m, dict) and (not isinstance(r_m, dict) or l_m.get("val", 0) > r_m.get("val", 0)):
+                            rem_rec[fid][metric_k] = copy.deepcopy(l_m)
 
     for p_key in ("genshin_pickup", "hsr_pickup"):
         l_ts = str(local_norm.get(p_key, {}).get("updated_at") or "")
