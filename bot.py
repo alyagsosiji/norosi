@@ -1474,7 +1474,7 @@ async def set_terminal_log_channel_prefix(ctx: commands.Context, channel: Option
 # 봇 슬래시 명령어 동기화 컨트롤 뷰 (대화형 버튼 UI)
 # ==========================================
 class SyncControlView(core.SafeView):
-    def __init__(self, author: discord.User, guild: Optional[discord.Guild]):
+    def __init__(self, author: Optional[discord.User] = None, guild: Optional[discord.Guild] = None):
         super().__init__(timeout=180)
         self.author = author
         self.guild = guild
@@ -1494,9 +1494,10 @@ class SyncControlView(core.SafeView):
         await core.safe_defer(interaction)
         try:
             g_cnt = 0
-            if self.guild:
-                bot.tree.copy_global_to(guild=self.guild)
-                synced_guild = await bot.tree.sync(guild=self.guild)
+            target_guild = self.guild or interaction.guild
+            if target_guild:
+                bot.tree.copy_global_to(guild=target_guild)
+                synced_guild = await bot.tree.sync(guild=target_guild)
                 g_cnt = len(synced_guild)
 
             synced_global = await bot.tree.sync()
@@ -1504,7 +1505,7 @@ class SyncControlView(core.SafeView):
             embed = discord.Embed(
                 title="⚡ 슬래시 명령어 현재 서버에 0초 즉시 반영 완료!",
                 description=(
-                    f"✅ **현재 서버({self.guild.name if self.guild else '글로벌'})**에 슬래시 명령어 **`{g_cnt}개`**(반응역할·터미널로그 포함)가 0초 만에 즉시 등록되었습니다!\n"
+                    f"✅ **현재 서버({target_guild.name if target_guild else '글로벌'})**에 슬래시 명령어 **`{g_cnt}개`**(반응역할·터미널로그 포함)가 0초 만에 즉시 등록되었습니다!\n"
                     f"👉 글로벌 슬래시 커맨드 총 **`{len(synced_global)}개`**도 전역 등록 완료되었습니다.\n\n"
                     "💡 지금 즉시 채팅창에서 `/`를 누르시면 모든 신규 명령어가 나타납니다!"
                 ),
