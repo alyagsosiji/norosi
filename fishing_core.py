@@ -781,6 +781,24 @@ def _pick_daily_quests_for_date(date_str: str) -> List[Dict[str, Any]]:
     ]
 
 
+def _safe_int(val: Any, default: int = 0) -> int:
+    try:
+        if val is None or isinstance(val, bool):
+            return int(val) if isinstance(val, bool) else default
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(val: Any, default: float = 0.0) -> float:
+    try:
+        if val is None or isinstance(val, bool):
+            return float(default)
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
+
 def ensure_fishing_user(data: dict, guild_id: int | str, user_id: int | str, user_name: str = "") -> Dict[str, Any]:
     g_key = str(guild_id or 0)
     u_key = str(user_id)
@@ -793,15 +811,15 @@ def ensure_fishing_user(data: dict, guild_id: int | str, user_id: int | str, use
 
     if user_name:
         u["name"] = user_name
-    else:
-        u.setdefault("name", f"낚시꾼({u_key[:4]})")
+    elif not u.get("name"):
+        u["name"] = f"낚시꾼({u_key[:4]})"
 
-    u.setdefault("gold", 300)  # 신규 출조자 초기 정착 지원금
-    u.setdefault("exp", 0)
-    u.setdefault("level", 1)
-    u.setdefault("total_catches", 0)
-    u.setdefault("total_trophy", 0)
-    u.setdefault("total_gold_earned", 0)
+    u["gold"] = max(0, _safe_int(u.get("gold"), 300))  # 신규 출조자 초기 정착 지원금
+    u["exp"] = max(0, _safe_int(u.get("exp"), 0))
+    u["level"] = max(1, _safe_int(u.get("level"), 1))
+    u["total_catches"] = max(0, _safe_int(u.get("total_catches"), 0))
+    u["total_trophy"] = max(0, _safe_int(u.get("total_trophy"), 0))
+    u["total_gold_earned"] = max(0, _safe_int(u.get("total_gold_earned"), 0))
     u.setdefault("rod_id", "bamboo")
     u.setdefault("reel_id", "basic_reel")
     if not isinstance(u.get("owned_rods"), list):
@@ -813,7 +831,7 @@ def ensure_fishing_user(data: dict, guild_id: int | str, user_id: int | str, use
     u.setdefault("selected_bait", "dough")
     u.setdefault("selected_habitat", "lake")
     u.setdefault("selected_zone", "all")
-    u.setdefault("auto_mode", False)
+    u["auto_mode"] = bool(u.get("auto_mode", False))
 
     if not isinstance(u.get("baits"), dict):
         coerced_baits = core.coerce_dict_like(u.get("baits"))
@@ -828,8 +846,9 @@ def ensure_fishing_user(data: dict, guild_id: int | str, user_id: int | str, use
         x for x in core.coerce_list_like(u.get("tank"))
         if isinstance(x, dict) and x.get("uid") and x.get("name")
     ]
-    u.setdefault("tank_slots", 4)
-    u.setdefault("last_tank_collect", datetime.datetime.now(core.KST).isoformat())
+    u["tank_slots"] = max(4, min(20, _safe_int(u.get("tank_slots"), 4)))
+    if not u.get("last_tank_collect"):
+        u["last_tank_collect"] = datetime.datetime.now(core.KST).isoformat()
 
     today_str = core.get_today_str()
     dq = u.get("daily_quests")
@@ -839,20 +858,24 @@ def ensure_fishing_user(data: dict, guild_id: int | str, user_id: int | str, use
             "items": _pick_daily_quests_for_date(today_str),
         }
     else:
-        dq["items"] = [q for q in core.coerce_list_like(dq.get("items")) if isinstance(q, dict)]
-        if not dq["items"]:
-            dq["items"] = _pick_daily_quests_for_date(today_str)
+        valid_q = []
+        for q in core.coerce_list_like(dq.get("items")):
+            if isinstance(q, dict) and q.get("type"):
+                q["target"] = max(1, _safe_int(q.get("target"), 1))
+                q["progress"] = max(0, _safe_int(q.get("progress"), 0))
+                valid_q.append(q)
+        dq["items"] = valid_q if valid_q else _pick_daily_quests_for_date(today_str)
 
     # 유효성 가드
-    if u["rod_id"] not in RODS:
+    if u.get("rod_id") not in RODS:
         u["rod_id"] = "bamboo"
-    if u["reel_id"] not in REELS:
+    if u.get("reel_id") not in REELS:
         u["reel_id"] = "basic_reel"
-    if u["selected_bait"] not in BAITS:
+    if u.get("selected_bait") not in BAITS:
         u["selected_bait"] = "dough"
-    if u["selected_habitat"] not in HABITATS:
+    if u.get("selected_habitat") not in HABITATS:
         u["selected_habitat"] = "lake"
-    if u["selected_zone"] != "all" and u["selected_zone"] not in CANONICAL_ZONES.get(u["selected_habitat"], []):
+    if u.get("selected_zone") != "all" and u.get("selected_zone") not in CANONICAL_ZONES.get(u["selected_habitat"], []):
         u["selected_zone"] = "all"
     if "bamboo" not in u["owned_rods"]:
         u["owned_rods"].append("bamboo")
@@ -927,7 +950,7 @@ def get_user_fishing_summary(guild_id: int | str, user_id: int | str, user_name:
         core.save_data(data)
         return {
             "user": copy.deepcopy(u),
-            "crystals": int(prof.get("crystals", 0)),
+            "crystals": max(0, _safe_int(prof.get("crystals"), 0)),
             "env": env,
             "rod": RODS[u["rod_id"]],
             "reel": REELS[u["reel_id"]],
@@ -976,7 +999,7 @@ def prepare_cast_parameters(guild_id: int | str, user_id: int | str, user_name: 
         rod = RODS[u["rod_id"]]
         reel = REELS[u["reel_id"]]
         bait_id = u["selected_bait"]
-        if bait_id != "dough" and int(u["baits"].get(bait_id, 0)) <= 0:
+        if bait_id != "dough" and _safe_int(u["baits"].get(bait_id), 0) <= 0:
             bait_id = "dough"
             u["selected_bait"] = "dough"
             core.save_data(data)
@@ -1115,7 +1138,7 @@ def finalize_fish_catch(
         if use_bait_id not in BAITS:
             use_bait_id = "dough"
         if use_bait_id != "dough":
-            cur_qty = int(u["baits"].get(use_bait_id, 0))
+            cur_qty = _safe_int(u["baits"].get(use_bait_id), 0)
             if cur_qty > 0:
                 u["baits"][use_bait_id] = cur_qty - 1
                 if u["baits"][use_bait_id] <= 0:
@@ -1196,10 +1219,11 @@ def finalize_fish_catch(
         auto_sold_msg = None
         if len(bag) > 180:
             for idx, old_item in enumerate(bag[:-1]):
-                if isinstance(old_item, dict) and not old_item.get("locked") and old_item.get("rarity", 1) <= 2:
+                if isinstance(old_item, dict) and not old_item.get("locked") and _safe_int(old_item.get("rarity"), 1) <= 2:
                     sold_item = bag.pop(idx)
-                    u["gold"] += int(sold_item.get("gold", 20))
-                    auto_sold_msg = f"가방 초과로 `{sold_item.get('name', '물고기')}` 자동 판매 (+{sold_item.get('gold', 20)}🪙)"
+                    sold_g = _safe_int(sold_item.get("gold"), 20)
+                    u["gold"] += sold_g
+                    auto_sold_msg = f"가방 초과로 `{sold_item.get('name', '물고기')}` 자동 판매 (+{sold_g}🪙)"
                     break
 
         # 도감 업데이트
@@ -1219,11 +1243,11 @@ def finalize_fish_catch(
             is_personal_len_best = True
             is_personal_wt_best = True
         else:
-            pd_rec["count"] = int(pd_rec.get("count", 0)) + 1
-            if length_cm > float(pd_rec.get("max_cm", 0)):
+            pd_rec["count"] = _safe_int(pd_rec.get("count"), 0) + 1
+            if length_cm > _safe_float(pd_rec.get("max_cm"), 0.0):
                 pd_rec["max_cm"] = length_cm
                 is_personal_len_best = True
-            if weight_kg > float(pd_rec.get("max_kg", 0)):
+            if weight_kg > _safe_float(pd_rec.get("max_kg"), 0.0):
                 pd_rec["max_kg"] = weight_kg
                 is_personal_wt_best = True
 
@@ -1238,7 +1262,7 @@ def finalize_fish_catch(
         new_server_len_record = False
         new_server_wt_record = False
         prev_len_rec = sp_rec.get("max_cm")
-        if not isinstance(prev_len_rec, dict) or length_cm > float(prev_len_rec.get("val", 0)):
+        if not isinstance(prev_len_rec, dict) or length_cm > _safe_float(prev_len_rec.get("val"), 0.0):
             sp_rec["max_cm"] = {
                 "val": length_cm,
                 "user_id": str(user_id),
@@ -1248,7 +1272,7 @@ def finalize_fish_catch(
             new_server_len_record = True
 
         prev_wt_rec = sp_rec.get("max_kg")
-        if not isinstance(prev_wt_rec, dict) or weight_kg > float(prev_wt_rec.get("val", 0)):
+        if not isinstance(prev_wt_rec, dict) or weight_kg > _safe_float(prev_wt_rec.get("val"), 0.0):
             sp_rec["max_kg"] = {
                 "val": weight_kg,
                 "user_id": str(user_id),
@@ -1280,35 +1304,36 @@ def finalize_fish_catch(
             bonus_reasons.append("🏆 서버 신기록(+25💎)" if (prev_len_rec or prev_wt_rec) else "🏆 서버 첫 기록(+15💎)")
 
         if crystal_bonus > 0:
-            prof["crystals"] = int(prof.get("crystals", 0)) + crystal_bonus
+            prof["crystals"] = _safe_int(prof.get("crystals"), 0) + crystal_bonus
 
         # EXP 및 통계 갱신
         gain_exp = 14 + sp["rarity"] * 12 + (18 if is_trophy else 0) + (20 if is_first_catch else 0)
-        old_lvl = int(u.get("level", 1))
-        u["exp"] = int(u.get("exp", 0)) + gain_exp
+        old_lvl = _safe_int(u.get("level"), 1)
+        u["exp"] = _safe_int(u.get("exp"), 0) + gain_exp
         new_lvl, rem_exp, need_exp = _calc_level_from_exp(u["exp"])
         u["level"] = new_lvl
         leveled_up = new_lvl > old_lvl
         if leveled_up:
             u["gold"] += new_lvl * 50
 
-        u["total_catches"] = int(u.get("total_catches", 0)) + 1
+        u["total_catches"] = _safe_int(u.get("total_catches"), 0) + 1
         if is_trophy:
-            u["total_trophy"] = int(u.get("total_trophy", 0)) + 1
+            u["total_trophy"] = _safe_int(u.get("total_trophy"), 0) + 1
 
         # 일일 의뢰 진행도 갱신
         for q in (core.as_dict(u.get("daily_quests")).get("items") or []):
             if not isinstance(q, dict) or q.get("claimed"):
                 continue
             qtype = q.get("type")
+            q_tgt = max(1, _safe_int(q.get("target"), 1))
             if qtype == "catch_total":
-                q["progress"] = min(q["target"], int(q.get("progress", 0)) + 1)
+                q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + 1)
             elif qtype == f"catch_{habitat}":
-                q["progress"] = min(q["target"], int(q.get("progress", 0)) + 1)
+                q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + 1)
             elif qtype == "catch_rare3" and sp["rarity"] >= 3:
-                q["progress"] = min(q["target"], int(q.get("progress", 0)) + 1)
+                q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + 1)
             elif qtype == "catch_trophy" and is_trophy:
-                q["progress"] = min(q["target"], int(q.get("progress", 0)) + 1)
+                q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + 1)
 
         core.save_data(data)
 
@@ -1331,9 +1356,9 @@ def finalize_fish_catch(
             "new_level": new_lvl,
             "perfect_hook": perfect_hook,
             "auto_sold_msg": auto_sold_msg,
-            "user_gold": int(u["gold"]),
-            "user_crystals": int(prof["crystals"]),
-            "remaining_bait": int(u["baits"].get(use_bait_id, 0)) if use_bait_id != "dough" else -1,
+            "user_gold": _safe_int(u.get("gold"), 0),
+            "user_crystals": _safe_int(prof.get("crystals"), 0),
+            "remaining_bait": _safe_int(u["baits"].get(use_bait_id), 0) if use_bait_id != "dough" else -1,
         }
 
 
@@ -1347,14 +1372,15 @@ def sell_fish_by_uid(guild_id: int | str, user_id: int | str, uid: str) -> Tuple
         bag = u.get("bag", [])
         for idx, item in enumerate(bag):
             if isinstance(item, dict) and item.get("uid") == uid:
-                gold = int(item.get("gold", 15))
+                gold = _safe_int(item.get("gold"), 15)
                 name = item.get("name", "물고기")
                 bag.pop(idx)
                 u["gold"] += gold
-                u["total_gold_earned"] = int(u.get("total_gold_earned", 0)) + gold
+                u["total_gold_earned"] = _safe_int(u.get("total_gold_earned"), 0) + gold
                 for q in (core.as_dict(u.get("daily_quests")).get("items") or []):
                     if isinstance(q, dict) and q.get("type") == "sell_gold" and not q.get("claimed"):
-                        q["progress"] = min(q["target"], int(q.get("progress", 0)) + gold)
+                        q_tgt = max(1, _safe_int(q.get("target"), 1))
+                        q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + gold)
                 core.save_data(data)
                 return True, f"💰 **{name}**을(를) 판매해 **`+{gold:,}🪙`**을 획득했습니다! (보유: `{u['gold']:,}🪙`)", gold
         return False, "⚠️ 이미 판매되었거나 가방에 없는 개체입니다.", 0
@@ -1377,20 +1403,21 @@ def sell_all_unlocked_bag(
             if not isinstance(item, dict):
                 continue
             h_ok = (habitat_filter == "all") or (item.get("habitat") == habitat_filter)
-            r_ok = int(item.get("rarity", 1)) <= max_rarity
+            r_ok = _safe_int(item.get("rarity"), 1) <= max_rarity
             if not item.get("locked", False) and h_ok and r_ok:
                 sold_cnt += 1
-                sold_gold += int(item.get("gold", 15))
+                sold_gold += _safe_int(item.get("gold"), 15)
             else:
                 kept.append(item)
         if sold_cnt == 0:
             return False, "ℹ️ 판매할 수 있는(잠금 해제된) 물고기가 없습니다.", 0, 0
         u["bag"] = kept
         u["gold"] += sold_gold
-        u["total_gold_earned"] = int(u.get("total_gold_earned", 0)) + sold_gold
+        u["total_gold_earned"] = _safe_int(u.get("total_gold_earned"), 0) + sold_gold
         for q in (core.as_dict(u.get("daily_quests")).get("items") or []):
             if isinstance(q, dict) and q.get("type") == "sell_gold" and not q.get("claimed"):
-                q["progress"] = min(q["target"], int(q.get("progress", 0)) + sold_gold)
+                q_tgt = max(1, _safe_int(q.get("target"), 1))
+                q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + sold_gold)
         core.save_data(data)
         return True, f"💰 잠금 해제된 물고기 **`{sold_cnt}마리`**를 일괄 판매해 **`+{sold_gold:,}🪙`**를 벌었습니다! (보유: `{u['gold']:,}🪙`)", sold_cnt, sold_gold
 
@@ -1638,7 +1665,7 @@ def get_fishing_leaderboard(guild_id: int | str, habitat_filter: str = "all") ->
         trophy_cut = sp["min_cm"] + (sp["max_cm"] - sp["min_cm"]) * 0.80
         m_len = r_obj.get("max_cm")
         if isinstance(m_len, dict):
-            val_cm = float(m_len.get("val", 0))
+            val_cm = _safe_float(m_len.get("val"), 0.0)
             uid_s = str(m_len.get("user_id") or "")
             if uid_s:
                 len_record_counts[uid_s] = len_record_counts.get(uid_s, 0) + 1
@@ -1655,8 +1682,8 @@ def get_fishing_leaderboard(guild_id: int | str, habitat_filter: str = "all") ->
                 "is_trophy": val_cm >= trophy_cut,
                 "val": val_cm,
                 "user_id": m_len.get("user_id"),
-                "user_name": m_len.get("user_name", "낚시꾼"),
-                "at": m_len.get("at", ""),
+                "user_name": m_len.get("user_name") or "낚시꾼",
+                "at": m_len.get("at") or "",
             })
         m_wt = r_obj.get("max_kg")
         if isinstance(m_wt, dict):
@@ -1673,10 +1700,10 @@ def get_fishing_leaderboard(guild_id: int | str, habitat_filter: str = "all") ->
                 "emoji": sp["emoji"],
                 "min_cm": sp["min_cm"],
                 "max_cm": sp["max_cm"],
-                "val": float(m_wt.get("val", 0)),
+                "val": _safe_float(m_wt.get("val"), 0.0),
                 "user_id": m_wt.get("user_id"),
-                "user_name": m_wt.get("user_name", "낚시꾼"),
-                "at": m_wt.get("at", ""),
+                "user_name": m_wt.get("user_name") or "낚시꾼",
+                "at": m_wt.get("at") or "",
             })
 
     len_records.sort(key=lambda x: (-x["val"], -x["rarity"]))
@@ -1694,16 +1721,16 @@ def get_fishing_leaderboard(guild_id: int | str, habitat_filter: str = "all") ->
             cnt = sum(1 for fid in pd if FISH_BY_ID.get(fid, {}).get("habitat") == habitat_filter)
         rod = RODS.get(u_obj.get("rod_id", "bamboo"), RODS["bamboo"])
         reel = REELS.get(u_obj.get("reel_id", "basic_reel"), REELS["basic_reel"])
-        u_name = u_obj.get("name", f"User({uid_s[:4]})")
+        u_name = u_obj.get("name") or f"User({uid_s[:4]})"
         entry = {
             "user_id": uid_s,
             "user_name": u_name,
             "pokedex_cnt": cnt,
-            "total_catches": int(u_obj.get("total_catches", 0)),
-            "total_trophy": int(u_obj.get("total_trophy", 0)),
-            "gold": int(u_obj.get("gold", 0)),
+            "total_catches": _safe_int(u_obj.get("total_catches"), 0),
+            "total_trophy": _safe_int(u_obj.get("total_trophy"), 0),
+            "gold": _safe_int(u_obj.get("gold"), 0),
             "tank_cnt": len(core.coerce_list_like(u_obj.get("tank"))),
-            "level": int(u_obj.get("level", 1)),
+            "level": max(1, _safe_int(u_obj.get("level"), 1)),
             "rod_name": rod["name"],
             "rod_emoji": rod["emoji"],
             "reel_name": reel["name"],
@@ -1872,8 +1899,15 @@ def build_catch_card_bytes(catch_res: Dict[str, Any], user_name: str) -> Optiona
             draw.text((bx_cur + 11, 45), b_clean, font=font_sm, fill=(255, 255, 255, 255))
             bx_cur -= 8
 
-        # 어종명 & 학명
+        # 어종명 & 학명 (긴 이름/설명 픽셀 초과 시 안전 축약)
         fish_name = core._sanitize_grid_text(fish["name"])
+        if font_title is not None and fish_name:
+            raw_name = fish_name
+            cut_n = len(raw_name)
+            max_title_w = w - rx - 42
+            while cut_n > 6 and draw.textbbox((0, 0), fish_name, font=font_title)[2] > max_title_w:
+                cut_n -= 1
+                fish_name = raw_name[:cut_n].rstrip() + "…"
         draw.text((rx, 86), fish_name, font=font_title, fill=(255, 255, 255, 255))
         sci_name = core._sanitize_grid_text(f"{sp['scientific_name']}")
         draw.text((rx, 134), sci_name, font=font_med, fill=(180, 200, 230, 215))
@@ -1894,10 +1928,17 @@ def build_catch_card_bytes(catch_res: Dict[str, Any], user_name: str) -> Optiona
             val_clean = core._sanitize_grid_text(m_val)
             draw.text((mx + 14, card_y + 42), val_clean, font=font_hdr, fill=m_col)
 
-        # 하단 설명 & 출조 환경 푸터
-        desc_clean = core._sanitize_grid_text(sp["desc"])
-        while len(desc_clean) > 10 and draw.textbbox((0, 0), desc_clean, font=font_sm)[2] > (w - rx - 46):
-            desc_clean = desc_clean[:-2] + ".."
+        # 하단 설명 & 출조 환경 푸터 (반복마다 슬라이스 인덱스 감소로 무한 루프 원천 차단)
+        desc_clean = core._sanitize_grid_text(sp.get("desc", ""))
+        max_desc_w = w - rx - 46
+        if font_sm is not None and desc_clean:
+            raw_desc = desc_clean.rstrip(".…")
+            cut_d = len(raw_desc)
+            while cut_d > 8 and draw.textbbox((0, 0), desc_clean, font=font_sm)[2] > max_desc_w:
+                cut_d -= 1
+                desc_clean = raw_desc[:cut_d].rstrip() + "..."
+        elif len(desc_clean) > 42:
+            desc_clean = desc_clean[:42] + "..."
         draw.text((rx, 294), desc_clean, font=font_sm, fill=(220, 232, 248, 230))
 
         rod_name = core._sanitize_grid_text(catch_res["rod"]["name"])
