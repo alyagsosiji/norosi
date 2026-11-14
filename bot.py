@@ -756,6 +756,12 @@ class NorosiBot(commands.Bot):
                                         target_item = child
                                         break
                             if target_item and hasattr(target_item, "callback"):
+                                try:
+                                    allowed = await view.interaction_check(interaction)
+                                except Exception:
+                                    allowed = True
+                                if not allowed:
+                                    return
                                 if hasattr(target_item, "_refresh_state"):
                                     try:
                                         target_item._refresh_state(interaction, interaction.data)
@@ -765,6 +771,11 @@ class NorosiBot(commands.Bot):
                                     await target_item.callback(interaction)
                                 except Exception as cb_err:
                                     print(f"⚠️ [norosi 버튼 콜백 실행 예외] {cb_err}", flush=True)
+                                    await core.safe_send_response(
+                                        interaction,
+                                        f"⚠️ 버튼 처리 중 오류가 발생했습니다: `{cb_err}`",
+                                        ephemeral=True,
+                                    )
                                 if msg:
                                     self.attach_view_to_message(view, message_id=msg.id)
                                 return
@@ -837,6 +848,7 @@ class NorosiBot(commands.Bot):
                             await target_btn.callback(interaction)
                         except Exception as cb_err:
                             print(f"⚠️ [음성 플레이어 콜백 예외] {cb_err}", flush=True)
+                            await core.safe_send_response(interaction, f"⚠️ 버튼 처리 중 오류가 발생했습니다: `{cb_err}`", ephemeral=True)
                         if msg:
                             self.attach_view_to_message(view, message_id=msg.id)
                         return
@@ -863,6 +875,7 @@ class NorosiBot(commands.Bot):
                                     await child.callback(interaction)
                                 except Exception as cb_err:
                                     print(f"⚠️ [마스터 대시보드 셀렉트 콜백 예외] {cb_err}", flush=True)
+                                    await core.safe_send_response(interaction, f"⚠️ 메뉴 처리 중 오류가 발생했습니다: `{cb_err}`", ephemeral=True)
                                 if msg:
                                     self.attach_view_to_message(view, message_id=msg.id)
                                 return
@@ -871,6 +884,7 @@ class NorosiBot(commands.Bot):
                             await view._on_refresh_clicked(interaction)
                         except Exception as cb_err:
                             print(f"⚠️ [마스터 대시보드 새로고침 콜백 예외] {cb_err}", flush=True)
+                            await core.safe_send_response(interaction, f"⚠️ 새로고침 중 오류가 발생했습니다: `{cb_err}`", ephemeral=True)
                         if msg:
                             self.attach_view_to_message(view, message_id=msg.id)
                         return
@@ -886,6 +900,7 @@ class NorosiBot(commands.Bot):
                                     await child.callback(interaction)
                                 except Exception as cb_err:
                                     print(f"⚠️ [마스터 대시보드 버튼 콜백 예외] {cb_err}", flush=True)
+                                    await core.safe_send_response(interaction, f"⚠️ 버튼 처리 중 오류가 발생했습니다: `{cb_err}`", ephemeral=True)
                                 if msg:
                                     self.attach_view_to_message(view, message_id=msg.id)
                                 return
@@ -981,6 +996,7 @@ class NorosiBot(commands.Bot):
                                 await child.callback(interaction)
                             except Exception as cb_err:
                                 print(f"⚠️ [출석체크 콜백 예외] {cb_err}", flush=True)
+                                await core.safe_send_response(interaction, f"⚠️ 버튼 처리 중 오류가 발생했습니다: `{cb_err}`", ephemeral=True)
                             if msg:
                                 self.attach_view_to_message(view, message_id=msg.id)
                             return
