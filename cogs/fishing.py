@@ -426,7 +426,7 @@ class FishingCastView(core.SafeView):
             name=f"💰 재화 & 낚시꾼 Lv.{u['level']}",
             value=(
                 f"• **🪙 낚시 골드:** **`{u['gold']:,}🪙`**  ·  **💎 크리스탈:** **`{crystals:,}💎`**\n"
-                f"• **🎒 가방:** `{len(u.get('bag', []))}/180마리`  ·  **📖 도감:** `{len(u.get('pokedex', {}))}/{len(fishing_core.FISH_SPECIES_DB)}종`  ·  **🐠 수족관:** `{len(u.get('tank', []))}/{u.get('tank_slots', 4)}칸`"
+                f"• **🎒 가방:** `{len(u.get('bag', [])):,}/180마리`  ·  **📖 도감:** `{len(u.get('pokedex', {})):,}/{len(fishing_core.FISH_SPECIES_DB):,}종`  ·  **🐠 수족관:** `{len(u.get('tank', [])):,}/{u.get('tank_slots', 4)}칸`"
             ),
             inline=False,
         )
@@ -1075,8 +1075,56 @@ class FishingBagView(core.SafeView):
 
 
 # ==========================================
-# 3. 낚시 도감 (호수 · 강 · 바다 · 미보유 + 성급/세부 수역 필터)
+# 3. 낚시 도감 (호수 · 강 · 바다 · 보유 · 미보유 + 검색 모달/정렬/성급/세부 수역 필터)
 # ==========================================
+class FishingPokedexSearchModal(discord.ui.Modal, title="🔍 글로벌 어종 도감 검색 & 페이지 이동"):
+    keyword = discord.ui.TextInput(
+        label="어종 검색어 (비워두면 검색 초기화)",
+        placeholder="예: 참다랑어, 연어, medaka, Regalecus, 심해...",
+        required=False,
+        max_length=60,
+    )
+    page_jump = discord.ui.TextInput(
+        label="바로 이동할 페이지 번호 (선택)",
+        placeholder="숫자만 입력 (예: 15)",
+        required=False,
+        max_length=6,
+    )
+
+    def __init__(self, parent_view: "FishingPokedexView"):
+        super().__init__()
+        self.parent_view = parent_view
+        if parent_view.search_query:
+            self.keyword.default = parent_view.search_query
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        kw = (self.keyword.value or "").strip()
+        pj = (self.page_jump.value or "").strip()
+
+        if kw != self.parent_view.search_query:
+            self.parent_view.search_query = kw
+            self.parent_view.page = 0
+            if kw and self.parent_view.tab in ("lake", "river", "sea"):
+                # 현재 탭에 결과가 없으면 전체 DB 탭으로 자동 전환
+                cur_hits = self.parent_view._get_list()
+                if not cur_hits:
+                    self.parent_view.tab = "all"
+                    self.parent_view.zone_filter = "all"
+
+        if pj.isdigit():
+            target_p = max(1, int(pj)) - 1
+            self.parent_view.page = target_p
+
+        self.parent_view.sync_buttons()
+        await _safe_update_message_or_interaction(
+            interaction,
+            interaction.message or self.parent_view.message,
+            embed=self.parent_view.build_embed(),
+            view=self.parent_view,
+        )
+
+
 class FishingPokedexRaritySelect(discord.ui.Select):
     def __init__(self, parent_view: "FishingPokedexView"):
         self.parent_view = parent_view
@@ -1095,7 +1143,7 @@ class FishingPokedexRaritySelect(discord.ui.Select):
         tot_all = self.parent_view.stats.get("total_species", len(fishing_core.FISH_SPECIES_DB))
         opts = [
             discord.SelectOption(
-                label=f"전체 성급 ({tot_owned}/{tot_all}종)",
+                label=f"전체 성급 ({tot_owned:,}/{tot_all:,}종)"[:95],
                 value="0",
                 description="★1 ~ ★5 모든 희귀도 어종 표시",
                 emoji="📖",
@@ -1107,7 +1155,7 @@ class FishingPokedexRaritySelect(discord.ui.Select):
             raw_r_stat = by_r.get(r) or by_r.get(str(r))
             r_stat = raw_r_stat if isinstance(raw_r_stat, dict) else {"owned": 0, "total": 0}
             opts.append(discord.SelectOption(
-                label=f"★{r} {rm['name']} ({r_stat.get('owned', 0)}/{r_stat.get('total', 0)}종)"[:95],
+                label=f"★{r} {rm['name']} ({r_stat.get('owned', 0):,}/{r_stat.get('total', 0):,}종)"[:95],
                 value=str(r),
                 description=f"{rm['full_stars']} 등급 어종만 필터링"[:95],
                 emoji=rm["emoji"],
@@ -1159,7 +1207,7 @@ class FishingPokedexZoneSelect(discord.ui.Select):
                 z_stat = raw_z_stat if isinstance(raw_z_stat, dict) else {"owned": 0, "total": len(fishing_core.FISH_BY_ZONE.get((h_id, z), []))}
                 prefix = f"{h['name']} · " if len(habs) > 1 else ""
                 opts.append(discord.SelectOption(
-                    label=f"{prefix}{z} ({z_stat.get('owned', 0)}/{z_stat.get('total', 0)}종)"[:95],
+                    label=f"{prefix}{z} ({z_stat.get('owned', 0):,}/{z_stat.get('total', 0):,}종)"[:95],
                     value=z,
                     description=f"[{h['name']}] '{z}' 서식 어종 모아보기"[:95],
                     emoji=h["emoji"],
@@ -1178,6 +1226,41 @@ class FishingPokedexZoneSelect(discord.ui.Select):
         await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.parent_view.build_embed(), view=self.parent_view)
 
 
+class FishingPokedexSortSelect(discord.ui.Select):
+    def __init__(self, parent_view: "FishingPokedexView"):
+        self.parent_view = parent_view
+        super().__init__(
+            placeholder="🔀 도감 정렬 기준...",
+            min_values=1,
+            max_values=1,
+            options=self._build_opts(),
+            row=4,
+        )
+
+    def _build_opts(self) -> List[discord.SelectOption]:
+        cur_s = self.parent_view.sort_mode
+        choices = [
+            ("owned_hangul", "📌 보유 어종 · 한글명 우선 (기본)", "획득한 물고기와 한국어 대표 어종을 1페이지부터 표시", "📌"),
+            ("rarity_desc", "⭐ 성급 높은순 (★5 → ★1)", "전설/신화 희귀 어종부터 차례로 표시", "⭐"),
+            ("size_desc", "📏 최대 체장(cm) 큰순", "가장 크게 자라는 거대어종 순으로 표시", "📏"),
+            ("rarity_asc", "🔤 성급 낮은순 (★1 → ★5)", "기본 ★1 소형어부터 오름차순으로 표시", "🔤"),
+        ]
+        return [
+            discord.SelectOption(label=lbl, value=val, description=desc, emoji=em, default=(cur_s == val))
+            for val, lbl, desc, em in choices
+        ]
+
+    def refresh(self):
+        self.options = self._build_opts()
+
+    async def callback(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        self.parent_view.sort_mode = self.values[0]
+        self.parent_view.page = 0
+        self.parent_view.sync_buttons()
+        await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.parent_view.build_embed(), view=self.parent_view)
+
+
 class FishingPokedexView(core.SafeView):
     def __init__(
         self,
@@ -1187,48 +1270,89 @@ class FishingPokedexView(core.SafeView):
         rarity_filter: int = 0,
         zone_filter: str = "all",
         stats: Optional[Dict[str, Any]] = None,
+        search_query: str = "",
+        sort_mode: str = "owned_hangul",
     ):
         super().__init__(timeout=None)
         self.user = user
         self.guild_id = int(guild_id or 0)
-        self.tab = tab  # lake, river, sea, unowned
+        self.tab = tab  # lake, river, sea, owned, unowned, all
         self.rarity_filter = rarity_filter
         self.zone_filter = zone_filter
+        self.search_query = (search_query or "").strip()
+        self.sort_mode = sort_mode
         self.page = 0
         self.per_page = 10
         self.stats = stats or fishing_core.get_fishing_pokedex_stats(self.guild_id, user.id)
         self.rarity_select = FishingPokedexRaritySelect(self)
         self.zone_select = FishingPokedexZoneSelect(self)
+        self.sort_select = FishingPokedexSortSelect(self)
         self.add_item(self.rarity_select)
         self.add_item(self.zone_select)
+        self.add_item(self.sort_select)
         self.sync_buttons()
 
     def _get_list(self) -> List[Dict[str, Any]]:
         pd = core.as_dict(self.stats.get("pokedex"))
-        if self.tab == "unowned":
+        if self.tab == "owned":
+            items = [sp for sp in fishing_core.FISH_SPECIES_DB if sp["id"] in pd]
+        elif self.tab == "unowned":
             items = [sp for sp in fishing_core.FISH_SPECIES_DB if sp["id"] not in pd]
+        elif self.tab == "all":
+            items = list(fishing_core.FISH_SPECIES_DB)
         else:
             items = list(fishing_core.FISH_BY_HABITAT.get(self.tab, fishing_core.FISH_BY_HABITAT["lake"]))
+
         if self.rarity_filter > 0:
             items = [sp for sp in items if sp["rarity"] == self.rarity_filter]
         if self.zone_filter != "all":
             items = [sp for sp in items if sp.get("zone") == self.zone_filter]
-        items.sort(key=lambda x: (x["rarity"], x["min_cm"], x["name"]))
+        if self.search_query:
+            q = self.search_query.lower()
+            items = [
+                sp for sp in items
+                if q in sp["name"].lower()
+                or q in sp.get("scientific_name", "").lower()
+                or q in (sp.get("zone") or "").lower()
+                or q in (sp.get("sub_zone") or "").lower()
+                or q in sp.get("desc", "").lower()
+            ]
+
+        if self.sort_mode == "rarity_desc":
+            items.sort(key=lambda x: (-x["rarity"], -x["max_cm"], x["name"]))
+        elif self.sort_mode == "size_desc":
+            items.sort(key=lambda x: (-x["max_cm"], -x["rarity"], x["name"]))
+        elif self.sort_mode == "rarity_asc":
+            items.sort(key=lambda x: (x["rarity"], x["min_cm"], x["name"]))
+        else:
+            # 기본(owned_hangul): 보유 어종 우선 → 한국어 공식 명칭 우선 → 성급 높은순
+            items.sort(key=lambda x: (
+                0 if x["id"] in pd else 1,
+                0 if fishing_core._IS_HANGUL_SP_CACHE.get(x["id"], False) else 1,
+                -x["rarity"],
+                x["min_cm"],
+                x["name"],
+            ))
         return items
 
     def sync_buttons(self):
         items = self._get_list()
         total_p = max(1, math.ceil(len(items) / self.per_page))
         self.page = max(0, min(self.page, total_p - 1))
+        self.btn_prev_10.disabled = (self.page <= 0)
         self.btn_prev.disabled = (self.page <= 0)
         self.btn_next.disabled = (self.page >= total_p - 1)
+        self.btn_next_10.disabled = (self.page >= total_p - 1)
 
         self.btn_tab_lake.style = discord.ButtonStyle.primary if self.tab == "lake" else discord.ButtonStyle.secondary
         self.btn_tab_river.style = discord.ButtonStyle.primary if self.tab == "river" else discord.ButtonStyle.secondary
         self.btn_tab_sea.style = discord.ButtonStyle.primary if self.tab == "sea" else discord.ButtonStyle.secondary
+        self.btn_tab_owned.style = discord.ButtonStyle.primary if self.tab == "owned" else discord.ButtonStyle.secondary
         self.btn_tab_unowned.style = discord.ButtonStyle.primary if self.tab == "unowned" else discord.ButtonStyle.secondary
+        self.btn_search.style = discord.ButtonStyle.success if self.search_query else discord.ButtonStyle.secondary
         self.rarity_select.refresh()
         self.zone_select.refresh()
+        self.sort_select.refresh()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         await super().interaction_check(interaction)
@@ -1243,6 +1367,7 @@ class FishingPokedexView(core.SafeView):
         by_h = core.as_dict(self.stats.get("by_habitat"))
         items = self._get_list()
         total_p = max(1, math.ceil(len(items) / self.per_page))
+        self.page = max(0, min(self.page, total_p - 1))
         page_items = items[self.page * self.per_page:(self.page + 1) * self.per_page]
 
         pct = (self.stats["owned_total"] / max(1, self.stats["total_species"])) * 100
@@ -1250,7 +1375,9 @@ class FishingPokedexView(core.SafeView):
             "lake": "🏞️ 호수 어종 도감",
             "river": "🌊 강 어종 도감",
             "sea": "⚓ 바다 어종 도감",
+            "owned": "✅ 보유 어종 도감",
             "unowned": "🔒 미보유 어종 도감",
+            "all": "🌐 전체 어종 검색 결과",
         }.get(self.tab, "📖 낚시 도감")
 
         lines = []
@@ -1259,9 +1386,11 @@ class FishingPokedexView(core.SafeView):
             rec = raw_rec if isinstance(raw_rec, dict) else None
             rm = fishing_core.RARITY_META.get(int(sp.get("rarity", 1)), fishing_core.RARITY_META[1])
             z_lbl = sp.get("zone") or sp.get("sub_zone", "")
+            hab_e = fishing_core.HABITATS.get(sp.get("habitat", "lake"), fishing_core.HABITATS["lake"])["emoji"]
+            prefix_hab = f"{hab_e} " if self.tab in ("owned", "unowned", "all") else ""
             if rec:
                 lines.append(
-                    f"✅ {rm['emoji']} **★{sp['rarity']} {sp['name']}** (`{z_lbl}`) — "
+                    f"✅ {rm['emoji']} {prefix_hab}**★{sp['rarity']} {sp['name']}** (`{z_lbl}`) — "
                     f"최고 `{float(rec.get('max_cm', 0)):.1f}cm` · `{_format_weight(float(rec.get('max_kg', 0)))}` (`{int(rec.get('count', 1))}회`)"
                 )
             else:
@@ -1269,34 +1398,44 @@ class FishingPokedexView(core.SafeView):
                 w_hint = fishing_core.WEATHERS.get(sp.get("prefer_weather", "all"), {}).get("emoji", "🌤️")
                 b_hint = fishing_core.BAITS.get(sp.get("prefer_bait", "dough"), {}).get("name", "기본 떡밥")
                 lines.append(
-                    f"⬜ {rm['emoji']} **★{sp['rarity']} {sp['name']}** (`{z_lbl}` · `{sp['min_cm']}~{sp['max_cm']}cm`) — "
+                    f"⬜ {rm['emoji']} {prefix_hab}**★{sp['rarity']} {sp['name']}** (`{z_lbl}` · `{sp['min_cm']}~{sp['max_cm']}cm`) — "
                     f"{time_hint}·{w_hint}·`{b_hint}`"
                 )
 
         if lines:
             body = "\n".join(lines)
-        elif self.tab == "unowned" and self.rarity_filter == 0 and self.zone_filter == "all":
+        elif self.tab == "owned":
+            body = "🎣 *아직 이 조건으로 포획한 어종이 없습니다! `/낚시 출조`로 물고기를 낚아 도감을 채워보세요.*"
+        elif self.tab == "unowned" and self.rarity_filter == 0 and self.zone_filter == "all" and not self.search_query:
             body = "🎉 **축하합니다! 모든 어종을 도감에 수집했습니다!**"
         else:
-            body = "ℹ️ *선택한 성급/세부 수역 필터 조건에 해당하는 어종이 없습니다.*"
+            body = "ℹ️ *선택한 필터/검색어 조건에 해당하는 어종이 없습니다.*"
 
         r_label = "전체 성급" if self.rarity_filter == 0 else f"★{self.rarity_filter} {fishing_core.RARITY_META[self.rarity_filter]['name']}"
         z_label = "전체 수역" if self.zone_filter == "all" else self.zone_filter
+        q_label = f" · 검색: `{self.search_query}`" if self.search_query else ""
+        db_src = getattr(fishing_core, "FISH_DB_SOURCE", "unknown")
+        db_badge = (
+            f"🌐 글로벌 {self.stats['total_species']:,}종 DB 활성"
+            if str(db_src).startswith("json:")
+            else f"⚠️ 폴백 {self.stats['total_species']:,}종 모드 (fish_species_db.json 확인 필요)"
+        )
 
         embed = discord.Embed(
             title=f"📖 {self.user.display_name}님의 {tab_title}",
             description=(
-                f"• **전체 수집률:** **`{self.stats['owned_total']:,}/{self.stats['total_species']:,}종 ({pct:.1f}%)`**\n"
-                f"• 🏞️ 호수 `{by_h['lake']['owned']}/{by_h['lake']['total']}`  ·  "
-                f"🌊 강 `{by_h['river']['owned']}/{by_h['river']['total']}`  ·  "
-                f"⚓ 바다 `{by_h['sea']['owned']}/{by_h['sea']['total']}`\n"
-                f"• **필터:** `{r_label}` · `{z_label}` (`{len(items):,}종 일치`)  ·  **페이지:** `{self.page + 1} / {total_p}`\n"
+                f"• **전체 수집률:** **`{self.stats['owned_total']:,}/{self.stats['total_species']:,}종 ({pct:.2f}%)`**  ·  {db_badge}\n"
+                f"• 🏞️ 호수 `{by_h['lake']['owned']:,}/{by_h['lake']['total']:,}`  ·  "
+                f"🌊 강 `{by_h['river']['owned']:,}/{by_h['river']['total']:,}`  ·  "
+                f"⚓ 바다 `{by_h['sea']['owned']:,}/{by_h['sea']['total']:,}`\n"
+                f"• **필터:** `{r_label}` · `{z_label}`{q_label} (`{len(items):,}종 일치`)  ·  **페이지:** `{self.page + 1:,} / {total_p:,}`\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"{body}"
             )[:4096],
             color=0x0EA5E9,
             timestamp=datetime.datetime.now(core.KST),
         )
+        embed.set_footer(text="💡 [🔍 검색] 버튼으로 한글·영문·학명 검색 및 페이지 점프, 하단 드롭다운으로 정렬/필터를 바꿀 수 있습니다.")
         return embed
 
     @discord.ui.button(label="🏞️ 호수", style=discord.ButtonStyle.primary, row=0)
@@ -1326,12 +1465,28 @@ class FishingPokedexView(core.SafeView):
         self.sync_buttons()
         await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
 
+    @discord.ui.button(label="✅ 보유", style=discord.ButtonStyle.secondary, row=0)
+    async def btn_tab_owned(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.tab = "owned"
+        self.zone_filter = "all"
+        self.page = 0
+        self.sync_buttons()
+        await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
+
     @discord.ui.button(label="🔒 미보유", style=discord.ButtonStyle.secondary, row=0)
     async def btn_tab_unowned(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.tab = "unowned"
         self.zone_filter = "all"
         self.page = 0
+        self.sync_buttons()
+        await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="⏪ -10", style=discord.ButtonStyle.secondary, row=1)
+    async def btn_prev_10(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.page = max(0, self.page - 10)
         self.sync_buttons()
         await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
 
@@ -1342,10 +1497,22 @@ class FishingPokedexView(core.SafeView):
         self.sync_buttons()
         await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
 
+    @discord.ui.button(label="🔍 검색", style=discord.ButtonStyle.secondary, row=1)
+    async def btn_search(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.message = interaction.message or self.message
+        await interaction.response.send_modal(FishingPokedexSearchModal(self))
+
     @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.secondary, row=1)
     async def btn_next(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.page += 1
+        self.sync_buttons()
+        await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="+10 ⏩", style=discord.ButtonStyle.secondary, row=1)
+    async def btn_next_10(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.page += 10
         self.sync_buttons()
         await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
 
@@ -2024,9 +2191,9 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
     )
     @app_commands.choices(
         장소=[
-            app_commands.Choice(name=f"🏞️ 호수 ({len(fishing_core.FISH_BY_HABITAT['lake'])}종 서식)", value="lake"),
-            app_commands.Choice(name=f"🌊 강 ({len(fishing_core.FISH_BY_HABITAT['river'])}종 서식)", value="river"),
-            app_commands.Choice(name=f"⚓ 바다 ({len(fishing_core.FISH_BY_HABITAT['sea'])}종 서식)", value="sea"),
+            app_commands.Choice(name=f"🏞️ 호수 ({len(fishing_core.FISH_BY_HABITAT['lake']):,}종 서식)", value="lake"),
+            app_commands.Choice(name=f"🌊 강 ({len(fishing_core.FISH_BY_HABITAT['river']):,}종 서식)", value="river"),
+            app_commands.Choice(name=f"⚓ 바다 ({len(fishing_core.FISH_BY_HABITAT['sea']):,}종 서식)", value="sea"),
         ],
         미끼=[
             app_commands.Choice(name="🍡 기본 곡물 떡밥 (무제한)", value="dough"),
@@ -2086,11 +2253,12 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
         view.message = msg
 
     @app_commands.command(name="도감", description=f"📖 호수·강·바다 {len(fishing_core.FISH_SPECIES_DB):,}종 글로벌 물고기 도감 & 개인 최고 기록 확인")
-    @app_commands.describe(탭="초기 표시 탭", 어종검색="특정 물고기의 서식 조건·체장·학명 상세 조회")
+    @app_commands.describe(탭="초기 표시 탭", 어종검색="특정 물고기 이름/학명/키워드 조회")
     @app_commands.choices(탭=[
         app_commands.Choice(name=f"🏞️ 호수 ({len(fishing_core.FISH_BY_HABITAT['lake']):,}종)", value="lake"),
         app_commands.Choice(name=f"🌊 강 ({len(fishing_core.FISH_BY_HABITAT['river']):,}종)", value="river"),
         app_commands.Choice(name=f"⚓ 바다 ({len(fishing_core.FISH_BY_HABITAT['sea']):,}종)", value="sea"),
+        app_commands.Choice(name="✅ 보유 어종", value="owned"),
         app_commands.Choice(name="🔒 미보유 어종", value="unowned"),
     ])
     @app_commands.autocomplete(어종검색=fishing_core.fish_species_autocomplete)
@@ -2102,11 +2270,21 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
     ):
         await core.safe_defer(interaction)
         guild_id = interaction.guild_id or 0
-        if 어종검색 and 어종검색 in fishing_core.FISH_BY_ID:
-            sp = fishing_core.FISH_BY_ID[어종검색]
+        q_raw = (어종검색 or "").strip()
+        stats = await asyncio.to_thread(fishing_core.get_fishing_pokedex_stats, guild_id, interaction.user.id)
+
+        target_sp: Optional[Dict[str, Any]] = None
+        if q_raw in fishing_core.FISH_BY_ID:
+            target_sp = fishing_core.FISH_BY_ID[q_raw]
+        elif q_raw:
+            hits = await asyncio.to_thread(fishing_core.search_fish_species, q_raw, 50)
+            if len(hits) == 1:
+                target_sp = hits[0]
+
+        if target_sp is not None:
+            sp = target_sp
             hab = fishing_core.HABITATS.get(sp["habitat"], fishing_core.HABITATS["lake"])
             rm = fishing_core.RARITY_META.get(int(sp.get("rarity", 1)), fishing_core.RARITY_META[1])
-            stats = await asyncio.to_thread(fishing_core.get_fishing_pokedex_stats, guild_id, interaction.user.id)
             rec = stats["pokedex"].get(sp["id"])
             time_txt = {"day": "☀️ 낮 (06~18시)", "night": "🌙 밤 (18~06시)", "all": "⏰ 전 시간대"}.get(sp.get("active_time", "all"), "⏰ 전 시간대")
             w_meta = fishing_core.WEATHERS.get(sp["prefer_weather"])
@@ -2132,9 +2310,8 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
             await interaction.followup.send(embed=embed)
             return
 
-        tab_val = 탭.value if 탭 else "lake"
-        stats = await asyncio.to_thread(fishing_core.get_fishing_pokedex_stats, guild_id, interaction.user.id)
-        view = FishingPokedexView(interaction.user, guild_id, tab_val, stats=stats)
+        tab_val = (탭.value if 탭 else ("all" if q_raw else "lake"))
+        view = FishingPokedexView(interaction.user, guild_id, tab_val, stats=stats, search_query=q_raw)
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         view.message = msg
 
@@ -2233,9 +2410,9 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
                 f"• **낚싯대:** {rod['emoji']} `{rod['name']}`\n"
                 f"• **릴:** {reel['emoji']} `{reel['name']}`\n"
                 f"• **기본 미끼:** {bait['emoji']} `{bait['name']}`\n"
-                f"• **도감 수집률:** **`{stats['owned_total']}/{stats['total_species']}종 ({pct:.1f}%)`** "
-                f"(🏞️ `{by_h['lake']['owned']}/{by_h['lake']['total']}` · 🌊 `{by_h['river']['owned']}/{by_h['river']['total']}` · ⚓ `{by_h['sea']['owned']}/{by_h['sea']['total']}`)\n"
-                f"• **🐠 개인 수족관:** `{len(u.get('tank', []))}/{u.get('tank_slots', 4)}칸` (시간당 `+{summary['tank_hourly']:,}🪙`)"
+                f"• **도감 수집률:** **`{stats['owned_total']:,}/{stats['total_species']:,}종 ({pct:.2f}%)`** "
+                f"(🏞️ `{by_h['lake']['owned']:,}/{by_h['lake']['total']:,}` · 🌊 `{by_h['river']['owned']:,}/{by_h['river']['total']:,}` · ⚓ `{by_h['sea']['owned']:,}/{by_h['sea']['total']:,}`)\n"
+                f"• **🐠 개인 수족관:** `{len(u.get('tank', [])):,}/{u.get('tank_slots', 4)}칸` (시간당 `+{summary['tank_hourly']:,}🪙`)"
             )[:4096],
             color=0x0EA5E9,
             timestamp=datetime.datetime.now(core.KST),
@@ -2257,9 +2434,13 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
                 and (sp["active_time"] in (env["time_phase"], "all"))
                 and (sp["prefer_weather"] in (env["weather_id"], "all"))
             ]
-            matched.sort(key=lambda x: -x["rarity"])
+            matched.sort(key=lambda x: (
+                0 if fishing_core._IS_HANGUL_SP_CACHE.get(x["id"], False) else 1,
+                -x["rarity"],
+                -x["max_cm"],
+            ))
             names = ", ".join(f"★{s['rarity']} {s['name']}" for s in matched[:5]) or "전 어종 고르게 출현"
-            rec_lines.append(f"• {hab['emoji']} **{hab['name']} 추천 대물:** {names}")
+            rec_lines.append(f"• {hab['emoji']} **{hab['name']} 추천 대물 (`{len(matched):,}종` 활발):** {names}")
 
         embed = discord.Embed(
             title=f"{env['weather_emoji']} 실시간 낚시 기상 & 조황 예보 (KST)",
