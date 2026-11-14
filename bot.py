@@ -353,6 +353,45 @@ class NorosiBot(commands.Bot):
         except Exception as e:
             print(f"ℹ️ 웹 서버 시작 건너뜀 (포트 {core.PORT} 점유 중이거나 불필요 환경): {e}", flush=True)
 
+    async def ensure_fresh_http_session(self):
+        """
+        재연결/재시도 시 discord.py HTTPClient에 닫힌 aiohttp.ClientSession 또는
+        닫힌 TCPConnector가 남아 'RuntimeError: Session is closed'가 발생하는 문제를 원천 차단합니다.
+        """
+        if self.is_closed():
+            try:
+                self.clear()
+            except Exception:
+                pass
+
+        http_client = getattr(self, "http", None)
+        if http_client is None:
+            return
+
+        # 1. 닫힌 connector가 남아있으면 None으로 되돌려 새 ClientSession이 정상 커넥터를 생성하게 함
+        conn = getattr(http_client, "connector", None)
+        if conn is not None and conn is not discord.utils.MISSING:
+            if getattr(conn, "closed", False):
+                try:
+                    http_client.connector = None
+                except Exception:
+                    pass
+
+        # 2. 닫힌 __session이 남아있으면 discord.utils.MISSING으로 초기화해 static_login()이 새 세션을 생성하게 함
+        for attr_name in ("_HTTPClient__session", "_session"):
+            if hasattr(http_client, attr_name):
+                sess = getattr(http_client, attr_name, discord.utils.MISSING)
+                if sess is not None and sess is not discord.utils.MISSING:
+                    if getattr(sess, "closed", False):
+                        try:
+                            setattr(http_client, attr_name, discord.utils.MISSING)
+                        except Exception:
+                            pass
+
+    async def login(self, token: str) -> None:
+        await self.ensure_fresh_http_session()
+        await super().login(token)
+
     async def setup_hook(self):
         # 0. VM 터미널 로그 실시간 캡처 활성화
         self.setup_terminal_log_capture()
@@ -2031,25 +2070,69 @@ async def main():
     print(f"🔑 디스코드 게이트웨이 인증 및 연결 시도 중... (토큰 길이: {len(active_token)})", flush=True)
 
     async def _cleanup_bot_session():
+        # 백그라운드 스케줄러 루프가 재시도 대기 중 닫힌 세션을 참조하지 않도록 안전하게 중단
+        for loop_attr in (
+            "midnight_tasks",
+            "morning_music_alert",
+            "morning_text_alert",
+            "custom_music_schedules_loop",
+            "terminal_log_dispatch_loop",
+        ):
+            loop_obj = getattr(bot, loop_attr, None)
+            if loop_obj is not None:
+                try:
+                    if loop_obj.is_running():
+                        loop_obj.cancel()
+                        task = loop_obj.get_task()
+                        if task is not None and not task.done():
+                            await asyncio.wait([task], timeout=2.0)
+                except Exception:
+                    pass
+
         try:
             if not bot.is_closed():
                 await bot.close()
         except Exception:
             pass
-        try:
-            http_client = getattr(bot, "http", None)
-            if http_client is not None:
+
+        http_client = getattr(bot, "http", None)
+        if http_client is not None:
+            try:
                 await http_client.close()
-        except Exception:
-            pass
+            except Exception:
+                pass
+            # close() 이후에도 열려 있거나 닫힌 채 남아있는 내부 세션을 확실히 닫고 MISSING으로 초기화
+            for attr_name in ("_HTTPClient__session", "_session"):
+                if hasattr(http_client, attr_name):
+                    sess = getattr(http_client, attr_name, discord.utils.MISSING)
+                    if sess is not None and sess is not discord.utils.MISSING:
+                        try:
+                            if not getattr(sess, "closed", True):
+                                await sess.close()
+                        except Exception:
+                            pass
+                        try:
+                            setattr(http_client, attr_name, discord.utils.MISSING)
+                        except Exception:
+                            pass
+            conn = getattr(http_client, "connector", None)
+            if conn is not None and conn is not discord.utils.MISSING and getattr(conn, "closed", False):
+                try:
+                    http_client.connector = None
+                except Exception:
+                    pass
+
         try:
             bot.clear()
         except Exception:
             pass
 
+        await bot.ensure_fresh_http_session()
+
     try:
         while True:
             try:
+                await bot.ensure_fresh_http_session()
                 await bot.start(core.TOKEN)
             except discord.LoginFailure:
                 print("❌ 치명적 오류: 디스코드 토큰이 유효하지 않습니다! (LoginFailure)", flush=True)
