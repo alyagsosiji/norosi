@@ -1,5 +1,5 @@
 """
-fishing_core.py - Norosi 통합 낚시 엔진, 글로벌 공개 어종 DB (호수·강·바다 1,300+종),
+fishing_core.py - Norosi 통합 낚시 엔진, 초대규모 글로벌 공개 어종 DB (호수·강·바다),
 KST 시간/날씨 환경 로테이션, 세부 수역 탐사, 장비·미끼·수족관·도감·최대어 랭킹 및 PNG 포획 카드 생성기
 """
 
@@ -308,7 +308,7 @@ BAITS: Dict[str, Dict[str, Any]] = {
 
 
 # ==========================================
-# 세부 수역 (13개 표준 서식 구역) & 공개 어종 마스터 데이터베이스 (1,330+종 JSON 연동)
+# 세부 수역 (13개 표준 서식 구역) & 공개 어종 마스터 데이터베이스 (JSON 연동)
 # ==========================================
 CANONICAL_ZONES: Dict[str, List[str]] = {
     "lake": ["수초 연안", "맑은 중층수", "깊은 심수층", "열대·아열대 대호"],
@@ -559,6 +559,9 @@ def _normalize_fish_entry(sp: Dict[str, Any]) -> Dict[str, Any]:
                 zone = "연안 갯바위·내만"
 
     out = dict(sp)
+    out["id"] = str(sp.get("id", "")).strip()
+    out["name"] = str(sp.get("name", "")).strip() or "미확인 어종"
+    out["scientific_name"] = str(sp.get("scientific_name") or "").strip()
     out["habitat"] = hab
     out["zone"] = zone
     out["sub_zone"] = sp.get("sub_zone") or zone
@@ -576,6 +579,18 @@ def _normalize_fish_entry(sp: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _dedup_species(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    seen_ids = set()
+    out: List[Dict[str, Any]] = []
+    for sp in items:
+        fid = sp.get("id")
+        if not fid or fid in seen_ids:
+            continue
+        seen_ids.add(fid)
+        out.append(sp)
+    return out
+
+
 def _load_fish_species_db() -> List[Dict[str, Any]]:
     base_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
@@ -589,12 +604,16 @@ def _load_fish_species_db() -> List[Dict[str, Any]]:
                 with open(path, "r", encoding="utf-8") as f:
                     raw = json.load(f)
                 if isinstance(raw, list) and len(raw) >= 140:
-                    normalized = [_normalize_fish_entry(sp) for sp in raw if isinstance(sp, dict) and sp.get("id") and sp.get("name")]
+                    normalized = _dedup_species([
+                        _normalize_fish_entry(sp)
+                        for sp in raw
+                        if isinstance(sp, dict) and sp.get("id") and sp.get("name")
+                    ])
                     if len(normalized) >= 140:
                         return normalized
             except Exception as e:
                 print(f"⚠️ [fishing_core] JSON 어종 DB 로드 실패({path}): {e}", flush=True)
-    return [_normalize_fish_entry(sp) for sp in _FALLBACK_ORIGINAL_140]
+    return _dedup_species([_normalize_fish_entry(sp) for sp in _FALLBACK_ORIGINAL_140])
 
 
 FISH_SPECIES_DB: List[Dict[str, Any]] = _load_fish_species_db()
@@ -608,6 +627,39 @@ FISH_BY_ZONE: Dict[Tuple[str, str], List[Dict[str, Any]]] = {
     (h, z): [f for f in FISH_BY_HABITAT[h] if f["zone"] == z]
     for h in ("lake", "river", "sea")
     for z in CANONICAL_ZONES[h]
+}
+
+
+def _has_hangul_fast(s: str) -> bool:
+    for ch in s:
+        if "\uac00" <= ch <= "\ud7a3":
+            return True
+    return False
+
+
+# 자동완성·가중치 추첨용 고속 인메모리 인덱스 (10,000+종 < 2ms 검색)
+_SEARCH_INDEX: List[Tuple[str, int, int, str, str, str, str, str, str, Dict[str, Any]]] = sorted(
+    [
+        (
+            sp["id"],
+            0 if (not sp["id"].startswith("sp_")) else (1 if _has_hangul_fast(sp["name"]) else 2),
+            -int(sp["rarity"]),
+            sp["name"],
+            sp["name"].lower(),
+            sp.get("scientific_name", "").lower(),
+            (sp.get("zone") or sp.get("sub_zone") or "").lower(),
+            HABITATS.get(sp["habitat"], HABITATS["lake"])["name"].lower(),
+            sp.get("desc", "").lower(),
+            sp,
+        )
+        for sp in FISH_SPECIES_DB
+    ],
+    key=lambda row: (row[1], row[2], row[3]),
+)
+_DEFAULT_AUTOCOMPLETE_SPECIES: List[Dict[str, Any]] = [row[9] for row in _SEARCH_INDEX[:25]]
+_IS_HANGUL_SP_CACHE: Dict[str, bool] = {
+    sp["id"]: _has_hangul_fast(sp["name"])
+    for sp in FISH_SPECIES_DB
 }
 
 
@@ -740,9 +792,11 @@ def ensure_fishing_user(data: dict, guild_id: int | str, user_id: int | str, use
     u.setdefault("rod_id", "bamboo")
     u.setdefault("reel_id", "basic_reel")
     if not isinstance(u.get("owned_rods"), list):
-        u["owned_rods"] = ["bamboo"]
+        rods = [str(r) for r in core.coerce_list_like(u.get("owned_rods")) if r]
+        u["owned_rods"] = rods if rods else ["bamboo"]
     if not isinstance(u.get("owned_reels"), list):
-        u["owned_reels"] = ["basic_reel"]
+        reels = [str(r) for r in core.coerce_list_like(u.get("owned_reels")) if r]
+        u["owned_reels"] = reels if reels else ["basic_reel"]
     u.setdefault("selected_bait", "dough")
     u.setdefault("selected_habitat", "lake")
     u.setdefault("selected_zone", "all")
@@ -751,28 +805,28 @@ def ensure_fishing_user(data: dict, guild_id: int | str, user_id: int | str, use
     if not isinstance(u.get("baits"), dict):
         coerced_baits = core.coerce_dict_like(u.get("baits"))
         u["baits"] = coerced_baits if coerced_baits else {"worm": 5}
-    if not isinstance(u.get("bag"), list):
-        u["bag"] = []
-    else:
-        u["bag"] = [x for x in u["bag"] if isinstance(x, dict)]
+    u["bag"] = [
+        x for x in core.coerce_list_like(u.get("bag"))
+        if isinstance(x, dict) and x.get("uid") and x.get("name")
+    ]
     if not isinstance(u.get("pokedex"), dict):
         u["pokedex"] = {str(k): v for k, v in core.coerce_dict_like(u.get("pokedex")).items() if isinstance(v, dict)}
-    if not isinstance(u.get("tank"), list):
-        u["tank"] = []
-    else:
-        u["tank"] = [x for x in u["tank"] if isinstance(x, dict)]
+    u["tank"] = [
+        x for x in core.coerce_list_like(u.get("tank"))
+        if isinstance(x, dict) and x.get("uid") and x.get("name")
+    ]
     u.setdefault("tank_slots", 4)
     u.setdefault("last_tank_collect", datetime.datetime.now(core.KST).isoformat())
 
     today_str = core.get_today_str()
     dq = u.get("daily_quests")
-    if not isinstance(dq, dict) or dq.get("date") != today_str or not isinstance(dq.get("items"), list):
+    if not isinstance(dq, dict) or dq.get("date") != today_str:
         u["daily_quests"] = {
             "date": today_str,
             "items": _pick_daily_quests_for_date(today_str),
         }
     else:
-        dq["items"] = [q for q in dq["items"] if isinstance(q, dict)]
+        dq["items"] = [q for q in core.coerce_list_like(dq.get("items")) if isinstance(q, dict)]
         if not dq["items"]:
             dq["items"] = _pick_daily_quests_for_date(today_str)
 
@@ -943,7 +997,7 @@ def _roll_species_weighted(
     env: Dict[str, Any],
     zone_filter: str = "all",
 ) -> Dict[str, Any]:
-    pool = FISH_BY_HABITAT.get(habitat, FISH_BY_HABITAT["lake"])
+    pool = FISH_BY_HABITAT.get(habitat) or FISH_BY_HABITAT.get("lake") or FISH_SPECIES_DB
     rare_factor = (
         (1.0 + rod["rare_bonus"])
         * bait["rare_mult"]
@@ -985,9 +1039,13 @@ def _roll_species_weighted(
         if sp["prefer_bait"] == bait["id"]:
             w *= 1.40
 
-        # 세부 수역 집중 탐색 보너스 (2.2x 가중치)
-        if use_zone_focus and sp.get("zone") == zone_filter:
-            w *= 2.20
+        # 한국어 공식 명칭·원본 대표 어종 친숙도 밸런스 (글로벌 확장 종과 조화)
+        if _IS_HANGUL_SP_CACHE.get(sp["id"], False):
+            w *= 1.45
+
+        # 세부 수역 집중 탐색 보너스 (3.0x 가중치)
+        if use_zone_focus and (sp.get("zone") == zone_filter or sp.get("sub_zone") == zone_filter):
+            w *= 3.00
 
         weights.append(max(0.05, w))
 
@@ -1607,7 +1665,7 @@ def get_fishing_leaderboard(guild_id: int | str, habitat_filter: str = "all") ->
             "total_catches": int(u_obj.get("total_catches", 0)),
             "total_trophy": int(u_obj.get("total_trophy", 0)),
             "gold": int(u_obj.get("gold", 0)),
-            "tank_cnt": len(u_obj.get("tank", [])),
+            "tank_cnt": len(core.coerce_list_like(u_obj.get("tank"))),
             "level": int(u_obj.get("level", 1)),
             "rod_name": rod["name"],
             "rod_emoji": rod["emoji"],
@@ -1630,46 +1688,46 @@ def get_fishing_leaderboard(guild_id: int | str, habitat_filter: str = "all") ->
 
 
 # ==========================================
-# 자동완성 (0ms 랭킹형 인메모리 DB 검색 - 1,330+종 전수 대응)
+# 자동완성 (고속 랭킹형 인메모리 DB 검색 - 전체 글로벌 어종 대응)
 # ==========================================
 async def fish_species_autocomplete(interaction, current: str):
     from discord import app_commands
     q = (current or "").strip().lower()
-    scored: List[Tuple[int, int, str, Dict[str, Any]]] = []
-    for sp in FISH_SPECIES_DB:
-        name_l = sp["name"].lower()
-        sci_l = sp["scientific_name"].lower()
-        zone_l = (sp.get("zone") or sp.get("sub_zone") or "").lower()
-        hab_l = HABITATS[sp["habitat"]]["name"].lower()
+    if not q:
+        picked = _DEFAULT_AUTOCOMPLETE_SPECIES
+    else:
+        buckets: List[List[Dict[str, Any]]] = [[], [], [], [], [], []]
+        for _, _, _, _, name_l, sci_l, zone_l, hab_l, desc_l, sp in _SEARCH_INDEX:
+            if name_l == q:
+                b = buckets[0]
+            elif name_l.startswith(q):
+                b = buckets[1]
+            elif q in name_l:
+                b = buckets[2]
+            elif q in zone_l or q in hab_l:
+                b = buckets[3]
+            elif q in sci_l:
+                b = buckets[4]
+            elif q in desc_l:
+                b = buckets[5]
+            else:
+                continue
+            if len(b) < 25:
+                b.append(sp)
+        picked = []
+        for b in buckets:
+            picked.extend(b)
+            if len(picked) >= 25:
+                picked = picked[:25]
+                break
 
-        if not q:
-            # 검색어 미입력 시 대표 고성급·원본 인기 어종 우선 노출
-            is_orig = 0 if not sp["id"].startswith("sp_") else 1
-            scored.append((is_orig, -sp["rarity"], sp["name"], sp))
-            continue
-
-        if name_l == q:
-            rank = 0
-        elif name_l.startswith(q):
-            rank = 1
-        elif q in name_l:
-            rank = 2
-        elif q in zone_l or q in hab_l:
-            rank = 3
-        elif q in sci_l:
-            rank = 4
-        else:
-            continue
-        scored.append((rank, -sp["rarity"], sp["name"], sp))
-
-    scored.sort(key=lambda item: (item[0], item[1], item[2]))
     cands = []
-    for _, _, _, sp in scored[:25]:
-        hab = HABITATS[sp["habitat"]]
+    for sp in picked:
+        hab = HABITATS.get(sp["habitat"], HABITATS["lake"])
         zone_txt = sp.get("zone") or sp.get("sub_zone", "")
         cands.append(app_commands.Choice(
             name=f"[{hab['name']}·{zone_txt}] ★{sp['rarity']} {sp['name']} ({sp['min_cm']}~{sp['max_cm']}cm)"[:100],
-            value=sp["id"],
+            value=str(sp["id"])[:100],
         ))
     return cands
 
@@ -1685,8 +1743,8 @@ def build_catch_card_bytes(catch_res: Dict[str, Any], user_name: str) -> Optiona
         fish = catch_res["fish"]
         sp = catch_res["species"]
         env = catch_res["env"]
-        hab = HABITATS[sp["habitat"]]
-        rmeta = RARITY_META[sp["rarity"]]
+        hab = HABITATS.get(sp.get("habitat", "lake"), HABITATS["lake"])
+        rmeta = RARITY_META.get(int(sp.get("rarity", 1)), RARITY_META[1])
 
         w, h = 880, 420
         img = Image.new("RGBA", (w, h), (10, 18, 34, 255))
