@@ -458,6 +458,98 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "source": "cogs/stats.py",
     },
 
+    # 2-5. 🎣 통합 낚시 시스템 (/낚시 그룹 커맨드 9종)
+    {
+        "category": "fishing",
+        "cat_label": "🎣 통합 낚시 (호수·강·바다)",
+        "name": "/낚시 출조",
+        "desc": "🏞️호수(46종)·🌊강(46종)·⚓바다(48종) 총 140종 실제 물고기 입질 타이밍 미니게임 & 포획 인증서 카드(cm·kg·희귀도·빠른채집 지원)",
+        "params": "장소: [호수/강/바다] 미끼: [떡밥/지렁이/크릴/루어/야광/황금] 빠른모드: [예/아니오]",
+        "example": "/낚시 출조 장소:바다 미끼:메탈 지그 루어",
+        "source": "cogs/fishing.py",
+    },
+    {
+        "category": "fishing",
+        "cat_label": "🎣 통합 낚시 (호수·강·바다)",
+        "name": "/낚시 가방",
+        "desc": "잡은 물고기 보관함(길이·무게·가치) 필터 조회, 🔒 잠금 보호, 개별/일괄 판매 및 수족관 이동",
+        "params": "장소: [전체/호수/강/바다] 성급: [전체/★1~★5]",
+        "example": "/낚시 가방 장소:바다 성급:★4",
+        "source": "cogs/fishing.py",
+    },
+    {
+        "category": "fishing",
+        "cat_label": "🎣 통합 낚시 (호수·강·바다)",
+        "name": "/낚시 도감",
+        "desc": "호수·강·바다별 140종 실제 어종 수집률(%)과 내 최고 길이(cm)·무게(kg) 기록 및 미보유 힌트 조회",
+        "params": "탭: [호수/강/바다/미보유] 어종검색: [자동완성 물고기명]",
+        "example": "/낚시 도감 어종검색:태평양 참다랑어",
+        "source": "cogs/fishing.py",
+    },
+    {
+        "category": "fishing",
+        "cat_label": "🎣 통합 낚시 (호수·강·바다)",
+        "name": "/낚시 수족관",
+        "desc": "아끼는 대물을 나만의 프라이빗 어항(최대 20칸)에 전시하고 시간당 낚시 골드 수익 수확",
+        "params": "유저: [@유저(선택, 타인 수족관 구경)]",
+        "example": "/낚시 수족관",
+        "source": "cogs/fishing.py",
+    },
+    {
+        "category": "fishing",
+        "cat_label": "🎣 통합 낚시 (호수·강·바다)",
+        "name": "/낚시 상점",
+        "desc": "낚싯대 6티어(포세이돈 로드), 릴 5티어(크로노스 릴), 특급 미끼, 수족관 슬롯 확장권 구매",
+        "params": "분류: [낚싯대/릴/미끼/수족관확장]",
+        "example": "/낚시 상점 분류:낚싯대",
+        "source": "cogs/fishing.py",
+    },
+    {
+        "category": "fishing",
+        "cat_label": "🎣 통합 낚시 (호수·강·바다)",
+        "name": "/낚시 랭킹",
+        "desc": "서버 내 최대 길이(cm) · 최대 무게(kg) · 도감 수집왕 순위표 & 랭커 상세 정보 조회",
+        "params": "기준: [최대길이/최대무게/도감] 장소: [전체/호수/강/바다]",
+        "example": "/낚시 랭킹 기준:최대길이",
+        "source": "cogs/fishing.py",
+    },
+    {
+        "category": "fishing",
+        "cat_label": "🎣 통합 낚시 (호수·강·바다)",
+        "name": "/낚시랭킹",
+        "desc": "서버 내 물고기 최대 크기(cm)·무게(kg) 대물 순위 보드, 어종 검색 및 낚시 랭커 상세 정보 바로 조회",
+        "params": "기준: [최대길이/최대무게/도감] 장소: [전체/호수/강/바다] 어종검색: [선택] 랭커: [@유저]",
+        "example": "/낚시랭킹 기준:최대 길이(cm) 장소:바다",
+        "source": "cogs/fishing.py",
+    },
+    {
+        "category": "fishing",
+        "cat_label": "🎣 통합 낚시 (호수·강·바다)",
+        "name": "/낚시 퀘스트",
+        "desc": "매일 KST 00:00 갱신되는 일일 낚시 의뢰 3종 완료 시 낚시 골드(🪙) + 크리스탈(💎) 보상 수령",
+        "params": "없음",
+        "example": "/낚시 퀘스트",
+        "source": "cogs/fishing.py",
+    },
+    {
+        "category": "fishing",
+        "cat_label": "🎣 통합 낚시 (호수·강·바다)",
+        "name": "/낚시 프로필",
+        "desc": "낚시꾼 레벨·경험치·장착 장비·골드·크리스탈·수족관·도감 수집률 종합 라이선스 조회",
+        "params": "유저: [@멤버(선택)]",
+        "example": "/낚시 프로필",
+        "source": "cogs/fishing.py",
+    },
+    {
+        "category": "fishing",
+        "cat_label": "🎣 통합 낚시 (호수·강·바다)",
+        "name": "/낚시 환경",
+        "desc": "현재 KST 낮/밤·피딩타임·2시간 주기 날씨(맑음/비/폭풍우/안개) 및 추천 대물 예보",
+        "params": "없음",
+        "example": "/낚시 환경",
+        "source": "cogs/fishing.py",
+    },
+
     # 3. 📊 서버/유저 통계 & 상태 (3종)
     {
         "category": "stats",
@@ -932,6 +1024,7 @@ CATEGORY_META = [
     ("cards", "🎮 출석 & 프로세카 카드/가챠 (21종 · 5페이지)", "출석체크, 배너별 프로세카 뽑기, 마스터랭크, 세카이라이브, 3D 의상·어나더컬러 등"),
     ("genshin", "🌠 원신 기원 & 도감 & 상점 (11종 · 3페이지)", "/원신 기원(90/80천장·포착된 광휘), 운명의 궤도, 페이몬의 상점, 4인 원소 공명 파티 등"),
     ("hsr", "🚄 스타레일 워프 & 아카이브 & 상점 (11종 · 3페이지)", "/스타레일 워프(광추 75/25·300회 선택), 별빛/헤르타 상점, 4인 편대 시너지 등"),
+    ("fishing", "🎣 통합 낚시 — 호수·강·바다 140종 (10종 · 2페이지)", "/낚시 출조(cm/kg·날씨·시간대), /낚시랭킹, 도감, 개인 수족관, 장비 상점 등"),
     ("dday", "📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", "멤버 생일 전광판, 공용/비밀 D-Day, 파트너, 하드코어스터디, 뽀모도로 집중모드 등"),
     ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", "올인원 /대시보드, /메뉴, /깃허브연동, /터미널로그채널, 반응역할, 공지발송 등"),
     ("games", "🎲 미니게임 & 파티 모집 (5종 · 1페이지)", "파티원 모집, 끝말잇기(두음법칙), 러시안룰렛, 초정밀 실시간 날씨, 스마트 알림예약"),
@@ -941,10 +1034,11 @@ CATEGORY_META = [
 ]
 
 CATEGORY_DROPDOWN_OPTIONS = [
-    ("all", "🌟 전체 명령어 한눈에 보기 (99종 요약판)", "9대 카테고리 요약 보드 (다음 버튼으로 상세 가이드 열람)", "🌐"),
+    ("all", "🌟 전체 명령어 한눈에 보기 (109종 요약판)", "10대 카테고리 요약 보드 (다음 버튼으로 상세 가이드 열람)", "🌐"),
     ("cards", "🎮 출석 & 프로세카 가챠 (21종 · 5페이지)", "/프로세카뽑기, /마스터랭크, /라이브, /의상, /마이세카이 등", "🎮"),
     ("genshin", "🌠 원신 기원·도감·상점 (11종 · 3페이지)", "/원신 기원, /원신 운명의궤도, /원신 상점, /원신 파티편성 등", "🌠"),
     ("hsr", "🚄 스타레일 워프·상점·편대 (11종 · 3페이지)", "/스타레일 워프, /스타레일 상시300선택, /스타레일 상점, /스타레일 파티편성 등", "🚄"),
+    ("fishing", "🎣 통합 낚시 (10종 · 호수·강·바다 140종)", "/낚시 출조, /낚시랭킹, /낚시 도감, /낚시 수족관, /낚시 상점 등", "🎣"),
     ("dday", "📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", "/디데이추가, /하드코어스터디, /생일등록, /파트너, /집중모드 등", "📅"),
     ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", "/대시보드, /메뉴, /깃허브연동, /터미널로그채널, /반응역할 등", "⚙️"),
     ("games", "🎲 미니게임 & 파티 모집 (5종 · 1페이지)", "/모집, /끝말잇기, /러시안룰렛, /날씨, /알림예약", "🎲"),
@@ -1207,16 +1301,17 @@ class HelpCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="도움말", description="norosi bot help - 전체 79개 슬래시 명령어(99종 기능) 한눈에 보기 및 카테고리별 상세 가이드")
+    @app_commands.command(name="도움말", description="norosi bot help - 전체 슬래시 명령어(108종 기능) 한눈에 보기 및 카테고리별 상세 가이드")
     @app_commands.describe(
-        category="안내받을 카테고리 (all/cards/genshin/hsr/dday/admin/games/stats/music/ai)",
-        search="검색할 명령어 이름 또는 키워드 (예: 원신, 스타레일, 프로세카뽑기, 운명의궤도, 마스터랭크, 플레이리스트)"
+        category="안내받을 카테고리 (all/cards/genshin/hsr/fishing/dday/admin/games/stats/music/ai)",
+        search="검색할 명령어 이름 또는 키워드 (예: 낚시, 원신, 스타레일, 프로세카뽑기, 운명의궤도, 플레이리스트)"
     )
     @app_commands.choices(category=[
-        app_commands.Choice(name="🌟 전체 명령어 한눈에 보기 (99종 요약판)", value="all"),
+        app_commands.Choice(name="🌟 전체 명령어 한눈에 보기 (108종 요약판)", value="all"),
         app_commands.Choice(name="🎮 출석 & 프로세카 가챠 (21종 · 5페이지)", value="cards"),
         app_commands.Choice(name="🌠 원신 기원 & 도감 & 상점 (11종 · 3페이지)", value="genshin"),
         app_commands.Choice(name="🚄 스타레일 워프 & 아카이브 & 상점 (11종 · 3페이지)", value="hsr"),
+        app_commands.Choice(name="🎣 통합 낚시 (9종 · 호수·강·바다 140종)", value="fishing"),
         app_commands.Choice(name="📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", value="dday"),
         app_commands.Choice(name="⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", value="admin"),
         app_commands.Choice(name="🎲 미니게임 & 파티 모집 (5종 · 1페이지)", value="games"),
