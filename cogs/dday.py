@@ -339,7 +339,7 @@ class CommandRemoteSelect(discord.ui.Select):
             discord.SelectOption(label="🎰 /프로세카뽑기 (10회)", value="pull_10", description="10회 연속 뽑기 (★3 이상 1장 확정 / 2,000💎 소모)"),
             discord.SelectOption(label="🌠 /원신 기원 (10회)", value="genshin_wish", description="원신 5대 배너(캐릭터·무기·성유물·상시) 기원"),
             discord.SelectOption(label="🚄 /스타레일 워프 (10회)", value="hsr_warp", description="붕괴: 스타레일 5대 배너(캐릭터·광추·유물·상시) 워프"),
-            discord.SelectOption(label="🎣 /낚시 출조 (호수·강·바다)", value="fishing_cast", description="글로벌 실제 어종 1,330+종 낚시·세부 수역 탐사·수족관·최대어 랭킹"),
+            discord.SelectOption(label="🎣 /낚시 출조 (호수·강·바다)", value="fishing_cast", description="글로벌 실제 어종 13,444종 낚시·세부 수역 탐사·수족관·최대어 랭킹"),
             discord.SelectOption(label="👗 /의상", value="wardrobe", description="캐릭터 3D 의상 착용·어나더 컬러 및 타 캐릭터 의상 제작"),
             discord.SelectOption(label="⚔️ /라이브", value="sekai_live", description="5인 유닛 덱 & 3D 의상 시너지 세카이 라이브 + 스탬프 랠리"),
             discord.SelectOption(label="📖 /카드도감", value="pokedex", description="캐릭터별 수집률(%) 및 미보유 카드 조회"),
