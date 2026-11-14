@@ -1,6 +1,6 @@
 """
 cogs/fishing.py - /낚시 전용 명령어 그룹 Cog
-호수·강·바다 1,330+종 글로벌 공개 어종 DB, KST 시간/날씨 연동, 세부 수역 탐사,
+호수·강·바다 초대규모 글로벌 공개 어종 DB, KST 시간/날씨 연동, 세부 수역 탐사,
 무결점 입질 타이밍 미니게임(SafeView + 원자적 상태머신), 개인 수족관, 도감, 상점, 최대어 랭킹 지원
 """
 
@@ -83,11 +83,12 @@ async def _safe_update_message_or_interaction(
     embed: Optional[discord.Embed] = None,
     view: Optional[discord.ui.View] = None,
     file: Optional[discord.File] = None,
+    clear_attachments: bool = False,
     content: Optional[str] = None,
 ):
     """
-    메시지 객체 직접 편집 -> 인터랙션 응답 편집 -> 채널 폴백 순으로 무조건 안전하게 UI를 갱신합니다.
-    (웹훅 토큰 만료 및 40060/10062 오류 완전 차단)
+    공개 메시지는 봇 토큰 직접 편집 우선, 나만 보기(ephemeral) 메시지는 인터랙션 원본 응답 편집 우선으로
+    첨부파일 잔존 및 404/40060/10062 오류 없이 안전하게 UI를 갱신합니다.
     """
     kwargs: Dict[str, Any] = {}
     if content is not None:
@@ -98,14 +99,32 @@ async def _safe_update_message_or_interaction(
         kwargs["view"] = view
     if file is not None:
         kwargs["attachments"] = [file]
+    elif clear_attachments:
+        kwargs["attachments"] = []
 
-    # 1순위: 메시지 직접 편집 (봇 토큰 기반이라 15분 웹훅 제한 무관)
-    if message is not None:
+    is_ephemeral = bool(getattr(getattr(message, "flags", None), "ephemeral", False))
+
+    if is_ephemeral and interaction is not None:
+        try:
+            await core.safe_edit_response(interaction, **kwargs)
+            return interaction.message or message
+        except discord.HTTPException:
+            if "attachments" in kwargs:
+                try:
+                    no_file_kw = {k: v for k, v in kwargs.items() if k != "attachments"}
+                    await core.safe_edit_response(interaction, **no_file_kw)
+                    return interaction.message or message
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # 1순위: 공개 메시지 직접 편집 (봇 토큰 기반이라 15분 웹훅 제한 무관)
+    if message is not None and not is_ephemeral:
         try:
             await message.edit(**kwargs)
             return message
         except discord.HTTPException:
-            # attachments 실패 시 파일 없이 임베드만 재시도
             if "attachments" in kwargs:
                 try:
                     no_file_kw = {k: v for k, v in kwargs.items() if k != "attachments"}
@@ -120,19 +139,16 @@ async def _safe_update_message_or_interaction(
     # 2순위: 인터랙션 원본 응답 편집 (ephemeral 메시지 등)
     if interaction is not None:
         try:
-            edit_kw: Dict[str, Any] = {}
-            if content is not None:
-                edit_kw["content"] = content
-            if embed is not None:
-                edit_kw["embed"] = embed
-            if view is not None:
-                edit_kw["view"] = view
-            if file is not None:
-                edit_kw["attachments"] = [file]
-            await core.safe_edit_response(interaction, **edit_kw)
-            return interaction.message
+            await core.safe_edit_response(interaction, **kwargs)
+            return interaction.message or message
         except Exception:
-            pass
+            if "attachments" in kwargs:
+                try:
+                    no_file_kw = {k: v for k, v in kwargs.items() if k != "attachments"}
+                    await core.safe_edit_response(interaction, **no_file_kw)
+                    return interaction.message or message
+                except Exception:
+                    pass
 
     return message
 
@@ -202,6 +218,7 @@ class FishingLocationSelect(discord.ui.Select):
             interaction.message or self.parent_view.message,
             embed=self.parent_view.build_dashboard_embed(),
             view=self.parent_view,
+            clear_attachments=True,
             content=None,
         )
 
@@ -259,6 +276,7 @@ class FishingBaitSelect(discord.ui.Select):
             interaction.message or self.parent_view.message,
             embed=self.parent_view.build_dashboard_embed(),
             view=self.parent_view,
+            clear_attachments=True,
         )
 
 
@@ -517,22 +535,22 @@ class FishingCastView(core.SafeView):
             sess.grace_sec = params["grace_sec"]
             sess.updated_at = time.monotonic()
 
-            if params["auto_mode"]:
-                sess.phase = "resolved"
-                res = await asyncio.to_thread(
-                    fishing_core.finalize_fish_catch,
-                    self.guild_id,
-                    self.user.id,
-                    self.user.display_name,
-                    params["habitat"],
-                    params["bait_id"],
-                    None,
-                    params.get("zone_filter", "all"),
-                )
-                await self._present_catch_result(interaction, target_msg, res)
-                return
+            is_auto = bool(params["auto_mode"])
+            sess.phase = "resolved" if is_auto else "waiting_bite"
 
-            sess.phase = "waiting_bite"
+        if is_auto:
+            res = await asyncio.to_thread(
+                fishing_core.finalize_fish_catch,
+                self.guild_id,
+                self.user.id,
+                self.user.display_name,
+                params["habitat"],
+                params["bait_id"],
+                None,
+                params.get("zone_filter", "all"),
+            )
+            await self._present_catch_result(interaction, target_msg, res)
+            return
 
         # 대기 단계 UI 반영
         self.sync_controls(phase="waiting_bite")
@@ -546,7 +564,7 @@ class FishingCastView(core.SafeView):
             target_msg,
             embed=wait_embed,
             view=self,
-            file=None,
+            clear_attachments=True,
             content=None,
         )
         self.message = target_msg
@@ -561,6 +579,33 @@ class FishingCastView(core.SafeView):
                     sess.bite_started_at = time.monotonic()
                     sess.updated_at = sess.bite_started_at
 
+                    async def _on_bite_expire():
+                        try:
+                            await asyncio.sleep(params["window_sec"] + params["grace_sec"])
+                            async with sess.lock:
+                                if sess.cast_seq != my_seq or sess.phase != "biting":
+                                    return
+                                sess.phase = "idle"
+                                sess.updated_at = time.monotonic()
+                            await self.refresh_summary()
+                            async with sess.lock:
+                                if sess.cast_seq != my_seq or sess.phase != "idle":
+                                    return
+                            self.sync_controls(phase="idle")
+                            miss_embed = self.build_dashboard_embed(
+                                status_banner="💨 **아쉽네요! 물고기가 미끼만 살짝 건드리고 도망갔습니다.** *(미끼는 소모되지 않았습니다 — 다시 `[🪝 찌 던지기]`를 눌러보세요!)*",
+                                phase="idle",
+                            )
+                            await _safe_update_message_or_interaction(
+                                interaction, self.message, embed=miss_embed, view=self, clear_attachments=True
+                            )
+                        except asyncio.CancelledError:
+                            return
+                        except Exception as ex:
+                            print(f"⚠️ [낚시 입질 만료 태스크 예외] {ex}", flush=True)
+
+                    sess.expire_task = asyncio.create_task(_on_bite_expire())
+
                 self.sync_controls(phase="biting")
                 bite_embed = self.build_dashboard_embed(
                     status_banner=(
@@ -569,35 +614,17 @@ class FishingCastView(core.SafeView):
                     ),
                     phase="biting",
                 )
-                await _safe_update_message_or_interaction(interaction, self.message, embed=bite_embed, view=self)
-
-                async def _on_bite_expire():
-                    try:
-                        await asyncio.sleep(params["window_sec"] + params["grace_sec"])
-                        async with sess.lock:
-                            if sess.cast_seq != my_seq or sess.phase != "biting":
-                                return
-                            sess.phase = "idle"
-                            sess.updated_at = time.monotonic()
-                        await self.refresh_summary()
-                        self.sync_controls(phase="idle")
-                        miss_embed = self.build_dashboard_embed(
-                            status_banner="💨 **아쉽네요! 물고기가 미끼만 살짝 건드리고 도망갔습니다.** *(미끼는 소모되지 않았습니다 — 다시 `[🪝 찌 던지기]`를 눌러보세요!)*",
-                            phase="idle",
-                        )
-                        await _safe_update_message_or_interaction(interaction, self.message, embed=miss_embed, view=self)
-                    except asyncio.CancelledError:
-                        return
-                    except Exception as ex:
-                        print(f"⚠️ [낚시 입질 만료 태스크 예외] {ex}", flush=True)
-
-                sess.expire_task = asyncio.create_task(_on_bite_expire())
+                await _safe_update_message_or_interaction(
+                    interaction, self.message, embed=bite_embed, view=self, clear_attachments=True
+                )
             except asyncio.CancelledError:
                 return
             except Exception as ex:
                 print(f"⚠️ [낚시 대기 태스크 예외] {ex}", flush=True)
 
-        sess.wait_task = asyncio.create_task(_wait_and_bite())
+        async with sess.lock:
+            if sess.cast_seq == my_seq and sess.phase == "waiting_bite":
+                sess.wait_task = asyncio.create_task(_wait_and_bite())
 
     @discord.ui.button(label="🎣 당기기 (입질 시 활성)", style=discord.ButtonStyle.secondary, disabled=True, row=2)
     async def btn_pull(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -610,6 +637,7 @@ class FishingCastView(core.SafeView):
             # 1. 정상 입질 중 채집 성공
             if sess.phase == "biting":
                 _cancel_session_tasks(sess)
+                sess.cast_seq += 1
                 reaction_sec = max(0.05, time.monotonic() - sess.bite_started_at)
                 sess.phase = "resolved"
                 sess.updated_at = time.monotonic()
@@ -626,6 +654,7 @@ class FishingCastView(core.SafeView):
                 if target_msg and target_msg.embeds:
                     emb_title = f"{target_msg.embeds[0].title or ''} {target_msg.embeds[0].description or ''}"
                 if "입질" in emb_title or "당기" in emb_title:
+                    sess.cast_seq += 1
                     hab_id = self.habitat
                     z_id = self.zone_filter
                     b_id = self.summary["user"].get("selected_bait", "dough")
@@ -639,6 +668,7 @@ class FishingCastView(core.SafeView):
                         target_msg,
                         embed=self.build_dashboard_embed(status_banner="🎣 새로운 출조를 준비했습니다! **`[🪝 찌 던지기]`**를 눌러 시작하세요."),
                         view=self,
+                        clear_attachments=True,
                     )
                     return
 
@@ -670,6 +700,7 @@ class FishingCastView(core.SafeView):
             interaction.message or self.message,
             embed=self.build_dashboard_embed(status_banner="🛑 찌를 안전하게 회수했습니다. 장소나 미끼를 바꾸고 다시 던질 수 있습니다."),
             view=self,
+            clear_attachments=True,
         )
 
     @discord.ui.button(label="⏩ 자동채집: OFF", style=discord.ButtonStyle.secondary, row=2)
@@ -690,11 +721,12 @@ class FishingCastView(core.SafeView):
             interaction.message or self.message,
             embed=self.build_dashboard_embed(status_banner=mode_txt),
             view=self,
+            clear_attachments=True,
         )
 
     @discord.ui.button(label="💰 방금 잡은 물고기 판매", style=discord.ButtonStyle.success, disabled=True, row=3)
     async def btn_sell_last(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction, ephemeral=True)
+        await core.safe_defer(interaction)
         if not self.last_catch:
             await interaction.followup.send("ℹ️ 판매할 직전 포획 물고기가 없습니다.", ephemeral=True)
             return
@@ -709,7 +741,7 @@ class FishingCastView(core.SafeView):
 
     @discord.ui.button(label="🐠 수족관 전시", style=discord.ButtonStyle.primary, disabled=True, row=3)
     async def btn_tank_last(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction, ephemeral=True)
+        await core.safe_defer(interaction)
         if not self.last_catch:
             await interaction.followup.send("ℹ️ 전시할 직전 포획 물고기가 없습니다.", ephemeral=True)
             return
@@ -724,7 +756,7 @@ class FishingCastView(core.SafeView):
 
     @discord.ui.button(label="🌊 방생(+EXP)", style=discord.ButtonStyle.secondary, disabled=True, row=3)
     async def btn_release_last(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction, ephemeral=True)
+        await core.safe_defer(interaction)
         if not self.last_catch:
             await interaction.followup.send("ℹ️ 방생할 직전 포획 물고기가 없습니다.", ephemeral=True)
             return
@@ -740,32 +772,49 @@ class FishingCastView(core.SafeView):
     @discord.ui.button(label="🛒 상점", style=discord.ButtonStyle.secondary, row=4)
     async def btn_open_shop(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
-        view = await asyncio.to_thread(FishingShopView, self.user, self.guild_id)
-        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+        summary = await asyncio.to_thread(
+            fishing_core.get_user_fishing_summary, self.guild_id, self.user.id, self.user.display_name
+        )
+        view = FishingShopView(self.user, self.guild_id, summary=summary)
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
+        view.message = msg
 
     @discord.ui.button(label="🎒 가방", style=discord.ButtonStyle.secondary, row=4)
     async def btn_open_bag(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
-        view = await asyncio.to_thread(FishingBagView, self.user, self.guild_id)
-        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+        summary = await asyncio.to_thread(
+            fishing_core.get_user_fishing_summary, self.guild_id, self.user.id, self.user.display_name
+        )
+        view = FishingBagView(self.user, self.guild_id, summary=summary)
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
+        view.message = msg
 
     @discord.ui.button(label="📖 도감", style=discord.ButtonStyle.secondary, row=4)
     async def btn_open_pokedex(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
-        view = await asyncio.to_thread(FishingPokedexView, self.user, self.guild_id)
-        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+        stats = await asyncio.to_thread(
+            fishing_core.get_fishing_pokedex_stats, self.guild_id, self.user.id
+        )
+        view = FishingPokedexView(self.user, self.guild_id, stats=stats)
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
+        view.message = msg
 
     @discord.ui.button(label="🐠 수족관", style=discord.ButtonStyle.secondary, row=4)
     async def btn_open_tank(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
-        view = await asyncio.to_thread(FishingAquariumView, self.user, self.user, self.guild_id)
-        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+        summary = await asyncio.to_thread(
+            fishing_core.get_user_fishing_summary, self.guild_id, self.user.id, self.user.display_name
+        )
+        view = FishingAquariumView(self.user, self.user, self.guild_id, summary=summary)
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
+        view.message = msg
 
     @discord.ui.button(label="🏆 랭킹", style=discord.ButtonStyle.secondary, row=4)
     async def btn_open_rank(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
         view = FishingRankingView(self.user, self.guild_id)
-        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
+        view.message = msg
 
 
 # ==========================================
@@ -781,19 +830,28 @@ class FishingBagSelect(discord.ui.Select):
         if not items:
             return [discord.SelectOption(label="표시할 물고기가 없습니다", value="NONE")]
         opts = []
-        for idx, it in enumerate(items[:25]):
+        seen_vals = set()
+        for it in items[:25]:
+            uid_s = str(it.get("uid") or "")[:100]
+            if not uid_s or uid_s in seen_vals:
+                continue
+            seen_vals.add(uid_s)
             lock_icon = "🔒" if it.get("locked") else ""
             trophy_icon = "👑" if it.get("is_trophy") else ""
-            hab_name = fishing_core.HABITATS.get(it.get("habitat", "lake"), {}).get("name", "호수")
-            lbl = f"{lock_icon}{trophy_icon} ★{it.get('rarity', 1)} {it.get('name', '물고기')} ({it.get('length_cm', 0):.1f}cm)"[:95]
-            desc = f"[{hab_name}] {_format_weight(float(it.get('weight_kg', 0)))} · 가치 {it.get('gold', 0):,}🪙"[:95]
+            hab_name = fishing_core.HABITATS.get(it.get("habitat", "lake"), fishing_core.HABITATS["lake"]).get("name", "호수")
+            cm_val = float(it.get("length_cm", 0) or 0)
+            wt_val = float(it.get("weight_kg", 0) or 0)
+            g_val = int(it.get("gold", 0) or 0)
+            r_val = int(it.get("rarity", 1) or 1)
+            lbl = f"{lock_icon}{trophy_icon} ★{r_val} {it.get('name', '물고기')} ({cm_val:.1f}cm)"[:95]
+            desc = f"[{hab_name}] {_format_weight(wt_val)} · 가치 {g_val:,}🪙"[:95]
             opts.append(discord.SelectOption(
                 label=lbl,
-                value=it["uid"],
+                value=uid_s,
                 description=desc,
-                default=(it["uid"] == self.parent_view.selected_uid),
+                default=(uid_s == self.parent_view.selected_uid),
             ))
-        return opts
+        return opts or [discord.SelectOption(label="표시할 물고기가 없습니다", value="NONE")]
 
     def refresh(self):
         opts = self._build_opts()
@@ -816,6 +874,7 @@ class FishingBagView(core.SafeView):
         guild_id: int = 0,
         habitat_filter: str = "all",
         rarity_filter: int = 0,
+        summary: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(timeout=None)
         self.user = user
@@ -825,7 +884,7 @@ class FishingBagView(core.SafeView):
         self.page = 0
         self.per_page = 10
         self.selected_uid: Optional[str] = None
-        self.summary = fishing_core.get_user_fishing_summary(self.guild_id, user.id, user.display_name)
+        self.summary = summary or fishing_core.get_user_fishing_summary(self.guild_id, user.id, user.display_name)
         self.bag_select = FishingBagSelect(self)
         self.add_item(self.bag_select)
         self.sync_controls()
@@ -899,14 +958,18 @@ class FishingBagView(core.SafeView):
 
         lines = []
         for idx, it in enumerate(page_items, start=self.page * self.per_page + 1):
-            mark = "👉 " if it["uid"] == self.selected_uid else ""
+            mark = "👉 " if it.get("uid") == self.selected_uid else ""
             lock_s = "🔒" if it.get("locked") else ""
             tr_s = "👑" if it.get("is_trophy") else ""
             var_s = "✨" if it.get("variant") == "golden" else ""
-            hab_e = fishing_core.HABITATS.get(it.get("habitat", "lake"), {}).get("emoji", "🐟")
+            hab_e = fishing_core.HABITATS.get(it.get("habitat", "lake"), fishing_core.HABITATS["lake"]).get("emoji", "🐟")
+            cm_val = float(it.get("length_cm", 0) or 0)
+            wt_val = float(it.get("weight_kg", 0) or 0)
+            g_val = int(it.get("gold", 0) or 0)
+            r_val = int(it.get("rarity", 1) or 1)
             lines.append(
-                f"{mark}`{idx}.` {lock_s}{tr_s}{var_s}{hab_e} **★{it['rarity']} {it['name']}** — "
-                f"`{it['length_cm']:.1f}cm` · `{_format_weight(float(it['weight_kg']))}` · `{it['gold']:,}🪙`"
+                f"{mark}`{idx}.` {lock_s}{tr_s}{var_s}{hab_e} **★{r_val} {it.get('name', '물고기')}** — "
+                f"`{cm_val:.1f}cm` · `{_format_weight(wt_val)}` · `{g_val:,}🪙`"
             )
 
         body = "\n".join(lines) if lines else "> *(조건에 맞는 물고기가 가방에 없습니다. `/낚시 출조`로 낚아 보세요!)*"
@@ -957,8 +1020,9 @@ class FishingBagView(core.SafeView):
 
     @discord.ui.button(label="🔒 잠금/해제", style=discord.ButtonStyle.secondary, row=2)
     async def btn_lock(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction, ephemeral=True)
+        await core.safe_defer(interaction)
         if not self.selected_uid:
+            await interaction.followup.send("ℹ️ 먼저 관리할 물고기를 선택하세요.", ephemeral=True)
             return
         ok, msg = await asyncio.to_thread(fishing_core.toggle_fish_lock, self.guild_id, self.user.id, self.selected_uid)
         await self.reload()
@@ -968,11 +1032,11 @@ class FishingBagView(core.SafeView):
 
     @discord.ui.button(label="💰 선택 판매", style=discord.ButtonStyle.success, row=2)
     async def btn_sell_one(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction, ephemeral=True)
+        await core.safe_defer(interaction)
         if not self.selected_uid:
+            await interaction.followup.send("ℹ️ 먼저 판매할 물고기를 선택하세요.", ephemeral=True)
             return
-        # 선택 물고기가 잠금 상태인지 검사
-        sel_item = next((x for x in self.summary["user"].get("bag", []) if x["uid"] == self.selected_uid), None)
+        sel_item = next((x for x in self.summary["user"].get("bag", []) if isinstance(x, dict) and x.get("uid") == self.selected_uid), None)
         if sel_item and sel_item.get("locked"):
             await interaction.followup.send("🔒 잠금 보호 중인 물고기입니다! 먼저 **`[🔒 잠금/해제]`**로 잠금을 풀어주세요.", ephemeral=True)
             return
@@ -984,8 +1048,9 @@ class FishingBagView(core.SafeView):
 
     @discord.ui.button(label="🐠 수족관 전시", style=discord.ButtonStyle.primary, row=2)
     async def btn_to_tank(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction, ephemeral=True)
+        await core.safe_defer(interaction)
         if not self.selected_uid:
+            await interaction.followup.send("ℹ️ 먼저 전시할 물고기를 선택하세요.", ephemeral=True)
             return
         ok, msg = await asyncio.to_thread(fishing_core.move_fish_to_tank, self.guild_id, self.user.id, self.selected_uid)
         await self.reload()
@@ -995,7 +1060,7 @@ class FishingBagView(core.SafeView):
 
     @discord.ui.button(label="💸 미잠금 전체 판매", style=discord.ButtonStyle.danger, row=2)
     async def btn_sell_all(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction, ephemeral=True)
+        await core.safe_defer(interaction)
         ok, msg, _, _ = await asyncio.to_thread(
             fishing_core.sell_all_unlocked_bag,
             self.guild_id,
@@ -1121,6 +1186,7 @@ class FishingPokedexView(core.SafeView):
         tab: str = "lake",
         rarity_filter: int = 0,
         zone_filter: str = "all",
+        stats: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(timeout=None)
         self.user = user
@@ -1130,7 +1196,7 @@ class FishingPokedexView(core.SafeView):
         self.zone_filter = zone_filter
         self.page = 0
         self.per_page = 10
-        self.stats = fishing_core.get_fishing_pokedex_stats(self.guild_id, user.id)
+        self.stats = stats or fishing_core.get_fishing_pokedex_stats(self.guild_id, user.id)
         self.rarity_select = FishingPokedexRaritySelect(self)
         self.zone_select = FishingPokedexZoneSelect(self)
         self.add_item(self.rarity_select)
@@ -1191,7 +1257,7 @@ class FishingPokedexView(core.SafeView):
         for sp in page_items:
             raw_rec = pd.get(sp["id"])
             rec = raw_rec if isinstance(raw_rec, dict) else None
-            rm = fishing_core.RARITY_META[sp["rarity"]]
+            rm = fishing_core.RARITY_META.get(int(sp.get("rarity", 1)), fishing_core.RARITY_META[1])
             z_lbl = sp.get("zone") or sp.get("sub_zone", "")
             if rec:
                 lines.append(
@@ -1199,9 +1265,9 @@ class FishingPokedexView(core.SafeView):
                     f"최고 `{float(rec.get('max_cm', 0)):.1f}cm` · `{_format_weight(float(rec.get('max_kg', 0)))}` (`{int(rec.get('count', 1))}회`)"
                 )
             else:
-                time_hint = {"day": "☀️낮", "night": "🌙밤", "all": "⏰상시"}[sp["active_time"]]
-                w_hint = fishing_core.WEATHERS.get(sp["prefer_weather"], {}).get("emoji", "🌤️")
-                b_hint = fishing_core.BAITS.get(sp["prefer_bait"], {}).get("name", "기본 떡밥")
+                time_hint = {"day": "☀️낮", "night": "🌙밤", "all": "⏰상시"}.get(sp.get("active_time", "all"), "⏰상시")
+                w_hint = fishing_core.WEATHERS.get(sp.get("prefer_weather", "all"), {}).get("emoji", "🌤️")
+                b_hint = fishing_core.BAITS.get(sp.get("prefer_bait", "dough"), {}).get("name", "기본 떡밥")
                 lines.append(
                     f"⬜ {rm['emoji']} **★{sp['rarity']} {sp['name']}** (`{z_lbl}` · `{sp['min_cm']}~{sp['max_cm']}cm`) — "
                     f"{time_hint}·{w_hint}·`{b_hint}`"
@@ -1293,17 +1359,28 @@ class TankWithdrawSelect(discord.ui.Select):
         super().__init__(placeholder="🐠 가방으로 꺼낼 어종 선택...", min_values=1, max_values=1, options=self._build_opts(), row=0)
 
     def _build_opts(self) -> List[discord.SelectOption]:
-        tank = self.parent_view.summary["user"].get("tank", [])
+        raw_tank = self.parent_view.summary["user"].get("tank", [])
+        tank = [it for it in (raw_tank if isinstance(raw_tank, list) else []) if isinstance(it, dict) and it.get("uid")]
         if not tank:
             return [discord.SelectOption(label="전시된 물고기가 없습니다", value="NONE")]
-        return [
-            discord.SelectOption(
-                label=f"★{it['rarity']} {it['name']} ({it['length_cm']:.1f}cm)"[:95],
-                value=it["uid"],
-                description=f"{_format_weight(float(it['weight_kg']))} · 전시 중",
+        opts = []
+        seen = set()
+        for it in tank[:25]:
+            uid_s = str(it.get("uid") or "")[:100]
+            if not uid_s or uid_s in seen:
+                continue
+            seen.add(uid_s)
+            cm_val = float(it.get("length_cm", 0) or 0)
+            wt_val = float(it.get("weight_kg", 0) or 0)
+            r_val = int(it.get("rarity", 1) or 1)
+            opts.append(
+                discord.SelectOption(
+                    label=f"★{r_val} {it.get('name', '물고기')} ({cm_val:.1f}cm)"[:95],
+                    value=uid_s,
+                    description=f"{_format_weight(wt_val)} · 전시 중"[:95],
+                )
             )
-            for it in tank[:25]
-        ]
+        return opts or [discord.SelectOption(label="전시된 물고기가 없습니다", value="NONE")]
 
     def refresh(self):
         opts = self._build_opts()
@@ -1311,7 +1388,7 @@ class TankWithdrawSelect(discord.ui.Select):
         self.disabled = (len(opts) == 1 and opts[0].value == "NONE") or (self.parent_view.caller.id != self.parent_view.target_user.id)
 
     async def callback(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction, ephemeral=True)
+        await core.safe_defer(interaction)
         val = self.values[0]
         if val == "NONE":
             return
@@ -1328,12 +1405,13 @@ class FishingAquariumView(core.SafeView):
         caller: discord.abc.User,
         target_user: Optional[discord.abc.User] = None,
         guild_id: int = 0,
+        summary: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(timeout=None)
         self.caller = caller
         self.target_user = target_user or caller
         self.guild_id = int(guild_id or 0)
-        self.summary = fishing_core.get_user_fishing_summary(self.guild_id, self.target_user.id, self.target_user.display_name)
+        self.summary = summary or fishing_core.get_user_fishing_summary(self.guild_id, self.target_user.id, self.target_user.display_name)
         self.withdraw_select = TankWithdrawSelect(self)
         self.add_item(self.withdraw_select)
         self.sync_controls()
@@ -1361,21 +1439,23 @@ class FishingAquariumView(core.SafeView):
 
     def build_embed(self) -> discord.Embed:
         u = self.summary["user"]
-        tank = u.get("tank", [])
+        tank = [it for it in (u.get("tank", []) if isinstance(u.get("tank"), list) else []) if isinstance(it, dict)]
         max_slots = int(u.get("tank_slots", 4))
         pending = self.summary["tank_pending"]
         hourly = self.summary["tank_hourly"]
 
         lines = []
         for idx, it in enumerate(tank, start=1):
-            rm = fishing_core.RARITY_META[int(it.get("rarity", 1))]
+            rm = fishing_core.RARITY_META.get(int(it.get("rarity", 1) or 1), fishing_core.RARITY_META[1])
             rate = rm["tank_rate"]
             if it.get("is_trophy"):
                 rate = int(rate * 1.35)
             tr_s = "👑" if it.get("is_trophy") else ""
+            cm_val = float(it.get("length_cm", 0) or 0)
+            wt_val = float(it.get("weight_kg", 0) or 0)
             lines.append(
-                f"`{idx}.` {it.get('emoji', '🐟')} {tr_s}**★{it['rarity']} {it['name']}** — "
-                f"`{it['length_cm']:.1f}cm` · `{_format_weight(float(it['weight_kg']))}` (`+{rate}🪙/시간`)"
+                f"`{idx}.` {it.get('emoji', '🐟')} {tr_s}**★{it.get('rarity', 1)} {it.get('name', '물고기')}** — "
+                f"`{cm_val:.1f}cm` · `{_format_weight(wt_val)}` (`+{rate}🪙/시간`)"
             )
         body = "\n".join(lines) if lines else "> *(아직 전시된 물고기가 없습니다! `/낚시 가방`에서 아끼는 대물을 수족관에 넣어 보세요.)*"
         next_cost = 600 + (max_slots - 4) * 500
@@ -1395,7 +1475,7 @@ class FishingAquariumView(core.SafeView):
 
     @discord.ui.button(label="🪙 수족관 수익 수확", style=discord.ButtonStyle.success, row=1)
     async def btn_harvest(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction, ephemeral=True)
+        await core.safe_defer(interaction)
         ok, msg, _ = await asyncio.to_thread(fishing_core.harvest_tank_gold, self.guild_id, self.target_user.id)
         await self.reload()
         self.sync_controls()
@@ -1404,7 +1484,7 @@ class FishingAquariumView(core.SafeView):
 
     @discord.ui.button(label="🏗️ 수족관 +2칸 확장", style=discord.ButtonStyle.primary, row=1)
     async def btn_expand(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction, ephemeral=True)
+        await core.safe_defer(interaction)
         ok, msg = await asyncio.to_thread(fishing_core.purchase_shop_item, self.guild_id, self.target_user.id, "tank_expand", "expand")
         await self.reload()
         self.sync_controls()
@@ -1468,7 +1548,7 @@ class FishingShopSelect(discord.ui.Select):
         self.options = self._build_opts()
 
     async def callback(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction, ephemeral=True)
+        await core.safe_defer(interaction)
         raw = self.values[0]
         cat, item_id = raw.split(":", 1)
         ok, msg = await asyncio.to_thread(fishing_core.purchase_shop_item, self.parent_view.guild_id, self.parent_view.user.id, cat, item_id)
@@ -1479,12 +1559,18 @@ class FishingShopSelect(discord.ui.Select):
 
 
 class FishingShopView(core.SafeView):
-    def __init__(self, user: discord.abc.User, guild_id: int = 0, category: str = "rod"):
+    def __init__(
+        self,
+        user: discord.abc.User,
+        guild_id: int = 0,
+        category: str = "rod",
+        summary: Optional[Dict[str, Any]] = None,
+    ):
         super().__init__(timeout=None)
         self.user = user
         self.guild_id = int(guild_id or 0)
         self.category = category
-        self.summary = fishing_core.get_user_fishing_summary(self.guild_id, user.id, user.display_name)
+        self.summary = summary or fishing_core.get_user_fishing_summary(self.guild_id, user.id, user.display_name)
         self.shop_select = FishingShopSelect(self)
         self.add_item(self.shop_select)
         self.sync_controls()
@@ -1721,10 +1807,10 @@ class FishingRankingView(core.SafeView):
             desc_parts.append("\n**📏 보유 중인 서버 최대 길이(cm) 어종 1위 기록**")
             if len_recs:
                 for rec in len_recs[:8]:
-                    he = fishing_core.HABITATS[rec["habitat"]]["emoji"]
+                    he = fishing_core.HABITATS.get(rec.get("habitat", "lake"), fishing_core.HABITATS["lake"])["emoji"]
                     tr = " 👑월척" if rec.get("is_trophy") else ""
                     desc_parts.append(
-                        f"• {he} ★{rec['rarity']} **{rec['name']}** — **`{rec['val']:.1f} cm`**{tr} *({rec.get('at', '')})*"
+                        f"• {he} ★{rec.get('rarity', 1)} **{rec.get('name', '물고기')}** — **`{float(rec.get('val', 0)):.1f} cm`**{tr} *({rec.get('at', '')})*"
                     )
             else:
                 desc_parts.append("> *(현재 보유 중인 길이 1위 신기록이 없습니다.)*")
@@ -1732,9 +1818,9 @@ class FishingRankingView(core.SafeView):
             desc_parts.append("\n**⚖️ 보유 중인 서버 최대 무게(kg) 어종 1위 기록**")
             if wt_recs:
                 for rec in wt_recs[:8]:
-                    he = fishing_core.HABITATS[rec["habitat"]]["emoji"]
+                    he = fishing_core.HABITATS.get(rec.get("habitat", "lake"), fishing_core.HABITATS["lake"])["emoji"]
                     desc_parts.append(
-                        f"• {he} ★{rec['rarity']} **{rec['name']}** — **`{_format_weight(rec['val'])}`** *({rec.get('at', '')})*"
+                        f"• {he} ★{rec.get('rarity', 1)} **{rec.get('name', '물고기')}** — **`{_format_weight(float(rec.get('val', 0)))}`** *({rec.get('at', '')})*"
                     )
             else:
                 desc_parts.append("> *(현재 보유 중인 무게 1위 신기록이 없습니다.)*")
@@ -1755,19 +1841,19 @@ class FishingRankingView(core.SafeView):
             filtered = [r for r in lb["length_top"] if self._matches_query(r)]
             for i, rec in enumerate(filtered[:12]):
                 m = medals[i] if i < 3 else f"`{i+1}.`"
-                he = fishing_core.HABITATS[rec["habitat"]]["emoji"]
+                he = fishing_core.HABITATS.get(rec.get("habitat", "lake"), fishing_core.HABITATS["lake"])["emoji"]
                 tr = " 👑" if rec.get("is_trophy") else ""
                 lines.append(
-                    f"{m} **`{rec['val']:.1f} cm`**{tr} — {he} ★{rec['rarity']} **{rec['name']}** · 👤 `{rec['user_name']}`"
+                    f"{m} **`{float(rec.get('val', 0)):.1f} cm`**{tr} — {he} ★{rec.get('rarity', 1)} **{rec.get('name', '물고기')}** · 👤 `{rec.get('user_name', '낚시꾼')}`"
                 )
         elif self.mode == "weight":
             title = f"⚖️ 서버 최대 무게(kg) 거대어 랭킹 TOP 12{q_suffix}"
             filtered = [r for r in lb["weight_top"] if self._matches_query(r)]
             for i, rec in enumerate(filtered[:12]):
                 m = medals[i] if i < 3 else f"`{i+1}.`"
-                he = fishing_core.HABITATS[rec["habitat"]]["emoji"]
+                he = fishing_core.HABITATS.get(rec.get("habitat", "lake"), fishing_core.HABITATS["lake"])["emoji"]
                 lines.append(
-                    f"{m} **`{_format_weight(rec['val'])}`** — {he} ★{rec['rarity']} **{rec['name']}** · 👤 `{rec['user_name']}`"
+                    f"{m} **`{_format_weight(float(rec.get('val', 0)))}`** — {he} ★{rec.get('rarity', 1)} **{rec.get('name', '물고기')}** · 👤 `{rec.get('user_name', '낚시꾼')}`"
                 )
         else:
             title = f"📖 서버 어종 도감 수집왕 & 랭커 TOP 12{q_suffix}"
@@ -1828,11 +1914,16 @@ class FishingRankingView(core.SafeView):
 # 7. 일일 낚시 의뢰 View
 # ==========================================
 class FishingQuestView(core.SafeView):
-    def __init__(self, user: discord.abc.User, guild_id: int = 0):
+    def __init__(
+        self,
+        user: discord.abc.User,
+        guild_id: int = 0,
+        summary: Optional[Dict[str, Any]] = None,
+    ):
         super().__init__(timeout=None)
         self.user = user
         self.guild_id = int(guild_id or 0)
-        self.summary = fishing_core.get_user_fishing_summary(self.guild_id, user.id, user.display_name)
+        self.summary = summary or fishing_core.get_user_fishing_summary(self.guild_id, user.id, user.display_name)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         await super().interaction_check(interaction)
@@ -1870,7 +1961,7 @@ class FishingQuestView(core.SafeView):
 
     @discord.ui.button(label="🎁 완료 의뢰 보상 일괄 수령", style=discord.ButtonStyle.success, row=0)
     async def btn_claim_all(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction, ephemeral=True)
+        await core.safe_defer(interaction)
         ok, msg, _, _ = await asyncio.to_thread(
             fishing_core.claim_all_completed_quests,
             self.guild_id,
@@ -1987,16 +2078,19 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
         await core.safe_defer(interaction)
         hab = 장소.value if 장소 else "all"
         rar = 성급.value if 성급 else 0
-        view = await asyncio.to_thread(FishingBagView, interaction.user, interaction.guild_id or 0, hab, rar)
+        summary = await asyncio.to_thread(
+            fishing_core.get_user_fishing_summary, interaction.guild_id or 0, interaction.user.id, interaction.user.display_name
+        )
+        view = FishingBagView(interaction.user, interaction.guild_id or 0, hab, rar, summary=summary)
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         view.message = msg
 
     @app_commands.command(name="도감", description=f"📖 호수·강·바다 {len(fishing_core.FISH_SPECIES_DB):,}종 글로벌 물고기 도감 & 개인 최고 기록 확인")
     @app_commands.describe(탭="초기 표시 탭", 어종검색="특정 물고기의 서식 조건·체장·학명 상세 조회")
     @app_commands.choices(탭=[
-        app_commands.Choice(name=f"🏞️ 호수 ({len(fishing_core.FISH_BY_HABITAT['lake'])}종)", value="lake"),
-        app_commands.Choice(name=f"🌊 강 ({len(fishing_core.FISH_BY_HABITAT['river'])}종)", value="river"),
-        app_commands.Choice(name=f"⚓ 바다 ({len(fishing_core.FISH_BY_HABITAT['sea'])}종)", value="sea"),
+        app_commands.Choice(name=f"🏞️ 호수 ({len(fishing_core.FISH_BY_HABITAT['lake']):,}종)", value="lake"),
+        app_commands.Choice(name=f"🌊 강 ({len(fishing_core.FISH_BY_HABITAT['river']):,}종)", value="river"),
+        app_commands.Choice(name=f"⚓ 바다 ({len(fishing_core.FISH_BY_HABITAT['sea']):,}종)", value="sea"),
         app_commands.Choice(name="🔒 미보유 어종", value="unowned"),
     ])
     @app_commands.autocomplete(어종검색=fishing_core.fish_species_autocomplete)
@@ -2010,11 +2104,11 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
         guild_id = interaction.guild_id or 0
         if 어종검색 and 어종검색 in fishing_core.FISH_BY_ID:
             sp = fishing_core.FISH_BY_ID[어종검색]
-            hab = fishing_core.HABITATS[sp["habitat"]]
-            rm = fishing_core.RARITY_META[sp["rarity"]]
+            hab = fishing_core.HABITATS.get(sp["habitat"], fishing_core.HABITATS["lake"])
+            rm = fishing_core.RARITY_META.get(int(sp.get("rarity", 1)), fishing_core.RARITY_META[1])
             stats = await asyncio.to_thread(fishing_core.get_fishing_pokedex_stats, guild_id, interaction.user.id)
             rec = stats["pokedex"].get(sp["id"])
-            time_txt = {"day": "☀️ 낮 (06~18시)", "night": "🌙 밤 (18~06시)", "all": "⏰ 전 시간대"}[sp["active_time"]]
+            time_txt = {"day": "☀️ 낮 (06~18시)", "night": "🌙 밤 (18~06시)", "all": "⏰ 전 시간대"}.get(sp.get("active_time", "all"), "⏰ 전 시간대")
             w_meta = fishing_core.WEATHERS.get(sp["prefer_weather"])
             w_txt = f"{w_meta['emoji']} {w_meta['name']}" if w_meta else "🌤️ 모든 날씨"
             b_txt = fishing_core.BAITS.get(sp["prefer_bait"], {}).get("name", "기본 떡밥")
@@ -2039,7 +2133,8 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
             return
 
         tab_val = 탭.value if 탭 else "lake"
-        view = await asyncio.to_thread(FishingPokedexView, interaction.user, guild_id, tab_val)
+        stats = await asyncio.to_thread(fishing_core.get_fishing_pokedex_stats, guild_id, interaction.user.id)
+        view = FishingPokedexView(interaction.user, guild_id, tab_val, stats=stats)
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         view.message = msg
 
@@ -2048,7 +2143,11 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
     async def fishing_aquarium_cmd(self, interaction: discord.Interaction, 유저: Optional[discord.Member] = None):
         await core.safe_defer(interaction)
         target = 유저 or interaction.user
-        view = await asyncio.to_thread(FishingAquariumView, interaction.user, target, interaction.guild_id or 0)
+        guild_id = interaction.guild_id or 0
+        summary = await asyncio.to_thread(
+            fishing_core.get_user_fishing_summary, guild_id, target.id, target.display_name
+        )
+        view = FishingAquariumView(interaction.user, target, guild_id, summary=summary)
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         view.message = msg
 
@@ -2063,7 +2162,11 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
     async def fishing_shop_cmd(self, interaction: discord.Interaction, 분류: Optional[app_commands.Choice[str]] = None):
         await core.safe_defer(interaction, ephemeral=True)
         cat = 분류.value if 분류 else "rod"
-        view = await asyncio.to_thread(FishingShopView, interaction.user, interaction.guild_id or 0, cat)
+        guild_id = interaction.guild_id or 0
+        summary = await asyncio.to_thread(
+            fishing_core.get_user_fishing_summary, guild_id, interaction.user.id, interaction.user.display_name
+        )
+        view = FishingShopView(interaction.user, guild_id, cat, summary=summary)
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
         view.message = msg
 
@@ -2098,7 +2201,11 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
     @app_commands.command(name="퀘스트", description="📜 매일 KST 00:00 갱신되는 일일 낚시 의뢰 3종 확인 및 골드+💎 크리스탈 보상 수령")
     async def fishing_quest_cmd(self, interaction: discord.Interaction):
         await core.safe_defer(interaction, ephemeral=True)
-        view = await asyncio.to_thread(FishingQuestView, interaction.user, interaction.guild_id or 0)
+        guild_id = interaction.guild_id or 0
+        summary = await asyncio.to_thread(
+            fishing_core.get_user_fishing_summary, guild_id, interaction.user.id, interaction.user.display_name
+        )
+        view = FishingQuestView(interaction.user, guild_id, summary=summary)
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
         view.message = msg
 
