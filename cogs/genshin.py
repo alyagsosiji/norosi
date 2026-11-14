@@ -1343,6 +1343,27 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
         super().__init__()
         self.bot = bot
 
+    async def _handle_wish(
+        self,
+        interaction: discord.Interaction,
+        banner_key: str = "char1",
+        count: int = 10,
+        practice_mode: bool = False,
+        skip_animation: bool = False,
+    ):
+        if not practice_mode:
+            ok, rem = core.check_and_update_gacha_cooldown(interaction.user.id, skip_anim=skip_animation)
+            if not ok:
+                return await core.safe_send_response(
+                    interaction,
+                    f"⏳ 가챠 쿨타임 중입니다! **`{rem:.1f}초`** 후 다시 기원해 주세요. ({'스킵 5.0초' if skip_animation else '기본 3.5초'})",
+                    ephemeral=True,
+                )
+        await core.safe_defer(interaction)
+        res = await asyncio.to_thread(genshin_core.execute_genshin_pull, interaction.guild_id or 0, interaction.user.id, banner_key, count, practice_mode)
+        v = GenshinPullAgainView(interaction.user, banner_key=banner_key, skip_anim=skip_animation, practice=practice_mode, last_count=count)
+        await send_genshin_pull_result(interaction, res, view=v, skip_anim=skip_animation)
+
     @app_commands.command(name="기원", description="🌠 원신 기원 (캐릭터·무기·성유물·상시 · 시각별 로테이션 · 3.5초 연출)")
     @app_commands.describe(
         배너="기원을 진행할 배너 종류를 선택하세요 (캐릭터/무기/성유물/상시)",
@@ -1371,18 +1392,7 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
         연습모드: bool = False,
         연출스킵: bool = False,
     ):
-        if not 연습모드:
-            ok, rem = core.check_and_update_gacha_cooldown(interaction.user.id, skip_anim=연출스킵)
-            if not ok:
-                return await core.safe_send_response(
-                    interaction,
-                    f"⏳ 가챠 쿨타임 중입니다! **`{rem:.1f}초`** 후 다시 기원해 주세요. ({'스킵 5.0초' if 연출스킵 else '기본 3.5초'})",
-                    ephemeral=True,
-                )
-        await core.safe_defer(interaction)
-        res = await asyncio.to_thread(genshin_core.execute_genshin_pull, interaction.guild_id or 0, interaction.user.id, 배너, 횟수, 연습모드)
-        v = GenshinPullAgainView(interaction.user, banner_key=배너, skip_anim=연출스킵, practice=연습모드, last_count=횟수)
-        await send_genshin_pull_result(interaction, res, view=v, skip_anim=연출스킵)
+        await self._handle_wish(interaction, banner_key=배너, count=횟수, practice_mode=연습모드, skip_animation=연출스킵)
 
     @app_commands.command(name="운명의궤도", description="🧭 신의 주조(무기 이벤트 기원) 운명의 궤도 목표 무기를 선택/해제합니다")
     async def fate_path_cmd(self, interaction: discord.Interaction):
