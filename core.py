@@ -2874,7 +2874,8 @@ DEFAULT_CONFIG = {
         "event_id": None,
         "event_name": None,
         "pickup_card_labels": [],
-        "include_limited": True
+        "include_limited": True,
+        "banner_type": "normal",
     },
     "gacha_users": {},
     "gacha_hall_of_fame": {},
@@ -4271,6 +4272,13 @@ def format_pickup_summary(pickup_cfg: dict | None) -> str:
     return "미지정 (전체 동일)"
 
 
+def get_active_proseka_banner(pickup_cfg: dict | None = None) -> str:
+    """현재 전역 설정된 프로세카 가챠 배너 키('normal' | 'fes' | 'birthday')를 반환합니다."""
+    cfg = as_dict(pickup_cfg) if pickup_cfg is not None else as_dict(get_cached_data().get("gacha_pickup"))
+    b_type = cfg.get("banner_type", "normal")
+    return b_type if b_type in BANNER_CONFIGS else "normal"
+
+
 def sync_gacha_pickup_to_live_event() -> tuple[bool, str, dict]:
     """실시간 한섭(KR) 진행 중 이벤트에 맞춰 가챠 픽업(gacha_pickup)을 자동 연동합니다."""
     info = fetch_live_event_and_gacha_info("kr")
@@ -4333,6 +4341,10 @@ def sync_gacha_pickup_to_live_event() -> tuple[bool, str, dict]:
 
     with _DATA_LOCK:
         data = load_data()
+        prev_banner = as_dict(data.get("gacha_pickup")).get("banner_type", "normal")
+        if prev_banner not in BANNER_CONFIGS:
+            prev_banner = "normal"
+        pickup_obj["banner_type"] = prev_banner
         data["gacha_pickup"] = copy.deepcopy(pickup_obj)
         save_data(data)
 
