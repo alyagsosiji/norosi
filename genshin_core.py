@@ -733,6 +733,8 @@ def _parse_genshin_items(
                 "special_prop_name": set_2p[:42],
                 "set_2p": set_2p,
                 "set_4p": set_4p,
+                "bonus_2p": set_2p,
+                "bonus_4p": set_4p,
                 "icon": str(raw.get("icon") or ""),
                 "wish_source": "domain" if max_lv == 5 else "standard",
                 "pool_type": "축성 비경" if max_lv == 5 else "비경/보스",
@@ -750,6 +752,9 @@ def _set_db_state(chars: list[dict], weapons: list[dict], artifacts: list[dict],
     chars.sort(key=lambda x: (-x["rank"], -x.get("release", 0), x.get("id", "")))
     weapons.sort(key=_weapon_sort_key)
     artifacts.sort(key=lambda x: (-x["rank"], -int(x["id"]) if str(x.get("id", "")).isdigit() else 0))
+    for a in artifacts:
+        a.setdefault("bonus_2p", a.get("set_2p", ""))
+        a.setdefault("bonus_4p", a.get("set_4p", ""))
     GENSHIN_CHARS = chars
     GENSHIN_WEAPONS = weapons
     GENSHIN_ARTIFACTS = artifacts
@@ -2256,6 +2261,19 @@ async def genshin_5star_weapon_autocomplete(interaction, current: str):
     return [
         app_commands.Choice(name=f"★★★★★ {w['name']} ({w['weapon_type_emoji']}{w['weapon_type_name']} · {w['pool_type']})"[:100], value=w["id"])
         for c, w in enumerate(cands[:25])
+    ]
+
+
+async def genshin_artifact_autocomplete(interaction, current: str):
+    from discord import app_commands
+    load_genshin_kr_db()
+    q = (current or "").strip().lower()
+    cands = [a for a in GENSHIN_ARTIFACTS if a.get("rank") == 5 and (not q or q in a["name"].lower() or q in a["id"])]
+    if not cands:
+        cands = [a for a in GENSHIN_ARTIFACTS if not q or q in a["name"].lower() or q in a["id"]]
+    return [
+        app_commands.Choice(name=f"🏺 {a['name']} ({a.get('set_2p', '성유물 세트')[:36]})"[:100], value=a["id"])
+        for a in cands[:25]
     ]
 
 
