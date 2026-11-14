@@ -65,7 +65,7 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
         vc_ch_names = "통화 중인 채널 없음"
 
     # 3. 실제 서버 출석체크 참여 현황 (data['guild_attendance'][g_key])
-    guild_att = data.get("guild_attendance", {}).get(g_key, {})
+    guild_att = core.safe_get_dict(data, "guild_attendance", g_key)
     total_att_registered = len(guild_att)
     today_att_count = sum(1 for u in guild_att.values() if isinstance(u, dict) and u.get("last_date") == today_str)
     att_rate = round((today_att_count / max(1, member_count)) * 100, 1)
@@ -74,17 +74,18 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
     # 서버 출석 연속 1위 유저
     streak_leader_str = "기록 대기 중"
     if guild_att:
-        top_u = max(guild_att.values(), key=lambda x: x.get("streak", 0) if isinstance(x, dict) else 0, default=None)
+        top_u = max((v for v in guild_att.values() if isinstance(v, dict)), key=lambda x: x.get("streak", 0), default=None)
         if top_u and top_u.get("streak", 0) > 0:
             streak_leader_str = f"`{top_u.get('user_name', '유저')}` (연속 `{top_u.get('streak', 0)}일` 🔥)"
 
     # 4. 실제 norosi 봇 서비스 활용 지표 (D-Day, 프로세카 가챠 수집)
-    ddays_cnt = sum(1 for d in data.get("ddays", {}).values() if isinstance(d, dict) and (d.get("guild_id") == guild.id or not d.get("guild_id")))
-    gacha_users_cnt = len(data.get("gacha_users", {}).get(g_key, {}))
-    total_cards_cnt = sum(len(u.get("cards", {})) for u in data.get("gacha_users", {}).get(g_key, {}).values() if isinstance(u, dict))
+    ddays_cnt = sum(1 for d in core.as_dict(data.get("ddays")).values() if isinstance(d, dict) and (d.get("guild_id") == guild.id or not d.get("guild_id")))
+    g_gacha_users = core.safe_get_dict(data, "gacha_users", g_key)
+    gacha_users_cnt = len(g_gacha_users)
+    total_cards_cnt = sum(len(core.as_dict(u.get("cards"))) for u in g_gacha_users.values() if isinstance(u, dict))
 
     # 5. 실제 메시지 수량 및 채널별 집계 (data['server_stats'][g_key])
-    s_stats = data.get("server_stats", {}).get(g_key, {})
+    s_stats = core.safe_get_dict(data, "server_stats", g_key)
     is_daily = (timeframe == "daily")
     title_time = "일간 (오늘 00:00~현재)" if is_daily else "주간 (최근 7일 누적)"
 
@@ -93,7 +94,7 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
     total_msgs = s_stats.get("total_msgs", 0)
     tot_msgs = today_msgs if is_daily else weekly_msgs
 
-    channel_msgs = s_stats.get("channel_msgs", {})
+    channel_msgs = core.as_dict(s_stats.get("channel_msgs"))
     sorted_channels = sorted(
         [c for c in channel_msgs.values() if isinstance(c, dict) and c.get("count", 0) > 0],
         key=lambda x: x.get("count", 0),
@@ -675,16 +676,18 @@ class StatsCog(commands.Cog):
         hour_str = str(now_kst.hour)
 
         data = await asyncio.to_thread(core.load_data)
-        s_stats = data.setdefault("server_stats", {})
-        g_stat = s_stats.setdefault(g_key, {
-            "today_date": today_str,
-            "today_msgs": 0,
-            "weekly_msgs": 0,
-            "total_msgs": 0,
-            "channel_msgs": {},
-            "hourly_msgs": {},
-            "active_users": {}
-        })
+        s_stats = core.ensure_dict_path(data, "server_stats")
+        if not isinstance(s_stats.get(g_key), dict):
+            s_stats[g_key] = {
+                "today_date": today_str,
+                "today_msgs": 0,
+                "weekly_msgs": 0,
+                "total_msgs": 0,
+                "channel_msgs": {},
+                "hourly_msgs": {},
+                "active_users": {}
+            }
+        g_stat = s_stats[g_key]
 
         # 자정이 지난 경우 오늘 일간 카운트 갱신 (일간 채널 점유율 100% 초과 방지)
         if g_stat.get("today_date") != today_str:
@@ -697,16 +700,18 @@ class StatsCog(commands.Cog):
         g_stat["weekly_msgs"] = g_stat.get("weekly_msgs", 0) + 1
         g_stat["total_msgs"] = g_stat.get("total_msgs", 0) + 1
 
-        ch_map = g_stat.setdefault("channel_msgs", {})
-        ch_entry = ch_map.setdefault(ch_id, {"name": ch_name, "count": 0})
+        ch_map = core.ensure_dict_path(g_stat, "channel_msgs")
+        if not isinstance(ch_map.get(ch_id), dict):
+            ch_map[ch_id] = {"name": ch_name, "count": 0}
+        ch_entry = ch_map[ch_id]
         ch_entry["name"] = ch_name
         ch_entry["count"] = ch_entry.get("count", 0) + 1
 
-        h_map = g_stat.setdefault("hourly_msgs", {})
+        h_map = core.ensure_dict_path(g_stat, "hourly_msgs")
         h_map[hour_str] = h_map.get(hour_str, 0) + 1
 
         u_id = str(message.author.id)
-        u_map = g_stat.setdefault("active_users", {})
+        u_map = core.ensure_dict_path(g_stat, "active_users")
         u_map[u_id] = u_map.get(u_id, 0) + 1
 
         # 채팅마다 동기식 I/O를 배제하고 25메시지마다 배치 저장하여 디스크/네트워크 병목 방지
@@ -954,16 +959,16 @@ class StatsCog(commands.Cog):
         partner_id = profile.get("partner_id")
         partner_str = f"<@{partner_id}>" if partner_id else "없음"
 
-        guild_att = data.get("guild_attendance", {}).get(g_key, {}).get(u_key, {})
+        guild_att = core.safe_get_dict(data, "guild_attendance", g_key, u_key)
         att_total = guild_att.get("total_days", 0)
         att_streak = guild_att.get("streak", 0)
 
-        gacha_cards = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+        gacha_cards = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
         unique_cards = len(gacha_cards)
         star4_cards = sum(1 for c in gacha_cards.values() if isinstance(c, dict) and c.get("star_num", 1) >= 4)
 
-        msg_count = data.get("server_stats", {}).get(g_key, {}).get("active_users", {}).get(u_key, 0)
-        bday_info = data.get("birthdays", {}).get(u_key)
+        msg_count = core.safe_get_dict(data, "server_stats", g_key, "active_users").get(u_key, 0)
+        bday_info = core.as_dict(data.get("birthdays")).get(u_key)
         bday_str = f"`{bday_info['month']:02d}월 {bday_info['day']:02d}일` 🎂" if isinstance(bday_info, dict) and "month" in bday_info else "미등록 (`/생일등록`)"
 
         embed_color = target.color if isinstance(target, discord.Member) and target.color != discord.Color.default() else discord.Color.from_rgb(0, 204, 221)
@@ -1293,10 +1298,10 @@ class StatsCog(commands.Cog):
                 description=(
                     "봇의 모든 D-Day, 출석, 크리스탈, 보유 카드, 랭킹 및 통계 데이터를 JSON 백업 파일로 생성했습니다.\n\n"
                     f"• **백업 생성 시각:** `{now_kst.strftime('%Y-%m-%d %H:%M:%S KST')}`\n"
-                    f"• **유저 프로필 수:** `{len(clean_db.get('user_profiles', {}))}개`\n"
-                    f"• **D-Day 일정 수:** `{len(clean_db.get('ddays', {}))}개`\n"
-                    f"• **가챠 보유 유저:** `{sum(len(u) for u in clean_db.get('gacha_users', {}).values())}명`\n"
-                    f"• **접수된 건의 수:** `{len(clean_db.get('suggestions', []))}건`\n"
+                    f"• **유저 프로필 수:** `{len(core.as_dict(clean_db.get('user_profiles')))}개`\n"
+                    f"• **D-Day 일정 수:** `{len(core.as_dict(clean_db.get('ddays')))}개`\n"
+                    f"• **가챠 보유 유저:** `{sum(len(core.as_dict(u)) for u in core.as_dict(clean_db.get('gacha_users')).values())}명`\n"
+                    f"• **접수된 건의 수:** `{len(clean_db.get('suggestions') or [])}건`\n"
                     f"• **백업 파일 크기:** `{len(json_bytes) / 1024:.2f} KB`"
                 ),
                 color=discord.Color.green(),
@@ -2031,4 +2036,3 @@ class SuggestionTypeSelectView(core.SafeView):
 
 async def setup(bot):
     await bot.add_cog(StatsCog(bot))
-

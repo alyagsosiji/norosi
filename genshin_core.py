@@ -584,6 +584,10 @@ def _parse_genshin_items(
     weapons: list[dict] = []
     artifacts: list[dict] = []
 
+    avatar_items = core.coerce_dict_like(avatar_items)
+    weapon_items = core.coerce_dict_like(weapon_items)
+    reliquary_items = core.coerce_dict_like(reliquary_items) if reliquary_items is not None else None
+
     for cid, raw in avatar_items.items():
         if not isinstance(raw, dict):
             continue
@@ -850,9 +854,11 @@ def hydrate_genshin_kr_cache_from_disk() -> bool:
     try:
         with open(GENSHIN_CACHE_FILE, "r", encoding="utf-8") as f:
             payload = json.load(f)
-        chars = payload.get("chars") or []
-        weapons = payload.get("weapons") or []
-        artifacts = payload.get("artifacts") or []
+        if not isinstance(payload, dict):
+            return False
+        chars = [c for c in (payload.get("chars") or []) if isinstance(c, dict)] if isinstance(payload.get("chars"), list) else []
+        weapons = [w for w in (payload.get("weapons") or []) if isinstance(w, dict)] if isinstance(payload.get("weapons"), list) else []
+        artifacts = [a for a in (payload.get("artifacts") or []) if isinstance(a, dict)] if isinstance(payload.get("artifacts"), list) else []
         fetched_at = float(payload.get("fetched_at") or 0.0)
         if chars and weapons:
             if not artifacts:
@@ -880,9 +886,12 @@ def load_genshin_kr_db(force_refresh: bool = False) -> tuple[list[dict], list[di
             r_wp = requests.get("https://gi.yatta.moe/api/v2/kr/weapon", timeout=15)
             r_rl = requests.get("https://gi.yatta.moe/api/v2/kr/reliquary", timeout=15)
             if r_av.status_code == 200 and r_wp.status_code == 200:
-                av_data = (r_av.json().get("data") or {}).get("items") or {}
-                wp_data = (r_wp.json().get("data") or {}).get("items") or {}
-                rl_data = ((r_rl.json().get("data") or {}).get("items") or {}) if r_rl.status_code == 200 else {}
+                av_body = r_av.json()
+                wp_body = r_wp.json()
+                rl_body = r_rl.json() if r_rl.status_code == 200 else {}
+                av_data = core.coerce_dict_like(core.as_dict(core.as_dict(av_body).get("data")).get("items"))
+                wp_data = core.coerce_dict_like(core.as_dict(core.as_dict(wp_body).get("data")).get("items"))
+                rl_data = core.coerce_dict_like(core.as_dict(core.as_dict(rl_body).get("data")).get("items"))
                 chars, weapons, artifacts = _parse_genshin_items(av_data, wp_data, rl_data)
                 if chars and weapons:
                     if not artifacts:
@@ -932,10 +941,12 @@ def fetch_genshin_detail_kr(item_id: str, kind: str = "char") -> dict:
     try:
         res = requests.get(f"https://gi.yatta.moe/api/v2/kr/{endpoint}/{item_id}", timeout=10)
         if res.status_code == 200:
-            d = res.json().get("data") or {}
-            if kind == "char":
-                fetter = d.get("fetter") or {}
-                cv_kr = ((fetter.get("cv") or {}).get("KR") or "").strip() if isinstance(fetter.get("cv"), dict) else ""
+            res_body = res.json()
+            d = core.as_dict(core.as_dict(res_body).get("data"))
+            if d and kind == "char":
+                fetter = core.as_dict(d.get("fetter"))
+                cv_map = core.as_dict(fetter.get("cv"))
+                cv_kr = (cv_map.get("KR") or "").strip()
                 detail_info = {
                     "title": _clean_text(fetter.get("title")),
                     "detail": _clean_text(fetter.get("detail")),
@@ -943,7 +954,7 @@ def fetch_genshin_detail_kr(item_id: str, kind: str = "char") -> dict:
                     "native": _clean_text(fetter.get("native")),
                     "cv_kr": _clean_text(cv_kr),
                 }
-            else:
+            elif d:
                 detail_info = {
                     "description": _clean_text(d.get("description")),
                 }
@@ -1261,14 +1272,14 @@ def build_genshin_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1"
 def ensure_genshin_user(data: dict, guild_id: int | str, user_id: int | str) -> dict:
     g_key = str(guild_id or 0)
     u_key = str(user_id)
-    root = data.setdefault("genshin_users", {})
-    g_map = root.setdefault(g_key, {})
+    g_map = core.ensure_dict_path(data, "genshin_users", g_key)
     u_data = g_map.get(u_key)
     if not isinstance(u_data, dict):
         u_data = {}
         g_map[u_key] = u_data
 
-    u_data.setdefault("items", {})
+    if not isinstance(u_data.get("items"), dict):
+        u_data["items"] = core.coerce_dict_like(u_data.get("items"))
     u_data.setdefault("total_pulls", 0)
     u_data.setdefault("pity_char", 0)
     u_data.setdefault("guaranteed_char", False)
@@ -1291,11 +1302,14 @@ def ensure_genshin_user(data: dict, guild_id: int | str, user_id: int | str) -> 
     u_data.setdefault("intertwined_fate", 0)
     u_data.setdefault("acquaint_fate", 0)
     u_data.setdefault("hero_wit", 0)
-    u_data.setdefault("shop_monthly", {})
-    u_data.setdefault("party", [])
+    if not isinstance(u_data.get("shop_monthly"), dict):
+        u_data["shop_monthly"] = core.coerce_dict_like(u_data.get("shop_monthly"))
+    if not isinstance(u_data.get("party"), list):
+        u_data["party"] = []
     u_data.setdefault("profile_char", None)
     u_data.setdefault("profile_note", "")
-    u_data.setdefault("history", [])
+    if not isinstance(u_data.get("history"), list):
+        u_data["history"] = []
 
     # 성유물 마스터 필드 및 등급 라벨 보정 (캐릭터 5★/4★, 무기 5★~1★, 성유물 5★~3★ 모두 보존)
     items_map = u_data.get("items")
@@ -1758,12 +1772,14 @@ def _roll_single_genshin(
 
 def _apply_gi_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[int, int]:
     """유저 원신 보관함에 캐릭터/무기/성유물을 추가하고 운명의 자리/재련/성유물(+4~+20) 및 스타라이트/스타더스트 획득량을 계산합니다."""
-    items_map = u_data.setdefault("items", {})
+    items_map = core.ensure_dict_path(u_data, "items")
     i_key = item["item_key"]
     rank = int(item.get("rank", 3))
     kind = item.get("kind", "weapon")
 
     existing = items_map.get(i_key)
+    if not isinstance(existing, dict):
+        existing = None
     gained_glitter = 0
     gained_dust = 15 if rank <= 3 else (25 if rank == 5 else 15)
 
@@ -1907,11 +1923,13 @@ def execute_genshin_pull(guild_id: int, user_id: int, banner_key: str = "char1",
     rng = random.SystemRandom()
     if practice:
         sim_state = copy.deepcopy(u_data)
-        owned_items = u_data.get("items", {})
+        owned_items = core.as_dict(u_data.get("items"))
         drawn = []
         for _ in range(count):
             it = _roll_single_genshin(sim_state, banner_key, eff_pickup, std_5_chars, std_4_chars, all_std_4_incl, std_5_wps, gacha_4_wps_std, std_3_wps, rng)
             prev = owned_items.get(it["item_key"])
+            if not isinstance(prev, dict):
+                prev = None
             it["is_new"] = prev is None
             if it["kind"] == "char":
                 it["new_constellation"] = min(6, int(prev.get("constellation", 0)) + 1) if prev else 0
@@ -1976,13 +1994,13 @@ def execute_genshin_pull(guild_id: int, user_id: int, banner_key: str = "char1",
 
 
 def _record_genshin_hof(data: dict, guild_id: int, user_id: int, drawn: list[dict], banner_key: str, now_iso: str):
-    hof_root = data.setdefault("genshin_hall_of_fame", {})
-    g_hof = hof_root.setdefault(str(guild_id or 0), {})
-    if not isinstance(g_hof, dict):
-        g_hof = {}
-        hof_root[str(guild_id or 0)] = g_hof
-    top_records = g_hof.setdefault("top_records", [])
-    recent_5 = g_hof.setdefault("recent_5_logs", [])
+    g_hof = core.ensure_dict_path(data, "genshin_hall_of_fame", str(guild_id or 0))
+    if not isinstance(g_hof.get("top_records"), list):
+        g_hof["top_records"] = []
+    if not isinstance(g_hof.get("recent_5_logs"), list):
+        g_hof["recent_5_logs"] = []
+    top_records = g_hof["top_records"]
+    recent_5 = g_hof["recent_5_logs"]
     b_short = GENSHIN_BANNER_CONFIGS[banner_key]["short_name"]
 
     r5_items = [it for it in drawn if it.get("rank") == 5]
@@ -2021,8 +2039,8 @@ def _record_genshin_hof(data: dict, guild_id: int, user_id: int, drawn: list[dic
 def toggle_genshin_item_lock(guild_id: int, user_id: int, item_key: str) -> tuple[bool, bool, dict | None]:
     data = core.load_data()
     u_data = ensure_genshin_user(data, guild_id, user_id)
-    target = u_data.get("items", {}).get(item_key)
-    if not target:
+    target = core.as_dict(u_data.get("items")).get(item_key)
+    if not isinstance(target, dict):
         return False, False, None
     new_val = not bool(target.get("locked", False))
     target["locked"] = new_val
@@ -2086,7 +2104,7 @@ def purchase_genshin_shop_item(guild_id: int, user_id: int, offer_id: str) -> tu
     u_data = ensure_genshin_user(data, guild_id, user_id)
     cat = get_genshin_shop_catalog()
     m_key = cat["month_key"]
-    monthly = u_data.setdefault("shop_monthly", {})
+    monthly = core.ensure_dict_path(u_data, "shop_monthly")
     if monthly.get("month_key") != m_key:
         monthly.clear()
         monthly["month_key"] = m_key
@@ -2102,7 +2120,10 @@ def purchase_genshin_shop_item(guild_id: int, user_id: int, offer_id: str) -> tu
         c_obj = next((c for c in cat["chars"] if c["id"] == cid), None)
         if not c_obj:
             return False, "이번 달 상점 로테이션 캐릭터가 아닙니다.", u_data
-        bought = monthly.setdefault("chars_bought", [])
+        bought = monthly.get("chars_bought")
+        if not isinstance(bought, list):
+            bought = []
+            monthly["chars_bought"] = bought
         if cid in bought:
             return False, f"이미 이번 달 **{c_obj['name']}** 교환 한도(월 1회)를 완료했습니다.", u_data
         if u_data["starglitter"] < 34:
@@ -2180,8 +2201,8 @@ def levelup_genshin_char(guild_id: int, user_id: int, item_key: str) -> tuple[bo
     """영웅의 경험 ×2권을 소모해 보유 캐릭터 레벨을 Lv.1 -> Lv.90까지 성장시킵니다."""
     data = core.load_data()
     u_data = ensure_genshin_user(data, guild_id, user_id)
-    c = u_data.get("items", {}).get(item_key)
-    if not c or c.get("kind") != "char":
+    c = core.as_dict(u_data.get("items")).get(item_key)
+    if not isinstance(c, dict) or c.get("kind") != "char":
         return False, "보유 중인 캐릭터를 찾을 수 없습니다.", u_data
     cur_lv = int(c.get("level", 1))
     if cur_lv >= 90:
@@ -2200,8 +2221,8 @@ def levelup_genshin_artifact(guild_id: int, user_id: int, item_key: str) -> tupl
     """주인 없는 스타더스트 ×20을 소모해 보유 성유물을 +4강씩 최대 +20강까지 강화합니다."""
     data = core.load_data()
     u_data = ensure_genshin_user(data, guild_id, user_id)
-    art = u_data.get("items", {}).get(item_key)
-    if not art or art.get("kind") != "artifact":
+    art = core.as_dict(u_data.get("items")).get(item_key)
+    if not isinstance(art, dict) or art.get("kind") != "artifact":
         return False, "보유 중인 성유물을 찾을 수 없습니다.", u_data
     cur_lv = int(art.get("level", 4))
     if cur_lv >= 20:
@@ -2280,7 +2301,7 @@ def get_genshin_pokedex_stats(guild_id: int, user_id: int) -> dict:
     artifacts = GENSHIN_ARTIFACTS
     data = core.load_data()
     u_data = ensure_genshin_user(data, guild_id, user_id)
-    owned_map = u_data.get("items", {})
+    owned_map = core.as_dict(u_data.get("items"))
 
     all_master = chars + weapons + artifacts
     wishable_master = [it for it in all_master if it.get("wishable", True)]
@@ -2289,7 +2310,7 @@ def get_genshin_pokedex_stats(guild_id: int, user_id: int) -> dict:
     unowned_all = []
     for it in all_master:
         ik = it["item_key"]
-        if ik in owned_map:
+        if ik in owned_map and isinstance(owned_map[ik], dict):
             merged = {**it, **owned_map[ik]}
             owned_all.append(merged)
         else:
@@ -2343,12 +2364,14 @@ def get_genshin_pokedex_stats(guild_id: int, user_id: int) -> dict:
 
 
 def get_genshin_hall_of_fame(data: dict, guild_id: int) -> dict:
-    hof = data.get("genshin_hall_of_fame", {}).get(str(guild_id or 0), {})
-    if not isinstance(hof, dict):
+    hof = core.safe_get_dict(data, "genshin_hall_of_fame", str(guild_id or 0))
+    if not hof:
         return {"top_records": [], "recent_5_logs": []}
+    raw_top = hof.get("top_records")
+    raw_logs = hof.get("recent_5_logs")
     return {
-        "top_records": list(hof.get("top_records") or []),
-        "recent_5_logs": list(hof.get("recent_5_logs") or []),
+        "top_records": [r for r in (raw_top if isinstance(raw_top, list) else []) if isinstance(r, dict)],
+        "recent_5_logs": [r for r in (raw_logs if isinstance(raw_logs, list) else []) if isinstance(r, dict)],
     }
 
 
@@ -2435,7 +2458,7 @@ async def genshin_owned_char_autocomplete(interaction, current: str):
     data = core.get_cached_data()
     g_key = str(interaction.guild_id or 0)
     u_key = str(interaction.user.id)
-    items = data.get("genshin_users", {}).get(g_key, {}).get(u_key, {}).get("items", {})
+    items = core.safe_get_dict(data, "genshin_users", g_key, u_key, "items")
     owned_chars = [v for v in items.values() if isinstance(v, dict) and v.get("kind") == "char"]
     owned_chars.sort(key=lambda c: (-c.get("rank", 4), -c.get("constellation", 0), c.get("name", "")))
     q = (current or "").strip().lower()

@@ -87,7 +87,10 @@ class MusicRecommendView(core.SafeView):
 
         # 프로필 무결성 보장 (attendance, crystals 등이 초기화되지 않도록 보호)
         profile = core.ensure_user_profile(data, u_key, interaction.user.display_name)
-        liked_list = profile.setdefault("liked_music", [])
+        liked_list = profile.get("liked_music")
+        if not isinstance(liked_list, list):
+            liked_list = []
+            profile["liked_music"] = liked_list
 
         found_idx = next((i for i, t in enumerate(liked_list) if t.get("url") == self.track_info.get("url")), None)
         if found_idx is not None:
@@ -149,7 +152,8 @@ class MusicRecommendView(core.SafeView):
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
         u_key = str(interaction.user.id)
-        liked_list = data.get("user_profiles", {}).get(u_key, {}).get("liked_music", [])
+        liked_raw = core.safe_get_dict(data, "user_profiles", u_key).get("liked_music")
+        liked_list = [m for m in liked_raw if isinstance(m, dict)] if isinstance(liked_raw, list) else []
         view = MusicLibraryPaginationView(f"❤️ {interaction.user.display_name}님의 나만의 음악 보관함", liked_list, items_per_page=5)
         await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
 
@@ -3388,7 +3392,8 @@ class PlaylistStudioView(core.SafeView):
         self.message = interaction.message
         data = await asyncio.to_thread(core.load_data)
         self.data = data
-        liked = data.get("user_profiles", {}).get(str(self.owner.id), {}).get("liked_music", [])
+        liked_raw = core.safe_get_dict(data, "user_profiles", str(self.owner.id)).get("liked_music")
+        liked = [m for m in liked_raw if isinstance(m, dict)] if isinstance(liked_raw, list) else []
         if not liked:
             await core.safe_send_response(
                 interaction,
@@ -4228,7 +4233,7 @@ class MusicCog(commands.Cog):
             "artist": 아티스트,
             "playlist_url": 플레이리스트링크
         }
-        guild_prefs = data.setdefault("guild_music_prefs", {})
+        guild_prefs = core.ensure_dict_path(data, "guild_music_prefs")
         guild_prefs[g_id] = pref_obj
         data["music_prefs"] = pref_obj
         await asyncio.to_thread(core.save_data, data)
@@ -4254,7 +4259,7 @@ class MusicCog(commands.Cog):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
         g_id = str(interaction.guild_id or 0)
-        prefs = data.get("guild_music_prefs", {}).get(g_id) or data.get("music_prefs", core.DEFAULT_CONFIG["music_prefs"])
+        prefs = core.as_dict(core.safe_get_dict(data, "guild_music_prefs").get(g_id)) or core.as_dict(data.get("music_prefs")) or core.DEFAULT_CONFIG["music_prefs"]
         track_info, error = await core.get_recommended_music(prefs)
 
         if error or not track_info:
@@ -4269,7 +4274,8 @@ class MusicCog(commands.Cog):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
         u_key = str(interaction.user.id)
-        liked_list = data.get("user_profiles", {}).get(u_key, {}).get("liked_music", [])
+        liked_raw = core.safe_get_dict(data, "user_profiles", u_key).get("liked_music")
+        liked_list = [m for m in liked_raw if isinstance(m, dict)] if isinstance(liked_raw, list) else []
 
         view = MusicLibraryPaginationView(f"❤️ {interaction.user.display_name}님의 나만의 음악 보관함", liked_list, items_per_page=5)
         await interaction.followup.send(embed=view.build_embed(), view=view)

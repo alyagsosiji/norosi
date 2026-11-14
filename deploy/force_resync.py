@@ -76,11 +76,12 @@ class ForceSyncBot(commands.Bot):
         return await self.is_owner(user)
 
     async def setup_hook(self):
-        print("📦 [1/3] 11대 Cogs 모듈 전체 로드 중...", flush=True)
+        print("📦 [1/3] 12대 Cogs 모듈 전체 로드 중...", flush=True)
         for ext in (
             "cogs.gacha",
             "cogs.genshin",
             "cogs.hsr",
+            "cogs.fishing",
             "cogs.music",
             "cogs.dday",
             "cogs.logger",

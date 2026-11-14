@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import datetime
 import io
 from typing import Optional
@@ -570,7 +571,7 @@ class HSRInventoryView(core.SafeView):
         data = core.load_data()
         uid = self.user.id if self.user else 0
         u_data = hsr_core.ensure_hsr_user(data, self.guild_id, uid)
-        items = list(u_data.get("items", {}).values())
+        items = [v for v in core.as_dict(u_data.get("items")).values() if isinstance(v, dict) and v.get("kind") and v.get("name")]
         if self.filter_mode == "char":
             items = [it for it in items if it.get("kind") == "char"]
         elif self.filter_mode == "lc":
@@ -613,16 +614,17 @@ class HSRInventoryView(core.SafeView):
         if sl:
             d_opts = []
             for it in sl:
-                if it["kind"] == "char":
+                ikind = it.get("kind")
+                if ikind == "char":
                     tag = f"E{it.get('eidolon', 0)}"
-                elif it["kind"] == "relic":
+                elif ikind == "relic":
                     tag = f"+{it.get('level', 3)}"
                 else:
                     tag = f"S{it.get('superimposition', 1)}"
                 lk = "🔒 " if it.get("locked") else ""
                 d_opts.append(discord.SelectOption(
-                    label=f"{lk}{it['rarity_label']} {it['name']} ({tag})"[:95],
-                    value=it["item_key"],
+                    label=f"{lk}{it.get('rarity_label', '⭐')} {it.get('name', '알 수 없음')} ({tag})"[:95],
+                    value=str(it.get("item_key") or it.get("id") or it.get("name") or "unknown")[:100],
                     description=f"Lv.{it.get('level', 1)} · 누적 {it.get('count', 1)}회 · 상세 일러스트/잠금/레벨업"[:95],
                 ))
             sel_it = discord.ui.Select(placeholder="🖼️ 상세 일러스트 · 🔒잠금 · ⬆️레벨업 선택...", options=d_opts, row=1)
@@ -688,19 +690,22 @@ class HSRInventoryView(core.SafeView):
         lines = []
         for idx, it in enumerate(sl, start=self.page * self._per_page + 1):
             lk = "🔒" if it.get("locked") else "🔓"
-            if it["kind"] == "char":
+            ikind = it.get("kind")
+            rlabel = it.get("rarity_label", "⭐")
+            iname = it.get("name", "알 수 없음")
+            if ikind == "char":
                 lines.append(
-                    f"**{idx:02d}.** {lk} **{it['rarity_label']} {it['name']}** `E{it.get('eidolon', 0)}` · `Lv.{it.get('level', 1)}`\n"
+                    f"**{idx:02d}.** {lk} **{rlabel} {iname}** `E{it.get('eidolon', 0)}` · `Lv.{it.get('level', 1)}`\n"
                     f"└ {it.get('element_emoji', '')}{it.get('element_name', '')} · {it.get('path_emoji', '')}{it.get('path_name', '')} · 누적 `{it.get('count', 1)}회`"
                 )
-            elif it["kind"] == "relic":
+            elif ikind == "relic":
                 lines.append(
-                    f"**{idx:02d}.** {lk} **{it['rarity_label']} {it['name']}** `+{it.get('level', 3)}` · 누적 `{it.get('count', 1)}회`\n"
+                    f"**{idx:02d}.** {lk} **{rlabel} {iname}** `+{it.get('level', 3)}` · 누적 `{it.get('count', 1)}회`\n"
                     f"└ {it.get('slot_name', '🏺유물')} · 주옵: `{it.get('main_stat', '-')}` · {it.get('bonus_2p', '')[:36]}"
                 )
             else:
                 lines.append(
-                    f"**{idx:02d}.** {lk} **{it['rarity_label']} {it['name']}** `S{it.get('superimposition', 1)}` · 누적 `{it.get('count', 1)}회`\n"
+                    f"**{idx:02d}.** {lk} **{rlabel} {iname}** `S{it.get('superimposition', 1)}` · 누적 `{it.get('count', 1)}회`\n"
                     f"└ {it.get('path_emoji', '')}{it.get('path_name', '')} 광추 · `{it.get('pool_type', '')}`"
                 )
         body = "\n".join(lines) if lines else "*(해당 조건에 보유한 캐릭터·광추·유물이 없습니다)*"
@@ -729,7 +734,8 @@ class HSRItemDetailView(core.SafeView):
         self.clear_items()
         data = core.load_data()
         u_data = hsr_core.ensure_hsr_user(data, self.guild_id, self.user.id if self.user else 0)
-        it = u_data.get("items", {}).get(self.item_key)
+        raw_it = core.as_dict(u_data.get("items")).get(self.item_key)
+        it = raw_it if isinstance(raw_it, dict) else None
         locked = bool(it.get("locked")) if it else False
 
         b_lk = discord.ui.Button(label="🔓 잠금 해제" if locked else "🔒 잠금 설정", style=discord.ButtonStyle.secondary if locked else discord.ButtonStyle.primary, row=0)
@@ -760,7 +766,8 @@ class HSRItemDetailView(core.SafeView):
         hsr_core.load_hsr_kr_db()
         data = core.load_data()
         u_data = hsr_core.ensure_hsr_user(data, self.guild_id, self.user.id if self.user else 0)
-        owned = u_data.get("items", {}).get(self.item_key)
+        raw_owned = core.as_dict(u_data.get("items")).get(self.item_key)
+        owned = raw_owned if isinstance(raw_owned, dict) else None
         master = hsr_core.HSR_ALL_ITEMS.get(self.item_key) or owned or {"id": "", "kind": "char", "name": "정보 없음", "rank": 4, "rarity_label": "★★★★"}
         it = {**master, **(owned or {})}
         det = await asyncio.to_thread(hsr_core.fetch_hsr_detail_kr, it["id"], it["kind"])
@@ -1085,7 +1092,7 @@ class HSRShopView(core.SafeView):
         cat = hsr_core.get_hsr_shop_catalog()
         data = core.load_data()
         u_data = hsr_core.ensure_hsr_user(data, self.guild_id, self.user.id if self.user else 0)
-        monthly = u_data.get("shop_monthly", {})
+        monthly = core.as_dict(u_data.get("shop_monthly"))
         if monthly.get("month_key") != cat["month_key"]:
             es = et = 0
         else:
@@ -1122,7 +1129,7 @@ class HSRPartyView(core.SafeView):
         self.clear_items()
         data = core.load_data()
         u_data = hsr_core.ensure_hsr_user(data, self.guild_id, self.user.id if self.user else 0)
-        owned_chars = [v for v in u_data.get("items", {}).values() if isinstance(v, dict) and v.get("kind") == "char"]
+        owned_chars = [v for v in core.as_dict(u_data.get("items")).values() if isinstance(v, dict) and v.get("kind") == "char"]
         owned_chars.sort(key=lambda c: (-int(c.get("rank", 4)), -int(c.get("level", 1)), -int(c.get("eidolon", 0)), c.get("name", "")))
 
         if owned_chars:
@@ -1178,7 +1185,7 @@ class HSRPartyView(core.SafeView):
         gid = self.guild_id or interaction.guild_id or 0
         data = core.load_data()
         u_data = hsr_core.ensure_hsr_user(data, gid, interaction.user.id)
-        chars = [v for v in u_data.get("items", {}).values() if isinstance(v, dict) and v.get("kind") == "char"]
+        chars = [v for v in core.as_dict(u_data.get("items")).values() if isinstance(v, dict) and v.get("kind") == "char"]
         chars.sort(key=lambda c: -hsr_core.compute_hsr_char_power(c))
         chosen = []
         for tag in ("dps", "sup", "sus"):
@@ -1209,8 +1216,9 @@ class HSRPartyView(core.SafeView):
     def build_embed(self) -> discord.Embed:
         data = core.load_data()
         u_data = hsr_core.ensure_hsr_user(data, self.guild_id, self.user.id if self.user else 0)
-        items = u_data.get("items", {})
-        party_keys = [k for k in (u_data.get("party") or []) if k in items][:4]
+        items = core.as_dict(u_data.get("items"))
+        raw_party = u_data.get("party") if isinstance(u_data.get("party"), list) else []
+        party_keys = [k for k in raw_party if isinstance(items.get(k), dict)][:4]
         party_objs = [items[k] for k in party_keys]
         ana = hsr_core.analyze_hsr_party(party_objs)
 
@@ -1264,13 +1272,15 @@ class HSRRankingView(core.SafeView):
     def build_embed(self, guild: discord.Guild | None = None) -> discord.Embed:
         data = core.load_data()
         g_key = str(self.guild_id or 0)
-        g_users = data.get("hsr_users", {}).get(g_key, {})
+        g_users = core.safe_get_dict(data, "hsr_users", g_key)
 
         if self.mode == "hof":
             hof = hsr_core.get_hsr_hall_of_fame(data, self.guild_id)
             recs = hof["top_records"]
             lines = []
             for idx, r in enumerate(recs[:10], start=1):
+                if not isinstance(r, dict):
+                    continue
                 uid_i = int(r["uid"])
                 mem = guild.get_member(uid_i) if guild else None
                 uname = mem.display_name if mem else f"개척자({uid_i})"
@@ -1283,6 +1293,8 @@ class HSRRankingView(core.SafeView):
             logs = hof["recent_5_logs"]
             lines = []
             for r in logs[:15]:
+                if not isinstance(r, dict):
+                    continue
                 uid_i = int(r["uid"])
                 mem = guild.get_member(uid_i) if guild else None
                 uname = mem.display_name if mem else f"개척자({uid_i})"
@@ -1295,11 +1307,11 @@ class HSRRankingView(core.SafeView):
         for uid_s, u_data in g_users.items():
             if not isinstance(u_data, dict):
                 continue
-            items = u_data.get("items", {})
+            items = core.as_dict(u_data.get("items"))
             if not items and not u_data.get("total_pulls"):
                 continue
-            r5_cnt = sum(1 for v in items.values() if v.get("rank") == 5)
-            e6_cnt = sum(1 for v in items.values() if v.get("kind") == "char" and int(v.get("eidolon", 0)) >= 6)
+            r5_cnt = sum(1 for v in items.values() if isinstance(v, dict) and v.get("rank") == 5)
+            e6_cnt = sum(1 for v in items.values() if isinstance(v, dict) and v.get("kind") == "char" and int(v.get("eidolon", 0)) >= 6)
             uniq_cnt = len(items)
             pulls = int(u_data.get("total_pulls", 0))
             rows.append((r5_cnt, e6_cnt, uniq_cnt, pulls, uid_s))
@@ -1343,14 +1355,29 @@ class HSRRateView(core.SafeView):
         cfg = hsr_core.HSR_BANNER_CONFIGS.get(self.banner_key, hsr_core.HSR_BANNER_CONFIGS["char1"])
         c4_txt = ", ".join(c["name"] for c in eff["char_4"]) or "-"
         l4_txt = ", ".join(l["name"] for l in eff["lc_4"]) or "-"
-        rot_win = eff.get("time_window") or "실시간"
+        rot_win = eff.get("time_window") or ""
+        mode_line_char = (
+            f"• **시각별 로테이션:** `⏰ {rot_win}` ({eff.get('banner_name', '')})"
+            if rot_win else
+            f"• **고정/커스텀 픽업:** `🎯 {eff.get('banner_name', '')}`"
+        )
+        mode_line_lc = (
+            f"• **시각별 전용 광추 연동:** `⏰ {rot_win}`"
+            if rot_win else
+            f"• **고정/커스텀 광추 픽업:** `🎯 {eff.get('banner_name', '')}`"
+        )
+        mode_line_rel = (
+            f"• **시각별 터널/장신구 로테이션:** `⏰ {rot_win}`"
+            if rot_win else
+            f"• **고정/커스텀 유물 픽업:** `🎯 {eff.get('banner_name', '')}`"
+        )
 
         if self.banner_key in ("char1", "char2"):
             feat = eff["char1"] if self.banner_key == "char1" else eff["char2"]
             feat_name = feat["name"] if feat else "-"
             feat_meta = f"{feat['element_emoji']}{feat['element_name']} · {feat['path_emoji']}{feat['path_name']}" if feat else "-"
             body = (
-                f"• **시각별 로테이션:** `⏰ {rot_win}` ({eff.get('banner_name', '')})\n"
+                f"{mode_line_char}\n"
                 f"• **픽업 ★★★★★ 캐릭터:** **`{feat_name}`** ({feat_meta})\n"
                 f"• **픽업 ★★★★ 캐릭터 (50% 확률업):** `{c4_txt}`\n"
                 f"• **공식 DB 구성:** ★5/★4 캐릭터 · ★4 상시 광추 · ★3 광추 25종 (10회 내 ★4 이상 1회 확정)\n"
@@ -1363,7 +1390,7 @@ class HSRRateView(core.SafeView):
             l1_txt = f"{l1['name']} ({l1['path_emoji']}{l1['path_name']})" if l1 else "-"
             l2_txt = f"{l2['name']} ({l2['path_emoji']}{l2['path_name']})" if l2 else "-"
             body = (
-                f"• **시각별 전용 광추 연동:** `⏰ {rot_win}`\n"
+                f"{mode_line_lc}\n"
                 f"• **픽업 ★★★★★ 광추 ①:** **`{l1_txt}`**\n"
                 f"• **픽업 ★★★★★ 광추 ②:** **`{l2_txt}`**\n"
                 f"• **픽업 ★★★★ 광추 (75% 확률업):** `{l4_txt}`\n"
@@ -1374,7 +1401,7 @@ class HSRRateView(core.SafeView):
         elif self.banner_key == "relic":
             r1, r2 = eff.get("relic_1"), eff.get("relic_2")
             body = (
-                f"• **시각별 터널/장신구 로테이션:** `⏰ {rot_win}`\n"
+                f"{mode_line_rel}\n"
                 f"• **픽업 ★★★★★ 유물 세트 ①:** **`{r1['name'] if r1 else '-'}`** ({r1.get('bonus_2p', '-') if r1 else '-'})\n"
                 f"• **픽업 ★★★★★ 장신구 세트 ②:** **`{r2['name'] if r2 else '-'}`** ({r2.get('bonus_2p', '-') if r2 else '-'})\n"
                 f"• **공식 DB 구성:** ★★★★★ · ★★★★ · ★★★ 유물·차원 장신구 64세트 (6부위 + 주옵션·부옵션 감정)\n"
@@ -1406,8 +1433,8 @@ class HSRGuildResetConfirmView(core.SafeView):
             return await core.safe_send_response(interaction, "❌ 요청한 관리자만 확정할 수 있습니다.", ephemeral=True)
         data = core.load_data()
         g_key = str(self.guild_id or interaction.guild_id or 0)
-        data.get("hsr_users", {}).pop(g_key, None)
-        data.get("hsr_hall_of_fame", {}).pop(g_key, None)
+        core.ensure_dict_path(data, "hsr_users").pop(g_key, None)
+        core.ensure_dict_path(data, "hsr_hall_of_fame").pop(g_key, None)
         core.save_data(data)
         await core.safe_edit_response(interaction, content="🧹 이 서버의 모든 스타레일 워프 데이터가 깔끔하게 초기화되었습니다.", embed=None, view=None)
 
@@ -1545,8 +1572,8 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
                     dedup.append(k)
             data = core.load_data()
             u_data = hsr_core.ensure_hsr_user(data, interaction.guild_id or 0, interaction.user.id)
-            u_items = u_data.get("items", {})
-            u_data["party"] = [k for k in dedup if k in u_items and u_items[k].get("kind") == "char"][:4]
+            u_items = core.as_dict(u_data.get("items"))
+            u_data["party"] = [k for k in dedup if isinstance(u_items.get(k), dict) and u_items[k].get("kind") == "char"][:4]
             core.save_data(data)
         v = HSRPartyView(interaction.guild_id or 0, interaction.user)
         await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
@@ -1568,8 +1595,8 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
         u_data = hsr_core.ensure_hsr_user(data, interaction.guild_id or 0, target.id)
         if target.id == interaction.user.id:
             changed = False
-            u_items = u_data.get("items", {})
-            if 대표캐릭터 and 대표캐릭터 in u_items and u_items[대표캐릭터].get("kind") == "char":
+            u_items = core.as_dict(u_data.get("items"))
+            if 대표캐릭터 and isinstance(u_items.get(대표캐릭터), dict) and u_items[대표캐릭터].get("kind") == "char":
                 u_data["profile_char"] = 대표캐릭터
                 changed = True
             if 상태문구 is not None:
@@ -1578,13 +1605,14 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
             if changed:
                 core.save_data(data)
 
-        items = u_data.get("items", {})
-        chars = [v for v in items.values() if v.get("kind") == "char"]
+        items = core.as_dict(u_data.get("items"))
+        chars = [v for v in items.values() if isinstance(v, dict) and v.get("kind") == "char"]
         chars.sort(key=lambda c: (-int(c.get("rank", 4)), -int(c.get("eidolon", 0)), -int(c.get("level", 1))))
         p_key = u_data.get("profile_char")
-        rep_char = items.get(p_key) if p_key and p_key in items and items[p_key].get("kind") == "char" else (chars[0] if chars else None)
+        rep_char = items.get(p_key) if p_key and isinstance(items.get(p_key), dict) and items[p_key].get("kind") == "char" else (chars[0] if chars else None)
 
-        party_objs = [items[k] for k in (u_data.get("party") or []) if k in items][:4]
+        raw_party = u_data.get("party") if isinstance(u_data.get("party"), list) else []
+        party_objs = [items[k] for k in raw_party if isinstance(items.get(k), dict)][:4]
         party_ana = hsr_core.analyze_hsr_party(party_objs)
         top3 = ", ".join(f"{c['name']}(E{c.get('eidolon', 0)})" for c in chars[:3]) or "없음"
         note_str = u_data.get("profile_note") or "은하의 끝까지 개척!"
@@ -1621,7 +1649,7 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
     @app_commands.command(name="픽업설정", description="🔒 [봇 주인 전용] 스타레일 이벤트 워프 픽업(5성/4성/광추/유물/시각 로테이션)을 변경합니다")
     @app_commands.choices(프리셋=[
         app_commands.Choice(name="⏰ KST 시각 연동 2시간 자동 로테이션 (권장)", value="time_rotation"),
-        app_commands.Choice(name="✨ 최신 개척 캐릭터 (펄 / 스파키)", value="latest"),
+        app_commands.Choice(name="✨ 최신 개척 캐릭터 (에이언즈★아하 / 펄)", value="latest"),
         app_commands.Choice(name="🎭 환락의 축복 스테이지 (어벤츄린•웨이브 / 로빈•서머레토)", value="elation_stage"),
         app_commands.Choice(name="👑 Fate/stay night 콜라보 (세이버 / 길가메시)", value="fate_collab"),
         app_commands.Choice(name="☀️ 앰포리어스 (파이논 / 카스토리스)", value="amphoreus_dawn"),
@@ -1672,27 +1700,45 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
             by_l = {l["id"]: l for l in lcs}
             by_r = {r["id"]: r for r in hsr_core.HSR_RELICS}
             data = core.load_data()
-            cfg = dict(data.get("hsr_pickup") or {})
-            if 프리셋 and 프리셋 not in ("reset", "time_rotation"):
-                pr = hsr_core.HSR_BANNER_PRESETS.get(프리셋, {})
-                cfg.update({k: pr[k] for k in ("char1", "char2", "char_4_ids", "lc_1", "lc_2", "relic_1", "relic_2", "banner_name") if k in pr})
+            if 프리셋 in ("reset", "time_rotation"):
+                cfg = copy.deepcopy(core.DEFAULT_CONFIG["hsr_pickup"])
+                cfg["mode"] = "time_rotation"
+            else:
+                cfg = dict(core.as_dict(data.get("hsr_pickup")))
+                if 프리셋:
+                    pr = hsr_core.HSR_BANNER_PRESETS.get(프리셋, {})
+                    cfg.update({k: pr[k] for k in ("mode", "char1", "char2", "char_4_ids", "lc_1", "lc_2", "relic_1", "relic_2", "banner_name") if k in pr})
+            has_custom_override = False
             if 캐릭터1 and 캐릭터1 in by_c:
                 cfg["char1"] = 캐릭터1
+                has_custom_override = True
+                if not 광추1:
+                    cfg["lc_1"] = hsr_core.HSR_SIGNATURE_LCS.get(캐릭터1)
             if 캐릭터2 and 캐릭터2 in by_c:
                 cfg["char2"] = 캐릭터2
+                has_custom_override = True
+                if not 광추2:
+                    cfg["lc_2"] = hsr_core.HSR_SIGNATURE_LCS.get(캐릭터2)
             custom_4s = [x for x in (사성1, 사성2, 사성3) if x and x in by_c]
             if custom_4s:
                 cfg["char_4_ids"] = custom_4s
+                has_custom_override = True
             if 광추1 and 광추1 in by_l:
                 cfg["lc_1"] = 광추1
+                has_custom_override = True
             if 광추2 and 광추2 in by_l:
                 cfg["lc_2"] = 광추2
+                has_custom_override = True
             if 유물1 and 유물1 in by_r:
                 cfg["relic_1"] = 유물1
+                has_custom_override = True
             if 유물2 and 유물2 in by_r:
                 cfg["relic_2"] = 유물2
+                has_custom_override = True
             if 배너이름:
                 cfg["banner_name"] = 배너이름.strip()[:60]
+            if has_custom_override or (프리셋 and 프리셋 not in ("reset", "time_rotation")):
+                cfg["mode"] = "preset"
             cfg["updated_at"] = datetime.datetime.now(core.KST).isoformat()
             data["hsr_pickup"] = cfg
             core.save_data(data)

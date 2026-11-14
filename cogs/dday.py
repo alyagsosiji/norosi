@@ -473,7 +473,7 @@ class CommandRemoteSelect(discord.ui.Select):
             data = await asyncio.to_thread(core.load_data)
             g_key = str(interaction.guild_id or 0)
             u_key = str(interaction.user.id)
-            user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+            user_cards_dict = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
             view = MyInventoryView(interaction.user, list(user_cards_dict.values()), items_per_page=10, guild_id=interaction.guild_id or 0)
             await interaction.followup.send(embed=view.build_embed(), view=view)
         elif val == "pokedex":
@@ -514,7 +514,7 @@ class CommandRemoteSelect(discord.ui.Select):
         elif val == "music_now":
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
-            prefs = data.get("music_prefs", core.DEFAULT_CONFIG["music_prefs"])
+            prefs = core.as_dict(data.get("music_prefs")) or core.DEFAULT_CONFIG["music_prefs"]
             track_info, error = await core.get_recommended_music(prefs)
             if error or not track_info:
                 await interaction.followup.send(f"❌ **음악 추천 실패:** {error}", ephemeral=True)
@@ -573,7 +573,7 @@ class CommandRemoteSelect(discord.ui.Select):
             data = await asyncio.to_thread(core.load_data)
             u_key = str(interaction.user.id)
             prof = core.ensure_user_profile(data, u_key, interaction.user.display_name)
-            view = SecretDDayHubView(interaction.user, prof.get("secret_ddays", {}))
+            view = SecretDDayHubView(interaction.user, core.as_dict(prof.get("secret_ddays")))
             await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
         elif val == "partner":
             dday_cog = self.bot_instance.get_cog("DDayCog")
@@ -615,7 +615,7 @@ class QuickMenuHubView(core.SafeView):
         today_str = core.get_today_str()
 
         profile = core.ensure_user_profile(self.data, u_key, self.user.display_name)
-        guild_att = self.data.get("guild_attendance", {}).get(g_key, {}).get(u_key, {})
+        guild_att = core.safe_get_dict(self.data, "guild_attendance", g_key, u_key)
         checked_today = (guild_att.get("last_date") == today_str)
 
         crystals = profile.get("crystals", 0)
@@ -624,20 +624,22 @@ class QuickMenuHubView(core.SafeView):
         partner_tag = f"<@{partner_id}>" if partner_id else "미등록 (`/파트너`)"
 
         todo = core.ensure_user_todo_today(profile)
-        tasks_list = todo.get("tasks", [])
+        tasks_list = [t for t in (todo.get("tasks") or []) if isinstance(t, dict)]
         done_cnt = sum(1 for t in tasks_list if t.get("done"))
         tot_cnt = len(tasks_list)
         grass_bar, _ = core.get_todo_galaxy_grass(profile)
 
-        user_cards = self.data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+        user_cards = core.safe_get_dict(self.data, "gacha_users", g_key, u_key, "cards")
         unique_cnt = len(user_cards)
-        dup_excess = sum(max(0, c.get("count", 1) - 1) for c in user_cards.values() if not c.get("locked", False))
+        dup_excess = sum(max(0, c.get("count", 1) - 1) for c in user_cards.values() if isinstance(c, dict) and not c.get("locked", False))
 
         # 가장 가까운 D-Day 1건 요약
-        ddays = self.data.get("ddays", {})
+        ddays = core.as_dict(self.data.get("ddays"))
         nearest_dday_str = "등록된 일정 없음 (`/디데이추가`)"
         upcoming = []
         for d_name, d_info in ddays.items():
+            if not isinstance(d_info, dict):
+                continue
             date_val = d_info.get("date")
             if not date_val:
                 continue
@@ -734,7 +736,7 @@ class QuickMenuHubView(core.SafeView):
         data = await asyncio.to_thread(core.load_data)
         g_key = str(interaction.guild_id or 0)
         u_key = str(interaction.user.id)
-        user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+        user_cards_dict = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
         view = MyInventoryView(interaction.user, list(user_cards_dict.values()), items_per_page=10, guild_id=interaction.guild_id or 0)
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
@@ -758,7 +760,7 @@ class QuickMenuHubView(core.SafeView):
     async def btn_music_now(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
-        prefs = data.get("music_prefs", core.DEFAULT_CONFIG["music_prefs"])
+        prefs = core.as_dict(data.get("music_prefs")) or core.DEFAULT_CONFIG["music_prefs"]
         track_info, error = await core.get_recommended_music(prefs)
         if error or not track_info:
             await interaction.followup.send(f"❌ **음악 추천 실패:** {error}", ephemeral=True)
@@ -875,7 +877,7 @@ class TodoTrackerView(core.SafeView):
 
     def update_select_options(self):
         todo = core.ensure_user_todo_today(self.profile)
-        tasks_list = todo.get("tasks", [])
+        tasks_list = [t for t in (todo.get("tasks") or []) if isinstance(t, dict)]
         if not tasks_list:
             self.toggle_select.options = [discord.SelectOption(label="등록된 목표가 없습니다", value="NONE")]
             self.toggle_select.disabled = True
@@ -891,7 +893,7 @@ class TodoTrackerView(core.SafeView):
 
     def build_embed(self):
         todo = core.ensure_user_todo_today(self.profile)
-        tasks_list = todo.get("tasks", [])
+        tasks_list = [t for t in (todo.get("tasks") or []) if isinstance(t, dict)]
         done_cnt = sum(1 for t in tasks_list if t.get("done"))
         tot_cnt = len(tasks_list)
 
@@ -1016,17 +1018,19 @@ class AttendanceRankingView(core.SafeView):
         yesterday_str = core.get_yesterday_str()
         raw_list = []
         if self.scope == "guild" and self.guild:
-            g_map = self.data.get("guild_attendance", {}).get(str(self.guild.id), {})
+            g_map = core.safe_get_dict(self.data, "guild_attendance", str(self.guild.id))
             for uid_str, info in g_map.items():
+                if not isinstance(info, dict):
+                    continue
                 total_d = info.get("total_days", 0)
                 last_d = info.get("last_date", "")
                 # 오늘/어제 출석하지 않은 유저는 활성 연속 출석 0일로 처리 (최고 기록은 보존)
                 eff_streak = info.get("streak", 0) if last_d in (today_str, yesterday_str) else 0
                 max_s = max(info.get("max_streak", 0), eff_streak)
                 if total_d > 0:
-                    prof = self.data.get("user_profiles", {}).get(uid_str, {})
+                    prof = core.safe_get_dict(self.data, "user_profiles", uid_str)
                     oshi_val = prof.get("oshi")
-                    u_name = info.get("user_name") or prof.get("attendance", {}).get("user_name") or f"User({uid_str[:4]})"
+                    u_name = info.get("user_name") or core.as_dict(prof.get("attendance")).get("user_name") or f"User({uid_str[:4]})"
                     raw_list.append({
                         "uid": uid_str,
                         "name": u_name,
@@ -1037,8 +1041,10 @@ class AttendanceRankingView(core.SafeView):
                         "oshi": oshi_val
                     })
         else:
-            for uid_str, p_info in self.data.get("user_profiles", {}).items():
-                att = p_info.get("attendance", {})
+            for uid_str, p_info in core.safe_get_dict(self.data, "user_profiles").items():
+                if not isinstance(p_info, dict):
+                    continue
+                att = core.as_dict(p_info.get("attendance"))
                 total_d = att.get("total_days", 0)
                 last_d = att.get("last_date", "")
                 eff_streak = att.get("streak", 0) if last_d in (today_str, yesterday_str) else 0
@@ -1230,8 +1236,9 @@ class DDayQuickAddModal(core.SafeModal, title="📅 새 D-Day 일정 빠른 등�
         data = await asyncio.to_thread(core.load_data)
         name_val = self.d_name.value.strip()
         emoji_val = (self.d_emoji.value.strip() or "🌠")
-        existing = data.get("ddays", {}).get(name_val, {})
-        data.setdefault("ddays", {})[name_val] = {
+        ddays_map = core.ensure_dict_path(data, "ddays")
+        existing = core.as_dict(ddays_map.get(name_val))
+        ddays_map[name_val] = {
             "date": target_val,
             "repeat": existing.get("repeat", False),
             "start_date": start_val,
@@ -1263,7 +1270,7 @@ class DDayListBoardView(core.SafeView):
         self.filter_mode = "all"     # "all" (전체) | "urgent" (7일 이내 임박/주의만)
 
     def build_embed(self):
-        ddays = self.data.get("ddays", {})
+        ddays = core.as_dict(self.data.get("ddays"))
         summary = core.build_dday_grass_board_summary(ddays)
         all_items = summary["items"]
         counts = summary["counts"]
@@ -1413,7 +1420,7 @@ class SecretDDayAddModal(core.SafeModal, title="🔒 비밀 디데이 & 타임�
         data = await asyncio.to_thread(core.load_data)
         u_key = str(self.hub_view.user.id)
         profile = core.ensure_user_profile(data, u_key, self.hub_view.user.display_name)
-        s_ddays = profile.setdefault("secret_ddays", {})
+        s_ddays = core.ensure_dict_path(profile, "secret_ddays")
         today_str = core.get_today_str()
 
         s_ddays[self.s_name.value.strip()] = {
@@ -1424,7 +1431,7 @@ class SecretDDayAddModal(core.SafeModal, title="🔒 비밀 디데이 & 타임�
         }
         await asyncio.to_thread(core.save_data, data)
 
-        self.hub_view.s_ddays = s_ddays
+        self.hub_view.s_ddays = {k: v for k, v in s_ddays.items() if isinstance(v, dict)}
         self.hub_view.update_delete_select()
         await interaction.edit_original_response(embed=self.hub_view.build_embed(), view=self.hub_view)
 
@@ -1434,7 +1441,7 @@ class SecretDDayHubView(core.SafeView):
     def __init__(self, user: discord.User, s_ddays: dict):
         super().__init__(timeout=600)
         self.user = user
-        self.s_ddays = dict(s_ddays)
+        self.s_ddays = {k: v for k, v in core.as_dict(s_ddays).items() if isinstance(v, dict)}
         self.update_delete_select()
 
     def update_delete_select(self):
@@ -1496,11 +1503,11 @@ class SecretDDayHubView(core.SafeView):
         data = await asyncio.to_thread(core.load_data)
         u_key = str(self.user.id)
         profile = core.ensure_user_profile(data, u_key, self.user.display_name)
-        s_ddays = profile.setdefault("secret_ddays", {})
+        s_ddays = core.ensure_dict_path(profile, "secret_ddays")
         if val in s_ddays:
             del s_ddays[val]
             await asyncio.to_thread(core.save_data, data)
-        self.s_ddays = s_ddays
+        self.s_ddays = {k: v for k, v in s_ddays.items() if isinstance(v, dict)}
         self.update_delete_select()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
@@ -1524,10 +1531,13 @@ class PartnerDDayAddModal(core.SafeModal, title="💖 파트너 공동 D-Day 추
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
         pair_key = core.get_partner_pair_key(self.hub_view.user.id, self.hub_view.partner_id)
-        if pair_key not in data["partners"]:
-            data["partners"][pair_key] = {"ddays": {}, "since": core.get_today_str()}
+        partners_map = core.ensure_dict_path(data, "partners")
+        pair_obj = core.ensure_dict_path(partners_map, pair_key)
+        if "since" not in pair_obj:
+            pair_obj["since"] = core.get_today_str()
+        p_ddays_map = core.ensure_dict_path(pair_obj, "ddays")
         today_str = core.get_today_str()
-        data["partners"][pair_key]["ddays"][self.p_name.value.strip()] = {
+        p_ddays_map[self.p_name.value.strip()] = {
             "date": d_val,
             "start_date": today_str,
             "notified_date": ""
@@ -1549,7 +1559,7 @@ class PartnerHubView(core.SafeView):
 
     def update_components(self):
         pair_key = core.get_partner_pair_key(self.user.id, self.partner_id)
-        p_ddays = self.data.get("partners", {}).get(pair_key, {}).get("ddays", {})
+        p_ddays = {k: v for k, v in core.safe_get_dict(self.data, "partners", pair_key, "ddays").items() if isinstance(v, dict)}
         if not p_ddays:
             self.del_dday_select.options = [discord.SelectOption(label="등록된 공동 D-Day가 없습니다", value="NONE")]
             self.del_dday_select.disabled = True
@@ -1568,11 +1578,13 @@ class PartnerHubView(core.SafeView):
     def build_embed(self):
         u_key = str(self.user.id)
         pair_key = core.get_partner_pair_key(u_key, self.partner_id)
-        pair_info = self.data.get("partners", {}).get(pair_key, {"ddays": {}, "since": core.get_today_str()})
-        p_ddays = pair_info.get("ddays", {})
+        pair_info = core.safe_get_dict(self.data, "partners", pair_key) or {"ddays": {}, "since": core.get_today_str()}
+        p_ddays = {k: v for k, v in core.as_dict(pair_info.get("ddays")).items() if isinstance(v, dict)}
 
-        my_music = self.data.get("user_profiles", {}).get(u_key, {}).get("liked_music", [])
-        partner_music = self.data.get("user_profiles", {}).get(self.partner_id, {}).get("liked_music", [])
+        my_music_raw = core.safe_get_dict(self.data, "user_profiles", u_key).get("liked_music")
+        partner_music_raw = core.safe_get_dict(self.data, "user_profiles", self.partner_id).get("liked_music")
+        my_music = [m for m in (my_music_raw or []) if isinstance(m, dict)] if isinstance(my_music_raw, list) else []
+        partner_music = [m for m in (partner_music_raw or []) if isinstance(m, dict)] if isinstance(partner_music_raw, list) else []
         combined_urls = {m.get("url") for m in (my_music + partner_music) if m.get("url")}
 
         embed = discord.Embed(
@@ -1615,8 +1627,10 @@ class PartnerHubView(core.SafeView):
         await core.safe_defer(interaction)
         self.data = await asyncio.to_thread(core.load_data)
         u_key = str(self.user.id)
-        my_music = self.data.get("user_profiles", {}).get(u_key, {}).get("liked_music", [])
-        partner_music = self.data.get("user_profiles", {}).get(self.partner_id, {}).get("liked_music", [])
+        my_music_raw = core.safe_get_dict(self.data, "user_profiles", u_key).get("liked_music")
+        partner_music_raw = core.safe_get_dict(self.data, "user_profiles", self.partner_id).get("liked_music")
+        my_music = [m for m in (my_music_raw or []) if isinstance(m, dict)] if isinstance(my_music_raw, list) else []
+        partner_music = [m for m in (partner_music_raw or []) if isinstance(m, dict)] if isinstance(partner_music_raw, list) else []
 
         seen_urls = set()
         shared_list = []
@@ -1641,7 +1655,7 @@ class PartnerHubView(core.SafeView):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
         pair_key = core.get_partner_pair_key(self.user.id, self.partner_id)
-        p_ddays = data.get("partners", {}).get(pair_key, {}).get("ddays", {})
+        p_ddays = core.safe_get_dict(data, "partners", pair_key, "ddays")
         if val in p_ddays:
             del p_ddays[val]
             await asyncio.to_thread(core.save_data, data)
@@ -1677,8 +1691,9 @@ class PartnerAcceptView(core.SafeView):
         p2["partner_id"] = u1
 
         pair_key = core.get_partner_pair_key(u1, u2)
-        if pair_key not in data["partners"]:
-            data["partners"][pair_key] = {"ddays": {}, "since": core.get_today_str()}
+        partners_map = core.ensure_dict_path(data, "partners")
+        if pair_key not in partners_map or not isinstance(partners_map.get(pair_key), dict):
+            partners_map[pair_key] = {"ddays": {}, "since": core.get_today_str()}
 
         await asyncio.to_thread(core.save_data, data)
 
@@ -1711,7 +1726,7 @@ class DDayDeleteSelect(discord.ui.Select):
     def __init__(self, ddays, bot_instance):
         self.bot_instance = bot_instance
         options = []
-        sorted_ddays = sorted(ddays.items(), key=lambda x: x[1].get("date", "9999-12-31"))
+        sorted_ddays = sorted({k: v for k, v in core.as_dict(ddays).items() if isinstance(v, dict)}.items(), key=lambda x: x[1].get("date", "9999-12-31"))
         for name, info in sorted_ddays[:25]:
             date_str = info.get("date", "")
             repeat_icon = "🔄 " if info.get("repeat") else ""
@@ -1727,8 +1742,9 @@ class DDayDeleteSelect(discord.ui.Select):
         selected_name = self.values[0]
         data = await asyncio.to_thread(core.load_data)
 
-        if selected_name in data["ddays"]:
-            dday_info = data["ddays"][selected_name]
+        ddays_map = core.ensure_dict_path(data, "ddays")
+        if selected_name in ddays_map:
+            dday_info = core.as_dict(ddays_map.get(selected_name))
             ch_id = dday_info.get("channel_id")
             channel_deleted_msg = ""
 
@@ -1783,9 +1799,11 @@ class ResetConfirmView(core.SafeView):
         deleted_ch_count = 0
         guild_id = interaction.guild_id
 
-        ddays = old_data.get("ddays", {})
+        ddays = core.as_dict(old_data.get("ddays"))
         remaining_ddays = {}
         for name, info in ddays.items():
+            if not isinstance(info, dict):
+                continue
             d_guild_id = info.get("guild_id")
             ch_id = info.get("channel_id")
             is_this_guild = False
@@ -1812,9 +1830,9 @@ class ResetConfirmView(core.SafeView):
 
         old_data["ddays"] = remaining_ddays
         if guild_id:
-            if "guild_music_prefs" in old_data:
+            if isinstance(old_data.get("guild_music_prefs"), dict):
                 old_data["guild_music_prefs"].pop(str(guild_id), None)
-            if "guild_settings" in old_data:
+            if isinstance(old_data.get("guild_settings"), dict):
                 old_data["guild_settings"].pop(str(guild_id), None)
         else:
             old_data["music_prefs"] = copy.deepcopy(core.DEFAULT_CONFIG["music_prefs"])
@@ -1872,12 +1890,14 @@ class DDayCog(commands.Cog):
         actual_start = 시작일 if 시작일 else core.get_today_str()
         data = await asyncio.to_thread(core.load_data)
 
-        existing_info = data["ddays"].get(이름, {})
+        ddays_map = core.ensure_dict_path(data, "ddays")
+        settings_map = core.ensure_dict_path(data, "settings")
+        existing_info = core.as_dict(ddays_map.get(이름))
         existing_ch_id = existing_info.get("channel_id")
 
         target_category = 카테고리
-        if not target_category and data["settings"].get("default_category_id") and interaction.guild:
-            target_category = interaction.guild.get_channel(int(data["settings"]["default_category_id"]))
+        if not target_category and settings_map.get("default_category_id") and interaction.guild:
+            target_category = interaction.guild.get_channel(int(settings_map["default_category_id"]))
 
         created_channel = None
         channel_status_msg = "생성 안 함 (`채널생성: False`)"
@@ -1913,7 +1933,7 @@ class DDayCog(commands.Cog):
                 except Exception as e:
                     channel_status_msg = f"⚠️ 채널 생성 실패: {e}"
 
-        data["ddays"][이름] = {
+        ddays_map[이름] = {
             "date": 날짜,
             "repeat": 매년반복,
             "start_date": actual_start,
@@ -2030,12 +2050,13 @@ class DDayCog(commands.Cog):
     ):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
-        data["settings"]["dday_alert_channel_id"] = 알림채널.id
+        settings_map = core.ensure_dict_path(data, "settings")
+        settings_map["dday_alert_channel_id"] = 알림채널.id
         if 기본카테고리:
-            data["settings"]["default_category_id"] = 기본카테고리.id
+            settings_map["default_category_id"] = 기본카테고리.id
         await asyncio.to_thread(core.save_data, data)
 
-        cat_id = data["settings"].get("default_category_id")
+        cat_id = settings_map.get("default_category_id")
         cat_obj = interaction.guild.get_channel(int(cat_id)) if (cat_id and interaction.guild) else None
         cat_name = f"📁 `{cat_obj.name}`" if cat_obj else "미지정 (디데이 추가 시 개별 선택 가능)"
 
@@ -2124,7 +2145,7 @@ class DDayCog(commands.Cog):
             await core.safe_defer(interaction)
 
         data = await asyncio.to_thread(core.load_data)
-        ddays = data.get("ddays", {})
+        ddays = {k: v for k, v in core.as_dict(data.get("ddays")).items() if isinstance(v, dict)}
         past_lines = []
 
         for name, info in sorted(ddays.items(), key=lambda x: x[1].get("date", "9999-12-31"), reverse=True):
@@ -2172,7 +2193,7 @@ class DDayCog(commands.Cog):
         data = await asyncio.to_thread(core.load_data)
         u_key = str(interaction.user.id)
         profile = core.ensure_user_profile(data, u_key, interaction.user.display_name)
-        s_ddays = profile.setdefault("secret_ddays", {})
+        s_ddays = core.ensure_dict_path(profile, "secret_ddays")
 
         mode = 동작.value if 동작 else ("add" if (이름 and 날짜) else "hub")
         if mode in ("hub", "list"):
@@ -2221,7 +2242,7 @@ class DDayCog(commands.Cog):
     async def delete_dday(self, interaction: discord.Interaction):
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
-        ddays = data.get("ddays", {})
+        ddays = {k: v for k, v in core.as_dict(data.get("ddays")).items() if isinstance(v, dict)}
         if not ddays:
             await core.safe_send_response(interaction, content="📭 삭제할 일정이 없습니다.", ephemeral=True)
             return
@@ -2278,7 +2299,7 @@ class DDayCog(commands.Cog):
                 await core.safe_send_response(interaction, content=f"❌ 이미 <@{current_partner_id}>님과 파트너 상태입니다. 먼저 해제 후 신청해 주세요.", ephemeral=True)
                 return
 
-            target_partner_id = data.get("user_profiles", {}).get(str(유저.id), {}).get("partner_id")
+            target_partner_id = core.safe_get_dict(data, "user_profiles", str(유저.id)).get("partner_id")
             if target_partner_id:
                 await core.safe_send_response(interaction, content="❌ 상대방이 이미 다른 유저와 파트너 상태입니다.", ephemeral=True)
                 return
@@ -2325,11 +2346,14 @@ class DDayCog(commands.Cog):
                 return
 
             pair_key = core.get_partner_pair_key(u_key, current_partner_id)
-            if pair_key not in data["partners"]:
-                data["partners"][pair_key] = {"ddays": {}, "since": core.get_today_str()}
+            partners_map = core.ensure_dict_path(data, "partners")
+            pair_obj = core.ensure_dict_path(partners_map, pair_key)
+            if "since" not in pair_obj:
+                pair_obj["since"] = core.get_today_str()
+            p_ddays_map = core.ensure_dict_path(pair_obj, "ddays")
 
             today_str = core.get_today_str()
-            data["partners"][pair_key]["ddays"][이름] = {
+            p_ddays_map[이름] = {
                 "date": 날짜,
                 "start_date": today_str,
                 "notified_date": ""
@@ -2343,7 +2367,7 @@ class DDayCog(commands.Cog):
                 await core.safe_send_response(interaction, content="❌ 연결된 파트너가 없습니다.", ephemeral=True)
                 return
             pair_key = core.get_partner_pair_key(u_key, current_partner_id)
-            p_ddays = data["partners"].get(pair_key, {}).get("ddays", {})
+            p_ddays = core.safe_get_dict(data, "partners", pair_key, "ddays")
             if not 이름 or 이름 not in p_ddays:
                 hub_view = PartnerHubView(interaction.user, current_partner_id, data)
                 await core.safe_send_response(interaction, content="ℹ️ 아래 드롭다운에서 삭제할 공동 D-Day를 선택해 주세요.", embed=hub_view.build_embed(), view=hub_view, ephemeral=True)
@@ -2358,8 +2382,10 @@ class DDayCog(commands.Cog):
                 await core.safe_send_response(interaction, content="❌ 먼저 파트너를 맺어야 공유 음악 보관함을 열 수 있습니다.", ephemeral=True)
                 return
 
-            my_music = data["user_profiles"].get(u_key, {}).get("liked_music", [])
-            partner_music = data["user_profiles"].get(str(current_partner_id), {}).get("liked_music", [])
+            my_music_raw = core.safe_get_dict(data, "user_profiles", u_key).get("liked_music")
+            partner_music_raw = core.safe_get_dict(data, "user_profiles", str(current_partner_id)).get("liked_music")
+            my_music = [m for m in (my_music_raw or []) if isinstance(m, dict)] if isinstance(my_music_raw, list) else []
+            partner_music = [m for m in (partner_music_raw or []) if isinstance(m, dict)] if isinstance(partner_music_raw, list) else []
 
             seen_urls = set()
             shared_list = []
@@ -2376,9 +2402,10 @@ class DDayCog(commands.Cog):
             if not current_partner_id:
                 await core.safe_send_response(interaction, content="❌ 현재 연결된 파트너가 없습니다.", ephemeral=True)
                 return
-            data["user_profiles"][u_key]["partner_id"] = None
-            if str(current_partner_id) in data["user_profiles"]:
-                data["user_profiles"][str(current_partner_id)]["partner_id"] = None
+            u_profiles = core.ensure_dict_path(data, "user_profiles")
+            core.ensure_dict_path(u_profiles, u_key)["partner_id"] = None
+            if isinstance(u_profiles.get(str(current_partner_id)), dict):
+                u_profiles[str(current_partner_id)]["partner_id"] = None
             await asyncio.to_thread(core.save_data, data)
             await core.safe_send_response(interaction, content=f"💔 <@{current_partner_id}>님과의 파트너 관계가 해제되었습니다.", ephemeral=True)
 
@@ -2847,19 +2874,21 @@ class DDayCog(commands.Cog):
                 u_key = str(interaction.user.id)
                 profile = core.ensure_user_profile(data, u_key, interaction.user.display_name)
                 todo = core.ensure_user_todo_today(profile)
-                history = todo.setdefault("history", {})
+                history = core.ensure_dict_path(todo, "history")
                 today_str = core.get_today_str()
 
-                today_rec = history.setdefault(today_str, {"done": 0, "total": 0})
+                today_rec = core.ensure_dict_path(history, today_str)
+                today_rec.setdefault("done", 0)
+                today_rec.setdefault("total", 0)
                 today_rec["hardcore_completed"] = True
                 today_rec["hardcore_mins"] = today_rec.get("hardcore_mins", 0) + actual_study_mins
                 today_rec["hardcore_topic"] = 목표
 
                 profile["crystals"] = profile.get("crystals", 0) + reward_crystals
-                stats = profile.setdefault("hardcore_study_stats", {"total_mins": 0, "total_sets": 0, "completed_days": 0})
-                stats["total_mins"] += actual_study_mins
-                stats["total_sets"] += num_sets
-                stats["completed_days"] += 1
+                stats = core.ensure_dict_path(profile, "hardcore_study_stats")
+                stats["total_mins"] = stats.get("total_mins", 0) + actual_study_mins
+                stats["total_sets"] = stats.get("total_sets", 0) + num_sets
+                stats["completed_days"] = stats.get("completed_days", 0) + 1
 
                 await asyncio.to_thread(core.save_data, data)
 
@@ -2950,7 +2979,7 @@ class DDayCog(commands.Cog):
         await core.safe_defer(interaction, ephemeral=False)
         data = await asyncio.to_thread(core.load_data)
         u_key = str(interaction.user.id)
-        b_map = data.setdefault("birthdays", {})
+        b_map = core.ensure_dict_path(data, "birthdays")
         action_val = 동작.value if 동작 else ("register" if (월 and 일) else "list")
 
         if action_val == "delete":
@@ -3014,7 +3043,10 @@ class DDayCog(commands.Cog):
                 await interaction.followup.send(f"❌ **시간 설정 오류:** {err}", ephemeral=True)
                 return
 
-            reminders = data.setdefault("reminders", [])
+            reminders = data.get("reminders")
+            if not isinstance(reminders, list):
+                reminders = []
+                data["reminders"] = reminders
             rem_id = f"rem_{int(time.time())}_{interaction.user.id % 1000}"
             mode_val = 방식.value if 방식 else "both"
 
@@ -3074,7 +3106,7 @@ class BirthdayRegisterModal(core.SafeModal, title="🎂 내 생일 등록 및 �
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
         u_key = str(interaction.user.id)
-        data.setdefault("birthdays", {})[u_key] = {
+        core.ensure_dict_path(data, "birthdays")[u_key] = {
             "user_id": interaction.user.id,
             "user_name": interaction.user.display_name,
             "guild_id": interaction.guild_id or 0,
@@ -3110,7 +3142,7 @@ class BirthdayBoardView(core.SafeView):
 
     def build_embed(self) -> discord.Embed:
         today = datetime.datetime.now(core.KST).date()
-        b_map = self.data.get("birthdays", {})
+        b_map = core.as_dict(self.data.get("birthdays"))
         g_name = self.guild.name if self.guild else "세카이 통합"
 
         entries = []
@@ -3165,8 +3197,9 @@ class BirthdayBoardView(core.SafeView):
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
         u_key = str(interaction.user.id)
-        if u_key in data.get("birthdays", {}):
-            del data["birthdays"][u_key]
+        b_map = core.ensure_dict_path(data, "birthdays")
+        if u_key in b_map:
+            del b_map[u_key]
             await asyncio.to_thread(core.save_data, data)
             self.data = data
             await interaction.edit_original_response(embed=self.build_embed(), view=self)
@@ -3204,7 +3237,10 @@ class ReminderAddModal(core.SafeModal, title="⏰ 새 스마트 알림 예약"):
 
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
-        reminders = data.setdefault("reminders", [])
+        reminders = data.get("reminders")
+        if not isinstance(reminders, list):
+            reminders = []
+            data["reminders"] = reminders
         rem_id = f"rem_{int(time.time())}_{interaction.user.id % 1000}"
 
         reminders.append({
@@ -3236,6 +3272,8 @@ class ReminderHubView(core.SafeView):
 
     def _get_user_reminders(self) -> list[dict]:
         all_rems = self.data.get("reminders", [])
+        if not isinstance(all_rems, list):
+            all_rems = []
         my_rems = [r for r in all_rems if isinstance(r, dict) and r.get("user_id") == self.user.id]
         my_rems.sort(key=lambda x: x.get("trigger_ts", 0))
         return my_rems
@@ -3293,6 +3331,8 @@ class ReminderHubView(core.SafeView):
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
         before_list = data.get("reminders", [])
+        if not isinstance(before_list, list):
+            before_list = []
         data["reminders"] = [r for r in before_list if isinstance(r, dict) and r.get("id") != target_id]
         await asyncio.to_thread(core.save_data, data)
         self.data = data

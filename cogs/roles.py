@@ -137,7 +137,7 @@ class PersistentRoleButton(discord.ui.Button):
         # 단일 선택 모드(unique) 체크
         data = await asyncio.to_thread(core.load_data)
         mid_s = str(interaction.message.id) if interaction.message else ""
-        panel_cfg = data.get("reaction_roles", {}).get(mid_s, {})
+        panel_cfg = core.safe_get_dict(data, "reaction_roles", mid_s)
         is_unique_mode = panel_cfg.get("mode") == "unique"
 
         # 역할 토글 (있으면 제거, 없으면 지급)
@@ -772,7 +772,7 @@ class AttachExistingMessageModal(core.SafeModal, title="🔗 기존 메시지에
         await core.safe_defer(interaction, ephemeral=True)
 
         data = await asyncio.to_thread(core.load_data)
-        rr_map = data.setdefault("reaction_roles", {})
+        rr_map = core.ensure_dict_path(data, "reaction_roles")
         mid_str = str(message_id)
 
         if mid_str not in rr_map:
@@ -1503,7 +1503,7 @@ class Roles(commands.Cog, name="역할"):
             return
 
         data = core.get_cached_data()
-        rr_map = data.get("reaction_roles", {})
+        rr_map = core.safe_get_dict(data, "reaction_roles")
         mid_str = str(payload.message_id)
 
         if mid_str not in rr_map:
@@ -1597,7 +1597,7 @@ class Roles(commands.Cog, name="역할"):
             return
 
         data = core.get_cached_data()
-        rr_map = data.get("reaction_roles", {})
+        rr_map = core.safe_get_dict(data, "reaction_roles")
         mid_str = str(payload.message_id)
 
         if mid_str not in rr_map:
@@ -1645,7 +1645,7 @@ class Roles(commands.Cog, name="역할"):
     async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
         mid_str = str(payload.message_id)
         data = core.get_cached_data()
-        if mid_str in data.get("reaction_roles", {}):
+        if mid_str in core.safe_get_dict(data, "reaction_roles"):
             async def _bg_clean():
                 try:
                     d = await asyncio.to_thread(core.load_data)
@@ -1663,13 +1663,16 @@ class Roles(commands.Cog, name="역할"):
     async def on_guild_role_delete(self, role: discord.Role):
         guild_id = role.guild.id
         data = core.get_cached_data()
-        rr_map = data.get("reaction_roles", {})
+        rr_map = core.safe_get_dict(data, "reaction_roles")
 
         has_changed = False
         for mid, cfg in list(rr_map.items()):
+            if not isinstance(cfg, dict):
+                continue
             if int(cfg.get("guild_id", 0)) == guild_id:
-                orig_len = len(cfg.get("roles", []))
-                cfg["roles"] = [r for r in cfg.get("roles", []) if r.get("role_id") != role.id]
+                roles_arr = [r for r in (cfg.get("roles") or []) if isinstance(r, dict)]
+                orig_len = len(roles_arr)
+                cfg["roles"] = [r for r in roles_arr if r.get("role_id") != role.id]
                 if len(cfg["roles"]) != orig_len:
                     has_changed = True
 
@@ -1677,9 +1680,12 @@ class Roles(commands.Cog, name="역할"):
             async def _bg_save_role_del():
                 try:
                     d = await asyncio.to_thread(core.load_data)
-                    for mid, cfg in list(d.get("reaction_roles", {}).items()):
+                    for mid, cfg in list(core.safe_get_dict(d, "reaction_roles").items()):
+                        if not isinstance(cfg, dict):
+                            continue
                         if int(cfg.get("guild_id", 0)) == guild_id:
-                            cfg["roles"] = [r for r in cfg.get("roles", []) if r.get("role_id") != role.id]
+                            roles_arr = [r for r in (cfg.get("roles") or []) if isinstance(r, dict)]
+                            cfg["roles"] = [r for r in roles_arr if r.get("role_id") != role.id]
                     await asyncio.to_thread(core.save_data, d)
                     print(f"🧹 [반응역할 자동정리] 역할({role.name}) 삭제 감지 -> 매핑 정리 완료", flush=True)
                 except Exception as ex:

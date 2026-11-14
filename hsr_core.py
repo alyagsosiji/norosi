@@ -110,9 +110,10 @@ HSR_STD_5_LCS = {
 
 # 5성 한정 캐릭터 -> 전용 5성 광추 매핑 (캐릭터 픽업에 맞춰 광추 픽업 자동 연동)
 HSR_SIGNATURE_LCS = {
-    "1503": "23065",  # 펄 -> 고독한 별을 위해
-    "1513": "23064",  # 어벤츄린•웨이브 -> 오직 하나의 승리
-    "1512": "23063",  # 로빈•서머레토 -> 내일로 향하는 멜로디
+    "1511": "23065",  # 에이언즈★아하 -> 「아하」가 처음 울리는 순간
+    "1503": "23055",  # 펄 -> 내일에 바치는 색채
+    "1513": "23064",  # 어벤츄린•웨이브 -> 파도에 내던진 한여름
+    "1512": "23063",  # 로빈•서머레토 -> 그대는 나아가 노래하리니
     "1509": "23062",  # 길가메시 -> 하늘의 사슬조차 끊어내리
     "1510": "23061",  # 히메코•노바 -> 언젠가 별들과 다시 만날 때
     "1508": "23060",  # 토오사카 린 -> 보석에 새긴 붉은 마술
@@ -210,10 +211,11 @@ HSR_RELIC_SUBSTATS = [
     "방어력 +5.4%",
 ]
 
-# KST 시각 연동 2시간 간격 은하열차 로테이션 테마 (하루 12슬롯)
+# KST 시각 연동 2시간 간격 은하열차 로테이션 테마 (13슬롯 소수 주기 — 일자·시각에 따라 매일 다르게 순환)
 HSR_TIME_ROTATION_CHAR_PAIRS = [
+    ("1511", "1503", "🎭 환락의 절정 — 에이언즈★아하 & 펄"),
     ("1503", "1501", "🪐 개척 최신 — 펄 & 스파키"),
-    ("1513", "1512", "🎭 환락의 축복 — 어벤츄린•웨이브 & 로빈•서머레토"),
+    ("1513", "1512", "🌊 환락의 축복 — 어벤츄린•웨이브 & 로빈•서머레토"),
     ("1509", "1508", "⚔️ 성배의 영령 — 길가메시 & 토오사카 린"),
     ("1510", "1507", "🌠 신성 개척 — 히메코•노바 & 천야•블레이드"),
     ("1505", "1506", "🌌 성간 해커 — 에바네시아 & 은랑 LV.999"),
@@ -227,18 +229,19 @@ HSR_TIME_ROTATION_CHAR_PAIRS = [
 ]
 
 HSR_TIME_ROTATION_RELIC_PAIRS = [
-    ("130", "326"),  # 빛나는 공훈의 마법 소녀 / 천 개의 별이 모인 도시
-    ("129", "325"),  # 신응에 답하는 점술가 / 펑크로드 스테이지 Zero
-    ("128", "324"),  # 그림자를 감춘 달빛 / 영원의 땅 앰포리어스
-    ("127", "323"),  # 천지를 재창조한 구세주 / 즐거움에 취한 바다의 일각
-    ("126", "322"),  # 거친 파도를 헤치는 선장 / 꿈을 엮는 요정의 낙원
-    ("125", "321"),  # 해와 번개의 여전사 / 사색하는 거목의 정원
-    ("124", "320"),  # 망국을 애도하는 시인 / 고요한 습골지
-    ("123", "319"),  # 개선을 노래하는 영웅 / 바다에 잠긴 루샤카
+    ("134", "330"),  # 금단의 열매를 삼킨 이단 / 아공간 이상 사물 수용소
+    ("130", "326"),  # 천명에 응해 먼 길을 떠난 점술가 / 천 개의 별이 모인 도시
+    ("129", "325"),  # 빛나는 공훈의 마법 소녀 / 0호 스테이지 펑크 로드
+    ("128", "324"),  # 별빛에 숨은 은둔자 / 텐고쿠@라이브스트리밍
+    ("127", "323"),  # 천지를 재창조한 구세주 / 영원의 땅 앰포리어스
+    ("126", "322"),  # 거친 파도를 헤치는 선장 / 즐거움에 취한 바다의 일각
+    ("125", "321"),  # 태양과 번개의 여전사 / 꿈을 엮는 요정의 낙원
+    ("124", "320"),  # 망국을 애도하는 시인 / 사색하는 거목
+    ("123", "319"),  # 개선가를 울리는 영웅 / 고요한 습골지
     ("122", "318"),  # 지식의 바다에 빠진 학자 / 기묘한 나나 낙원
-    ("121", "317"),  # 다시 길을 나서는 사제 / 도람 왕조의 주조소
-    ("120", "316"),  # 바람과 구름을 가르는 용맹 / 모프소스의 무적 함대
-    ("119", "315"),  # 곤충 재앙을 잠재우는 철기군 / 달리는 늑대의 도람 왕조
+    ("121", "317"),  # 고행의 길에 다시 오른 사제 / 바다에 잠긴 루샤카
+    ("120", "316"),  # 바람과 구름을 가르는 용맹함 / 겁화 연등의 연마궁
+    ("119", "315"),  # 곤충 재앙을 잠재우는 철기군 / 질주하는 늑대의 도람 왕조
 ]
 
 HSR_BANNER_CONFIGS = {
@@ -314,6 +317,7 @@ HSR_BANNER_PRESETS = {
     "time_rotation": {
         "label": "⏰ KST 시각 연동 2시간 자동 로테이션 (캐릭터·광추·유물 동시 회전)",
         "banner_name": "시각 연동 은하열차 워프",
+        "mode": "time_rotation",
         "char1": None,
         "char2": None,
         "char_4_ids": [],
@@ -323,19 +327,21 @@ HSR_BANNER_PRESETS = {
         "relic_2": None,
     },
     "latest": {
-        "label": "✨ 최신 개척 캐릭터 (펄 / 스파키)",
+        "label": "✨ 최신 개척 캐릭터 (에이언즈★아하 / 펄)",
         "banner_name": "은하열차 최신 워프",
-        "char1": "1503",
-        "char2": "1501",
+        "mode": "preset",
+        "char1": "1511",
+        "char2": "1503",
         "char_4_ids": ["1301", "1223", "1202"],
         "lc_1": "23065",
-        "lc_2": "23053",
-        "relic_1": "130",
-        "relic_2": "326",
+        "lc_2": "23055",
+        "relic_1": "134",
+        "relic_2": "330",
     },
     "elation_stage": {
         "label": "🎭 환락의 축복 스테이지 (어벤츄린•웨이브 / 로빈•서머레토)",
         "banner_name": "환락의 스포트라이트",
+        "mode": "preset",
         "char1": "1513",
         "char2": "1512",
         "char_4_ids": ["1301", "1202", "1106"],
@@ -347,6 +353,7 @@ HSR_BANNER_PRESETS = {
     "fate_collab": {
         "label": "👑 Fate/stay night 콜라보 (세이버 / 아처 / 길가메시 / 토오사카 린)",
         "banner_name": "성배전쟁 스페셜 워프",
+        "mode": "preset",
         "char1": "1014",
         "char2": "1509",
         "char_4_ids": ["1301", "1223", "1106"],
@@ -358,6 +365,7 @@ HSR_BANNER_PRESETS = {
     "amphoreus_dawn": {
         "label": "☀️ 앰포리어스 황금의 후예 (파이논 / 카스토리스)",
         "banner_name": "여명의 구세주 & 사신의 포옹",
+        "mode": "preset",
         "char1": "1408",  # 파이논
         "char2": "1407",  # 카스토리스
         "char_4_ids": ["1301", "1202", "1106"],  # 갤러거, 정운, 페라
@@ -369,6 +377,7 @@ HSR_BANNER_PRESETS = {
     "amphoreus_memory": {
         "label": "❄️ 영원의 기억과 찬란한 지식 (키레네 / 더 헤르타)",
         "banner_name": "영원한 사랑의 시 & 지니어스의 서곡",
+        "mode": "preset",
         "char1": "1415",  # 키레네
         "char2": "1401",  # 더 헤르타
         "char_4_ids": ["1223", "1013", "1009"],  # 맥택, 헤르타, 아스타
@@ -380,6 +389,7 @@ HSR_BANNER_PRESETS = {
     "penacony_dream": {
         "label": "🌌 페나코니 꿈의 무대 (아케론 / 반디)",
         "banner_name": "공허의 칼날 & 불타는 반딧불",
+        "mode": "preset",
         "char1": "1308",  # 아케론
         "char2": "1310",  # 반디
         "char_4_ids": ["1301", "1106", "1214"],  # 갤러거, 페라, 설의
@@ -391,6 +401,7 @@ HSR_BANNER_PRESETS = {
     "ipc_harmony": {
         "label": "🎵 은하 화합 슈퍼 서포트 (로빈 / 선데이)",
         "banner_name": "꿈의 노래 & 질서의 여명",
+        "mode": "preset",
         "char1": "1309",  # 로빈
         "char2": "1313",  # 선데이
         "char_4_ids": ["1202", "1201", "1110"],  # 정운, 청작, 링스
@@ -403,7 +414,8 @@ HSR_BANNER_PRESETS = {
 
 # 오프라인/네트워크 장애 대비 내장 폴백 데이터
 HSR_EMBEDDED_FALLBACK_CHARS = [
-    {"id": "1503", "name": "펄", "rank": 5, "path": "Memory", "element": "Imaginary", "release": 1776000000, "pool_type": "한정"},
+    {"id": "1511", "name": "에이언즈★아하", "rank": 5, "path": "Elation", "element": "Quantum", "release": 1794387600, "pool_type": "한정"},
+    {"id": "1503", "name": "펄", "rank": 5, "path": "Elation", "element": "Ice", "release": 1790586000, "pool_type": "한정"},
     {"id": "1513", "name": "어벤츄린•웨이브", "rank": 5, "path": "Elation", "element": "Imaginary", "release": 1775500000, "pool_type": "한정"},
     {"id": "1512", "name": "로빈•서머레토", "rank": 5, "path": "Elation", "element": "Physical", "release": 1775000000, "pool_type": "한정"},
     {"id": "1509", "name": "길가메시", "rank": 5, "path": "Mage", "element": "Imaginary", "release": 1774500000, "pool_type": "콜라보 한정"},
@@ -450,6 +462,7 @@ HSR_EMBEDDED_FALLBACK_LCS = [
     {"id": "23058", "name": "다음 꽃피는 계절의 만남", "rank": 5, "path": "Memory", "warp_source": "limited", "pool_type": "광추한정"},
     {"id": "23057", "name": "갤럭시 시티에 오신 것을 환영합니다", "rank": 5, "path": "Mage", "warp_source": "limited", "pool_type": "광추한정"},
     {"id": "23056", "name": "거짓말의 종막", "rank": 5, "path": "Warlock", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23055", "name": "내일에 바치는 색채", "rank": 5, "path": "Elation", "warp_source": "limited", "pool_type": "광추한정"},
     {"id": "23054", "name": "그녀가 보기로 결심했을 때", "rank": 5, "path": "Shaman", "warp_source": "limited", "pool_type": "광추한정"},
     {"id": "23053", "name": "눈부신 파키의 세상", "rank": 5, "path": "Elation", "warp_source": "limited", "pool_type": "광추한정"},
     {"id": "23052", "name": "이 순간처럼 영원한 사랑", "rank": 5, "path": "Memory", "warp_source": "limited", "pool_type": "광추한정"},
@@ -560,8 +573,17 @@ def _parse_hsr_items(
     lcs: list[dict] = []
     relics: list[dict] = []
 
-    av_src = y_avatars if isinstance(y_avatars, dict) and y_avatars else (sr_avatars or {})
-    lc_src = y_lcs if isinstance(y_lcs, dict) and y_lcs else (sr_lcs or {})
+    av_src: dict = {}
+    if isinstance(sr_avatars, dict):
+        av_src.update(sr_avatars)
+    if isinstance(y_avatars, dict):
+        av_src.update(y_avatars)
+
+    lc_src: dict = {}
+    if isinstance(sr_lcs, dict):
+        lc_src.update(sr_lcs)
+    if isinstance(y_lcs, dict):
+        lc_src.update(y_lcs)
 
     for cid, raw in av_src.items():
         if not isinstance(raw, dict):
@@ -569,7 +591,7 @@ def _parse_hsr_items(
         cid_s = str(raw.get("id") or cid)
         if _should_exclude_hsr_char(cid_s, raw, now_ts):
             continue
-        sr_fallback = (sr_avatars or {}).get(cid_s) or {}
+        sr_fallback = sr_avatars.get(cid_s) if isinstance(sr_avatars, dict) and isinstance(sr_avatars.get(cid_s), dict) else {}
 
         rank = int(raw.get("rank") or raw.get("rarity") or sr_fallback.get("rarity") or 4)
         if rank not in (4, 5):
@@ -621,7 +643,7 @@ def _parse_hsr_items(
             "element_name": elem_info["name"],
             "element_emoji": elem_info["emoji"],
             "icon": str(raw.get("icon") or cid_s),
-            "release": int(raw.get("release") or 0),
+            "release": int(raw.get("release") or (1794387600 if cid_s == "1511" else (int(cid_s) * 1000000 if cid_s.isdigit() and int(cid_s) >= 1511 else 0))),
             "pool_type": pool_type,
             "warpable": warpable,
         })
@@ -634,7 +656,7 @@ def _parse_hsr_items(
             continue
         if raw.get("beta"):
             continue
-        sr_fallback = (sr_lcs or {}).get(lid_s) or {}
+        sr_fallback = sr_lcs.get(lid_s) if isinstance(sr_lcs, dict) and isinstance(sr_lcs.get(lid_s), dict) else {}
 
         rank = int(raw.get("rank") or raw.get("rarity") or sr_fallback.get("rarity") or 3)
         if rank not in (3, 4, 5):
@@ -706,8 +728,8 @@ def _parse_hsr_items(
     for rid_s in rel_ids:
         if not rid_s.isdigit():
             continue
-        yr = (y_relics or {}).get(rid_s) or {}
-        sr = (sr_relics or {}).get(rid_s) or {}
+        yr = y_relics.get(rid_s) if isinstance(y_relics, dict) and isinstance(y_relics.get(rid_s), dict) else {}
+        sr = sr_relics.get(rid_s) if isinstance(sr_relics, dict) and isinstance(sr_relics.get(rid_s), dict) else {}
         if yr.get("beta"):
             continue
         name = _clean_text(yr.get("name") or sr.get("name") or f"유물 {rid_s}")
@@ -847,12 +869,16 @@ def hydrate_hsr_kr_cache_from_disk() -> bool:
     try:
         with open(HSR_CACHE_FILE, "r", encoding="utf-8") as f:
             payload = json.load(f)
-        chars = payload.get("chars") or []
-        lcs = payload.get("light_cones") or []
-        relics = payload.get("relics") or []
+        if not isinstance(payload, dict):
+            return False
+        chars = [c for c in (payload.get("chars") or []) if isinstance(c, dict)] if isinstance(payload.get("chars"), list) else []
+        lcs = [l for l in (payload.get("light_cones") or []) if isinstance(l, dict)] if isinstance(payload.get("light_cones"), list) else []
+        relics = [r for r in (payload.get("relics") or []) if isinstance(r, dict)] if isinstance(payload.get("relics"), list) else []
         fetched_at = float(payload.get("fetched_at") or 0.0)
         if chars and lcs:
             _set_db_state(chars, lcs, fetched_at, relics if relics else None)
+            if not any(c.get("id") == "1511" for c in chars):
+                return False
             return True
     except Exception:
         pass
@@ -876,10 +902,10 @@ def load_hsr_kr_db(force_refresh: bool = False) -> tuple[list[dict], list[dict]]
             r2 = requests.get("https://sr.yatta.moe/api/v2/kr/equipment", timeout=15)
             r3 = requests.get("https://sr.yatta.moe/api/v2/kr/relic", timeout=15)
             if r1.status_code == 200 and r2.status_code == 200:
-                y_av = (r1.json().get("data") or {}).get("items") or {}
-                y_lc = (r2.json().get("data") or {}).get("items") or {}
+                y_av = core.coerce_dict_like(core.as_dict(core.as_dict(r1.json()).get("data")).get("items"))
+                y_lc = core.coerce_dict_like(core.as_dict(core.as_dict(r2.json()).get("data")).get("items"))
             if r3.status_code == 200:
-                y_rel = (r3.json().get("data") or {}).get("items") or {}
+                y_rel = core.coerce_dict_like(core.as_dict(core.as_dict(r3.json()).get("data")).get("items"))
         except Exception as e:
             print(f"⚠️ [스타레일 yatta 동기화 경고] {e}", flush=True)
 
@@ -890,15 +916,14 @@ def load_hsr_kr_db(force_refresh: bool = False) -> tuple[list[dict], list[dict]]
         except Exception:
             pass
 
-        if not (y_av and y_lc):
-            try:
-                r3_av = requests.get("https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/index_min/kr/characters.json", timeout=15)
-                r4_lc = requests.get("https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/index_min/kr/light_cones.json", timeout=15)
-                if r3_av.status_code == 200 and r4_lc.status_code == 200:
-                    sr_av = r3_av.json()
-                    sr_lc = r4_lc.json()
-            except Exception as e:
-                print(f"⚠️ [스타레일 StarRailRes 동기화 경고] {e}", flush=True)
+        try:
+            r3_av = requests.get("https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/index_min/kr/characters.json", timeout=15)
+            r4_lc = requests.get("https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/index_min/kr/light_cones.json", timeout=15)
+            if r3_av.status_code == 200 and r4_lc.status_code == 200:
+                sr_av = r3_av.json()
+                sr_lc = r4_lc.json()
+        except Exception as e:
+            print(f"⚠️ [스타레일 StarRailRes 동기화 경고] {e}", flush=True)
 
         if (y_av and y_lc) or (sr_av and sr_lc):
             chars, lcs, relics = _parse_hsr_items(y_av, y_lc, sr_av, sr_lc, y_rel, sr_rel)
@@ -951,18 +976,18 @@ def fetch_hsr_detail_kr(item_id: str, kind: str = "char") -> dict:
     try:
         res = requests.get(f"https://sr.yatta.moe/api/v2/kr/{endpoint}/{item_id}", timeout=10)
         if res.status_code == 200:
-            d = res.json().get("data") or {}
-            if kind == "char":
-                fetter = d.get("fetter") or {}
-                cv_obj = fetter.get("cv") if isinstance(fetter.get("cv"), dict) else {}
+            d = core.as_dict(core.as_dict(res.json()).get("data"))
+            if d and kind == "char":
+                fetter = core.as_dict(d.get("fetter"))
+                cv_obj = core.as_dict(fetter.get("cv"))
                 cv_kr = (cv_obj.get("CV_KR") or cv_obj.get("KR") or "").strip()
                 detail_info = {
                     "faction": _clean_text(fetter.get("faction")),
                     "description": _clean_text(fetter.get("description")),
                     "cv_kr": _clean_text(cv_kr),
                 }
-            else:
-                sk = d.get("skill") or {}
+            elif d:
+                sk = core.as_dict(d.get("skill"))
                 detail_info = {
                     "description": _clean_text(d.get("description")),
                     "skill_name": _clean_text(sk.get("name")),
@@ -1282,10 +1307,14 @@ def build_hsr_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1", he
 # 유저 계정 데이터 구조 & 워프 확률 엔진
 # ==========================================
 def ensure_hsr_user(data: dict, guild_id: int, user_id: int) -> dict:
-    users_root = data.setdefault("hsr_users", {})
-    g_map = users_root.setdefault(str(guild_id or 0), {})
-    u_data = g_map.setdefault(str(user_id), {})
-    u_data.setdefault("items", {})
+    g_map = core.ensure_dict_path(data, "hsr_users", str(guild_id or 0))
+    u_key = str(user_id)
+    u_data = g_map.get(u_key)
+    if not isinstance(u_data, dict):
+        u_data = {}
+        g_map[u_key] = u_data
+    if not isinstance(u_data.get("items"), dict):
+        u_data["items"] = core.coerce_dict_like(u_data.get("items"))
     u_data.setdefault("total_pulls", 0)
     # 캐릭터 이벤트 워프 스택 (①/② 공유)
     u_data.setdefault("pity_char", 0)
@@ -1314,11 +1343,14 @@ def ensure_hsr_user(data: dict, guild_id: int, user_id: int) -> dict:
     u_data.setdefault("special_pass", 0)     # 별의 궤도 전용티켓
     u_data.setdefault("standard_pass", 0)    # 별의 궤도 티켓
     u_data.setdefault("traveler_guide", 0)   # 여행 가이드 (레벨업 Lv.1~80)
-    u_data.setdefault("shop_monthly", {})
-    u_data.setdefault("party", [])           # 4인 파티 item_key 목록
+    if not isinstance(u_data.get("shop_monthly"), dict):
+        u_data["shop_monthly"] = core.coerce_dict_like(u_data.get("shop_monthly"))
+    if not isinstance(u_data.get("party"), list):
+        u_data["party"] = []           # 4인 파티 item_key 목록
     u_data.setdefault("profile_char", None)  # 개척자 카드 대표 캐릭터
     u_data.setdefault("profile_note", "")    # 한마디 상태 문구
-    u_data.setdefault("history", [])
+    if not isinstance(u_data.get("history"), list):
+        u_data["history"] = []
 
     # 유물 세트 효과 및 성급 라벨 보정 (캐릭터 5★/4★, 광추 5★/4★/3★, 유물 5★/4★/3★ 모두 보존)
     items_map = u_data.get("items")
@@ -1343,16 +1375,27 @@ def ensure_hsr_user(data: dict, guild_id: int, user_id: int) -> dict:
 
 def get_hsr_time_rotation_context(now_dt: datetime.datetime | None = None) -> dict:
     """현재 한국 표준시(KST) 2시간 단위 블록에 맞춰 캐릭터·광추·유물 픽업을 동적으로 계산합니다."""
-    now = now_dt or datetime.datetime.now(core.KST)
-    slot_idx = (now.day * 12 + (now.hour // 2)) % len(HSR_TIME_ROTATION_CHAR_PAIRS)
-    rel_idx = (now.day * 12 + (now.hour // 2)) % len(HSR_TIME_ROTATION_RELIC_PAIRS)
-    start_hour = (now.hour // 2) * 2
-    end_hour = (start_hour + 2) % 24
+    if now_dt is None:
+        now_kst = datetime.datetime.now(core.KST)
+    elif now_dt.tzinfo is None:
+        now_kst = now_dt.replace(tzinfo=core.KST)
+    else:
+        now_kst = now_dt.astimezone(core.KST)
+
+    block_2h = now_kst.hour // 2
+    start_hour = block_2h * 2
+    end_hour = start_hour + 2
+    day_seed = now_kst.timetuple().tm_yday + now_kst.year * 366
+    slot_seq = day_seed * 12 + block_2h
+    slot_idx = slot_seq % len(HSR_TIME_ROTATION_CHAR_PAIRS)
+    rel_idx = (slot_seq * 5 + 2) % len(HSR_TIME_ROTATION_RELIC_PAIRS)
     c1_id, c2_id, theme_label = HSR_TIME_ROTATION_CHAR_PAIRS[slot_idx]
     r1_id, r2_id = HSR_TIME_ROTATION_RELIC_PAIRS[rel_idx]
+    window_str = f"{now_kst.month:02d}/{now_kst.day:02d} {start_hour:02d}:00~{end_hour - 1:02d}:59 KST"
     return {
+        "slot_seq": slot_seq,
         "slot_idx": slot_idx,
-        "window_str": f"{start_hour:02d}:00~{end_hour:02d}:00 KST",
+        "window_str": window_str,
         "theme_label": theme_label,
         "char1_id": c1_id,
         "char2_id": c2_id,
@@ -1363,7 +1406,7 @@ def get_hsr_time_rotation_context(now_dt: datetime.datetime | None = None) -> di
     }
 
 
-def resolve_effective_hsr_pickup(pickup_cfg: dict | None) -> dict:
+def resolve_effective_hsr_pickup(pickup_cfg: dict | None, now_dt: datetime.datetime | None = None) -> dict:
     """설정된 스타레일 워프 픽업을 실제 캐릭터/광추/유물 객체로 해석합니다 (시각별 자동 로테이션 포함)."""
     chars, lcs = load_hsr_kr_db()
     by_char = {c["id"]: c for c in chars}
@@ -1376,38 +1419,36 @@ def resolve_effective_hsr_pickup(pickup_cfg: dict | None) -> dict:
     lim_5_lcs = [l for l in lcs if l["rank"] == 5 and l["warp_source"] == "limited"]
     std_4_lcs = [l for l in lcs if l["rank"] == 4 and l["warp_source"] == "standard"]
 
-    rot = get_hsr_time_rotation_context()
-
-    c1_id = cfg.get("char1")
-    c2_id = cfg.get("char2")
-    is_time_rot_c = False
-    if not c1_id or c1_id not in by_char:
-        c1_id = rot["char1_id"] if rot["char1_id"] in by_char else (lim_5_chars[0]["id"] if lim_5_chars else (chars[0]["id"] if chars else None))
+    rot = get_hsr_time_rotation_context(now_dt)
+    raw_mode = cfg.get("mode")
+    c1_raw = cfg.get("char1")
+    if raw_mode == "time_rotation":
         is_time_rot_c = True
-    if not c2_id or c2_id not in by_char or c2_id == c1_id:
+    elif raw_mode in ("preset", "latest", "custom"):
+        is_time_rot_c = False
+    else:
+        is_time_rot_c = not c1_raw or c1_raw not in by_char
+
+    if is_time_rot_c:
+        c1_id = rot["char1_id"] if rot["char1_id"] in by_char else (lim_5_chars[0]["id"] if lim_5_chars else (chars[0]["id"] if chars else None))
         if rot["char2_id"] in by_char and rot["char2_id"] != c1_id:
             c2_id = rot["char2_id"]
         else:
             cand = [c["id"] for c in lim_5_chars if c["id"] != c1_id]
             c2_id = cand[0] if cand else c1_id
 
-    c4_ids = [cid for cid in (cfg.get("char_4_ids") or []) if cid in by_char][:3]
-    if len(c4_ids) < 3 and pool_4_chars:
-        offset = (rot["slot_idx"] * 3) % max(1, len(pool_4_chars))
-        rotated_4 = pool_4_chars[offset:] + pool_4_chars[:offset]
-        for c in rotated_4:
-            if c["id"] not in c4_ids:
-                c4_ids.append(c["id"])
-            if len(c4_ids) >= 3:
-                break
+        c4_ids = []
+        if pool_4_chars:
+            offset = (rot["slot_seq"] * 3) % max(1, len(pool_4_chars))
+            rotated_4 = pool_4_chars[offset:] + pool_4_chars[:offset]
+            for c in rotated_4:
+                if c["id"] not in c4_ids:
+                    c4_ids.append(c["id"])
+                if len(c4_ids) >= 3:
+                    break
 
-    # 광추 픽업: 미지정 시 현재 픽업 5성 캐릭터의 전용 광추를 최우선 매칭!
-    l1_id = cfg.get("lc_1")
-    l2_id = cfg.get("lc_2")
-    if not l1_id or l1_id not in by_lc:
         sig1 = HSR_SIGNATURE_LCS.get(c1_id or "")
         l1_id = sig1 if (sig1 and sig1 in by_lc) else (lim_5_lcs[0]["id"] if lim_5_lcs else (lcs[0]["id"] if lcs else None))
-    if not l2_id or l2_id not in by_lc or l2_id == l1_id:
         sig2 = HSR_SIGNATURE_LCS.get(c2_id or "")
         if sig2 and sig2 in by_lc and sig2 != l1_id:
             l2_id = sig2
@@ -1415,36 +1456,83 @@ def resolve_effective_hsr_pickup(pickup_cfg: dict | None) -> dict:
             cand_l = [l["id"] for l in lim_5_lcs if l["id"] != l1_id]
             l2_id = cand_l[0] if cand_l else l1_id
 
-    l4_ids = [lid for lid in (cfg.get("lc_4_ids") or []) if lid in by_lc and by_lc[lid].get("warpable")][:3]
-    if len(l4_ids) < 3 and std_4_lcs:
-        l_off = (rot["slot_idx"] * 3) % max(1, len(std_4_lcs))
-        rot_l4 = std_4_lcs[l_off:] + std_4_lcs[:l_off]
-        for l in rot_l4:
-            if l["id"] not in l4_ids:
-                l4_ids.append(l["id"])
-            if len(l4_ids) >= 3:
-                break
+        l4_ids = []
+        if std_4_lcs:
+            l_off = (rot["slot_seq"] * 3) % max(1, len(std_4_lcs))
+            rot_l4 = std_4_lcs[l_off:] + std_4_lcs[:l_off]
+            for l in rot_l4:
+                if l["id"] not in l4_ids:
+                    l4_ids.append(l["id"])
+                if len(l4_ids) >= 3:
+                    break
 
-    # 유물 세트 픽업: 시각별 자동 로테이션 또는 수동 지정
-    r1_id = cfg.get("relic_1")
-    r2_id = cfg.get("relic_2")
-    if not r1_id or r1_id not in by_rel:
         r1_id = rot["relic_1_id"] if rot["relic_1_id"] in by_rel else (HSR_RELICS[0]["id"] if HSR_RELICS else None)
-    if not r2_id or r2_id not in by_rel or r2_id == r1_id:
         if rot["relic_2_id"] in by_rel and rot["relic_2_id"] != r1_id:
             r2_id = rot["relic_2_id"]
         else:
             cand_r = [r["id"] for r in HSR_RELICS if r["id"] != r1_id]
             r2_id = cand_r[0] if cand_r else r1_id
 
-    b_name = cfg.get("banner_name")
-    if not b_name or b_name in ("별을 향한 도약", "시각 연동 은하열차 워프") or is_time_rot_c:
         b_name = f"{rot['theme_label']} ({rot['window_str']})"
+        v_label = f"⏰ {rot['window_str']} 실시간 로테이션"
+        time_win = rot["window_str"]
+        eff_mode = "time_rotation"
+    else:
+        c1_id = c1_raw if (c1_raw and c1_raw in by_char) else (lim_5_chars[0]["id"] if lim_5_chars else (chars[0]["id"] if chars else None))
+        c2_id = cfg.get("char2")
+        if not c2_id or c2_id not in by_char or c2_id == c1_id:
+            cand = [c["id"] for c in lim_5_chars if c["id"] != c1_id]
+            c2_id = cand[0] if cand else c1_id
+
+        c4_ids = [cid for cid in (cfg.get("char_4_ids") or []) if cid in by_char][:3]
+        if len(c4_ids) < 3 and pool_4_chars:
+            for c in pool_4_chars:
+                if c["id"] not in c4_ids:
+                    c4_ids.append(c["id"])
+                if len(c4_ids) >= 3:
+                    break
+
+        l1_id = cfg.get("lc_1")
+        l2_id = cfg.get("lc_2")
+        if not l1_id or l1_id not in by_lc:
+            sig1 = HSR_SIGNATURE_LCS.get(c1_id or "")
+            l1_id = sig1 if (sig1 and sig1 in by_lc) else (lim_5_lcs[0]["id"] if lim_5_lcs else (lcs[0]["id"] if lcs else None))
+        if not l2_id or l2_id not in by_lc or l2_id == l1_id:
+            sig2 = HSR_SIGNATURE_LCS.get(c2_id or "")
+            if sig2 and sig2 in by_lc and sig2 != l1_id:
+                l2_id = sig2
+            else:
+                cand_l = [l["id"] for l in lim_5_lcs if l["id"] != l1_id]
+                l2_id = cand_l[0] if cand_l else l1_id
+
+        l4_ids = [lid for lid in (cfg.get("lc_4_ids") or []) if lid in by_lc and by_lc[lid].get("warpable")][:3]
+        if len(l4_ids) < 3 and std_4_lcs:
+            for l in std_4_lcs:
+                if l["id"] not in l4_ids:
+                    l4_ids.append(l["id"])
+                if len(l4_ids) >= 3:
+                    break
+
+        r1_id = cfg.get("relic_1")
+        r2_id = cfg.get("relic_2")
+        if not r1_id or r1_id not in by_rel:
+            r1_id = HSR_RELICS[0]["id"] if HSR_RELICS else None
+        if not r2_id or r2_id not in by_rel or r2_id == r1_id:
+            cand_r = [r["id"] for r in HSR_RELICS if r["id"] != r1_id]
+            r2_id = cand_r[0] if cand_r else r1_id
+
+        b_name = cfg.get("banner_name")
+        if not b_name or b_name in ("별을 향한 도약", "시각 연동 은하열차 워프"):
+            b_name = "은하열차 이벤트 워프"
+        v_label = cfg.get("version_label") or "🎯 고정/커스텀 픽업"
+        time_win = ""
+        eff_mode = raw_mode or "preset"
 
     return {
+        "mode": eff_mode,
         "banner_name": b_name,
-        "version_label": cfg.get("version_label") or f"⏰ {rot['window_str']} 실시간 로테이션",
-        "time_window": rot["window_str"],
+        "version_label": v_label,
+        "time_window": time_win,
         "char1": by_char.get(c1_id),
         "char2": by_char.get(c2_id),
         "char_4": [by_char[i] for i in c4_ids if i in by_char],
@@ -1697,12 +1785,14 @@ def _roll_single_hsr(
 
 def _apply_hsr_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[int, int]:
     """유저 스타레일 보관함에 캐릭터/광추/유물을 추가하고 성혼(E0~E6)/중첩(S1~S5)/강화(+3~+15) 및 별빛/잔재를 계산합니다."""
-    items_map = u_data.setdefault("items", {})
+    items_map = core.ensure_dict_path(u_data, "items")
     i_key = item["item_key"]
     rank = int(item.get("rank", 3))
     kind = item.get("kind", "lc")
 
     existing = items_map.get(i_key)
+    if not isinstance(existing, dict):
+        existing = None
     gained_starlight = 0
     gained_embers = 20 if rank <= 3 else (30 if rank == 5 else 20)
 
@@ -1834,11 +1924,13 @@ def execute_hsr_warp(guild_id: int, user_id: int, banner_key: str = "char1", cou
     rng = random.SystemRandom()
     if practice:
         sim_state = copy.deepcopy(u_data)
-        owned_items = u_data.get("items", {})
+        owned_items = core.as_dict(u_data.get("items"))
         drawn = []
         for _ in range(count):
             it = _roll_single_hsr(sim_state, banner_key, eff_pickup, std_5_chars, std_4_chars, std_5_lcs, std_4_lcs, std_3_lcs, rng)
             prev = owned_items.get(it["item_key"])
+            if not isinstance(prev, dict):
+                prev = None
             it["is_new"] = prev is None
             if it["kind"] == "char":
                 it["new_eidolon"] = min(6, int(prev.get("eidolon", 0)) + 1) if prev else 0
@@ -1914,13 +2006,13 @@ def execute_hsr_warp(guild_id: int, user_id: int, banner_key: str = "char1", cou
 
 
 def _record_hsr_hof(data: dict, guild_id: int, user_id: int, drawn: list[dict], banner_key: str, now_iso: str):
-    hof_root = data.setdefault("hsr_hall_of_fame", {})
-    g_hof = hof_root.setdefault(str(guild_id or 0), {})
-    if not isinstance(g_hof, dict):
-        g_hof = {}
-        hof_root[str(guild_id or 0)] = g_hof
-    top_records = g_hof.setdefault("top_records", [])
-    recent_5 = g_hof.setdefault("recent_5_logs", [])
+    g_hof = core.ensure_dict_path(data, "hsr_hall_of_fame", str(guild_id or 0))
+    if not isinstance(g_hof.get("top_records"), list):
+        g_hof["top_records"] = []
+    if not isinstance(g_hof.get("recent_5_logs"), list):
+        g_hof["recent_5_logs"] = []
+    top_records = g_hof["top_records"]
+    recent_5 = g_hof["recent_5_logs"]
     b_short = HSR_BANNER_CONFIGS[banner_key]["short_name"]
 
     r5_items = [it for it in drawn if it.get("rank") == 5]
@@ -1957,8 +2049,8 @@ def _record_hsr_hof(data: dict, guild_id: int, user_id: int, drawn: list[dict], 
 def toggle_hsr_item_lock(guild_id: int, user_id: int, item_key: str) -> tuple[bool, bool, dict | None]:
     data = core.load_data()
     u_data = ensure_hsr_user(data, guild_id, user_id)
-    target = u_data.get("items", {}).get(item_key)
-    if not target:
+    target = core.as_dict(u_data.get("items")).get(item_key)
+    if not isinstance(target, dict):
         return False, False, None
     new_val = not bool(target.get("locked", False))
     target["locked"] = new_val
@@ -2023,7 +2115,7 @@ def purchase_hsr_shop_item(guild_id: int, user_id: int, offer_id: str) -> tuple[
     u_data = ensure_hsr_user(data, guild_id, user_id)
     cat = get_hsr_shop_catalog()
     m_key = cat["month_key"]
-    monthly = u_data.setdefault("shop_monthly", {})
+    monthly = core.ensure_dict_path(u_data, "shop_monthly")
     if monthly.get("month_key") != m_key:
         monthly.clear()
         monthly["month_key"] = m_key
@@ -2038,7 +2130,10 @@ def purchase_hsr_shop_item(guild_id: int, user_id: int, offer_id: str) -> tuple[
         c_obj = next((c for c in cat["chars"] if c["id"] == cid), None)
         if not c_obj:
             return False, "이번 달 별빛 교환 캐릭터가 아닙니다.", u_data
-        bought = monthly.setdefault("chars_bought", [])
+        bought = monthly.get("chars_bought")
+        if not isinstance(bought, list):
+            bought = []
+            monthly["chars_bought"] = bought
         if cid in bought:
             return False, f"이번 달 **{c_obj['name']}** 교환 한도(월 1회)를 이미 사용했습니다.", u_data
         if u_data["starlight"] < 140:
@@ -2075,8 +2170,8 @@ def purchase_hsr_shop_item(guild_id: int, user_id: int, offer_id: str) -> tuple[
 
     if offer_id == "herta_superimposer":
         owned_herta = [
-            it for it in u_data.get("items", {}).values()
-            if it.get("kind") == "lc" and str(it.get("id", "")).startswith(HSR_HERTA_LC_PREFIX) and int(it.get("superimposition", 1)) < 5
+            it for it in core.as_dict(u_data.get("items")).values()
+            if isinstance(it, dict) and it.get("kind") == "lc" and str(it.get("id", "")).startswith(HSR_HERTA_LC_PREFIX) and int(it.get("superimposition", 1)) < 5
         ]
         if not owned_herta:
             return False, "중첩 가능한 S5 미만 헤르타 5성 광추를 보유하고 있지 않습니다.", u_data
@@ -2157,8 +2252,8 @@ def levelup_hsr_char(guild_id: int, user_id: int, item_key: str) -> tuple[bool, 
     """여행 가이드 ×2권을 소모해 보유 캐릭터 레벨을 Lv.1 -> Lv.80까지 육성합니다."""
     data = core.load_data()
     u_data = ensure_hsr_user(data, guild_id, user_id)
-    c = u_data.get("items", {}).get(item_key)
-    if not c or c.get("kind") != "char":
+    c = core.as_dict(u_data.get("items")).get(item_key)
+    if not isinstance(c, dict) or c.get("kind") != "char":
         return False, "보유 중인 캐릭터를 찾을 수 없습니다.", u_data
     cur_lv = int(c.get("level", 1))
     if cur_lv >= 80:
@@ -2177,8 +2272,8 @@ def levelup_hsr_relic(guild_id: int, user_id: int, item_key: str) -> tuple[bool,
     """불멸의 잔재 ×20을 소모해 보유 유물을 +3강씩 최대 +15강까지 강화합니다."""
     data = core.load_data()
     u_data = ensure_hsr_user(data, guild_id, user_id)
-    rel = u_data.get("items", {}).get(item_key)
-    if not rel or rel.get("kind") != "relic":
+    rel = core.as_dict(u_data.get("items")).get(item_key)
+    if not isinstance(rel, dict) or rel.get("kind") != "relic":
         return False, "보유 중인 유물을 찾을 수 없습니다.", u_data
     cur_lv = int(rel.get("level", 3))
     if cur_lv >= 15:
@@ -2264,7 +2359,7 @@ def get_hsr_pokedex_stats(guild_id: int, user_id: int) -> dict:
     relics = HSR_RELICS or []
     data = core.load_data()
     u_data = ensure_hsr_user(data, guild_id, user_id)
-    owned_map = u_data.get("items", {})
+    owned_map = core.as_dict(u_data.get("items"))
 
     all_master = chars + lcs + relics
     warp_master = [it for it in all_master if it.get("warpable", True)]
@@ -2273,7 +2368,7 @@ def get_hsr_pokedex_stats(guild_id: int, user_id: int) -> dict:
     unowned_all = []
     for it in all_master:
         ik = it["item_key"]
-        if ik in owned_map:
+        if ik in owned_map and isinstance(owned_map[ik], dict):
             owned_all.append({**it, **owned_map[ik]})
         else:
             unowned_all.append(dict(it))
@@ -2317,20 +2412,26 @@ def get_hsr_pokedex_stats(guild_id: int, user_id: int) -> dict:
 
 
 def get_hsr_hall_of_fame(data: dict, guild_id: int) -> dict:
-    hof = data.get("hsr_hall_of_fame", {}).get(str(guild_id or 0), {})
-    if not isinstance(hof, dict):
+    hof = core.safe_get_dict(data, "hsr_hall_of_fame", str(guild_id or 0))
+    if not hof:
         return {"top_records": [], "recent_5_logs": []}
+    raw_top = hof.get("top_records")
+    raw_logs = hof.get("recent_5_logs")
     return {
-        "top_records": list(hof.get("top_records") or []),
-        "recent_5_logs": list(hof.get("recent_5_logs") or []),
+        "top_records": [r for r in (raw_top if isinstance(raw_top, list) else []) if isinstance(r, dict)],
+        "recent_5_logs": [r for r in (raw_logs if isinstance(raw_logs, list) else []) if isinstance(r, dict)],
     }
 
 
 def apply_hsr_pickup_preset(preset_key: str) -> tuple[bool, str, dict]:
     load_hsr_kr_db()
     data = core.load_data()
+    now_iso = datetime.datetime.now(core.KST).isoformat()
     if preset_key in ("reset", "time_rotation"):
-        data["hsr_pickup"] = copy.deepcopy(core.DEFAULT_CONFIG["hsr_pickup"])
+        cfg = copy.deepcopy(core.DEFAULT_CONFIG["hsr_pickup"])
+        cfg["mode"] = "time_rotation"
+        cfg["updated_at"] = now_iso
+        data["hsr_pickup"] = cfg
         core.save_data(data)
         eff = resolve_effective_hsr_pickup(data["hsr_pickup"])
         msg = "⏰ 스타레일 워프가 **KST 시각 연동 2시간 자동 로테이션** 모드로 설정되었습니다!" if preset_key == "time_rotation" else "🧹 스타레일 워프 픽업 설정이 기본값(시각 연동 로테이션)으로 초기화되었습니다."
@@ -2340,8 +2441,8 @@ def apply_hsr_pickup_preset(preset_key: str) -> tuple[bool, str, dict]:
     if not preset:
         return False, "알 수 없는 프리셋입니다.", resolve_effective_hsr_pickup(data.get("hsr_pickup"))
 
-    now_iso = datetime.datetime.now(core.KST).isoformat()
     cfg = {
+        "mode": preset.get("mode", "preset"),
         "char1": preset.get("char1"),
         "char2": preset.get("char2"),
         "char_4_ids": list(preset.get("char_4_ids") or []),
@@ -2408,7 +2509,7 @@ async def hsr_owned_char_autocomplete(interaction, current: str):
     data = core.get_cached_data()
     g_key = str(interaction.guild_id or 0)
     u_key = str(interaction.user.id)
-    items = data.get("hsr_users", {}).get(g_key, {}).get(u_key, {}).get("items", {})
+    items = core.safe_get_dict(data, "hsr_users", g_key, u_key, "items")
     owned = [v for v in items.values() if isinstance(v, dict) and v.get("kind") == "char"]
     owned.sort(key=lambda c: (-c.get("rank", 4), -c.get("eidolon", 0), c.get("name", "")))
     q = (current or "").strip().lower()

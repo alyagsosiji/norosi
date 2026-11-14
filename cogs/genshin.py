@@ -602,7 +602,7 @@ class GenshinInventoryView(core.SafeView):
         data = core.load_data()
         uid = self.user.id if self.user else 0
         u_data = genshin_core.ensure_genshin_user(data, self.guild_id, uid)
-        items = list(u_data.get("items", {}).values())
+        items = [v for v in core.as_dict(u_data.get("items")).values() if isinstance(v, dict) and v.get("kind") and v.get("name")]
         if self.filter_mode == "char":
             items = [it for it in items if it.get("kind") == "char"]
         elif self.filter_mode == "weapon":
@@ -645,16 +645,17 @@ class GenshinInventoryView(core.SafeView):
         if slice_items:
             d_opts = []
             for it in slice_items:
-                if it["kind"] == "char":
+                ikind = it.get("kind")
+                if ikind == "char":
                     tag = f"C{it.get('constellation', 0)}"
-                elif it["kind"] == "artifact":
+                elif ikind == "artifact":
                     tag = f"+{it.get('level', 4)}"
                 else:
                     tag = f"R{it.get('refinement', 1)}"
                 lock_icon = "🔒 " if it.get("locked") else ""
                 d_opts.append(discord.SelectOption(
-                    label=f"{lock_icon}{it['rarity_label']} {it['name']} ({tag})"[:95],
-                    value=it["item_key"],
+                    label=f"{lock_icon}{it.get('rarity_label', '⭐')} {it.get('name', '알 수 없음')} ({tag})"[:95],
+                    value=str(it.get("item_key") or it.get("id") or it.get("name") or "unknown")[:100],
                     description=f"Lv.{it.get('level', 1)} · 보유 {it.get('count', 1)}회 · 클릭해 스플래시/잠금/레벨업"[:95],
                 ))
             sel_it = discord.ui.Select(placeholder="🖼️ 상세 일러스트 · 🔒잠금 · ⬆️레벨업 선택...", options=d_opts, row=1)
@@ -719,19 +720,22 @@ class GenshinInventoryView(core.SafeView):
         lines = []
         for idx, it in enumerate(slice_items, start=self.page * self._per_page + 1):
             lk = "🔒" if it.get("locked") else "🔓"
-            if it["kind"] == "char":
+            ikind = it.get("kind")
+            rlabel = it.get("rarity_label", "⭐")
+            iname = it.get("name", "알 수 없음")
+            if ikind == "char":
                 lines.append(
-                    f"**{idx:02d}.** {lk} **{it['rarity_label']} {it['name']}** `C{it.get('constellation', 0)}` · `Lv.{it.get('level', 1)}`\n"
+                    f"**{idx:02d}.** {lk} **{rlabel} {iname}** `C{it.get('constellation', 0)}` · `Lv.{it.get('level', 1)}`\n"
                     f"└ {it.get('element_emoji', '')}{it.get('element_name', '')} · {it.get('weapon_type_emoji', '')}{it.get('weapon_type_name', '')} · 누적 `{it.get('count', 1)}회`"
                 )
-            elif it["kind"] == "artifact":
+            elif ikind == "artifact":
                 lines.append(
-                    f"**{idx:02d}.** {lk} **{it['rarity_label']} {it['name']}** `+{it.get('level', 4)}` · 누적 `{it.get('count', 1)}회`\n"
+                    f"**{idx:02d}.** {lk} **{rlabel} {iname}** `+{it.get('level', 4)}` · 누적 `{it.get('count', 1)}회`\n"
                     f"└ {it.get('slot_name', '🏺성유물')} · 주옵: `{it.get('main_stat', '-')}` · {it.get('bonus_2p', '')[:36]}"
                 )
             else:
                 lines.append(
-                    f"**{idx:02d}.** {lk} **{it['rarity_label']} {it['name']}** `R{it.get('refinement', 1)}` · 누적 `{it.get('count', 1)}회`\n"
+                    f"**{idx:02d}.** {lk} **{rlabel} {iname}** `R{it.get('refinement', 1)}` · 누적 `{it.get('count', 1)}회`\n"
                     f"└ {it.get('weapon_type_emoji', '')}{it.get('weapon_type_name', '')} · {it.get('special_prop_name', '-')}"
                 )
         body = "\n".join(lines) if lines else "*(해당 조건에 보유한 캐릭터·무기·성유물이 없습니다)*"
@@ -760,7 +764,8 @@ class GenshinItemDetailView(core.SafeView):
         self.clear_items()
         data = core.load_data()
         u_data = genshin_core.ensure_genshin_user(data, self.guild_id, self.user.id if self.user else 0)
-        it = u_data.get("items", {}).get(self.item_key)
+        raw_it = core.as_dict(u_data.get("items")).get(self.item_key)
+        it = raw_it if isinstance(raw_it, dict) else None
         locked = bool(it.get("locked")) if it else False
 
         b_lock = discord.ui.Button(
@@ -795,7 +800,8 @@ class GenshinItemDetailView(core.SafeView):
         genshin_core.load_genshin_kr_db()
         data = core.load_data()
         u_data = genshin_core.ensure_genshin_user(data, self.guild_id, self.user.id if self.user else 0)
-        owned = u_data.get("items", {}).get(self.item_key)
+        raw_owned = core.as_dict(u_data.get("items")).get(self.item_key)
+        owned = raw_owned if isinstance(raw_owned, dict) else None
         master = genshin_core.GENSHIN_ALL_ITEMS.get(self.item_key) or owned or {"id": "", "kind": "char", "name": "정보 없음", "rank": 4, "rarity_label": "★★★★"}
         it = {**master, **(owned or {})}
         det = await asyncio.to_thread(genshin_core.fetch_genshin_detail_kr, it["id"], it["kind"])
@@ -1080,7 +1086,7 @@ class GenshinShopView(core.SafeView):
         cat = genshin_core.get_genshin_shop_catalog()
         data = core.load_data()
         u_data = genshin_core.ensure_genshin_user(data, self.guild_id, self.user.id if self.user else 0)
-        monthly = u_data.get("shop_monthly", {})
+        monthly = core.as_dict(u_data.get("shop_monthly"))
         if monthly.get("month_key") != cat["month_key"]:
             di = da = 0
         else:
@@ -1118,7 +1124,7 @@ class GenshinPartyView(core.SafeView):
         self.clear_items()
         data = core.load_data()
         u_data = genshin_core.ensure_genshin_user(data, self.guild_id, self.user.id if self.user else 0)
-        owned_chars = [v for v in u_data.get("items", {}).values() if isinstance(v, dict) and v.get("kind") == "char"]
+        owned_chars = [v for v in core.as_dict(u_data.get("items")).values() if isinstance(v, dict) and v.get("kind") == "char"]
         owned_chars.sort(key=lambda c: (-int(c.get("rank", 4)), -int(c.get("level", 1)), -int(c.get("constellation", 0)), c.get("name", "")))
 
         if owned_chars:
@@ -1173,7 +1179,7 @@ class GenshinPartyView(core.SafeView):
             return
         data = core.load_data()
         u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
-        chars = [v for v in u_data.get("items", {}).values() if isinstance(v, dict) and v.get("kind") == "char"]
+        chars = [v for v in core.as_dict(u_data.get("items")).values() if isinstance(v, dict) and v.get("kind") == "char"]
         chars.sort(key=lambda c: -genshin_core.compute_genshin_char_power(c))
         u_data["party"] = [c["item_key"] for c in chars[:4]]
         core.save_data(data)
@@ -1193,8 +1199,9 @@ class GenshinPartyView(core.SafeView):
     def build_embed(self) -> discord.Embed:
         data = core.load_data()
         u_data = genshin_core.ensure_genshin_user(data, self.guild_id, self.user.id if self.user else 0)
-        items = u_data.get("items", {})
-        party_keys = [k for k in (u_data.get("party") or []) if k in items][:4]
+        items = core.as_dict(u_data.get("items"))
+        raw_party = u_data.get("party") if isinstance(u_data.get("party"), list) else []
+        party_keys = [k for k in raw_party if isinstance(items.get(k), dict)][:4]
         party_objs = [items[k] for k in party_keys]
         analysis = genshin_core.analyze_genshin_party(party_objs)
 
@@ -1249,13 +1256,15 @@ class GenshinRankingView(core.SafeView):
     def build_embed(self, guild: discord.Guild | None = None) -> discord.Embed:
         data = core.load_data()
         g_key = str(self.guild_id or 0)
-        g_users = data.get("genshin_users", {}).get(g_key, {})
+        g_users = core.safe_get_dict(data, "genshin_users", g_key)
 
         if self.mode == "hof":
             hof = genshin_core.get_genshin_hall_of_fame(data, self.guild_id)
             recs = hof["top_records"]
             lines = []
             for idx, r in enumerate(recs[:10], start=1):
+                if not isinstance(r, dict):
+                    continue
                 uid_i = int(r["uid"])
                 mem = guild.get_member(uid_i) if guild else None
                 uname = mem.display_name if mem else f"여행자({uid_i})"
@@ -1268,6 +1277,8 @@ class GenshinRankingView(core.SafeView):
             logs = hof["recent_5_logs"]
             lines = []
             for r in logs[:15]:
+                if not isinstance(r, dict):
+                    continue
                 uid_i = int(r["uid"])
                 mem = guild.get_member(uid_i) if guild else None
                 uname = mem.display_name if mem else f"여행자({uid_i})"
@@ -1280,11 +1291,11 @@ class GenshinRankingView(core.SafeView):
         for uid_s, u_data in g_users.items():
             if not isinstance(u_data, dict):
                 continue
-            items = u_data.get("items", {})
+            items = core.as_dict(u_data.get("items"))
             if not items and not u_data.get("total_pulls"):
                 continue
-            r5_cnt = sum(1 for v in items.values() if v.get("rank") == 5)
-            c6_cnt = sum(1 for v in items.values() if v.get("kind") == "char" and int(v.get("constellation", 0)) >= 6)
+            r5_cnt = sum(1 for v in items.values() if isinstance(v, dict) and v.get("rank") == 5)
+            c6_cnt = sum(1 for v in items.values() if isinstance(v, dict) and v.get("kind") == "char" and int(v.get("constellation", 0)) >= 6)
             uniq_cnt = len(items)
             pulls = int(u_data.get("total_pulls", 0))
             rows.append((r5_cnt, c6_cnt, uniq_cnt, pulls, uid_s))
@@ -1387,8 +1398,8 @@ class GenshinGuildResetConfirmView(core.SafeView):
             return await core.safe_send_response(interaction, "❌ 요청한 관리자만 확정할 수 있습니다.", ephemeral=True)
         data = core.load_data()
         g_key = str(self.guild_id or interaction.guild_id or 0)
-        data.get("genshin_users", {}).pop(g_key, None)
-        data.get("genshin_hall_of_fame", {}).pop(g_key, None)
+        core.ensure_dict_path(data, "genshin_users").pop(g_key, None)
+        core.ensure_dict_path(data, "genshin_hall_of_fame").pop(g_key, None)
         core.save_data(data)
         await core.safe_edit_response(interaction, content="🧹 이 서버의 모든 원신 기원 데이터가 깔끔하게 초기화되었습니다.", embed=None, view=None)
 
@@ -1526,8 +1537,8 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
                     dedup.append(k)
             data = core.load_data()
             u_data = genshin_core.ensure_genshin_user(data, interaction.guild_id or 0, interaction.user.id)
-            u_items = u_data.get("items", {})
-            valid = [k for k in dedup if k in u_items and u_items[k].get("kind") == "char"][:4]
+            u_items = core.as_dict(u_data.get("items"))
+            valid = [k for k in dedup if isinstance(u_items.get(k), dict) and u_items[k].get("kind") == "char"][:4]
             u_data["party"] = valid
             core.save_data(data)
         v = GenshinPartyView(interaction.guild_id or 0, interaction.user)
@@ -1550,8 +1561,8 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
         u_data = genshin_core.ensure_genshin_user(data, interaction.guild_id or 0, target.id)
         if target.id == interaction.user.id:
             changed = False
-            u_items = u_data.get("items", {})
-            if 대표캐릭터 and 대표캐릭터 in u_items and u_items[대표캐릭터].get("kind") == "char":
+            u_items = core.as_dict(u_data.get("items"))
+            if 대표캐릭터 and isinstance(u_items.get(대표캐릭터), dict) and u_items[대표캐릭터].get("kind") == "char":
                 u_data["profile_char"] = 대표캐릭터
                 changed = True
             if 상태문구 is not None:
@@ -1560,13 +1571,14 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
             if changed:
                 core.save_data(data)
 
-        items = u_data.get("items", {})
-        chars = [v for v in items.values() if v.get("kind") == "char"]
+        items = core.as_dict(u_data.get("items"))
+        chars = [v for v in items.values() if isinstance(v, dict) and v.get("kind") == "char"]
         chars.sort(key=lambda c: (-int(c.get("rank", 4)), -int(c.get("constellation", 0)), -int(c.get("level", 1))))
         p_key = u_data.get("profile_char")
-        rep_char = items.get(p_key) if p_key and p_key in items and items[p_key].get("kind") == "char" else (chars[0] if chars else None)
+        rep_char = items.get(p_key) if p_key and isinstance(items.get(p_key), dict) and items[p_key].get("kind") == "char" else (chars[0] if chars else None)
 
-        party_objs = [items[k] for k in (u_data.get("party") or []) if k in items][:4]
+        raw_party = u_data.get("party") if isinstance(u_data.get("party"), list) else []
+        party_objs = [items[k] for k in raw_party if isinstance(items.get(k), dict)][:4]
         party_ana = genshin_core.analyze_genshin_party(party_objs)
         top3 = ", ".join(f"{c['name']}(C{c.get('constellation', 0)})" for c in chars[:3]) or "없음"
         note_str = u_data.get("profile_note") or "티바트 모험 중!"
@@ -1654,7 +1666,7 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
             by_w = {w["id"]: w for w in weapons}
             by_a = {a["id"]: a for a in genshin_core.GENSHIN_ARTIFACTS}
             data = core.load_data()
-            cfg = dict(data.get("genshin_pickup") or {})
+            cfg = dict(core.as_dict(data.get("genshin_pickup")))
             if 프리셋 and 프리셋 not in ("reset", "time_rotation"):
                 pr = genshin_core.GENSHIN_BANNER_PRESETS.get(프리셋, {})
                 cfg.update({k: pr[k] for k in ("char1", "char2", "char_4_ids", "weapon_1", "weapon_2", "artifact_1", "artifact_2", "banner_name") if k in pr})

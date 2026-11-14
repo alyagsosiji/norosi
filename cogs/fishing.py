@@ -238,8 +238,8 @@ class FishingBaitSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
         chosen = self.values[0]
-        u = self.parent_view.summary.get("user", {}) if self.parent_view.summary else {}
-        if chosen != "dough" and int(u.get("baits", {}).get(chosen, 0)) <= 0:
+        u = core.as_dict(self.parent_view.summary.get("user") if self.parent_view.summary else {})
+        if chosen != "dough" and int(core.as_dict(u.get("baits")).get(chosen, 0)) <= 0:
             await interaction.followup.send(
                 f"❌ **{fishing_core.BAITS[chosen]['name']}**을(를) 보유하고 있지 않습니다! **`🛒 낚시 상점`**에서 구매해 보세요.",
                 ephemeral=True,
@@ -359,7 +359,7 @@ class FishingCastView(core.SafeView):
         bait = self.summary["bait"]
         crystals = self.summary["crystals"]
         cur_bait_id = u.get("selected_bait", "dough")
-        bait_qty_txt = "무제한" if bait.get("unlimited") else f"{u.get('baits', {}).get(cur_bait_id, 0)}개 남음"
+        bait_qty_txt = "무제한" if bait.get("unlimited") else f"{core.as_dict(u.get('baits')).get(cur_bait_id, 0)}개 남음"
 
         color_val = hab["discord_color"]
         if phase == "biting":
@@ -839,7 +839,10 @@ class FishingBagView(core.SafeView):
         )
 
     def get_filtered(self) -> List[Dict[str, Any]]:
-        bag = list(reversed(self.summary["user"].get("bag", [])))  # 최신 포획 순
+        raw_bag = core.as_dict(self.summary.get("user")).get("bag", [])
+        if isinstance(raw_bag, dict):
+            raw_bag = list(raw_bag.values())
+        bag = list(reversed([it for it in (raw_bag or []) if isinstance(it, dict) and it.get("uid")]))  # 최신 포획 순
         res = []
         for it in bag:
             if self.habitat_filter != "all" and it.get("habitat") != self.habitat_filter:
@@ -1021,7 +1024,7 @@ class FishingPokedexRaritySelect(discord.ui.Select):
         )
 
     def _build_opts(self) -> List[discord.SelectOption]:
-        by_r = self.parent_view.stats.get("by_rarity", {})
+        by_r = core.as_dict(self.parent_view.stats.get("by_rarity"))
         cur_r = self.parent_view.rarity_filter
         tot_owned = self.parent_view.stats.get("owned_total", 0)
         tot_all = self.parent_view.stats.get("total_species", len(fishing_core.FISH_SPECIES_DB))
@@ -1036,9 +1039,10 @@ class FishingPokedexRaritySelect(discord.ui.Select):
         ]
         for r in range(1, 6):
             rm = fishing_core.RARITY_META[r]
-            r_stat = by_r.get(r, {"owned": 0, "total": 0})
+            raw_r_stat = by_r.get(r) or by_r.get(str(r))
+            r_stat = raw_r_stat if isinstance(raw_r_stat, dict) else {"owned": 0, "total": 0}
             opts.append(discord.SelectOption(
-                label=f"★{r} {rm['name']} ({r_stat['owned']}/{r_stat['total']}종)"[:95],
+                label=f"★{r} {rm['name']} ({r_stat.get('owned', 0)}/{r_stat.get('total', 0)}종)"[:95],
                 value=str(r),
                 description=f"{rm['full_stars']} 등급 어종만 필터링"[:95],
                 emoji=rm["emoji"],
@@ -1071,7 +1075,7 @@ class FishingPokedexZoneSelect(discord.ui.Select):
     def _build_opts(self) -> List[discord.SelectOption]:
         tab = self.parent_view.tab
         cur_z = self.parent_view.zone_filter
-        by_z = self.parent_view.stats.get("by_zone", {})
+        by_z = core.as_dict(self.parent_view.stats.get("by_zone"))
         opts = [
             discord.SelectOption(
                 label="전체 세부 수역",
@@ -1084,11 +1088,13 @@ class FishingPokedexZoneSelect(discord.ui.Select):
         habs = [tab] if tab in ("lake", "river", "sea") else ["lake", "river", "sea"]
         for h_id in habs:
             h = fishing_core.HABITATS[h_id]
+            h_zones = core.as_dict(by_z.get(h_id))
             for z in fishing_core.CANONICAL_ZONES[h_id]:
-                z_stat = by_z.get(h_id, {}).get(z, {"owned": 0, "total": len(fishing_core.FISH_BY_ZONE.get((h_id, z), []))})
+                raw_z_stat = h_zones.get(z)
+                z_stat = raw_z_stat if isinstance(raw_z_stat, dict) else {"owned": 0, "total": len(fishing_core.FISH_BY_ZONE.get((h_id, z), []))}
                 prefix = f"{h['name']} · " if len(habs) > 1 else ""
                 opts.append(discord.SelectOption(
-                    label=f"{prefix}{z} ({z_stat['owned']}/{z_stat['total']}종)"[:95],
+                    label=f"{prefix}{z} ({z_stat.get('owned', 0)}/{z_stat.get('total', 0)}종)"[:95],
                     value=z,
                     description=f"[{h['name']}] '{z}' 서식 어종 모아보기"[:95],
                     emoji=h["emoji"],
@@ -1132,7 +1138,7 @@ class FishingPokedexView(core.SafeView):
         self.sync_buttons()
 
     def _get_list(self) -> List[Dict[str, Any]]:
-        pd = self.stats["pokedex"]
+        pd = core.as_dict(self.stats.get("pokedex"))
         if self.tab == "unowned":
             items = [sp for sp in fishing_core.FISH_SPECIES_DB if sp["id"] not in pd]
         else:
@@ -1167,8 +1173,8 @@ class FishingPokedexView(core.SafeView):
 
     def build_embed(self) -> discord.Embed:
         self.stats = fishing_core.get_fishing_pokedex_stats(self.guild_id, self.user.id)
-        pd = self.stats["pokedex"]
-        by_h = self.stats["by_habitat"]
+        pd = core.as_dict(self.stats.get("pokedex"))
+        by_h = core.as_dict(self.stats.get("by_habitat"))
         items = self._get_list()
         total_p = max(1, math.ceil(len(items) / self.per_page))
         page_items = items[self.page * self.per_page:(self.page + 1) * self.per_page]
@@ -1183,13 +1189,14 @@ class FishingPokedexView(core.SafeView):
 
         lines = []
         for sp in page_items:
-            rec = pd.get(sp["id"])
+            raw_rec = pd.get(sp["id"])
+            rec = raw_rec if isinstance(raw_rec, dict) else None
             rm = fishing_core.RARITY_META[sp["rarity"]]
             z_lbl = sp.get("zone") or sp.get("sub_zone", "")
             if rec:
                 lines.append(
                     f"✅ {rm['emoji']} **★{sp['rarity']} {sp['name']}** (`{z_lbl}`) — "
-                    f"최고 `{rec['max_cm']:.1f}cm` · `{_format_weight(float(rec['max_kg']))}` (`{rec['count']}회`)"
+                    f"최고 `{float(rec.get('max_cm', 0)):.1f}cm` · `{_format_weight(float(rec.get('max_kg', 0)))}` (`{int(rec.get('count', 1))}회`)"
                 )
             else:
                 time_hint = {"day": "☀️낮", "night": "🌙밤", "all": "⏰상시"}[sp["active_time"]]
@@ -1443,7 +1450,7 @@ class FishingShopSelect(discord.ui.Select):
             for b_id, b in fishing_core.BAITS.items():
                 if b.get("unlimited"):
                     continue
-                cnt = int(u.get("baits", {}).get(b_id, 0))
+                cnt = int(core.as_dict(u.get("baits")).get(b_id, 0))
                 opts.append(discord.SelectOption(
                     label=f"{b['name']} ×{b['pack_qty']}개 ({b['price_per_pack']:,}🪙 | 보유 {cnt})"[:95],
                     value=f"bait:{b_id}",
@@ -1522,7 +1529,7 @@ class FishingShopView(core.SafeView):
             for b_id, b in fishing_core.BAITS.items():
                 if b.get("unlimited"):
                     continue
-                cnt = int(u.get("baits", {}).get(b_id, 0))
+                cnt = int(core.as_dict(u.get("baits")).get(b_id, 0))
                 lines.append(f"{b['emoji']} **{b['name']} ×{b['pack_qty']}개** (`{b['price_per_pack']:,}🪙` · 보유 `{cnt}개`)\n> {b['desc']}")
         else:
             title = "🐠 낚시 상점 — 수족관 슬롯 확장"
@@ -1587,12 +1594,19 @@ class FishingRankerSelect(discord.ui.Select):
     def _build_opts(self) -> List[discord.SelectOption]:
         lb = self.parent_view.get_leaderboard()
         seen: Dict[str, Dict[str, Any]] = {}
-        profiles = lb.get("ranker_profiles", {})
-        for rec in lb.get("length_top", []) + lb.get("weight_top", []) + lb.get("dex_top", []):
+        profiles = core.as_dict(lb.get("ranker_profiles"))
+        all_recs = (
+            (lb.get("length_top") if isinstance(lb.get("length_top"), list) else [])
+            + (lb.get("weight_top") if isinstance(lb.get("weight_top"), list) else [])
+            + (lb.get("dex_top") if isinstance(lb.get("dex_top"), list) else [])
+        )
+        for rec in all_recs:
+            if not isinstance(rec, dict):
+                continue
             uid_s = str(rec.get("user_id") or "")
             if not uid_s or uid_s in seen:
                 continue
-            prof = profiles.get(uid_s, {})
+            prof = core.as_dict(profiles.get(uid_s))
             seen[uid_s] = {
                 "user_id": uid_s,
                 "user_name": rec.get("user_name") or prof.get("user_name") or f"User({uid_s[:4]})",
@@ -1686,9 +1700,9 @@ class FishingRankingView(core.SafeView):
         medals = ["🥇", "🥈", "🥉"]
 
         if self.selected_ranker_id:
-            prof = lb.get("ranker_profiles", {}).get(self.selected_ranker_id)
-            len_recs = [r for r in lb["length_top"] if str(r.get("user_id") or "") == self.selected_ranker_id]
-            wt_recs = [r for r in lb["weight_top"] if str(r.get("user_id") or "") == self.selected_ranker_id]
+            prof = core.as_dict(core.as_dict(lb.get("ranker_profiles")).get(self.selected_ranker_id)) or None
+            len_recs = [r for r in (lb.get("length_top") or []) if isinstance(r, dict) and str(r.get("user_id") or "") == self.selected_ranker_id]
+            wt_recs = [r for r in (lb.get("weight_top") or []) if isinstance(r, dict) and str(r.get("user_id") or "") == self.selected_ranker_id]
             disp_name = (
                 (prof or {}).get("user_name")
                 or (len_recs[0]["user_name"] if len_recs else None)
@@ -1828,9 +1842,10 @@ class FishingQuestView(core.SafeView):
         return True
 
     def build_embed(self) -> discord.Embed:
-        u = self.summary["user"]
-        dq = u.get("daily_quests", {})
-        items = dq.get("items", [])
+        u = core.as_dict(self.summary.get("user"))
+        dq = core.as_dict(u.get("daily_quests"))
+        raw_items = dq.get("items", [])
+        items = [q for q in (raw_items if isinstance(raw_items, list) else []) if isinstance(q, dict)]
         lines = []
         for q in items:
             prog = int(q.get("progress", 0))
@@ -1842,8 +1857,8 @@ class FishingQuestView(core.SafeView):
             else:
                 st = f"진행 중 (`{prog}/{tgt}`)"
             lines.append(
-                f"• **{q['title']}** — {st}\n"
-                f"  └ 보상: `{q['gold']:,}🪙` + `{q['crystals']:,}💎`"
+                f"• **{q.get('title', '낚시 의뢰')}** — {st}\n"
+                f"  └ 보상: `{int(q.get('gold', 0)):,}🪙` + `{int(q.get('crystals', 0)):,}💎`"
             )
 
         return discord.Embed(

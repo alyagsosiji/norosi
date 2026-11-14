@@ -719,14 +719,7 @@ def _pick_daily_quests_for_date(date_str: str) -> List[Dict[str, Any]]:
 def ensure_fishing_user(data: dict, guild_id: int | str, user_id: int | str, user_name: str = "") -> Dict[str, Any]:
     g_key = str(guild_id or 0)
     u_key = str(user_id)
-    f_users = data.setdefault("fishing_users", {})
-    if not isinstance(f_users, dict):
-        f_users = {}
-        data["fishing_users"] = f_users
-    g_map = f_users.setdefault(g_key, {})
-    if not isinstance(g_map, dict):
-        g_map = {}
-        f_users[g_key] = g_map
+    g_map = core.ensure_dict_path(data, "fishing_users", g_key)
 
     u = g_map.get(u_key)
     if not isinstance(u, dict):
@@ -746,16 +739,28 @@ def ensure_fishing_user(data: dict, guild_id: int | str, user_id: int | str, use
     u.setdefault("total_gold_earned", 0)
     u.setdefault("rod_id", "bamboo")
     u.setdefault("reel_id", "basic_reel")
-    u.setdefault("owned_rods", ["bamboo"])
-    u.setdefault("owned_reels", ["basic_reel"])
+    if not isinstance(u.get("owned_rods"), list):
+        u["owned_rods"] = ["bamboo"]
+    if not isinstance(u.get("owned_reels"), list):
+        u["owned_reels"] = ["basic_reel"]
     u.setdefault("selected_bait", "dough")
     u.setdefault("selected_habitat", "lake")
     u.setdefault("selected_zone", "all")
     u.setdefault("auto_mode", False)
-    u.setdefault("baits", {"worm": 5})  # 입문 선물 지렁이 5마리
-    u.setdefault("bag", [])
-    u.setdefault("pokedex", {})
-    u.setdefault("tank", [])
+
+    if not isinstance(u.get("baits"), dict):
+        coerced_baits = core.coerce_dict_like(u.get("baits"))
+        u["baits"] = coerced_baits if coerced_baits else {"worm": 5}
+    if not isinstance(u.get("bag"), list):
+        u["bag"] = []
+    else:
+        u["bag"] = [x for x in u["bag"] if isinstance(x, dict)]
+    if not isinstance(u.get("pokedex"), dict):
+        u["pokedex"] = {str(k): v for k, v in core.coerce_dict_like(u.get("pokedex")).items() if isinstance(v, dict)}
+    if not isinstance(u.get("tank"), list):
+        u["tank"] = []
+    else:
+        u["tank"] = [x for x in u["tank"] if isinstance(x, dict)]
     u.setdefault("tank_slots", 4)
     u.setdefault("last_tank_collect", datetime.datetime.now(core.KST).isoformat())
 
@@ -766,6 +771,10 @@ def ensure_fishing_user(data: dict, guild_id: int | str, user_id: int | str, use
             "date": today_str,
             "items": _pick_daily_quests_for_date(today_str),
         }
+    else:
+        dq["items"] = [q for q in dq["items"] if isinstance(q, dict)]
+        if not dq["items"]:
+            dq["items"] = _pick_daily_quests_for_date(today_str)
 
     # 유효성 가드
     if u["rod_id"] not in RODS:
@@ -809,7 +818,8 @@ def _compute_fish_weight_kg(sp: Dict[str, Any], length_cm: float) -> float:
 
 def get_tank_pending_gold(u: Dict[str, Any], now: Optional[datetime.datetime] = None) -> Tuple[int, int]:
     """수족관 누적 골드와 경과 시간(분) 반환 (최대 24시간 누적)"""
-    tank = u.get("tank", [])
+    raw_tank = u.get("tank", [])
+    tank = [item for item in raw_tank if isinstance(item, dict)] if isinstance(raw_tank, list) else []
     if not tank:
         return 0, 0
     now_dt = now or datetime.datetime.now(core.KST)
@@ -1082,20 +1092,23 @@ def finalize_fish_catch(
             "caught_at": caught_at,
         }
 
-        bag = u.setdefault("bag", [])
+        bag = u.get("bag")
+        if not isinstance(bag, list):
+            bag = []
+            u["bag"] = bag
         bag.append(fish_inst)
         # 가방 상한 180마리 초과 시 가장 오래된 미잠금 저등급 1마리 자동 판매 보전
         auto_sold_msg = None
         if len(bag) > 180:
             for idx, old_item in enumerate(bag[:-1]):
-                if not old_item.get("locked") and old_item.get("rarity", 1) <= 2:
+                if isinstance(old_item, dict) and not old_item.get("locked") and old_item.get("rarity", 1) <= 2:
                     sold_item = bag.pop(idx)
                     u["gold"] += int(sold_item.get("gold", 20))
-                    auto_sold_msg = f"가방 초과로 `{sold_item['name']}` 자동 판매 (+{sold_item.get('gold', 20)}🪙)"
+                    auto_sold_msg = f"가방 초과로 `{sold_item.get('name', '물고기')}` 자동 판매 (+{sold_item.get('gold', 20)}🪙)"
                     break
 
         # 도감 업데이트
-        pokedex = u.setdefault("pokedex", {})
+        pokedex = core.ensure_dict_path(u, "pokedex")
         is_first_catch = sp["id"] not in pokedex
         pd_rec = pokedex.get(sp["id"])
         is_personal_len_best = False
@@ -1121,11 +1134,7 @@ def finalize_fish_catch(
 
         # 서버 신기록 체크 (길이 & 무게 독립 기록)
         g_key = str(guild_id or 0)
-        f_records = data.setdefault("fishing_records", {})
-        if not isinstance(f_records, dict):
-            f_records = {}
-            data["fishing_records"] = f_records
-        g_rec_map = f_records.setdefault(g_key, {})
+        g_rec_map = core.ensure_dict_path(data, "fishing_records", g_key)
         sp_rec = g_rec_map.get(sp["id"])
         if not isinstance(sp_rec, dict):
             sp_rec = {}
@@ -1193,8 +1202,8 @@ def finalize_fish_catch(
             u["total_trophy"] = int(u.get("total_trophy", 0)) + 1
 
         # 일일 의뢰 진행도 갱신
-        for q in u["daily_quests"]["items"]:
-            if q.get("claimed"):
+        for q in (core.as_dict(u.get("daily_quests")).get("items") or []):
+            if not isinstance(q, dict) or q.get("claimed"):
                 continue
             qtype = q.get("type")
             if qtype == "catch_total":
@@ -1242,14 +1251,14 @@ def sell_fish_by_uid(guild_id: int | str, user_id: int | str, uid: str) -> Tuple
         u = ensure_fishing_user(data, guild_id, user_id)
         bag = u.get("bag", [])
         for idx, item in enumerate(bag):
-            if item.get("uid") == uid:
+            if isinstance(item, dict) and item.get("uid") == uid:
                 gold = int(item.get("gold", 15))
                 name = item.get("name", "물고기")
                 bag.pop(idx)
                 u["gold"] += gold
                 u["total_gold_earned"] = int(u.get("total_gold_earned", 0)) + gold
-                for q in u["daily_quests"]["items"]:
-                    if q.get("type") == "sell_gold" and not q.get("claimed"):
+                for q in (core.as_dict(u.get("daily_quests")).get("items") or []):
+                    if isinstance(q, dict) and q.get("type") == "sell_gold" and not q.get("claimed"):
                         q["progress"] = min(q["target"], int(q.get("progress", 0)) + gold)
                 core.save_data(data)
                 return True, f"💰 **{name}**을(를) 판매해 **`+{gold:,}🪙`**을 획득했습니다! (보유: `{u['gold']:,}🪙`)", gold
@@ -1270,6 +1279,8 @@ def sell_all_unlocked_bag(
         sold_cnt = 0
         sold_gold = 0
         for item in bag:
+            if not isinstance(item, dict):
+                continue
             h_ok = (habitat_filter == "all") or (item.get("habitat") == habitat_filter)
             r_ok = int(item.get("rarity", 1)) <= max_rarity
             if not item.get("locked", False) and h_ok and r_ok:
@@ -1282,8 +1293,8 @@ def sell_all_unlocked_bag(
         u["bag"] = kept
         u["gold"] += sold_gold
         u["total_gold_earned"] = int(u.get("total_gold_earned", 0)) + sold_gold
-        for q in u["daily_quests"]["items"]:
-            if q.get("type") == "sell_gold" and not q.get("claimed"):
+        for q in (core.as_dict(u.get("daily_quests")).get("items") or []):
+            if isinstance(q, dict) and q.get("type") == "sell_gold" and not q.get("claimed"):
                 q["progress"] = min(q["target"], int(q.get("progress", 0)) + sold_gold)
         core.save_data(data)
         return True, f"💰 잠금 해제된 물고기 **`{sold_cnt}마리`**를 일괄 판매해 **`+{sold_gold:,}🪙`**를 벌었습니다! (보유: `{u['gold']:,}🪙`)", sold_cnt, sold_gold
@@ -1294,11 +1305,11 @@ def toggle_fish_lock(guild_id: int | str, user_id: int | str, uid: str) -> Tuple
         data = core.load_data()
         u = ensure_fishing_user(data, guild_id, user_id)
         for item in u.get("bag", []):
-            if item.get("uid") == uid:
+            if isinstance(item, dict) and item.get("uid") == uid:
                 item["locked"] = not bool(item.get("locked", False))
                 state_txt = "🔒 잠금 설정" if item["locked"] else "🔓 잠금 해제"
                 core.save_data(data)
-                return True, f"{state_txt}: **{item['name']}** (`{item['length_cm']}cm`)"
+                return True, f"{state_txt}: **{item.get('name', '물고기')}** (`{item.get('length_cm', 0)}cm`)"
         return False, "⚠️ 해당 물고기를 가방에서 찾지 못했습니다."
 
 
@@ -1308,14 +1319,14 @@ def release_fish_by_uid(guild_id: int | str, user_id: int | str, uid: str) -> Tu
         u = ensure_fishing_user(data, guild_id, user_id)
         bag = u.get("bag", [])
         for idx, item in enumerate(bag):
-            if item.get("uid") == uid:
+            if isinstance(item, dict) and item.get("uid") == uid:
                 bag.pop(idx)
                 bonus_exp = 15 + int(item.get("rarity", 1)) * 12
                 u["exp"] = int(u.get("exp", 0)) + bonus_exp
                 new_lvl, _, _ = _calc_level_from_exp(u["exp"])
                 u["level"] = new_lvl
                 core.save_data(data)
-                return True, f"🌊 **{item['name']}**을(를) 자연으로 방생했습니다! (`+{bonus_exp} EXP`)"
+                return True, f"🌊 **{item.get('name', '물고기')}**을(를) 자연으로 방생했습니다! (`+{bonus_exp} EXP`)"
         return False, "⚠️ 이미 처리되었거나 가방에 없는 개체입니다."
 
 
@@ -1323,17 +1334,20 @@ def move_fish_to_tank(guild_id: int | str, user_id: int | str, uid: str) -> Tupl
     with _FISHING_LOCK:
         data = core.load_data()
         u = ensure_fishing_user(data, guild_id, user_id)
-        tank = u.setdefault("tank", [])
+        tank = u.get("tank")
+        if not isinstance(tank, list):
+            tank = []
+            u["tank"] = tank
         max_slots = int(u.get("tank_slots", 4))
         if len(tank) >= max_slots:
             return False, f"⚠️ 수족관 전시 슬롯(`{len(tank)}/{max_slots}`)이 가득 찼습니다! 상점에서 수족관을 확장하거나 어종을 꺼내주세요."
         bag = u.get("bag", [])
         for idx, item in enumerate(bag):
-            if item.get("uid") == uid:
+            if isinstance(item, dict) and item.get("uid") == uid:
                 moved = bag.pop(idx)
                 tank.append(moved)
                 core.save_data(data)
-                return True, f"🐠 **{moved['name']}** (`{moved['length_cm']}cm` · `{moved['weight_kg']}kg`)을(를) 개인 수족관에 전시했습니다! (`{len(tank)}/{max_slots}`)"
+                return True, f"🐠 **{moved.get('name', '물고기')}** (`{moved.get('length_cm', 0)}cm` · `{moved.get('weight_kg', 0)}kg`)을(를) 개인 수족관에 전시했습니다! (`{len(tank)}/{max_slots}`)"
         return False, "⚠️ 해당 물고기가 가방에 없습니다."
 
 
@@ -1343,11 +1357,15 @@ def remove_fish_from_tank(guild_id: int | str, user_id: int | str, uid: str) -> 
         u = ensure_fishing_user(data, guild_id, user_id)
         tank = u.get("tank", [])
         for idx, item in enumerate(tank):
-            if item.get("uid") == uid:
+            if isinstance(item, dict) and item.get("uid") == uid:
                 removed = tank.pop(idx)
-                u.setdefault("bag", []).append(removed)
+                bag = u.get("bag")
+                if not isinstance(bag, list):
+                    bag = []
+                    u["bag"] = bag
+                bag.append(removed)
                 core.save_data(data)
-                return True, f"🎒 **{removed['name']}**을(를) 수족관에서 가방으로 회수했습니다."
+                return True, f"🎒 **{removed.get('name', '물고기')}**을(를) 수족관에서 가방으로 회수했습니다."
         return False, "⚠️ 수족관에서 해당 개체를 찾지 못했습니다."
 
 
@@ -1444,8 +1462,8 @@ def claim_all_completed_quests(guild_id: int | str, user_id: int | str, user_nam
         claimed_cnt = 0
         gain_gold = 0
         gain_cry = 0
-        for q in u["daily_quests"]["items"]:
-            if not q.get("claimed") and int(q.get("progress", 0)) >= int(q.get("target", 1)):
+        for q in (core.as_dict(u.get("daily_quests")).get("items") or []):
+            if isinstance(q, dict) and not q.get("claimed") and int(q.get("progress", 0)) >= int(q.get("target", 1)):
                 q["claimed"] = True
                 claimed_cnt += 1
                 gain_gold += int(q.get("gold", 0))
@@ -1466,8 +1484,7 @@ def get_fishing_pokedex_stats(guild_id: int | str, user_id: int | str) -> Dict[s
     data = core.get_cached_data()
     g_key = str(guild_id or 0)
     u_key = str(user_id)
-    u = data.get("fishing_users", {}).get(g_key, {}).get(u_key, {})
-    pd = u.get("pokedex", {}) if isinstance(u, dict) else {}
+    pd = core.safe_get_dict(data, "fishing_users", g_key, u_key, "pokedex")
 
     by_habitat: Dict[str, Dict[str, int]] = {}
     by_zone: Dict[str, Dict[str, Dict[str, int]]] = {}
@@ -1507,8 +1524,8 @@ def get_fishing_pokedex_stats(guild_id: int | str, user_id: int | str) -> Dict[s
 def get_fishing_leaderboard(guild_id: int | str, habitat_filter: str = "all") -> Dict[str, Any]:
     data = core.get_cached_data()
     g_key = str(guild_id or 0)
-    rec_map = data.get("fishing_records", {}).get(g_key, {})
-    u_map = data.get("fishing_users", {}).get(g_key, {})
+    rec_map = core.safe_get_dict(data, "fishing_records", g_key)
+    u_map = core.safe_get_dict(data, "fishing_users", g_key)
 
     len_records: List[Dict[str, Any]] = []
     wt_records: List[Dict[str, Any]] = []
@@ -1575,7 +1592,7 @@ def get_fishing_leaderboard(guild_id: int | str, habitat_filter: str = "all") ->
     for uid_s, u_obj in u_map.items():
         if not isinstance(u_obj, dict):
             continue
-        pd = u_obj.get("pokedex", {})
+        pd = core.as_dict(u_obj.get("pokedex"))
         if habitat_filter == "all":
             cnt = len(pd)
         else:

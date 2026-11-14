@@ -893,19 +893,20 @@ def hydrate_proseka_kr_cache_from_disk() -> bool:
     try:
         with open(PROSEKA_CACHE_FILE, "r", encoding="utf-8") as f:
             cached = json.load(f)
-        if cached and isinstance(cached, list) and len(cached) > 50:
+        if cached and isinstance(cached, list) and len(cached) > 50 and isinstance(cached[0], dict):
+            valid_cached = [c for c in cached if isinstance(c, dict)]
             PROSEKA_KR_CARDS.clear()
-            PROSEKA_KR_CARDS.extend(cached)
+            PROSEKA_KR_CARDS.extend(valid_cached)
             quotes = []
-            for c in cached:
+            for c in valid_cached:
                 gp = (c.get("gachaPhrase") or "").strip()
                 if gp and gp != "-":
                     quotes.append({
-                        "char_id": c["char_id"],
-                        "char_name": c["char_name"],
-                        "unit": c.get("effective_unit", c["unit"]),
+                        "char_id": c.get("char_id"),
+                        "char_name": c.get("char_name", ""),
+                        "unit": c.get("effective_unit", c.get("unit", "")),
                         "quote": gp,
-                        "source": f"[{c.get('limit_label', '통상')}] {c['rarity_label']} [{c['prefix']}]",
+                        "source": f"[{c.get('limit_label', '통상')}] {c.get('rarity_label', '')} [{c.get('prefix', '')}]",
                         "card": c
                     })
             if quotes:
@@ -937,6 +938,8 @@ def load_proseka_kr_db():
     supply_id_map = {}
     if isinstance(raw_supplies, list):
         for s in raw_supplies:
+            if not isinstance(s, dict):
+                continue
             sid = s.get("id")
             stype = s.get("cardSupplyType", "normal")
             supply_id_map[sid] = SUPPLY_TYPE_MAP.get(stype, "한정" if stype != "normal" else "통상")
@@ -947,6 +950,8 @@ def load_proseka_kr_db():
 
     if isinstance(raw_cards, list) and len(raw_cards) > 0:
         for c in raw_cards:
+            if not isinstance(c, dict):
+                continue
             cid = c.get("id")
             char_id = c.get("characterId")
             if char_id not in CHARACTER_MAP:
@@ -1021,17 +1026,17 @@ def load_proseka_kr_db():
         try:
             with open(PROSEKA_CACHE_FILE, "r", encoding="utf-8") as f:
                 cached = json.load(f)
-                if cached and isinstance(cached, list) and "assetbundleName" in cached[0]:
-                    parsed_cards = cached
+                if cached and isinstance(cached, list) and isinstance(cached[0], dict) and "assetbundleName" in cached[0]:
+                    parsed_cards = [c for c in cached if isinstance(c, dict)]
                     for c in parsed_cards:
                         gp = (c.get("gachaPhrase") or "").strip()
                         if gp and gp != "-":
                             parsed_quotes.append({
-                                "char_id": c["char_id"],
-                                "char_name": c["char_name"],
-                                "unit": c.get("effective_unit", c["unit"]),
+                                "char_id": c.get("char_id"),
+                                "char_name": c.get("char_name", ""),
+                                "unit": c.get("effective_unit", c.get("unit", "")),
                                 "quote": gp,
-                                "source": f"[{c.get('limit_label', '통상')}] {c['rarity_label']} [{c['prefix']}]",
+                                "source": f"[{c.get('limit_label', '통상')}] {c.get('rarity_label', '')} [{c.get('prefix', '')}]",
                                 "card": c
                             })
         except Exception:
@@ -1039,6 +1044,8 @@ def load_proseka_kr_db():
 
     if isinstance(raw_live2ds, list):
         for l2d in raw_live2ds:
+            if not isinstance(l2d, dict):
+                continue
             char_id = l2d.get("characterId")
             serif = (l2d.get("serif") or "").strip()
             if char_id in CHARACTER_MAP and serif and serif != "-":
@@ -1087,29 +1094,31 @@ def load_proseka_costumes_db():
         if not c_costumes or not isinstance(c_costumes, list):
             return
 
-        target_c3d_ids = set(c.get("costume3dId") for c in c_costumes if c.get("costume3dId"))
+        target_c3d_ids = set(c.get("costume3dId") for c in c_costumes if isinstance(c, dict) and c.get("costume3dId"))
 
         raw_c3d = fetch_json_with_fallback(KR_COSTUME3DS_URLS)
-        filtered_c3d = {c["id"]: c for c in raw_c3d if c.get("id") in target_c3d_ids} if raw_c3d else {}
+        filtered_c3d = {c["id"]: c for c in raw_c3d if isinstance(c, dict) and c.get("id") in target_c3d_ids} if isinstance(raw_c3d, list) else {}
 
-        target_grp_ids = set(c["costume3dGroupId"] for c in filtered_c3d.values() if "costume3dGroupId" in c)
+        target_grp_ids = set(c["costume3dGroupId"] for c in filtered_c3d.values() if isinstance(c, dict) and "costume3dGroupId" in c)
         raw_groups = fetch_json_with_fallback(KR_COSTUME_GROUPS_URLS)
-        filtered_groups = {g["groupId"]: g for g in raw_groups if g.get("groupId") in target_grp_ids} if raw_groups else {}
+        filtered_groups = {g["groupId"]: g for g in raw_groups if isinstance(g, dict) and g.get("groupId") in target_grp_ids} if isinstance(raw_groups, list) else {}
 
-        card_map = {c["id"]: c for c in PROSEKA_KR_CARDS}
+        card_map = {c["id"]: c for c in PROSEKA_KR_CARDS if isinstance(c, dict) and c.get("id") is not None}
 
         parsed_costumes = {}
         for cc in c_costumes:
+            if not isinstance(cc, dict):
+                continue
             card_id = cc.get("cardId")
             c_info = filtered_c3d.get(cc.get("costume3dId"))
-            if not c_info:
+            if not isinstance(c_info, dict):
                 continue
             grp_id = c_info.get("costume3dGroupId")
             grp = filtered_groups.get(grp_id)
-            if not grp:
+            if not isinstance(grp, dict):
                 continue
             card = card_map.get(card_id)
-            if not card:
+            if not isinstance(card, dict):
                 continue
             name = (grp.get("name") or "").strip()
             if not name or name == "-":
@@ -1273,9 +1282,9 @@ def is_costume_another_color_unlocked(guild_id: int, user_id: int, costume: dict
     d = data if data is not None else load_data()
     g_key = str(guild_id or 0)
     u_key = str(user_id)
-    u_cards = d.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+    u_cards = safe_get_dict(d, "gacha_users", g_key, u_key, "cards")
     c_obj = u_cards.get(str(card_id))
-    if not c_obj:
+    if not isinstance(c_obj, dict):
         return False, False
     mr = int(c_obj.get("master_rank", 0))
     ac_unlocked = mr >= 2
@@ -1289,11 +1298,11 @@ def get_user_equipped_costume(guild_id: int, user_id: int, char_id: int) -> dict
     data = load_data()
     g_key = str(guild_id or 0)
     u_key = str(user_id)
-    g_user = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {})
-    g_equipped = g_user.get("equipped_costumes", {})
+    g_user = safe_get_dict(data, "gacha_users", g_key, u_key)
+    g_equipped = as_dict(g_user.get("equipped_costumes"))
     costume_id = g_equipped.get(str(char_id))
     if not costume_id:
-        p_equipped = data.get("user_profiles", {}).get(u_key, {}).get("equipped_costumes", {})
+        p_equipped = safe_get_dict(data, "user_profiles", u_key, "equipped_costumes")
         costume_id = p_equipped.get(str(char_id))
 
     cos = None
@@ -1305,8 +1314,8 @@ def get_user_equipped_costume(guild_id: int, user_id: int, char_id: int) -> dict
         cos = dict(cos)
 
     ac_unlocked, hair_unlocked = is_costume_another_color_unlocked(guild_id, user_id, cos, data=data)
-    g_variants = g_user.get("equipped_costume_variants", {})
-    p_variants = data.get("user_profiles", {}).get(u_key, {}).get("equipped_costume_variants", {})
+    g_variants = as_dict(g_user.get("equipped_costume_variants"))
+    p_variants = safe_get_dict(data, "user_profiles", u_key, "equipped_costume_variants")
     var_key = g_variants.get(str(char_id)) or p_variants.get(str(char_id)) or "orig"
     if not ac_unlocked or var_key not in ANOTHER_COLOR_VARIANTS:
         var_key = "orig"
@@ -1326,10 +1335,10 @@ def cycle_user_costume_color(guild_id: int, user_id: int, char_id: int) -> tuple
         data = load_data()
         g_key = str(guild_id or 0)
         u_key = str(user_id)
-        g_user = data.get("gacha_users", {}).setdefault(g_key, {}).setdefault(u_key, {})
-        cos_id = g_user.get("equipped_costumes", {}).get(str(char_id))
+        g_user = ensure_dict_path(data, "gacha_users", g_key, u_key)
+        cos_id = as_dict(g_user.get("equipped_costumes")).get(str(char_id))
         if not cos_id:
-            cos_id = data.get("user_profiles", {}).get(u_key, {}).get("equipped_costumes", {}).get(str(char_id))
+            cos_id = safe_get_dict(data, "user_profiles", u_key, "equipped_costumes").get(str(char_id))
         cos = get_costume_by_id(cos_id) if cos_id else None
         if not cos or cos.get("is_default"):
             return False, "기본 유닛 의상은 어나더 컬러를 변경할 수 없습니다. 3D 의상을 먼저 착용해 주세요!", None
@@ -1340,14 +1349,14 @@ def cycle_user_costume_color(guild_id: int, user_id: int, char_id: int) -> tuple
             char_name = cos.get("char_name", "")
             return False, f"🔒 어나더 컬러가 아직 잠겨 있습니다!\n원본 카드 `[{card_prefix}] {char_name}`를 `/마스터랭크`에서 **✦MR.2 이상**으로 한계 돌파하면 어나더 컬러 3종이 해금됩니다!", None
 
-        g_variants = g_user.setdefault("equipped_costume_variants", {})
+        g_variants = ensure_dict_path(g_user, "equipped_costume_variants")
         cur_var = g_variants.get(str(char_id), "orig")
         idx = ANOTHER_COLOR_ORDER.index(cur_var) if cur_var in ANOTHER_COLOR_ORDER else 0
         next_var = ANOTHER_COLOR_ORDER[(idx + 1) % len(ANOTHER_COLOR_ORDER)]
         g_variants[str(char_id)] = next_var
 
         prof = ensure_user_profile(data, u_key)
-        prof.setdefault("equipped_costume_variants", {})[str(char_id)] = next_var
+        ensure_dict_path(prof, "equipped_costume_variants")[str(char_id)] = next_var
         save_data(data)
 
         v_info = ANOTHER_COLOR_VARIANTS[next_var]
@@ -1377,9 +1386,9 @@ def upgrade_card_master_rank(guild_id: int, user_id: int, card_id_str: str, use_
         g_key = str(guild_id or 0)
         u_key = str(user_id)
         prof = ensure_user_profile(data, u_key)
-        u_cards = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+        u_cards = safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
         cid_str = str(card_id_str)
-        if cid_str not in u_cards:
+        if cid_str not in u_cards or not isinstance(u_cards[cid_str], dict):
             return False, "보유하지 않은 카드입니다.", {}
 
         card = u_cards[cid_str]
@@ -1440,8 +1449,8 @@ def execute_sekai_live(guild_id: int, user_id: int, song_id: str | None = None, 
         g_key = str(guild_id or 0)
         u_key = str(user_id)
         prof = ensure_user_profile(data, u_key, user_name)
-        g_user = data.setdefault("gacha_users", {}).setdefault(g_key, {}).setdefault(u_key, {})
-        u_cards = g_user.get("cards", {})
+        g_user = ensure_dict_path(data, "gacha_users", g_key, u_key)
+        u_cards = {k: v for k, v in as_dict(g_user.get("cards")).items() if isinstance(v, dict)}
 
         if not u_cards:
             return False, "보유한 프로세카 카드가 없습니다! 먼저 `/프로세카뽑기`로 캐릭터를 뽑아주세요.", {}
@@ -1452,7 +1461,8 @@ def execute_sekai_live(guild_id: int, user_id: int, song_id: str | None = None, 
             song = random.choice(PROSEKA_LIVE_SONGS)
 
         # 2. 5인 덱 구성 (저장된 덱 우선, 없으면 상위 5장 자동 편성)
-        saved_deck_ids = prof.get("deck") or g_user.get("deck", [])
+        raw_deck = prof.get("deck") or g_user.get("deck") or []
+        saved_deck_ids = raw_deck if isinstance(raw_deck, list) else []
         deck_cards = [u_cards[str(cid)] for cid in saved_deck_ids if str(cid) in u_cards]
         used_auto_deck = False
         if not deck_cards:
@@ -1519,14 +1529,16 @@ def execute_sekai_live(guild_id: int, user_id: int, song_id: str | None = None, 
 
         # 일일 보상 (1일 3회) & 7일 스탬프 랠리
         today_str = get_today_str()
-        live_stats = prof.setdefault("sekai_live", {
-            "last_date": today_str,
-            "daily_count": 0,
-            "stamps": 0,
-            "total_lives": 0,
-            "best_score": 0,
-            "rally_clears": 0,
-        })
+        if not isinstance(prof.get("sekai_live"), dict):
+            prof["sekai_live"] = {
+                "last_date": today_str,
+                "daily_count": 0,
+                "stamps": 0,
+                "total_lives": 0,
+                "best_score": 0,
+                "rally_clears": 0,
+            }
+        live_stats = prof["sekai_live"]
         if live_stats.get("last_date") != today_str:
             live_stats["last_date"] = today_str
             live_stats["daily_count"] = 0
@@ -1605,10 +1617,10 @@ def get_user_unlocked_costumes_for_char(guild_id: int, user_id: int, char_id: in
     seen_ids = {unlocked[0]["costume_id"]}
 
     # 1. 원본 캐릭터 카드 보유로 인한 자동 해금
-    u_cards = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+    u_cards = safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
     for cid_str, card_obj in u_cards.items():
-        if cid_str in PROSEKA_KR_COSTUMES:
-            cos = PROSEKA_KR_COSTUMES[cid_str]
+        if str(cid_str) in PROSEKA_KR_COSTUMES:
+            cos = PROSEKA_KR_COSTUMES[str(cid_str)]
             if cos.get("origin_char_id") == char_id and cos["costume_id"] not in seen_ids:
                 seen_ids.add(cos["costume_id"])
                 c_copy = dict(cos)
@@ -1617,9 +1629,10 @@ def get_user_unlocked_costumes_for_char(guild_id: int, user_id: int, char_id: in
 
     # 2. 크리스탈로 제작/구매한 의상
     char_key = str(char_id)
-    purchased = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("purchased_costumes", {}).get(char_key, [])
-    if not purchased:
-        purchased = data.get("user_profiles", {}).get(u_key, {}).get("purchased_costumes", {}).get(char_key, [])
+    g_purchased_map = safe_get_dict(data, "gacha_users", g_key, u_key, "purchased_costumes")
+    p_purchased_map = safe_get_dict(data, "user_profiles", u_key, "purchased_costumes")
+    purchased_raw = g_purchased_map.get(char_key) or p_purchased_map.get(char_key) or []
+    purchased = purchased_raw if isinstance(purchased_raw, list) else []
     for cos_id in purchased:
         if cos_id not in seen_ids:
             cos = get_costume_by_id(cos_id)
@@ -1645,17 +1658,19 @@ def get_purchasable_costumes_for_char(guild_id: int, user_id: int, char_id: int)
     u_key = str(user_id)
 
     target_gender = "male" if char_id in MALE_CHAR_IDS else "female"
-    u_cards = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+    u_cards = safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
 
     char_key = str(char_id)
-    purchased = set(data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("purchased_costumes", {}).get(char_key, []))
-    purchased.update(data.get("user_profiles", {}).get(u_key, {}).get("purchased_costumes", {}).get(char_key, []))
+    g_pur_list = safe_get_dict(data, "gacha_users", g_key, u_key, "purchased_costumes").get(char_key)
+    p_pur_list = safe_get_dict(data, "user_profiles", u_key, "purchased_costumes").get(char_key)
+    purchased = set(g_pur_list if isinstance(g_pur_list, list) else [])
+    purchased.update(p_pur_list if isinstance(p_pur_list, list) else [])
 
     purchasable = []
     seen_ids = set()
     for cid_str, card_obj in u_cards.items():
-        if cid_str in PROSEKA_KR_COSTUMES:
-            cos = PROSEKA_KR_COSTUMES[cid_str]
+        if str(cid_str) in PROSEKA_KR_COSTUMES:
+            cos = PROSEKA_KR_COSTUMES[str(cid_str)]
             cos_id = cos["costume_id"]
             if cos_id in seen_ids or cos_id in purchased:
                 continue
@@ -1692,12 +1707,11 @@ def equip_user_costume(guild_id: int, user_id: int, char_id: int, costume_id: st
         if not any(c["costume_id"] == costume["costume_id"] for c in unlocked):
             return False, f"**{target_char['name']}**이(가) 아직 보유하지 않은 의상입니다.", None
 
-        g_users = data["gacha_users"].setdefault(g_key, {})
-        equipped = g_users.setdefault(u_key, {}).setdefault("equipped_costumes", {})
+        equipped = ensure_dict_path(data, "gacha_users", g_key, u_key, "equipped_costumes")
         equipped[str(char_id)] = costume["costume_id"]
 
         prof = ensure_user_profile(data, u_key)
-        prof.setdefault("equipped_costumes", {})[str(char_id)] = costume["costume_id"]
+        ensure_dict_path(prof, "equipped_costumes")[str(char_id)] = costume["costume_id"]
 
         save_data(data)
         return True, f"✨ **{target_char['name']}**의 의상을 **[{costume['name']}]**(으)로 변경했습니다!", costume
@@ -1730,15 +1744,18 @@ def purchase_and_equip_costume(guild_id: int, user_id: int, char_id: int, costum
             t_type = "남성" if target_gender == "male" else "여성"
             return False, f"이 의상은 **{c_type} 의상**이므로 {t_type} 캐릭터인 **{target_char['name']}**에게 착용할 수 없습니다.", None, crystals
 
-        g_users = data["gacha_users"].setdefault(g_key, {})
-        u_cards = g_users.setdefault(u_key, {}).setdefault("cards", {})
+        g_user = ensure_dict_path(data, "gacha_users", g_key, u_key)
+        u_cards = ensure_dict_path(g_user, "cards")
         cid_str = str(costume.get("card_id", 0))
-        if cid_str not in u_cards or u_cards[cid_str].get("count", 0) < 1:
+        if cid_str not in u_cards or not isinstance(u_cards[cid_str], dict) or u_cards[cid_str].get("count", 0) < 1:
             return False, f"이 의상을 해금하려면 먼저 가챠에서 원본 카드 `[{costume.get('card_prefix')}] {costume.get('char_name')}`를 뽑아야 합니다!", None, crystals
 
         char_key = str(char_id)
-        u_purchased = g_users[u_key].setdefault("purchased_costumes", {})
-        char_purchased = u_purchased.setdefault(char_key, [])
+        u_purchased = ensure_dict_path(g_user, "purchased_costumes")
+        char_purchased = u_purchased.get(char_key)
+        if not isinstance(char_purchased, list):
+            char_purchased = []
+            u_purchased[char_key] = char_purchased
         if costume_id in char_purchased or costume.get("origin_char_id") == char_id:
             return False, f"**{target_char['name']}**은(는) 이미 이 의상을 보유하고 있습니다!", None, crystals
 
@@ -1747,15 +1764,16 @@ def purchase_and_equip_costume(guild_id: int, user_id: int, char_id: int, costum
         rem_crystals = prof["crystals"]
 
         char_purchased.append(costume_id)
-        equipped = g_users[u_key].setdefault("equipped_costumes", {})
+        equipped = ensure_dict_path(g_user, "equipped_costumes")
         equipped[char_key] = costume_id
 
         # 프로필에도 동기화
-        prof_purchased = prof.setdefault("purchased_costumes", {})
-        prof_purchased.setdefault(char_key, [])
+        prof_purchased = ensure_dict_path(prof, "purchased_costumes")
+        if not isinstance(prof_purchased.get(char_key), list):
+            prof_purchased[char_key] = []
         if costume_id not in prof_purchased[char_key]:
             prof_purchased[char_key].append(costume_id)
-        prof.setdefault("equipped_costumes", {})[char_key] = costume_id
+        ensure_dict_path(prof, "equipped_costumes")[char_key] = costume_id
 
         save_data(data)
         return True, f"👗 **{target_char['name']}**에게 **[{costume['name']}]** 의상을 제작하여 입혀주었습니다!", costume, rem_crystals
@@ -2322,8 +2340,12 @@ def build_10pull_grid_image_bytes(
 def fetch_live_event_and_gacha_info(server_key: str = "kr"):
     """한국 서버(kr) 또는 일본 서버(jp)의 실시간 이벤트 및 가챠 배너 정보 조회"""
     cfg = SERVER_DB_URLS.get(server_key, SERVER_DB_URLS["kr"])
-    events = fetch_json_with_fallback(cfg["events"]) or []
-    gachas = fetch_json_with_fallback(cfg["gachas"]) or []
+    events = fetch_json_with_fallback(cfg["events"])
+    if not isinstance(events, list):
+        events = []
+    gachas = fetch_json_with_fallback(cfg["gachas"])
+    if not isinstance(gachas, list):
+        gachas = []
 
     now_ms = int(time.time() * 1000)
 
@@ -2332,6 +2354,8 @@ def fetch_live_event_and_gacha_info(server_key: str = "kr"):
     recent_event = None
 
     for ev in events:
+        if not isinstance(ev, dict):
+            continue
         start_ms = ev.get("startAt", 0)
         end_ms = ev.get("aggregateAt") or ev.get("closedAt") or 0
         if start_ms <= now_ms <= end_ms:
@@ -2349,13 +2373,15 @@ def fetch_live_event_and_gacha_info(server_key: str = "kr"):
 
     active_gachas = []
     for g in gachas:
+        if not isinstance(g, dict):
+            continue
         g_start = g.get("startAt", 0)
         g_end = g.get("endAt", 0)
         if g_start <= now_ms <= g_end:
             active_gachas.append(g)
 
     banner_bytes, banner_filename = None, None
-    if target_event and target_event.get("assetbundleName"):
+    if isinstance(target_event, dict) and target_event.get("assetbundleName"):
         ab_name = target_event["assetbundleName"]
         reg = cfg["asset_region"]
         candidate_urls = [
@@ -2809,6 +2835,7 @@ DEFAULT_CONFIG = {
     "genshin_users": {},
     "genshin_hall_of_fame": {},
     "hsr_pickup": {
+        "mode": "time_rotation",
         "char1": None,
         "char2": None,
         "char_4_ids": [],
@@ -3086,19 +3113,30 @@ def ensure_user_profile(data: dict, u_key: str | int, user_name: str = "") -> di
     필수 키(attendance, crystals, todo, my_sekai, playlists 등)가 절대 누락되지 않도록 무결성을 보장합니다.
     """
     u_str = str(u_key)
-    profiles = data.setdefault("user_profiles", {})
+    profiles = data.get("user_profiles")
+    if not isinstance(profiles, dict):
+        profiles = coerce_dict_like(profiles)
+        data["user_profiles"] = profiles
     if u_str not in profiles or not isinstance(profiles[u_str], dict):
         profiles[u_str] = get_default_user_profile(user_name)
         return profiles[u_str]
 
     p_val = profiles[u_str]
-    p_val.setdefault("liked_music", [])
+    if not isinstance(p_val.get("liked_music"), list):
+        p_val["liked_music"] = []
     p_val.setdefault("oshi", None)
-    p_val.setdefault("deck", [])
+    if not isinstance(p_val.get("deck"), list):
+        p_val["deck"] = []
     p_val.setdefault("partner_id", None)
     p_val.setdefault("crystals", 0)
     if not isinstance(p_val.get("secret_ddays"), dict):
-        p_val["secret_ddays"] = {}
+        p_val["secret_ddays"] = coerce_dict_like(p_val.get("secret_ddays"))
+    if "equipped_costumes" in p_val and not isinstance(p_val.get("equipped_costumes"), dict):
+        p_val["equipped_costumes"] = coerce_dict_like(p_val.get("equipped_costumes"))
+    if "equipped_costume_variants" in p_val and not isinstance(p_val.get("equipped_costume_variants"), dict):
+        p_val["equipped_costume_variants"] = coerce_dict_like(p_val.get("equipped_costume_variants"))
+    if "purchased_costumes" in p_val and not isinstance(p_val.get("purchased_costumes"), dict):
+        p_val["purchased_costumes"] = coerce_dict_like(p_purchased := p_val.get("purchased_costumes"))
     ensure_my_sekai(p_val)
     ensure_user_playlists(p_val, user_name)
 
@@ -3129,7 +3167,9 @@ def ensure_user_profile(data: dict, u_key: str | int, user_name: str = "") -> di
         if not isinstance(p_val["todo"].get("tasks"), list):
             p_val["todo"]["tasks"] = []
         if not isinstance(p_val["todo"].get("history"), dict):
-            p_val["todo"]["history"] = {}
+            p_val["todo"]["history"] = coerce_dict_like(p_val["todo"].get("history"))
+    if "hardcore_study_stats" in p_val and not isinstance(p_val.get("hardcore_study_stats"), dict):
+        p_val["hardcore_study_stats"] = coerce_dict_like(p_val.get("hardcore_study_stats"))
 
     return p_val
 
@@ -3150,133 +3190,247 @@ def get_firebase_endpoint():
     return url
 
 
+def coerce_dict_like(val) -> dict:
+    """
+    Firebase RTDB의 숫자 인덱스 키 배열 강제 변환(list coercion)에 대응합니다.
+    예: {"0": {...}} -> [{...}], {"1": {...}} -> [None, {...}] 형태를 {str(idx): v} dict로 무손실 복구합니다.
+    """
+    if isinstance(val, dict):
+        return val
+    if isinstance(val, (list, tuple)):
+        return {str(idx): item for idx, item in enumerate(val) if item is not None}
+    return {}
+
+
+def as_dict(val) -> dict:
+    return val if isinstance(val, dict) else {}
+
+
+def safe_get_dict(root, *keys) -> dict:
+    cur = root
+    for k in keys:
+        if not isinstance(cur, dict):
+            return {}
+        cur = cur.get(k)
+    return cur if isinstance(cur, dict) else {}
+
+
+def ensure_dict_path(root: dict, *keys) -> dict:
+    cur = root
+    for k in keys:
+        nxt = cur.get(k)
+        if not isinstance(nxt, dict):
+            nxt = coerce_dict_like(nxt)
+            cur[k] = nxt
+        cur = nxt
+    return cur
+
+
+def _normalize_guild_user_map(raw_root) -> dict:
+    root = coerce_dict_like(raw_root)
+    cleaned: dict[str, dict] = {}
+    for g_key, g_val in root.items():
+        g_map = coerce_dict_like(g_val)
+        u_clean: dict[str, dict] = {}
+        for u_key, u_val in g_map.items():
+            if isinstance(u_val, dict):
+                u_clean[str(u_key)] = u_val
+        cleaned[str(g_key)] = u_clean
+    return cleaned
+
+
 def normalize_data(data):
     today_str = get_today_str()
     if not isinstance(data, dict):
         return copy.deepcopy(DEFAULT_CONFIG)
 
     if "settings" not in data or not isinstance(data["settings"], dict):
-        data["settings"] = copy.deepcopy(DEFAULT_CONFIG["settings"])
-    else:
-        for k, v in DEFAULT_CONFIG["settings"].items():
-            data["settings"].setdefault(k, v)
+        coerced_settings = coerce_dict_like(data.get("settings"))
+        data["settings"] = coerced_settings if coerced_settings else copy.deepcopy(DEFAULT_CONFIG["settings"])
+    for k, v in DEFAULT_CONFIG["settings"].items():
+        data["settings"].setdefault(k, copy.deepcopy(v) if isinstance(v, (dict, list)) else v)
+    if not isinstance(data["settings"].get("terminal_log_channels"), dict):
+        data["settings"]["terminal_log_channels"] = coerce_dict_like(data["settings"].get("terminal_log_channels"))
+    if not isinstance(data["settings"].get("github_webhooks"), dict):
+        data["settings"]["github_webhooks"] = coerce_dict_like(data["settings"].get("github_webhooks"))
 
     if "ddays" not in data or not isinstance(data["ddays"], dict):
-        data["ddays"] = {}
-    else:
-        for name, value in list(data["ddays"].items()):
-            if isinstance(value, str):
-                data["ddays"][name] = {
-                    "date": value,
-                    "repeat": False,
-                    "start_date": today_str,
-                    "emoji": "🌠",
-                    "channel_id": None,
-                    "category_id": None
-                }
-            elif isinstance(value, dict):
-                value.setdefault("repeat", False)
-                value.setdefault("start_date", today_str)
-                value.setdefault("emoji", "🌠")
-                value.setdefault("channel_id", None)
-                value.setdefault("category_id", None)
+        data["ddays"] = coerce_dict_like(data.get("ddays"))
+    for name, value in list(data["ddays"].items()):
+        if isinstance(value, str):
+            data["ddays"][name] = {
+                "date": value,
+                "repeat": False,
+                "start_date": today_str,
+                "emoji": "🌠",
+                "channel_id": None,
+                "category_id": None
+            }
+        elif isinstance(value, dict):
+            value.setdefault("repeat", False)
+            value.setdefault("start_date", today_str)
+            value.setdefault("emoji", "🌠")
+            value.setdefault("channel_id", None)
+            value.setdefault("category_id", None)
+        else:
+            del data["ddays"][name]
 
     if "music_prefs" not in data or not isinstance(data["music_prefs"], dict):
-        data["music_prefs"] = copy.deepcopy(DEFAULT_CONFIG["music_prefs"])
-    else:
-        for k, v in DEFAULT_CONFIG["music_prefs"].items():
-            data["music_prefs"].setdefault(k, v)
+        coerced_mp = coerce_dict_like(data.get("music_prefs"))
+        data["music_prefs"] = coerced_mp if coerced_mp else copy.deepcopy(DEFAULT_CONFIG["music_prefs"])
+    for k, v in DEFAULT_CONFIG["music_prefs"].items():
+        data["music_prefs"].setdefault(k, copy.deepcopy(v) if isinstance(v, (dict, list)) else v)
 
     if "music_schedules" not in data or not isinstance(data["music_schedules"], list):
         data["music_schedules"] = []
 
     if "gacha_pickup" not in data or not isinstance(data["gacha_pickup"], dict):
-        data["gacha_pickup"] = copy.deepcopy(DEFAULT_CONFIG["gacha_pickup"])
-    else:
-        for k, v in DEFAULT_CONFIG["gacha_pickup"].items():
-            data["gacha_pickup"].setdefault(k, v)
+        coerced_gp = coerce_dict_like(data.get("gacha_pickup"))
+        data["gacha_pickup"] = coerced_gp if coerced_gp else copy.deepcopy(DEFAULT_CONFIG["gacha_pickup"])
+    for k, v in DEFAULT_CONFIG["gacha_pickup"].items():
+        data["gacha_pickup"].setdefault(k, copy.deepcopy(v) if isinstance(v, (dict, list)) else v)
 
-    if "gacha_users" not in data or not isinstance(data["gacha_users"], dict):
-        data["gacha_users"] = {}
-    else:
-        for g_key, g_map in list(data["gacha_users"].items()):
-            if isinstance(g_map, dict):
-                for u_key, u_info in list(g_map.items()):
-                    if isinstance(u_info, dict) and isinstance(u_info.get("cards"), dict):
-                        for cid_str, c_obj in u_info["cards"].items():
-                            if isinstance(c_obj, dict):
-                                c_obj.setdefault("locked", False)
+    data["gacha_users"] = _normalize_guild_user_map(data.get("gacha_users"))
+    for g_key, g_map in data["gacha_users"].items():
+        for u_key, u_info in g_map.items():
+            cards_map = coerce_dict_like(u_info.get("cards"))
+            clean_cards = {}
+            for cid_str, c_obj in cards_map.items():
+                if isinstance(c_obj, dict):
+                    c_obj.setdefault("locked", False)
+                    clean_cards[str(cid_str)] = c_obj
+            u_info["cards"] = clean_cards
+            for cmap_k in ("equipped_costumes", "equipped_costume_variants", "purchased_costumes"):
+                if cmap_k in u_info and not isinstance(u_info[cmap_k], dict):
+                    u_info[cmap_k] = coerce_dict_like(u_info[cmap_k])
 
-    if "gacha_hall_of_fame" not in data or not isinstance(data["gacha_hall_of_fame"], dict):
-        data["gacha_hall_of_fame"] = {}
+    raw_gacha_hof = coerce_dict_like(data.get("gacha_hall_of_fame"))
+    clean_gacha_hof = {}
+    for g_key, hof_val in raw_gacha_hof.items():
+        if isinstance(hof_val, dict):
+            hof_val["user_best_10pull"] = coerce_dict_like(hof_val.get("user_best_10pull"))
+            if not isinstance(hof_val.get("recent_pickup_logs"), list):
+                hof_val["recent_pickup_logs"] = []
+            if not isinstance(hof_val.get("recent_high_logs"), list):
+                hof_val["recent_high_logs"] = []
+            clean_gacha_hof[str(g_key)] = hof_val
+    data["gacha_hall_of_fame"] = clean_gacha_hof
 
     for p_key in ("genshin_pickup", "hsr_pickup"):
         if p_key not in data or not isinstance(data[p_key], dict):
-            data[p_key] = copy.deepcopy(DEFAULT_CONFIG[p_key])
-        else:
-            for k, v in DEFAULT_CONFIG[p_key].items():
-                data[p_key].setdefault(k, copy.deepcopy(v) if isinstance(v, (dict, list)) else v)
+            coerced_pk = coerce_dict_like(data.get(p_key))
+            data[p_key] = coerced_pk if coerced_pk else copy.deepcopy(DEFAULT_CONFIG[p_key])
+        for k, v in DEFAULT_CONFIG[p_key].items():
+            data[p_key].setdefault(k, copy.deepcopy(v) if isinstance(v, (dict, list)) else v)
+        if p_key == "hsr_pickup" and not data[p_key].get("mode"):
+            data[p_key]["mode"] = "time_rotation" if (not data[p_key].get("char1") and not data[p_key].get("char2")) else "preset"
 
     for u_root_key in ("genshin_users", "hsr_users"):
-        if u_root_key not in data or not isinstance(data[u_root_key], dict):
-            data[u_root_key] = {}
-        else:
-            for g_key, g_map in list(data[u_root_key].items()):
-                if isinstance(g_map, dict):
-                    for u_key, u_info in list(g_map.items()):
-                        if isinstance(u_info, dict) and isinstance(u_info.get("items"), dict):
-                            for item_k, item_obj in u_info["items"].items():
-                                if isinstance(item_obj, dict):
-                                    item_obj.setdefault("locked", False)
+        u_root = _normalize_guild_user_map(data.get(u_root_key))
+        for g_key, g_map in u_root.items():
+            for u_key, u_info in g_map.items():
+                items_map = coerce_dict_like(u_info.get("items"))
+                clean_items = {}
+                for item_k, item_obj in items_map.items():
+                    if isinstance(item_obj, dict):
+                        item_obj.setdefault("locked", False)
+                        clean_items[str(item_k)] = item_obj
+                u_info["items"] = clean_items
+                if not isinstance(u_info.get("shop_monthly"), dict):
+                    u_info["shop_monthly"] = coerce_dict_like(u_info.get("shop_monthly"))
+                if not isinstance(u_info.get("party"), list):
+                    u_info["party"] = []
+                if not isinstance(u_info.get("history"), list):
+                    u_info["history"] = []
+        data[u_root_key] = u_root
 
     for hof_key in ("genshin_hall_of_fame", "hsr_hall_of_fame"):
-        if hof_key not in data or not isinstance(data[hof_key], dict):
-            data[hof_key] = {}
+        raw_hof = coerce_dict_like(data.get(hof_key))
+        clean_hof = {}
+        for g_key, h_val in raw_hof.items():
+            if isinstance(h_val, dict):
+                if not isinstance(h_val.get("top_records"), list):
+                    h_val["top_records"] = []
+                if not isinstance(h_val.get("recent_5_logs"), list):
+                    h_val["recent_5_logs"] = []
+                clean_hof[str(g_key)] = h_val
+        data[hof_key] = clean_hof
 
-    if "fishing_users" not in data or not isinstance(data["fishing_users"], dict):
-        data["fishing_users"] = {}
-    if "fishing_records" not in data or not isinstance(data["fishing_records"], dict):
-        data["fishing_records"] = {}
+    f_users = _normalize_guild_user_map(data.get("fishing_users"))
+    for g_key, g_map in f_users.items():
+        for u_key, fu in g_map.items():
+            if not isinstance(fu.get("baits"), dict):
+                fu["baits"] = coerce_dict_like(fu.get("baits"))
+            if not isinstance(fu.get("pokedex"), dict):
+                fu["pokedex"] = coerce_dict_like(fu.get("pokedex"))
+            if not isinstance(fu.get("bag"), list):
+                fu["bag"] = []
+            if not isinstance(fu.get("tank"), list):
+                fu["tank"] = []
+            if not isinstance(fu.get("owned_rods"), list):
+                fu["owned_rods"] = ["bamboo"]
+            if not isinstance(fu.get("owned_reels"), list):
+                fu["owned_reels"] = ["basic_reel"]
+    data["fishing_users"] = f_users
+
+    raw_f_rec = coerce_dict_like(data.get("fishing_records"))
+    clean_f_rec = {}
+    for g_key, g_recs in raw_f_rec.items():
+        g_rec_map = coerce_dict_like(g_recs)
+        clean_species_map = {}
+        for fid, sp_rec in g_rec_map.items():
+            if isinstance(sp_rec, dict):
+                clean_species_map[str(fid)] = sp_rec
+        clean_f_rec[str(g_key)] = clean_species_map
+    data["fishing_records"] = clean_f_rec
 
     if "user_profiles" not in data or not isinstance(data["user_profiles"], dict):
-        data["user_profiles"] = {}
-    else:
-        for u_key in list(data["user_profiles"].keys()):
+        data["user_profiles"] = coerce_dict_like(data.get("user_profiles"))
+    for u_key in list(data["user_profiles"].keys()):
+        if isinstance(data["user_profiles"].get(u_key), dict):
             ensure_user_profile(data, u_key)
+        else:
+            del data["user_profiles"][u_key]
 
-    if "partners" not in data or not isinstance(data["partners"], dict):
-        data["partners"] = {}
+    raw_partners = coerce_dict_like(data.get("partners"))
+    for pk, pv in list(raw_partners.items()):
+        if isinstance(pv, dict):
+            pv["ddays"] = coerce_dict_like(pv.get("ddays"))
+        else:
+            del raw_partners[pk]
+    data["partners"] = raw_partners
+    data["guild_attendance"] = _normalize_guild_user_map(data.get("guild_attendance"))
+    data["guild_settings"] = {str(k): v for k, v in coerce_dict_like(data.get("guild_settings")).items() if isinstance(v, dict)}
+    data["guild_music_prefs"] = {str(k): v for k, v in coerce_dict_like(data.get("guild_music_prefs")).items() if isinstance(v, dict)}
 
-    if "guild_attendance" not in data or not isinstance(data["guild_attendance"], dict):
-        data["guild_attendance"] = {}
+    raw_logs = coerce_dict_like(data.get("server_logs"))
+    clean_logs = {}
+    for g_key, g_cfg in raw_logs.items():
+        if not isinstance(g_cfg, dict):
+            clean_logs[str(g_key)] = {"channel_id": None, "enabled": False, "events": {ev_k: True for ev_k in ("mod_admin", "channels", "messages", "members", "voice", "roles", "server")}}
+        else:
+            g_cfg.setdefault("channel_id", None)
+            g_cfg.setdefault("enabled", False)
+            events = coerce_dict_like(g_cfg.get("events"))
+            g_cfg["events"] = events
+            for ev_key in ("mod_admin", "channels", "messages", "members", "voice", "roles", "server"):
+                events.setdefault(ev_key, True)
+            clean_logs[str(g_key)] = g_cfg
+    data["server_logs"] = clean_logs
 
-    if "server_logs" not in data or not isinstance(data["server_logs"], dict):
-        data["server_logs"] = copy.deepcopy(DEFAULT_CONFIG.get("server_logs", {}))
-    else:
-        for g_key, g_cfg in list(data["server_logs"].items()):
-            if not isinstance(g_cfg, dict):
-                data["server_logs"][g_key] = {"channel_id": None, "enabled": False, "events": {}}
-            else:
-                g_cfg.setdefault("channel_id", None)
-                g_cfg.setdefault("enabled", False)
-                events = g_cfg.setdefault("events", {})
-                if not isinstance(events, dict):
-                    events = {}
-                    g_cfg["events"] = events
-                for ev_key in ("mod_admin", "channels", "messages", "members", "voice", "roles", "server"):
-                    events.setdefault(ev_key, True)
+    raw_stats = coerce_dict_like(data.get("server_stats"))
+    for gk, gs in list(raw_stats.items()):
+        if isinstance(gs, dict):
+            gs["channel_msgs"] = coerce_dict_like(gs.get("channel_msgs"))
+            gs["hourly_msgs"] = coerce_dict_like(gs.get("hourly_msgs"))
+            gs["active_users"] = coerce_dict_like(gs.get("active_users"))
+        else:
+            del raw_stats[gk]
+    data["server_stats"] = raw_stats
 
-    if "server_stats" not in data or not isinstance(data["server_stats"], dict):
-        data["server_stats"] = {}
-
-    if "user_ai_config" not in data or not isinstance(data["user_ai_config"], dict):
-        data["user_ai_config"] = {}
-
-    if "ai_usage" not in data or not isinstance(data["ai_usage"], dict):
-        data["ai_usage"] = {}
-
-    if "birthdays" not in data or not isinstance(data["birthdays"], dict):
-        data["birthdays"] = {}
+    data["user_ai_config"] = coerce_dict_like(data.get("user_ai_config"))
+    data["ai_usage"] = _normalize_guild_user_map(data.get("ai_usage"))
+    data["birthdays"] = coerce_dict_like(data.get("birthdays"))
 
     if "reminders" not in data or not isinstance(data["reminders"], list):
         data["reminders"] = []
@@ -3284,8 +3438,9 @@ def normalize_data(data):
     if "suggestions" not in data or not isinstance(data["suggestions"], list):
         data["suggestions"] = []
 
-    if "reaction_roles" not in data or not isinstance(data["reaction_roles"], dict):
-        data["reaction_roles"] = {}
+    raw_rr = coerce_dict_like(data.get("reaction_roles"))
+    data["reaction_roles"] = {str(k): v for k, v in raw_rr.items() if isinstance(v, dict)}
+    data["proseka_accounts"] = coerce_dict_like(data.get("proseka_accounts"))
 
     return data
 
@@ -3326,80 +3481,107 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
     merged = normalize_data(copy.deepcopy(remote_data))
     local_norm = normalize_data(copy.deepcopy(local_data))
 
-    for d_name, d_info in local_norm.get("ddays", {}).items():
+    for d_name, d_info in as_dict(local_norm.get("ddays")).items():
         if d_name not in merged["ddays"]:
             merged["ddays"][d_name] = d_info
 
-    for u_key, local_prof in local_norm.get("user_profiles", {}).items():
-        if u_key not in merged["user_profiles"]:
+    for u_key, local_prof in as_dict(local_norm.get("user_profiles")).items():
+        if not isinstance(local_prof, dict):
+            continue
+        rem_prof = merged["user_profiles"].get(u_key)
+        if not isinstance(rem_prof, dict):
             merged["user_profiles"][u_key] = local_prof
         else:
-            rem_prof = merged["user_profiles"][u_key]
             if local_prof.get("crystals", 0) > rem_prof.get("crystals", 0):
                 rem_prof["crystals"] = local_prof["crystals"]
-            l_att = local_prof.get("attendance", {})
-            r_att = rem_prof.get("attendance", {})
+            l_att = as_dict(local_prof.get("attendance"))
+            r_att = as_dict(rem_prof.get("attendance"))
             if l_att.get("total_days", 0) > r_att.get("total_days", 0):
                 rem_prof["attendance"] = copy.deepcopy(l_att)
-            l_pls = local_prof.get("playlists", [])
-            r_pls = rem_prof.get("playlists", [])
-            l_trk_cnt = sum(len(p.get("tracks", [])) for p in l_pls if isinstance(p, dict))
-            r_trk_cnt = sum(len(p.get("tracks", [])) for p in r_pls if isinstance(p, dict))
+            l_pls = local_prof.get("playlists") if isinstance(local_prof.get("playlists"), list) else []
+            r_pls = rem_prof.get("playlists") if isinstance(rem_prof.get("playlists"), list) else []
+            l_trk_cnt = sum(len(p.get("tracks", [])) for p in l_pls if isinstance(p, dict) and isinstance(p.get("tracks"), list))
+            r_trk_cnt = sum(len(p.get("tracks", [])) for p in r_pls if isinstance(p, dict) and isinstance(p.get("tracks"), list))
             if len(l_pls) > len(r_pls) or l_trk_cnt > r_trk_cnt:
                 rem_prof["playlists"] = copy.deepcopy(l_pls)
 
-    for g_key, local_g_att in local_norm.get("guild_attendance", {}).items():
-        rem_g_att = merged["guild_attendance"].setdefault(g_key, {})
+    for g_key, local_g_att in as_dict(local_norm.get("guild_attendance")).items():
+        rem_g_att = ensure_dict_path(merged, "guild_attendance", g_key)
         if isinstance(local_g_att, dict):
             for u_key, l_rec in local_g_att.items():
-                if u_key not in rem_g_att or l_rec.get("total_days", 0) > rem_g_att[u_key].get("total_days", 0):
+                if not isinstance(l_rec, dict):
+                    continue
+                r_rec = rem_g_att.get(u_key)
+                if not isinstance(r_rec, dict) or l_rec.get("total_days", 0) > r_rec.get("total_days", 0):
                     rem_g_att[u_key] = copy.deepcopy(l_rec)
 
-    for g_key, local_g_users in local_norm.get("gacha_users", {}).items():
-        if g_key not in merged["gacha_users"]:
+    for g_key, local_g_users in as_dict(local_norm.get("gacha_users")).items():
+        if g_key not in merged["gacha_users"] or not isinstance(merged["gacha_users"].get(g_key), dict):
             merged["gacha_users"][g_key] = copy.deepcopy(local_g_users)
+        elif isinstance(local_g_users, dict):
+            rem_g = ensure_dict_path(merged, "gacha_users", g_key)
+            for u_key, local_u in local_g_users.items():
+                if not isinstance(local_u, dict):
+                    continue
+                rem_u = rem_g.get(u_key)
+                l_cards_cnt = len(as_dict(local_u.get("cards")))
+                r_cards_cnt = len(as_dict(rem_u.get("cards"))) if isinstance(rem_u, dict) else -1
+                if not isinstance(rem_u, dict) or l_cards_cnt > r_cards_cnt:
+                    rem_g[u_key] = copy.deepcopy(local_u)
 
     for u_root_key in ("genshin_users", "hsr_users"):
-        for g_key, local_g_users in local_norm.get(u_root_key, {}).items():
-            if g_key not in merged[u_root_key]:
+        for g_key, local_g_users in as_dict(local_norm.get(u_root_key)).items():
+            if g_key not in merged[u_root_key] or not isinstance(merged[u_root_key].get(g_key), dict):
                 merged[u_root_key][g_key] = copy.deepcopy(local_g_users)
             elif isinstance(local_g_users, dict):
-                rem_g = merged[u_root_key].setdefault(g_key, {})
+                rem_g = ensure_dict_path(merged, u_root_key, g_key)
                 for u_key, local_u in local_g_users.items():
+                    if not isinstance(local_u, dict):
+                        continue
                     rem_u = rem_g.get(u_key)
-                    if not isinstance(rem_u, dict) or (
-                        isinstance(local_u, dict)
-                        and local_u.get("total_pulls", 0) > rem_u.get("total_pulls", 0)
-                    ):
+                    if not isinstance(rem_u, dict) or local_u.get("total_pulls", 0) > rem_u.get("total_pulls", 0):
                         rem_g[u_key] = copy.deepcopy(local_u)
 
     for hof_key in ("genshin_hall_of_fame", "hsr_hall_of_fame"):
-        for g_key, local_hof in local_norm.get(hof_key, {}).items():
-            if g_key not in merged[hof_key]:
+        for g_key, local_hof in as_dict(local_norm.get(hof_key)).items():
+            if not isinstance(local_hof, dict):
+                continue
+            rem_hof = merged[hof_key].get(g_key)
+            if not isinstance(rem_hof, dict):
                 merged[hof_key][g_key] = copy.deepcopy(local_hof)
+            else:
+                l_top = local_hof.get("top_records") if isinstance(local_hof.get("top_records"), list) else []
+                r_top = rem_hof.get("top_records") if isinstance(rem_hof.get("top_records"), list) else []
+                if len(l_top) > len(r_top):
+                    rem_hof["top_records"] = copy.deepcopy(l_top)
+                l_logs = local_hof.get("recent_5_logs") if isinstance(local_hof.get("recent_5_logs"), list) else []
+                r_logs = rem_hof.get("recent_5_logs") if isinstance(rem_hof.get("recent_5_logs"), list) else []
+                if len(l_logs) > len(r_logs):
+                    rem_hof["recent_5_logs"] = copy.deepcopy(l_logs)
 
-    for g_key, local_f_users in local_norm.get("fishing_users", {}).items():
-        if g_key not in merged["fishing_users"]:
+    for g_key, local_f_users in as_dict(local_norm.get("fishing_users")).items():
+        if g_key not in merged["fishing_users"] or not isinstance(merged["fishing_users"].get(g_key), dict):
             merged["fishing_users"][g_key] = copy.deepcopy(local_f_users)
         elif isinstance(local_f_users, dict):
-            rem_g = merged["fishing_users"].setdefault(g_key, {})
+            rem_g = ensure_dict_path(merged, "fishing_users", g_key)
             for u_key, local_fu in local_f_users.items():
+                if not isinstance(local_fu, dict):
+                    continue
                 rem_fu = rem_g.get(u_key)
-                if not isinstance(rem_fu, dict) or (
-                    isinstance(local_fu, dict)
-                    and local_fu.get("total_catches", 0) > rem_fu.get("total_catches", 0)
-                ):
+                if not isinstance(rem_fu, dict) or local_fu.get("total_catches", 0) > rem_fu.get("total_catches", 0):
                     rem_g[u_key] = copy.deepcopy(local_fu)
 
-    for g_key, local_f_rec in local_norm.get("fishing_records", {}).items():
-        if g_key not in merged["fishing_records"]:
+    for g_key, local_f_rec in as_dict(local_norm.get("fishing_records")).items():
+        if g_key not in merged["fishing_records"] or not isinstance(merged["fishing_records"].get(g_key), dict):
             merged["fishing_records"][g_key] = copy.deepcopy(local_f_rec)
         elif isinstance(local_f_rec, dict):
-            rem_rec = merged["fishing_records"].setdefault(g_key, {})
+            rem_rec = ensure_dict_path(merged, "fishing_records", g_key)
             for fid, l_obj in local_f_rec.items():
-                if fid not in rem_rec:
+                if not isinstance(l_obj, dict):
+                    continue
+                if fid not in rem_rec or not isinstance(rem_rec.get(fid), dict):
                     rem_rec[fid] = copy.deepcopy(l_obj)
-                elif isinstance(l_obj, dict) and isinstance(rem_rec.get(fid), dict):
+                else:
                     for metric_k in ("max_cm", "max_kg"):
                         l_m = l_obj.get(metric_k)
                         r_m = rem_rec[fid].get(metric_k)
@@ -3407,27 +3589,29 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                             rem_rec[fid][metric_k] = copy.deepcopy(l_m)
 
     for p_key in ("genshin_pickup", "hsr_pickup"):
-        l_ts = str(local_norm.get(p_key, {}).get("updated_at") or "")
-        r_ts = str(merged.get(p_key, {}).get("updated_at") or "")
+        l_ts = str(as_dict(local_norm.get(p_key)).get("updated_at") or "")
+        r_ts = str(as_dict(merged.get(p_key)).get("updated_at") or "")
         if l_ts and l_ts > r_ts:
             merged[p_key] = copy.deepcopy(local_norm[p_key])
 
-    for g_key, local_g_log in local_norm.get("server_logs", {}).items():
-        if g_key not in merged["server_logs"]:
+    for g_key, local_g_log in as_dict(local_norm.get("server_logs")).items():
+        if not isinstance(local_g_log, dict):
+            continue
+        rem_g_log = merged["server_logs"].get(g_key)
+        if not isinstance(rem_g_log, dict):
             merged["server_logs"][g_key] = copy.deepcopy(local_g_log)
         else:
-            rem_g_log = merged["server_logs"][g_key]
             if local_g_log.get("enabled", False) and not rem_g_log.get("enabled", False):
                 merged["server_logs"][g_key] = copy.deepcopy(local_g_log)
             elif local_g_log.get("channel_id") and not rem_g_log.get("channel_id"):
                 rem_g_log["channel_id"] = local_g_log["channel_id"]
-            local_events = local_g_log.get("events", {})
-            rem_events = rem_g_log.setdefault("events", {})
+            local_events = as_dict(local_g_log.get("events"))
+            rem_events = ensure_dict_path(rem_g_log, "events")
             for ev_k, ev_v in local_events.items():
                 if ev_k not in rem_events:
                     rem_events[ev_k] = ev_v
 
-    for u_key, b_info in local_norm.get("birthdays", {}).items():
+    for u_key, b_info in as_dict(local_norm.get("birthdays")).items():
         if u_key not in merged["birthdays"]:
             merged["birthdays"][u_key] = copy.deepcopy(b_info)
 
@@ -3437,14 +3621,16 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
             merged["reminders"].append(copy.deepcopy(r_item))
 
     # 설정값(터미널 로그 채널, 알림 채널 등) 로컬 백업 보존
-    for s_k, s_v in local_norm.get("settings", {}).items():
-        if s_v is not None and not merged.get("settings", {}).get(s_k):
-            merged.setdefault("settings", {})[s_k] = s_v
+    merged_settings = ensure_dict_path(merged, "settings")
+    for s_k, s_v in as_dict(local_norm.get("settings")).items():
+        if s_v is not None and not merged_settings.get(s_k):
+            merged_settings[s_k] = copy.deepcopy(s_v)
 
     # 반응역할(reaction_roles) 로컬 백업 보존
-    for mid_s, rr_cfg in local_norm.get("reaction_roles", {}).items():
-        if mid_s not in merged.get("reaction_roles", {}):
-            merged.setdefault("reaction_roles", {})[mid_s] = copy.deepcopy(rr_cfg)
+    merged_rr = ensure_dict_path(merged, "reaction_roles")
+    for mid_s, rr_cfg in as_dict(local_norm.get("reaction_roles")).items():
+        if mid_s not in merged_rr:
+            merged_rr[mid_s] = copy.deepcopy(rr_cfg)
 
     return normalize_data(merged)
 
@@ -3872,19 +4058,23 @@ def get_attendance_galaxy_bar(total_days: int) -> str:
 def ensure_user_todo_today(profile: dict) -> dict:
     """날짜가 바뀌었으면 이전 날의 기록을 history에 보존하고 오늘 날짜의 할 일 목록을 준비"""
     today_str = get_today_str()
-    todo = profile.setdefault("todo", {"date": today_str, "tasks": [], "history": {}})
-    history = todo.setdefault("history", {})
-    tasks_list = todo.setdefault("tasks", [])
+    todo = ensure_dict_path(profile, "todo")
+    todo.setdefault("date", today_str)
+    history = ensure_dict_path(todo, "history")
+    tasks_list = todo.get("tasks")
+    if not isinstance(tasks_list, list):
+        tasks_list = []
+        todo["tasks"] = tasks_list
 
     if todo.get("date") != today_str:
         old_date = todo.get("date")
         if old_date and tasks_list:
-            done_cnt = sum(1 for t in tasks_list if t.get("done"))
+            done_cnt = sum(1 for t in tasks_list if isinstance(t, dict) and t.get("done"))
             history[old_date] = {"done": done_cnt, "total": len(tasks_list)}
         todo["date"] = today_str
         todo["tasks"] = []
     else:
-        done_cnt = sum(1 for t in tasks_list if t.get("done"))
+        done_cnt = sum(1 for t in tasks_list if isinstance(t, dict) and t.get("done"))
         history[today_str] = {"done": done_cnt, "total": len(tasks_list)}
 
     if len(history) > 35:
@@ -3896,15 +4086,16 @@ def ensure_user_todo_today(profile: dict) -> dict:
 
 def sync_todo_history_today(todo: dict):
     today_str = get_today_str()
-    tasks_list = todo.get("tasks", [])
-    done_cnt = sum(1 for t in tasks_list if t.get("done"))
-    todo.setdefault("history", {})[today_str] = {"done": done_cnt, "total": len(tasks_list)}
+    raw_tasks = todo.get("tasks")
+    tasks_list = raw_tasks if isinstance(raw_tasks, list) else []
+    done_cnt = sum(1 for t in tasks_list if isinstance(t, dict) and t.get("done"))
+    ensure_dict_path(todo, "history")[today_str] = {"done": done_cnt, "total": len(tasks_list)}
 
 
 def get_todo_galaxy_grass(profile: dict) -> tuple[str, str]:
     """최근 7일간의 은하수 잔디(🟪 하드코어 완주 / 🌌 일반 100% / 🌠 진행중 / 🌑 미달성) 요약 줄과 상세 내역 문자열 반환"""
     todo = ensure_user_todo_today(profile)
-    history = todo.get("history", {})
+    history = as_dict(todo.get("history"))
     today_date = datetime.datetime.now(KST).date()
 
     blocks = []
@@ -3915,7 +4106,7 @@ def get_todo_galaxy_grass(profile: dict) -> tuple[str, str]:
         d_obj = today_date - datetime.timedelta(days=offset)
         d_str = d_obj.strftime("%Y-%m-%d")
         mm_dd = d_obj.strftime("%m/%d")
-        rec = history.get(d_str, {"done": 0, "total": 0})
+        rec = as_dict(history.get(d_str)) or {"done": 0, "total": 0}
         done_c = rec.get("done", 0)
         tot_c = rec.get("total", 0)
 
@@ -3949,9 +4140,10 @@ def get_todo_galaxy_grass(profile: dict) -> tuple[str, str]:
 # 4. 프로세카 확률 계산, 가챠(뽑기), 잠금, 중복 변환, 카드 교환 및 선물 엔진
 # ==========================================
 def is_card_pickup(card, pickup_cfg):
-    p_card_ids = pickup_cfg.get("card_ids") or []
-    p_unit = pickup_cfg.get("unit")
-    p_char = pickup_cfg.get("character")
+    cfg = as_dict(pickup_cfg)
+    p_card_ids = cfg.get("card_ids") or []
+    p_unit = cfg.get("unit")
+    p_char = cfg.get("character")
 
     if p_card_ids:
         if int(card.get("id", 0)) in {int(x) for x in p_card_ids}:
@@ -3973,7 +4165,7 @@ def is_card_pickup(card, pickup_cfg):
 
 def format_pickup_summary(pickup_cfg: dict | None) -> str:
     """현재 적용된 픽업 설정을 임베드/푸터 표시용 한 줄 문자열로 반환"""
-    cfg = pickup_cfg or {}
+    cfg = as_dict(pickup_cfg)
     ev_name = cfg.get("event_name")
     card_ids = cfg.get("card_ids") or []
     p_unit = cfg.get("unit")
@@ -3990,8 +4182,8 @@ def format_pickup_summary(pickup_cfg: dict | None) -> str:
 def sync_gacha_pickup_to_live_event() -> tuple[bool, str, dict]:
     """실시간 한섭(KR) 진행 중 이벤트에 맞춰 가챠 픽업(gacha_pickup)을 자동 연동합니다."""
     info = fetch_live_event_and_gacha_info("kr")
-    ev = info.get("event")
-    if not ev:
+    ev = info.get("event") if isinstance(info, dict) else None
+    if not isinstance(ev, dict):
         return False, "현재 한국 서버 이벤트 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.", {}
 
     ev_id = ev.get("id")
@@ -4000,13 +4192,13 @@ def sync_gacha_pickup_to_live_event() -> tuple[bool, str, dict]:
     ev_unit_raw = ev.get("unit", "")
     ev_unit = UNIT_MAP.get(ev_unit_raw) if ev_unit_raw and ev_unit_raw != "none" else None
 
-    card_map = {int(c["id"]): c for c in PROSEKA_KR_CARDS if c.get("id")}
+    card_map = {int(c["id"]): c for c in PROSEKA_KR_CARDS if isinstance(c, dict) and c.get("id")}
     matched_ids: list[int] = []
 
     raw_event_cards = fetch_json_with_fallback(KR_EVENT_CARDS_URLS) or []
     if isinstance(raw_event_cards, list):
         for ec in raw_event_cards:
-            if ec.get("eventId") != ev_id:
+            if not isinstance(ec, dict) or ec.get("eventId") != ev_id:
                 continue
             cid = ec.get("cardId")
             if cid and int(cid) in card_map and card_map[int(cid)].get("star_num", 1) >= 4:
@@ -4014,10 +4206,14 @@ def sync_gacha_pickup_to_live_event() -> tuple[bool, str, dict]:
                     matched_ids.append(int(cid))
 
     # 이벤트 시작 시점과 일치하는 실시간 이벤트 가챠 배너의 픽업 카드도 보조 확인
-    for g in info.get("gachas", []):
+    for g in (info.get("gachas") or []):
+        if not isinstance(g, dict):
+            continue
         g_start = g.get("startAt", 0)
         if ev_start and abs(g_start - ev_start) <= 86400 * 1000:
             for gp in (g.get("gachaPickups") or []):
+                if not isinstance(gp, dict):
+                    continue
                 cid = gp.get("cardId")
                 if cid and int(cid) in card_map and card_map[int(cid)].get("star_num", 1) >= 4:
                     if int(cid) not in matched_ids:
@@ -4227,7 +4423,7 @@ def annotate_drawn_is_new(guild_id: int, user_id: int, drawn_cards: list) -> lis
     data = load_data()
     g_key = str(guild_id or 0)
     u_key = str(user_id)
-    user_cards = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+    user_cards = safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
     seen_in_pull = set()
     for c in drawn_cards:
         cid_str = str(c["id"])
@@ -4241,17 +4437,12 @@ def _save_pulled_cards_in_data(data: dict, guild_id: int, user_id: int, drawn_ca
     g_key = str(guild_id or 0)
     u_key = str(user_id)
 
-    if g_key not in data["gacha_users"]:
-        data["gacha_users"][g_key] = {}
-    if u_key not in data["gacha_users"][g_key]:
-        data["gacha_users"][g_key][u_key] = {"cards": {}}
-
-    user_cards = data["gacha_users"][g_key][u_key].setdefault("cards", {})
+    user_cards = ensure_dict_path(data, "gacha_users", g_key, u_key, "cards")
     now_str = get_now_datetime_str()
 
     for c in drawn_cards:
         cid_str = str(c["id"])
-        if cid_str in user_cards:
+        if cid_str in user_cards and isinstance(user_cards[cid_str], dict):
             c["is_new"] = False
             user_cards[cid_str]["count"] = user_cards[cid_str].get("count", 1) + 1
             user_cards[cid_str]["last_obtained_at"] = now_str
@@ -4292,22 +4483,21 @@ def _record_hall_of_fame_in_data(data: dict, guild_id: int, user_id: int, drawn_
     """서버별 최고 비틱 10연차 명예의 전당과 최근 픽업/★4 획득 로그를 기록합니다."""
     if not drawn_cards:
         return
-    hof_root = data.setdefault("gacha_hall_of_fame", {})
     g_key = str(guild_id or 0)
     u_key = str(user_id)
-    g_hof = hof_root.setdefault(g_key, {
-        "user_best_10pull": {},
-        "recent_pickup_logs": [],
-        "recent_high_logs": [],
-    })
-    user_best = g_hof.setdefault("user_best_10pull", {})
-    recent_pickup = g_hof.setdefault("recent_pickup_logs", [])
-    recent_high = g_hof.setdefault("recent_high_logs", [])
+    g_hof = ensure_dict_path(data, "gacha_hall_of_fame", g_key)
+    user_best = ensure_dict_path(g_hof, "user_best_10pull")
+    if not isinstance(g_hof.get("recent_pickup_logs"), list):
+        g_hof["recent_pickup_logs"] = []
+    if not isinstance(g_hof.get("recent_high_logs"), list):
+        g_hof["recent_high_logs"] = []
+    recent_pickup = g_hof["recent_pickup_logs"]
+    recent_high = g_hof["recent_high_logs"]
 
     now_str = get_now_datetime_str()
     b_short = BANNER_CONFIGS.get(banner_type, BANNER_CONFIGS["normal"]).get("short_name", banner_type)
 
-    high_cards = [c for c in drawn_cards if int(c.get("star_num", 0)) >= 4]
+    high_cards = [c for c in drawn_cards if isinstance(c, dict) and int(c.get("star_num", 0)) >= 4]
     if len(drawn_cards) >= 10 and high_cards:
         high_cnt = len(high_cards)
         pickup_cnt = sum(1 for c in high_cards if c.get("is_pickup"))
@@ -4319,7 +4509,7 @@ def _record_hall_of_fame_in_data(data: dict, guild_id: int, user_id: int, drawn_
             int(prev.get("high_count", 0)),
             int(prev.get("pickup_count", 0)),
             int(prev.get("star4_count", 0)),
-        ) if prev else (-1, -1, -1)
+        ) if isinstance(prev, dict) else (-1, -1, -1)
 
         if new_score >= prev_score:
             card_summaries = [
@@ -4378,16 +4568,18 @@ def get_gacha_hall_of_fame(guild_id: int) -> dict:
     """서버의 최고 비틱 10연차 명예의 전당과 최근 픽업 ★4 획득 로그를 반환합니다."""
     data = load_data()
     g_key = str(guild_id or 0)
-    g_hof = data.get("gacha_hall_of_fame", {}).get(g_key, {})
-    user_best_map = g_hof.get("user_best_10pull", {})
+    g_hof = safe_get_dict(data, "gacha_hall_of_fame", g_key)
+    user_best_map = as_dict(g_hof.get("user_best_10pull"))
     top_records = sorted(
-        user_best_map.values(),
+        [x for x in user_best_map.values() if isinstance(x, dict)],
         key=lambda x: (-int(x.get("high_count", 0)), -int(x.get("pickup_count", 0)), -int(x.get("star4_count", 0))),
     )[:5]
+    raw_pickups = g_hof.get("recent_pickup_logs")
+    raw_highs = g_hof.get("recent_high_logs")
     return {
         "top_records": top_records,
-        "recent_pickup_logs": list(g_hof.get("recent_pickup_logs", []))[:8],
-        "recent_high_logs": list(g_hof.get("recent_high_logs", []))[:8],
+        "recent_pickup_logs": [x for x in (raw_pickups if isinstance(raw_pickups, list) else []) if isinstance(x, dict)][:8],
+        "recent_high_logs": [x for x in (raw_highs if isinstance(raw_highs, list) else []) if isinstance(x, dict)][:8],
     }
 
 
@@ -4402,7 +4594,7 @@ def can_use_daily_birthday_free_pull(guild_id: int, user_id: int, now_dt: dateti
     data = load_data()
     g_key = str(guild_id or 0)
     u_key = str(user_id)
-    u_info = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {})
+    u_info = safe_get_dict(data, "gacha_users", g_key, u_key)
     if u_info.get("last_bday_free_date") == today_str:
         names = ", ".join(b["char_name"] for b in bday_chars)
         return False, bday_chars, f"오늘은 이미 **{names}** 생일 무료 단차를 사용하셨습니다!"
@@ -4462,7 +4654,8 @@ def draw_birthday_free_pull(guild_id: int, user_id: int, now_dt: datetime.dateti
         data = load_data()
         g_key = str(guild_id or 0)
         u_key = str(user_id)
-        u_obj = data.setdefault("gacha_users", {}).setdefault(g_key, {}).setdefault(u_key, {"cards": {}})
+        u_obj = ensure_dict_path(data, "gacha_users", g_key, u_key)
+        ensure_dict_path(u_obj, "cards")
         if u_obj.get("last_bday_free_date") == today_str:
             return False, f"오늘은 이미 **{bday_names}** 생일 무료 단차를 사용하셨습니다!", bday_chars, []
 
@@ -4488,7 +4681,7 @@ def can_use_daily_destiny_reroll(guild_id: int, user_id: int, now_dt: datetime.d
     data = load_data()
     g_key = str(guild_id or 0)
     u_key = str(user_id)
-    u_info = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {})
+    u_info = safe_get_dict(data, "gacha_users", g_key, u_key)
     if u_info.get("last_destiny_date") == today_str:
         return False, "오늘의 **🔮 운명 다시 뽑기**를 이미 사용하셨습니다! 내일 자정(KST)에 다시 도전할 수 있어요."
     return True, "사용 가능"
@@ -4508,7 +4701,8 @@ def start_daily_destiny_reroll(
         data = load_data()
         g_key = str(guild_id or 0)
         u_key = str(user_id)
-        u_obj = data.setdefault("gacha_users", {}).setdefault(g_key, {}).setdefault(u_key, {"cards": {}})
+        u_obj = ensure_dict_path(data, "gacha_users", g_key, u_key)
+        user_cards = ensure_dict_path(u_obj, "cards")
         if u_obj.get("last_destiny_date") == today_str:
             return False, "오늘의 **🔮 운명 다시 뽑기**를 이미 사용하셨습니다! 내일 자정(KST)에 다시 도전할 수 있어요.", []
 
@@ -4516,7 +4710,6 @@ def start_daily_destiny_reroll(
         if not drawn:
             return False, "한국 서버 캐릭터 DB를 불러오지 못했습니다.", []
 
-        user_cards = u_obj.get("cards", {})
         seen = set()
         for c in drawn:
             cid_str = str(c["id"])
@@ -4537,9 +4730,9 @@ def toggle_user_card_lock(guild_id: int, user_id: int, card_id_str: str) -> tupl
         data = load_data()
         g_key = str(guild_id or 0)
         u_key = str(user_id)
-        user_cards = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+        user_cards = safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
         cid_str = str(card_id_str)
-        if cid_str not in user_cards:
+        if cid_str not in user_cards or not isinstance(user_cards[cid_str], dict):
             return False, False, None
 
         current_locked = bool(user_cards[cid_str].get("locked", False))
@@ -4557,7 +4750,7 @@ def preview_duplicate_cards(guild_id: int, user_id: int) -> dict:
     data = load_data()
     g_key = str(guild_id or 0)
     u_key = str(user_id)
-    user_cards = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+    user_cards = safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
 
     summary = {
         "total_excess_cards": 0,
@@ -4573,6 +4766,8 @@ def preview_duplicate_cards(guild_id: int, user_id: int) -> dict:
     }
 
     for cid_str, c in user_cards.items():
+        if not isinstance(c, dict):
+            continue
         cnt = c.get("count", 1)
         if cnt < 2:
             continue
@@ -4604,13 +4799,15 @@ def execute_duplicate_card_conversion(guild_id: int, user_id: int) -> dict:
         g_key = str(guild_id or 0)
         u_key = str(user_id)
         profile = ensure_user_profile(data, u_key)
-        user_cards = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+        user_cards = safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
 
         total_converted = 0
         total_gained = 0
         details = []
 
         for cid_str, c in user_cards.items():
+            if not isinstance(c, dict):
+                continue
             cnt = c.get("count", 1)
             if cnt < 2 or c.get("locked", False):
                 continue
@@ -4644,8 +4841,11 @@ def get_card_pokedex_stats(guild_id: int, user_id: int) -> dict:
     data = load_data()
     g_key = str(guild_id or 0)
     u_key = str(user_id)
-    user_cards_map = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
-    owned_id_set = set(str(cid) for cid in user_cards_map.keys())
+    user_cards_map = {
+        str(cid): val for cid, val in safe_get_dict(data, "gacha_users", g_key, u_key, "cards").items()
+        if isinstance(val, dict)
+    }
+    owned_id_set = set(user_cards_map.keys())
 
     master_pool = list(PROSEKA_KR_CARDS) if PROSEKA_KR_CARDS else build_fallback_proseka_cards()
     owned_list = []
@@ -4674,6 +4874,8 @@ def get_card_pokedex_stats(guild_id: int, user_id: int) -> dict:
     }
 
     for mc in master_pool:
+        if not isinstance(mc, dict):
+            continue
         mc_id_str = str(mc.get("id"))
         c_id = mc.get("char_id")
         r_type = mc.get("rarity_type", "rarity_2")
@@ -4743,8 +4945,8 @@ def get_card_pokedex_stats(guild_id: int, user_id: int) -> dict:
 
 def _transfer_single_card(g_users: dict, profiles: dict, from_uid: str, to_uid: str, card_id_str: str) -> dict:
     """특정 유저의 보관함에서 카드를 1장 차감하여 대상 유저의 보관함으로 이전"""
-    from_cards = g_users.setdefault(from_uid, {}).setdefault("cards", {})
-    to_cards = g_users.setdefault(to_uid, {}).setdefault("cards", {})
+    from_cards = ensure_dict_path(g_users, from_uid, "cards")
+    to_cards = ensure_dict_path(g_users, to_uid, "cards")
 
     src_card = copy.deepcopy(from_cards[card_id_str])
     src_card["locked"] = False
@@ -4755,11 +4957,11 @@ def _transfer_single_card(g_users: dict, profiles: dict, from_uid: str, to_uid: 
         from_cards[card_id_str]["count"] -= 1
     else:
         del from_cards[card_id_str]
-        if from_uid in profiles and card_id_str in profiles[from_uid].get("deck", []):
+        if from_uid in profiles and isinstance(profiles[from_uid], dict) and card_id_str in (profiles[from_uid].get("deck") or []):
             profiles[from_uid]["deck"] = [cid for cid in profiles[from_uid]["deck"] if cid != card_id_str]
 
     # 받는 유저 보관함에 1장 추가
-    if card_id_str in to_cards:
+    if card_id_str in to_cards and isinstance(to_cards[card_id_str], dict):
         to_cards[card_id_str]["count"] = to_cards[card_id_str].get("count", 1) + 1
         to_cards[card_id_str]["last_obtained_at"] = now_str
     else:
@@ -4790,13 +4992,13 @@ def execute_card_trade(guild_id: int, requester_id: int, target_id: int, req_car
         if req_crystals < 100:
             return False, f"신청자(<@{requester_id}>)의 크리스탈이 부족합니다. (필요: `100개` / 보유: `{req_crystals}개`)", None, None, req_crystals
 
-        g_users = data["gacha_users"].setdefault(g_key, {})
-        req_cards = g_users.get(r_key, {}).get("cards", {})
-        tgt_cards = g_users.get(t_key, {}).get("cards", {})
+        g_users = ensure_dict_path(data, "gacha_users", g_key)
+        req_cards = safe_get_dict(g_users, r_key, "cards")
+        tgt_cards = safe_get_dict(g_users, t_key, "cards")
 
-        if req_card_id not in req_cards or req_cards[req_card_id].get("count", 0) < 1:
+        if req_card_id not in req_cards or not isinstance(req_cards[req_card_id], dict) or req_cards[req_card_id].get("count", 0) < 1:
             return False, f"신청자(<@{requester_id}>)가 해당 카드를 더 이상 보유하고 있지 않습니다.", None, None, req_crystals
-        if target_card_id not in tgt_cards or tgt_cards[target_card_id].get("count", 0) < 1:
+        if target_card_id not in tgt_cards or not isinstance(tgt_cards[target_card_id], dict) or tgt_cards[target_card_id].get("count", 0) < 1:
             return False, f"수락자(<@{target_id}>)가 해당 카드를 더 이상 보유하고 있지 않습니다.", None, None, req_crystals
 
         if req_cards[req_card_id].get("locked", False):
@@ -4831,9 +5033,9 @@ def execute_partner_gift(guild_id: int, sender_id: int, partner_id: int, card_id
         if sender_crystals < 50:
             return False, f"선물에 필요한 크리스탈이 부족합니다! (필요: `50개` / 현재 보유: `{sender_crystals}개` — `/출석체크` 또는 `/중복카드변환`으로 획득 가능)", None, sender_crystals
 
-        g_users = data["gacha_users"].setdefault(g_key, {})
-        sender_cards = g_users.get(s_key, {}).get("cards", {})
-        if card_id not in sender_cards or sender_cards[card_id].get("count", 0) < 1:
+        g_users = ensure_dict_path(data, "gacha_users", g_key)
+        sender_cards = safe_get_dict(g_users, s_key, "cards")
+        if card_id not in sender_cards or not isinstance(sender_cards[card_id], dict) or sender_cards[card_id].get("count", 0) < 1:
             return False, "선물하려는 카드를 보유하고 있지 않습니다.", None, sender_crystals
 
         if sender_cards[card_id].get("locked", False):
@@ -5143,17 +5345,17 @@ def fetch_spotify_playlist_fallback(playlist_id):
         match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', res.text)
         if not match:
             return None, "플레이리스트 데이터를 읽을 수 없습니다."
-        next_data = json.loads(match.group(1))
-        entity = next_data.get("props", {}).get("pageProps", {}).get("state", {}).get("data", {}).get("entity", {})
+        next_data = as_dict(json.loads(match.group(1)))
+        entity = safe_get_dict(next_data, "props", "pageProps", "state", "data", "entity")
         track_list = entity.get("trackList", [])
-        if not track_list:
+        if not isinstance(track_list, list) or not track_list:
             return None, "플레이리스트에 곡이 없거나 비공개 상태입니다."
-        chosen = random.choice(track_list)
+        chosen = as_dict(random.choice(track_list))
         uri = chosen.get("uri", "")
         track_id = uri.split(":")[-1] if ":" in uri else ""
         track_url = f"https://open.spotify.com/track/{track_id}" if track_id else f"https://open.spotify.com/playlist/{playlist_id}"
-        visual = entity.get("visualIdentity", {}).get("image", [])
-        cover_img = visual[0].get("url") if visual and isinstance(visual, list) else None
+        visual = safe_get_dict(entity, "visualIdentity").get("image", [])
+        cover_img = visual[0].get("url") if (visual and isinstance(visual, list) and isinstance(visual[0], dict)) else None
         return {
             "platform": "Spotify",
             "title": chosen.get("title", "제목 없음"),
@@ -5199,21 +5401,25 @@ def fetch_spotify_track(genre=None, artist=None, playlist_url=None):
                 res = requests.get(search_url, headers=headers, params={"q": query, "type": "track", "market": "KR"}, timeout=8)
             if res.status_code != 200:
                 return None, f"Spotify API 검색 실패 (HTTP {res.status_code})"
-            tracks = res.json().get("tracks", {}).get("items", [])
+            tracks = safe_get_dict(as_dict(res.json()), "tracks").get("items", [])
             if not tracks and offset > 0:
                 res = requests.get(search_url, headers=headers, params={"q": query, "type": "track", "market": "KR"}, timeout=8)
-                tracks = res.json().get("tracks", {}).get("items", [])
-            if not tracks:
+                tracks = safe_get_dict(as_dict(res.json()), "tracks").get("items", [])
+            if not isinstance(tracks, list) or not tracks:
                 return None, "조건에 맞는 스포티파이 곡을 찾지 못했습니다."
-            track = random.choice(tracks)
+            track = as_dict(random.choice(tracks))
 
-        images = track.get("album", {}).get("images", [])
+        images = safe_get_dict(track, "album").get("images", [])
+        if not isinstance(images, list):
+            images = []
+        artists_raw = track.get("artists", [])
+        artists_list = [a for a in artists_raw if isinstance(a, dict)] if isinstance(artists_raw, list) else []
         return {
             "platform": "Spotify",
             "title": track.get("name", "제목 없음"),
-            "artist": ", ".join([a["name"] for a in track.get("artists", [])]),
-            "url": track.get("external_urls", {}).get("spotify", "https://open.spotify.com"),
-            "image": images[0]["url"] if images else None
+            "artist": ", ".join([a.get("name", "") for a in artists_list if a.get("name")]),
+            "url": safe_get_dict(track, "external_urls").get("spotify", "https://open.spotify.com"),
+            "image": images[0].get("url") if images and isinstance(images[0], dict) else None
         }, None
     except Exception as e:
         return None, f"Spotify 검색 오류: {e}"
@@ -5436,12 +5642,14 @@ def resolve_playlist_track_sync(raw_query_or_url: str, artist_hint: str = "", pr
                         tid = m.group(1)
                         res = requests.get(f"https://api.spotify.com/v1/tracks/{tid}", headers=headers, params={"market": "KR"}, timeout=5)
                         if res.status_code == 200:
-                            t_data = res.json()
+                            t_data = as_dict(res.json())
                             title = t_data.get("name") or title
-                            artist = ", ".join([a["name"] for a in t_data.get("artists", [])]) or artist
-                            direct_url = t_data.get("external_urls", {}).get("spotify") or raw
-                            imgs = t_data.get("album", {}).get("images", [])
-                            if imgs:
+                            artists_raw = t_data.get("artists", [])
+                            if isinstance(artists_raw, list):
+                                artist = ", ".join([a.get("name", "") for a in artists_raw if isinstance(a, dict) and a.get("name")]) or artist
+                            direct_url = safe_get_dict(t_data, "external_urls").get("spotify") or raw
+                            imgs = safe_get_dict(t_data, "album").get("images", [])
+                            if isinstance(imgs, list) and imgs and isinstance(imgs[0], dict):
                                 image_url = imgs[0].get("url")
                 elif not is_url:
                     res = requests.get(
@@ -5451,14 +5659,16 @@ def resolve_playlist_track_sync(raw_query_or_url: str, artist_hint: str = "", pr
                         timeout=5
                     )
                     if res.status_code == 200:
-                        items = res.json().get("tracks", {}).get("items", [])
-                        if items:
+                        items = safe_get_dict(as_dict(res.json()), "tracks").get("items", [])
+                        if isinstance(items, list) and items and isinstance(items[0], dict):
                             t_data = items[0]
                             title = t_data.get("name") or title
-                            artist = ", ".join([a["name"] for a in t_data.get("artists", [])]) or artist
-                            direct_url = t_data.get("external_urls", {}).get("spotify") or direct_url
-                            imgs = t_data.get("album", {}).get("images", [])
-                            if imgs:
+                            artists_raw = t_data.get("artists", [])
+                            if isinstance(artists_raw, list):
+                                artist = ", ".join([a.get("name", "") for a in artists_raw if isinstance(a, dict) and a.get("name")]) or artist
+                            direct_url = safe_get_dict(t_data, "external_urls").get("spotify") or direct_url
+                            imgs = safe_get_dict(t_data, "album").get("images", [])
+                            if isinstance(imgs, list) and imgs and isinstance(imgs[0], dict):
                                 image_url = imgs[0].get("url")
         except Exception:
             pass
@@ -5623,13 +5833,15 @@ def extract_playlist_from_url_sync(url: str, max_tracks: int = 100) -> tuple[dic
                 if res.status_code == 200:
                     match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', res.text)
                     if match:
-                        next_data = json.loads(match.group(1))
-                        entity = next_data.get("props", {}).get("pageProps", {}).get("state", {}).get("data", {}).get("entity", {})
+                        next_data = as_dict(json.loads(match.group(1)))
+                        entity = safe_get_dict(next_data, "props", "pageProps", "state", "data", "entity")
                         pl_title = str(entity.get("title") or entity.get("name") or "Spotify 플레이리스트").strip()[:50]
                         pl_desc = str(entity.get("subtitle") or entity.get("description") or "Spotify에서 가져온 감성 플레이리스트 ✨").strip()[:120]
-                        visual = entity.get("visualIdentity", {}).get("image", [])
-                        cover_img = visual[0].get("url") if (visual and isinstance(visual, list)) else None
+                        visual = safe_get_dict(entity, "visualIdentity").get("image", [])
+                        cover_img = visual[0].get("url") if (visual and isinstance(visual, list) and isinstance(visual[0], dict)) else None
                         track_list = entity.get("trackList", [])
+                        if not isinstance(track_list, list):
+                            track_list = []
 
                         for idx, item in enumerate(track_list[:max_tracks], start=1):
                             t_title = str(item.get("title") or "제목 없음").strip()[:100]
@@ -5672,14 +5884,16 @@ def extract_playlist_from_url_sync(url: str, max_tracks: int = 100) -> tuple[dic
                 if res.status_code == 200:
                     match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', res.text)
                     if match:
-                        next_data = json.loads(match.group(1))
-                        entity = next_data.get("props", {}).get("pageProps", {}).get("state", {}).get("data", {}).get("entity", {})
+                        next_data = as_dict(json.loads(match.group(1)))
+                        entity = safe_get_dict(next_data, "props", "pageProps", "state", "data", "entity")
                         pl_title = str(entity.get("title") or entity.get("name") or "Spotify 앨범").strip()[:50]
                         alb_artist = str(entity.get("subtitle") or "알 수 없는 아티스트").strip()[:80]
                         pl_desc = f"{alb_artist}의 앨범 수록곡 리스트 ✨"[:120]
-                        visual = entity.get("visualIdentity", {}).get("image", [])
-                        cover_img = visual[0].get("url") if (visual and isinstance(visual, list)) else None
+                        visual = safe_get_dict(entity, "visualIdentity").get("image", [])
+                        cover_img = visual[0].get("url") if (visual and isinstance(visual, list) and isinstance(visual[0], dict)) else None
                         track_list = entity.get("trackList", [])
+                        if not isinstance(track_list, list):
+                            track_list = []
 
                         for idx, item in enumerate(track_list[:max_tracks], start=1):
                             t_title = str(item.get("title") or "제목 없음").strip()[:100]
@@ -5965,7 +6179,7 @@ async def user_playlist_autocomplete(interaction: discord.Interaction, current: 
     """유저가 만든 플레이리스트 목록을 실시간 자동완성"""
     data = get_cached_data()
     u_key = str(interaction.user.id)
-    prof = data.get("user_profiles", {}).get(u_key, {})
+    prof = safe_get_dict(data, "user_profiles", u_key)
     pls = prof.get("playlists", [])
     if not isinstance(pls, list) or not pls:
         return [app_commands.Choice(name="🎧 나만의 대표 플레이리스트 (기본)", value="pl_default")]
@@ -5991,7 +6205,7 @@ async def user_playlist_track_autocomplete(interaction: discord.Interaction, cur
     """유저가 선택한 플레이리스트 내의 수록곡 목록을 실시간 자동완성"""
     data = get_cached_data()
     u_key = str(interaction.user.id)
-    prof = data.get("user_profiles", {}).get(u_key, {})
+    prof = safe_get_dict(data, "user_profiles", u_key)
     pls = prof.get("playlists", [])
     if not isinstance(pls, list) or not pls:
         return []
@@ -6342,15 +6556,15 @@ async def owned_card_autocomplete(interaction: discord.Interaction, current: str
     data = get_cached_data()
     g_key = str(interaction.guild_id or 0)
     u_key = str(interaction.user.id)
-    user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
-    cards = list(user_cards_dict.values())
+    user_cards_dict = safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
+    cards = [c for c in user_cards_dict.values() if isinstance(c, dict)]
     cards.sort(key=lambda x: (-x.get("star_num", 1), -int(x.get("is_limited", False)), x.get("char_id", 99)))
 
     choices = []
     for c in cards:
         cnt = c.get("count", 1)
         lock_prefix = "🔒 " if c.get("locked", False) else ""
-        label = f"{lock_prefix}{c['rarity_label']} [{c['prefix']}] {c['char_name']} (보유:{cnt}장 | ID:{c['id']})"[:100]
+        label = f"{lock_prefix}{c.get('rarity_label', '')} [{c.get('prefix', '')}] {c.get('char_name', '')} (보유:{cnt}장 | ID:{c.get('id')})"[:100]
         if not current or current.lower() in label.lower():
             choices.append(app_commands.Choice(name=label, value=str(c["id"])))
         if len(choices) >= 25:
@@ -6371,15 +6585,15 @@ async def target_user_card_autocomplete(interaction: discord.Interaction, curren
     data = get_cached_data()
     g_key = str(interaction.guild_id or 0)
     t_key = str(target_id)
-    target_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(t_key, {}).get("cards", {})
-    cards = list(target_cards_dict.values())
+    target_cards_dict = safe_get_dict(data, "gacha_users", g_key, t_key, "cards")
+    cards = [c for c in target_cards_dict.values() if isinstance(c, dict)]
     cards.sort(key=lambda x: (-x.get("star_num", 1), -int(x.get("is_limited", False)), x.get("char_id", 99)))
 
     choices = []
     for c in cards:
         cnt = c.get("count", 1)
         lock_prefix = "🔒 " if c.get("locked", False) else ""
-        label = f"{lock_prefix}{c['rarity_label']} [{c['prefix']}] {c['char_name']} (보유:{cnt}장 | ID:{c['id']})"[:100]
+        label = f"{lock_prefix}{c.get('rarity_label', '')} [{c.get('prefix', '')}] {c.get('char_name', '')} (보유:{cnt}장 | ID:{c.get('id')})"[:100]
         if not current or current.lower() in label.lower():
             choices.append(app_commands.Choice(name=label, value=str(c["id"])))
         if len(choices) >= 25:
@@ -6390,9 +6604,11 @@ async def target_user_card_autocomplete(interaction: discord.Interaction, curren
 async def secret_dday_name_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     data = get_cached_data()
     u_key = str(interaction.user.id)
-    s_ddays = data.get("user_profiles", {}).get(u_key, {}).get("secret_ddays", {})
+    s_ddays = safe_get_dict(data, "user_profiles", u_key, "secret_ddays")
     choices = []
     for name, info in s_ddays.items():
+        if not isinstance(info, dict):
+            continue
         label = f"{name} ({info.get('date', '-')})"[:100]
         if not current or current.lower() in label.lower():
             choices.append(app_commands.Choice(name=label, value=name))

@@ -141,8 +141,11 @@ class ServerLogCategorySelect(discord.ui.Select):
         await core.safe_defer(interaction, ephemeral=True)
         data = await core.asyncio.to_thread(core.load_data)
         g_key = str(interaction.guild_id)
-        guild_cfg = data.setdefault("server_logs", {}).setdefault(g_key, {"channel_id": None, "enabled": False})
-        ev_map = guild_cfg.setdefault("events", {})
+        logs_root = core.ensure_dict_path(data, "server_logs")
+        if not isinstance(logs_root.get(g_key), dict):
+            logs_root[g_key] = {"channel_id": None, "enabled": False}
+        guild_cfg = logs_root[g_key]
+        ev_map = core.ensure_dict_path(guild_cfg, "events")
 
         selected_set = set(self.values)
         for key, _, _ in LOG_CATEGORY_META:
@@ -212,9 +215,12 @@ class ServerLogConfigModal(core.SafeModal, title="⚙️ 서버 7대 카테고�
         await core.safe_defer(interaction, ephemeral=True)
         data = await core.asyncio.to_thread(core.load_data)
         g_key = str(interaction.guild_id)
-        guild_cfg = data.setdefault("server_logs", {}).setdefault(g_key, {"channel_id": None, "enabled": False})
+        logs_root = core.ensure_dict_path(data, "server_logs")
+        if not isinstance(logs_root.get(g_key), dict):
+            logs_root[g_key] = {"channel_id": None, "enabled": False}
+        guild_cfg = logs_root[g_key]
 
-        guild_cfg.setdefault("events", {})
+        core.ensure_dict_path(guild_cfg, "events")
         guild_cfg["events"]["mod_admin"] = self._parse_bool(self.mod_admin_input.value)
         guild_cfg["events"]["messages"] = self._parse_bool(self.messages_input.value)
         guild_cfg["events"]["members"] = self._parse_bool(self.members_input.value)
@@ -308,7 +314,10 @@ class ServerLogHubView(core.SafeView):
         await core.safe_defer(interaction, ephemeral=True)
         data = await core.asyncio.to_thread(core.load_data)
         g_key = str(interaction.guild_id)
-        guild_cfg = data.setdefault("server_logs", {}).setdefault(g_key, {"channel_id": None, "enabled": False})
+        logs_root = core.ensure_dict_path(data, "server_logs")
+        if not isinstance(logs_root.get(g_key), dict):
+            logs_root[g_key] = {"channel_id": None, "enabled": False}
+        guild_cfg = logs_root[g_key]
         guild_cfg["channel_id"] = interaction.channel_id
         guild_cfg["enabled"] = True
         await core.asyncio.to_thread(core.save_data, data)
@@ -334,7 +343,10 @@ class ServerLogHubView(core.SafeView):
         await core.safe_defer(interaction, ephemeral=True)
         data = await core.asyncio.to_thread(core.load_data)
         g_key = str(interaction.guild_id)
-        guild_cfg = data.setdefault("server_logs", {}).setdefault(g_key, {"channel_id": None, "enabled": False})
+        logs_root = core.ensure_dict_path(data, "server_logs")
+        if not isinstance(logs_root.get(g_key), dict):
+            logs_root[g_key] = {"channel_id": None, "enabled": False}
+        guild_cfg = logs_root[g_key]
         guild_cfg["enabled"] = False
         await core.asyncio.to_thread(core.save_data, data)
 
@@ -690,13 +702,13 @@ class LoggerCog(commands.Cog):
         if not guild:
             return None
         g_key = str(guild.id)
-        log_cfg = data.get("server_logs", {}).get(g_key, {})
+        log_cfg = core.safe_get_dict(data, "server_logs", g_key)
         if not log_cfg.get("enabled", False):
             return None
         ch_id = log_cfg.get("channel_id")
         if not ch_id:
             return None
-        events_map = log_cfg.get("events", {})
+        events_map = core.as_dict(log_cfg.get("events"))
         if category_key and not events_map.get(category_key, True):
             return None
         return guild.get_channel(ch_id)
@@ -724,8 +736,10 @@ class LoggerCog(commands.Cog):
         await core.safe_defer(interaction, ephemeral=True)
         data = await core.asyncio.to_thread(core.load_data)
         g_key = str(interaction.guild_id)
-        logs_dict = data.setdefault("server_logs", {})
-        guild_cfg = logs_dict.setdefault(g_key, {"channel_id": None, "enabled": False})
+        logs_dict = core.ensure_dict_path(data, "server_logs")
+        if not isinstance(logs_dict.get(g_key), dict):
+            logs_dict[g_key] = {"channel_id": None, "enabled": False}
+        guild_cfg = logs_dict[g_key]
 
         if 채널:
             guild_cfg["channel_id"] = 채널.id
@@ -926,10 +940,10 @@ class LoggerCog(commands.Cog):
         g_key = str(interaction.guild_id)
 
         data = await core.asyncio.to_thread(core.load_data)
-        g_attendance = data.get("guild_attendance", {}).get(g_key, {})
-        u_profiles = data.get("user_profiles", {})
-        g_stats = data.get("server_stats", {}).get(g_key, {})
-        chat_active_users = g_stats.get("active_users", {})
+        g_attendance = core.safe_get_dict(data, "guild_attendance", g_key)
+        u_profiles = core.as_dict(data.get("user_profiles"))
+        g_stats = core.safe_get_dict(data, "server_stats", g_key)
+        chat_active_users = core.as_dict(g_stats.get("active_users"))
 
         # 서버 멤버 스캔 (봇 제외)
         members = [m for m in interaction.guild.members if not m.bot]
@@ -952,7 +966,7 @@ class LoggerCog(commands.Cog):
 
                 # 3. 글로벌 프로필 출석 기록 확인
                 if not last_date_str and m_key in u_profiles and isinstance(u_profiles[m_key], dict):
-                    att = u_profiles[m_key].get("attendance", {})
+                    att = core.as_dict(u_profiles[m_key].get("attendance"))
                     last_date_str = att.get("last_date")
 
                 if last_date_str:
