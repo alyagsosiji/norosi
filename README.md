@@ -2,6 +2,7 @@
 
 # 🏮 norosi (무로시)
 **서버의 든든한 신호탄이 되어주는 올인원(All-in-One) 다기능 디스코드 봇**
+본 봇은 SEGA 및 Colorful Palette / HoYoverse와 무관한 비공식 팬 툴이며, 모든 일러스트 및 캐릭터의 저작권은 원저작권자에게 있습니다
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
