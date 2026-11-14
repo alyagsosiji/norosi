@@ -440,12 +440,20 @@ HSR_EMBEDDED_FALLBACK_CHARS = [
 ]
 
 HSR_EMBEDDED_FALLBACK_LCS = [
-    {"id": "23065", "name": "고독한 별을 위해", "rank": 5, "path": "Memory", "warp_source": "limited", "pool_type": "광추한정"},
-    {"id": "23064", "name": "오직 하나의 승리", "rank": 5, "path": "Elation", "warp_source": "limited", "pool_type": "광추한정"},
-    {"id": "23063", "name": "내일로 향하는 멜로디", "rank": 5, "path": "Elation", "warp_source": "limited", "pool_type": "광추한정"},
-    {"id": "23062", "name": "하늘의 사슬조차 끊어내리", "rank": 5, "path": "Mage", "warp_source": "limited", "pool_type": "광추한정"},
-    {"id": "23053", "name": "현란한 파도타기 세상", "rank": 5, "path": "Elation", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23065", "name": "「아하」가 처음 울리는 순간", "rank": 5, "path": "Elation", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23064", "name": "파도에 내던진 한여름", "rank": 5, "path": "Elation", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23063", "name": "그대는 나아가 노래하리니", "rank": 5, "path": "Elation", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23062", "name": "보이는 것이 곧 나", "rank": 5, "path": "Rogue", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23061", "name": "고요히 빛나는 불티", "rank": 5, "path": "Rogue", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23060", "name": "별이 밤하늘을 밝힐 때", "rank": 5, "path": "Warrior", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23059", "name": "연옥을 불사른 새로운 몸", "rank": 5, "path": "Warrior", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23058", "name": "다음 꽃피는 계절의 만남", "rank": 5, "path": "Memory", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23057", "name": "갤럭시 시티에 오신 것을 환영합니다", "rank": 5, "path": "Mage", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23056", "name": "거짓말의 종막", "rank": 5, "path": "Warlock", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23054", "name": "그녀가 보기로 결심했을 때", "rank": 5, "path": "Shaman", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23053", "name": "눈부신 파키의 세상", "rank": 5, "path": "Elation", "warp_source": "limited", "pool_type": "광추한정"},
     {"id": "23052", "name": "이 순간처럼 영원한 사랑", "rank": 5, "path": "Memory", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23051", "name": "끝없는 산과 강을 거치더라도", "rank": 5, "path": "Knight", "warp_source": "limited", "pool_type": "광추한정"},
     {"id": "23044", "name": "이와 같이 타오르는 여명", "rank": 5, "path": "Warrior", "warp_source": "limited", "pool_type": "광추한정"},
     {"id": "23040", "name": "이별이 더 아름답도록", "rank": 5, "path": "Memory", "warp_source": "limited", "pool_type": "광추한정"},
     {"id": "23037", "name": "추궁할 수 없는 곳을 향해", "rank": 5, "path": "Mage", "warp_source": "limited", "pool_type": "광추한정"},
@@ -455,19 +463,55 @@ HSR_EMBEDDED_FALLBACK_LCS = [
     {"id": "24000", "name": "어떤 에이언즈의 몰락", "rank": 5, "path": "Warrior", "warp_source": "herta", "pool_type": "헤르타 상점"},
     {"id": "21018", "name": "댄스! 댄스! 댄스!", "rank": 4, "path": "Shaman", "warp_source": "standard", "pool_type": "상시"},
     {"id": "21015", "name": "땀방울처럼 빛나는 결심", "rank": 4, "path": "Warlock", "warp_source": "standard", "pool_type": "상시"},
-    {"id": "20012", "name": "맞물린 톱니", "rank": 3, "path": "Shaman", "warp_source": "standard", "pool_type": "워프 상시"},
-    {"id": "20015", "name": "증식", "rank": 3, "path": "Priest", "warp_source": "standard", "pool_type": "워프 상시"},
+    {"id": "20000", "name": "화살촉", "rank": 3, "path": "Rogue", "warp_source": "standard", "pool_type": "상시(3성)"},
+    {"id": "20001", "name": "풍작", "rank": 3, "path": "Priest", "warp_source": "standard", "pool_type": "상시(3성)"},
+    {"id": "20002", "name": "천경", "rank": 3, "path": "Warrior", "warp_source": "standard", "pool_type": "상시(3성)"},
+    {"id": "20003", "name": "앰버", "rank": 3, "path": "Knight", "warp_source": "standard", "pool_type": "상시(3성)"},
+    {"id": "20004", "name": "그윽", "rank": 3, "path": "Warlock", "warp_source": "standard", "pool_type": "상시(3성)"},
+    {"id": "20005", "name": "합창", "rank": 3, "path": "Shaman", "warp_source": "standard", "pool_type": "상시(3성)"},
+    {"id": "20006", "name": "아카이브", "rank": 3, "path": "Mage", "warp_source": "standard", "pool_type": "상시(3성)"},
+    {"id": "20012", "name": "맞물린 톱니", "rank": 3, "path": "Shaman", "warp_source": "standard", "pool_type": "상시(3성)"},
+    {"id": "20021", "name": "불타는 그림자", "rank": 3, "path": "Memory", "warp_source": "standard", "pool_type": "상시(3성)"},
+    {"id": "20023", "name": "비웃음", "rank": 3, "path": "Elation", "warp_source": "standard", "pool_type": "상시(3성)"},
 ]
 
+# 최신 터널 유물(125~134) 및 차원 장신구(320~330) 한국어 공식 세트 효과
+HSR_RELIC_SET_BONUSES_KR: dict[str, tuple[str, str]] = {
+    "134": ("치명타 피해 16% 증가", "장착한 캐릭터가 일반 공격으로 가하는 피해가 36% 증가한다. 장착한 캐릭터가 일반 공격 발동 시 장착한 캐릭터의 공격력이 20% 증가한다, 지속 시간: 2턴"),
+    "133": ("속도 6% 증가", "장착한 캐릭터가 다른 단일 아군에게 전투 스킬 또는 필살기 발동 시, 스킬 목표의 환락도가 16% 증가한다(3턴), [훌륭한 솜씨에는 보상을] 10pt 이상 시 모든 아군 치명타 피해 12% 증가"),
+    "132": ("HP 최대치 12% 증가", "장착한 캐릭터가 방어력 감소 상태의 적에게 가하는 치명타 피해가 28% 증가하며, 방어력 감소 부여 시 모든 아군이 가하는 피해가 15% 증가한다(2턴)"),
+    "131": ("공격력 12% 증가", "장착한 캐릭터가 전투 진입 시/전투 스킬 발동 시 전투 스킬과 필살기가 가하는 피해가 18% 증가한다(최대 3스택)"),
+    "130": ("속도 6% 증가", "전투 진입 전 장착한 캐릭터의 속도가 120/160 이상일 시 치명타 확률이 10%/18% 증가하며, 첫 환락 스킬 발동 시 모든 아군의 환락도가 10% 증가한다"),
+    "129": ("치명타 피해 16% 증가", "장착한 캐릭터와 기억 정령이 가하는 환락 피해가 목표의 방어력을 10% 무시하고, 웃음 포인트 누적에 따라 추가로 최대 10% 방어력을 무시한다"),
+    "128": ("제공하는 실드량 10% 증가", "장착한 캐릭터가 제공하는 실드량이 12% 증가하고, 아군이 장착한 캐릭터가 제공한 실드 보유 시 치명타 피해가 15% 증가한다"),
+    "127": ("치명타 확률 8% 증가", "일반 공격 또는 전투 스킬 발동 후 기억 정령이 필드에 있으면 장착 캐릭터와 기억 정령의 HP 최대치가 24% 증가하고 모든 아군이 가하는 피해가 15% 증가한다"),
+    "126": ("치명타 피해 16% 증가", "장착한 캐릭터가 다른 아군의 스킬 목표가 되면 [조력]을 획득하고, 필살기 발동 시 2스택을 소모해 공격력을 48% 증가시킨다(1턴)"),
+    "125": ("속도 6% 증가", "장착한 캐릭터와 기억 정령이 아군에게 치유 제공 시 [단비]를 획득해 속도가 6% 증가하고 모든 아군의 치명타 피해가 15% 증가한다(2턴)"),
+    "330": ("장착한 캐릭터의 속도가 6% 증가하고, 속도가 145 이상일 시 전투 진입 후 모든 아군의 격파 특수효과가 18% 증가한다", ""),
+    "329": ("장착한 캐릭터의 속도가 6% 증가한다. 장착한 캐릭터의 환락도가 40% 이상일 경우 전투 진입 시 즉시 행동 게이지가 40% 증가한다", ""),
+    "328": ("전투 진입 시 장착한 캐릭터의 에너지 최대치가 200pt 이상일 경우 초과한 에너지 1pt당 가하는 피해가 0.2% 증가한다(최대 32%)", ""),
+    "327": ("장착한 캐릭터의 치명타 확률이 8% 증가하며, 개척 동행 동료와 함께 편성 시 치명타 피해가 32% 증가한다", ""),
+    "326": ("장착한 캐릭터가 추가 공격 발동 시 공격력이 24% 증가하며(2턴), 적 처치 시 모든 아군의 치명타 피해가 12% 증가한다", ""),
+    "325": ("장착한 캐릭터의 환락도가 8% 증가하며, 전투 중 환락도가 40%/80% 도달 시 치명타 피해가 20%/32% 증가한다", ""),
+    "324": ("장착한 캐릭터의 치명타 피해가 16% 증가하며, 같은 턴에 전투 스킬 포인트를 3pt 이상 소모 시 추가로 치명타 피해가 32% 증가한다(3턴)", ""),
+    "323": ("장착한 캐릭터의 치명타 확률이 8% 증가하며, 기억 정령이 필드에 있을 시 모든 아군의 속도가 8% 증가한다", ""),
+    "322": ("장착한 캐릭터의 공격력이 12% 증가하며, 공격력이 2400/3600 이상일 시 가하는 지속 피해가 추가로 12%/24% 증가한다", ""),
+    "321": ("파티 내 현재 필드에 있는 아군 수가 4명이 아닐 경우 1명 많을/적을 때마다 장착 캐릭터와 기억 정령이 가하는 피해가 9%/12% 증가한다", ""),
+    "320": ("장착한 캐릭터의 속도가 6% 증가하며, 속도가 135/180 이상일 경우 장착 캐릭터와 기억 정령의 치유량이 12%/20% 증가한다", ""),
+}
+
 HSR_EMBEDDED_FALLBACK_RELICS = [
-    {"id": "130", "name": "빛나는 공훈의 마법 소녀", "is_planar": False, "icon": "71055", "bonus_2p": "치명타 피해 16% 증가", "bonus_4p": "장착한 캐릭터 및 기억 정령이 가하는 방어력 무시 피해 증가"},
-    {"id": "129", "name": "신응에 답하는 점술가", "is_planar": False, "icon": "71054", "bonus_2p": "속도 6% 증가", "bonus_4p": "전투 진입 시 속도 기준 치명타 확률 증가 및 환락 스킬 발동 시 환락도 증가"},
-    {"id": "128", "name": "그림자를 감춘 달빛", "is_planar": False, "icon": "71053", "bonus_2p": "공격력 12% 증가", "bonus_4p": "추가 공격 및 필살기 피해 대폭 증가"},
-    {"id": "127", "name": "천지를 재창조한 구세주", "is_planar": False, "icon": "71052", "bonus_2p": "치명타 확률 8% 증가", "bonus_4p": "필살기 및 강화 일반 공격 피해 증가"},
-    {"id": "122", "name": "지식의 바다에 빠진 학자", "is_planar": False, "icon": "71042", "bonus_2p": "치명타 확률 8% 증가", "bonus_4p": "전투 스킬 및 필살기 피해 20% 증가"},
-    {"id": "326", "name": "천 개의 별이 모인 도시", "is_planar": True, "icon": "71057", "bonus_2p": "추가 공격 시 공격력 24% 증가, 적 처치 시 치명타 피해 추가 증가", "bonus_4p": ""},
-    {"id": "325", "name": "펑크로드 스테이지 Zero", "is_planar": True, "icon": "71056", "bonus_2p": "환락도 증가 및 처음 50%/100% 달성 시 치명타 피해 증가", "bonus_4p": ""},
-    {"id": "324", "name": "영원의 땅 앰포리어스", "is_planar": True, "icon": "71051", "bonus_2p": "치명타 확률 8% 증가, 기억 정령 필드 존재 시 아군 전체 속도 8% 증가", "bonus_4p": ""},
+    {"id": "134", "name": "금단의 열매를 삼킨 이단", "rank": 5, "level_list": [2, 3, 4, 5], "is_planar": False, "icon": "71065", "bonus_2p": HSR_RELIC_SET_BONUSES_KR["134"][0], "bonus_4p": HSR_RELIC_SET_BONUSES_KR["134"][1]},
+    {"id": "133", "name": "꿈같은 유희 속 별을 밝히는 연극인", "rank": 5, "level_list": [2, 3, 4, 5], "is_planar": False, "icon": "71064", "bonus_2p": HSR_RELIC_SET_BONUSES_KR["133"][0], "bonus_4p": HSR_RELIC_SET_BONUSES_KR["133"][1]},
+    {"id": "130", "name": "천명에 응해 먼 길을 떠난 점술가", "rank": 5, "level_list": [2, 3, 4, 5], "is_planar": False, "icon": "71055", "bonus_2p": HSR_RELIC_SET_BONUSES_KR["130"][0], "bonus_4p": HSR_RELIC_SET_BONUSES_KR["130"][1]},
+    {"id": "129", "name": "빛나는 공훈의 마법 소녀", "rank": 5, "level_list": [2, 3, 4, 5], "is_planar": False, "icon": "71054", "bonus_2p": HSR_RELIC_SET_BONUSES_KR["129"][0], "bonus_4p": HSR_RELIC_SET_BONUSES_KR["129"][1]},
+    {"id": "128", "name": "별빛에 숨은 은둔자", "rank": 5, "level_list": [2, 3, 4, 5], "is_planar": False, "icon": "71053", "bonus_2p": HSR_RELIC_SET_BONUSES_KR["128"][0], "bonus_4p": HSR_RELIC_SET_BONUSES_KR["128"][1]},
+    {"id": "127", "name": "천지를 재창조한 구세주", "rank": 5, "level_list": [2, 3, 4, 5], "is_planar": False, "icon": "71052", "bonus_2p": HSR_RELIC_SET_BONUSES_KR["127"][0], "bonus_4p": HSR_RELIC_SET_BONUSES_KR["127"][1]},
+    {"id": "330", "name": "아공간 이상 사물 수용소", "rank": 5, "level_list": [2, 3, 4, 5], "is_planar": True, "icon": "71063", "bonus_2p": HSR_RELIC_SET_BONUSES_KR["330"][0], "bonus_4p": ""},
+    {"id": "329", "name": "신의 순간의 환락", "rank": 5, "level_list": [2, 3, 4, 5], "is_planar": True, "icon": "71062", "bonus_2p": HSR_RELIC_SET_BONUSES_KR["329"][0], "bonus_4p": ""},
+    {"id": "326", "name": "천 개의 별이 모인 도시", "rank": 5, "level_list": [2, 3, 4, 5], "is_planar": True, "icon": "71057", "bonus_2p": HSR_RELIC_SET_BONUSES_KR["326"][0], "bonus_4p": ""},
+    {"id": "102", "name": "들이삭과 동행하는 거너", "rank": 5, "level_list": [2, 3, 4, 5], "is_planar": False, "icon": "71001", "bonus_2p": "공격력 12% 증가", "bonus_4p": "장착한 캐릭터의 속도가 6% 증가하고, 일반 공격으로 가하는 피해가 10% 증가한다"},
+    {"id": "301", "name": "우주 봉인 정거장", "rank": 5, "level_list": [2, 3, 4, 5], "is_planar": True, "icon": "71012", "bonus_2p": "장착한 캐릭터의 공격력이 12% 증가하며, 속도가 120 이상일 경우 공격력이 추가로 12% 증가한다", "bonus_4p": ""},
 ]
 
 
@@ -485,13 +529,18 @@ def _format_hsr_char_name(cid: str, raw_name: str, path_code: str) -> str:
         return "Mar. 7th (보존)"
     if cid == "1224":
         return "Mar. 7th (수렵)"
+    if cid.isdigit() and int(cid) >= 8000:
+        path_kr = HSR_PATH_MAP.get(path_code, {}).get("name", path_code)
+        return f"개척자 ({path_kr})"
     return name or f"캐릭터 {cid}"
 
 
 def _should_exclude_hsr_char(cid: str, raw: dict, now_ts: float) -> bool:
     if not cid.isdigit():
         return True
-    if int(cid) >= 8000:  # 개척자(주인공) 제외
+    cid_i = int(cid)
+    # 남개척자(8001, 8003, 8005, 8007, 8009)는 포함하고 여개척자(짝수 ID)만 중복 제외하여 운명의 길별 개척자 5종을 모두 반영
+    if cid_i >= 8000 and (cid_i % 2 == 0):
         return True
     if raw.get("beta"):
         return True
@@ -535,7 +584,10 @@ def _parse_hsr_items(
         raw_name = raw.get("name") or sr_fallback.get("name") or f"캐릭터 {cid_s}"
         name = _format_hsr_char_name(cid_s, raw_name, path_code)
 
-        if rank == 5:
+        if cid_s.isdigit() and int(cid_s) >= 8000:
+            pool_type = "주인공(기본)"
+            warpable = False
+        elif rank == 5:
             if cid_s in HSR_STD_5_CHARS:
                 pool_type = "상시"
                 warpable = True
@@ -625,7 +677,7 @@ def _parse_hsr_items(
                 warpable = True
         else:
             warp_source = "standard"
-            pool_type = "워프 상시"
+            pool_type = "상시(3성)"
             warpable = True
 
         lcs.append({
@@ -634,7 +686,7 @@ def _parse_hsr_items(
             "item_key": f"lc:{lid_s}",
             "name": name,
             "rank": rank,
-            "rarity_label": "★★★★★" if rank == 5 else ("★★★★" if rank == 4 else "★★★"),
+            "rarity_label": "★" * rank,
             "path": path_code,
             "path_name": path_info["name"],
             "path_emoji": path_info["emoji"],
@@ -644,7 +696,7 @@ def _parse_hsr_items(
             "warpable": warpable,
         })
 
-    # 유물/차원 장신구 세트 파싱 (sr.yatta.moe + StarRailRes 병합)
+    # 유물/차원 장신구 세트 파싱 (공식 DB 기준 levelList [2, 3, 4, 5], 최고 등급 ★5, 터널/장신구 워프 시 5★/4★/3★ 드랍)
     rel_ids = set()
     if isinstance(y_relics, dict):
         rel_ids.update(str(k) for k in y_relics.keys())
@@ -661,19 +713,26 @@ def _parse_hsr_items(
         name = _clean_text(yr.get("name") or sr.get("name") or f"유물 {rid_s}")
         is_planar = bool(yr.get("isPlanarSuit")) if "isPlanarSuit" in yr else (int(rid_s) >= 300)
         desc_list = sr.get("desc") if isinstance(sr.get("desc"), list) else []
-        b2 = _clean_text(desc_list[0]) if len(desc_list) >= 1 else ("차원 장신구 2세트 효과 발동" if is_planar else "터널 유물 2세트 효과 발동")
-        b4 = _clean_text(desc_list[1]) if len(desc_list) >= 2 else ("" if is_planar else "터널 유물 4세트 효과 발동")
+        kr_bonus = HSR_RELIC_SET_BONUSES_KR.get(rid_s)
+        if kr_bonus:
+            b2, b4 = kr_bonus
+        else:
+            b2 = _clean_text(desc_list[0]) if len(desc_list) >= 1 else ("차원 장신구 2세트 효과 발동" if is_planar else "터널 유물 2세트 효과 발동")
+            b4 = _clean_text(desc_list[1]) if len(desc_list) >= 2 else ("" if is_planar else "터널 유물 4세트 효과 발동")
         icon_code = str(yr.get("icon") or rid_s)
         suit_label = "차원 장신구" if is_planar else "터널 유물"
         suit_emoji = "🌐" if is_planar else "🏺"
+        lv_list = yr.get("levelList") if isinstance(yr.get("levelList"), list) and yr.get("levelList") else [2, 3, 4, 5]
+        max_rk = max(int(x) for x in lv_list if isinstance(x, (int, float))) if lv_list else 5
 
         relics.append({
             "id": rid_s,
             "kind": "relic",
             "item_key": f"relic:{rid_s}",
             "name": name,
-            "rank": 5,
-            "rarity_label": "★★★★★",
+            "rank": max_rk,
+            "level_list": lv_list,
+            "rarity_label": "★" * max_rk,
             "is_planar": is_planar,
             "path": "Memory" if is_planar else "Warrior",
             "path_name": suit_label,
@@ -687,16 +746,30 @@ def _parse_hsr_items(
 
     chars.sort(key=lambda x: (-x["rank"], -x["release"], -int(x["id"]) if x["id"].isdigit() else 0))
     lcs.sort(key=lambda x: (-x["rank"], 0 if x.get("warp_source") == "limited" else 1, -int(x["id"]) if x["id"].isdigit() else 0))
-    relics.sort(key=lambda x: (1 if x.get("is_planar") else 0, -int(x["id"]) if x["id"].isdigit() else 0))
+    relics.sort(key=lambda x: (-x["rank"], 1 if x.get("is_planar") else 0, -int(x["id"]) if x["id"].isdigit() else 0))
     return chars, lcs, relics
 
 
 def _set_db_state(chars: list[dict], lcs: list[dict], fetched_at: float, relics: list[dict] | None = None):
     global HSR_CHARS, HSR_LIGHT_CONES, HSR_RELICS, HSR_ALL_ITEMS, _HSR_LAST_FETCH
+    chars = [c for c in chars if int(c.get("rank", 0)) in (4, 5)]
+    lcs = [l for l in lcs if int(l.get("rank", 0)) in (3, 4, 5)]
     HSR_CHARS = chars
     HSR_LIGHT_CONES = lcs
     if relics is not None:
-        HSR_RELICS = relics
+        cleaned_relics = []
+        for r in relics:
+            rid_s = str(r.get("id", ""))
+            lv_list = r.get("level_list") or [2, 3, 4, 5]
+            rk = max(int(x) for x in lv_list if isinstance(x, (int, float))) if lv_list else 5
+            r["rank"] = rk
+            r["level_list"] = lv_list
+            r["rarity_label"] = "★" * rk
+            if rid_s in HSR_RELIC_SET_BONUSES_KR:
+                r["bonus_2p"], r["bonus_4p"] = HSR_RELIC_SET_BONUSES_KR[rid_s]
+            cleaned_relics.append(r)
+        cleaned_relics.sort(key=lambda x: (-x["rank"], 1 if x.get("is_planar") else 0, -int(x["id"]) if str(x.get("id", "")).isdigit() else 0))
+        HSR_RELICS = cleaned_relics
     elif not HSR_RELICS:
         _, _, HSR_RELICS = _normalize_fallback()
     merged: dict[str, dict] = {}
@@ -713,6 +786,8 @@ def _set_db_state(chars: list[dict], lcs: list[dict], fetched_at: float, relics:
 def _normalize_fallback() -> tuple[list[dict], list[dict], list[dict]]:
     chars = []
     for c in HSR_EMBEDDED_FALLBACK_CHARS:
+        if int(c.get("rank", 0)) not in (4, 5):
+            continue
         pi = HSR_PATH_MAP.get(c["path"], HSR_PATH_MAP["Warrior"])
         ei = HSR_ELEMENT_MAP.get(c["element"], HSR_ELEMENT_MAP["Physical"])
         chars.append({
@@ -731,12 +806,14 @@ def _normalize_fallback() -> tuple[list[dict], list[dict], list[dict]]:
         })
     lcs = []
     for l in HSR_EMBEDDED_FALLBACK_LCS:
+        if int(l.get("rank", 0)) not in (3, 4, 5):
+            continue
         pi = HSR_PATH_MAP.get(l["path"], HSR_PATH_MAP["Warrior"])
         lcs.append({
             **l,
             "kind": "lc",
             "item_key": f"lc:{l['id']}",
-            "rarity_label": "★★★★★" if l["rank"] == 5 else ("★★★★" if l["rank"] == 4 else "★★★"),
+            "rarity_label": "★" * int(l["rank"]),
             "path_name": pi["name"],
             "path_emoji": pi["emoji"],
             "icon": l["id"],
@@ -746,12 +823,14 @@ def _normalize_fallback() -> tuple[list[dict], list[dict], list[dict]]:
     for r in HSR_EMBEDDED_FALLBACK_RELICS:
         is_pl = bool(r.get("is_planar"))
         suit_label = "차원 장신구" if is_pl else "터널 유물"
+        rk = int(r.get("rank", 5))
         relics.append({
             **r,
             "kind": "relic",
             "item_key": f"relic:{r['id']}",
-            "rank": 5,
-            "rarity_label": "★★★★★",
+            "rank": rk,
+            "level_list": r.get("level_list", [2, 3, 4, 5]),
+            "rarity_label": "★" * rk,
             "path": "Memory" if is_pl else "Warrior",
             "path_name": suit_label,
             "path_emoji": "🌐" if is_pl else "🏺",
@@ -1240,6 +1319,25 @@ def ensure_hsr_user(data: dict, guild_id: int, user_id: int) -> dict:
     u_data.setdefault("profile_char", None)  # 개척자 카드 대표 캐릭터
     u_data.setdefault("profile_note", "")    # 한마디 상태 문구
     u_data.setdefault("history", [])
+
+    # 유물 세트 효과 및 성급 라벨 보정 (캐릭터 5★/4★, 광추 5★/4★/3★, 유물 5★/4★/3★ 모두 보존)
+    items_map = u_data.get("items")
+    if isinstance(items_map, dict) and items_map:
+        to_del = []
+        for ik, rec in list(items_map.items()):
+            if not isinstance(rec, dict):
+                to_del.append(ik)
+                continue
+            master = HSR_ALL_ITEMS.get(ik)
+            if rec.get("kind") == "relic" and master:
+                rec["bonus_2p"] = master.get("bonus_2p", rec.get("bonus_2p", ""))
+                rec["bonus_4p"] = master.get("bonus_4p", rec.get("bonus_4p", ""))
+            rk = int(rec.get("rank") or (master.get("rank", 3) if master else 3))
+            rec["rank"] = rk
+            rec["rarity_label"] = "★" * rk
+        for ik in to_del:
+            items_map.pop(ik, None)
+
     return u_data
 
 
@@ -1406,7 +1504,7 @@ def _decorate_rolled_relic(base_set: dict, rank: int, rng: random.Random) -> dic
     subs = rng.sample(HSR_RELIC_SUBSTATS, k=min(sub_cnt, len(HSR_RELIC_SUBSTATS)))
 
     picked["rank"] = rank
-    picked["rarity_label"] = "★★★★★" if rank == 5 else ("★★★★" if rank == 4 else "★★★")
+    picked["rarity_label"] = "★" * rank
     picked["slot_code"] = slot["code"]
     picked["slot_name"] = f"{slot['emoji']}{slot['name']}"
     picked["main_stat"] = main_stat
@@ -1422,10 +1520,11 @@ def _roll_single_hsr(
     std_5_chars: list[dict],
     std_4_chars: list[dict],
     std_5_lcs: list[dict],
-    warp_3_lcs: list[dict],
     std_4_lcs: list[dict],
+    std_3_lcs: list[dict],
     rng: random.Random,
 ) -> dict:
+    """스타레일 워프 단일 추첨 (공식 DB 성급 기준: 5★ / 4★ / 3★ 워프 및 터널/장신구 5★ / 4★ / 3★ 감정)"""
     if banner_key in ("char1", "char2"):
         state["pity_char"] += 1
         state["pity_4_char"] += 1
@@ -1451,23 +1550,26 @@ def _roll_single_hsr(
             picked["pity_used"] = pity_used
             return picked
 
-        if roll < p5 + p4:
+        if state["pity_4_char"] >= 10 or roll < p5 + p4:
             state["pity_4_char"] = 0
             c4_pickups = eff_pickup["char_4"]
             p4_ids = {c["id"] for c in c4_pickups}
             if c4_pickups and (state["guaranteed_4_char"] or rng.random() < 0.50):
+                state["guaranteed_4_char"] = False
                 picked = dict(rng.choice(c4_pickups))
                 picked["is_pickup"] = True
-                state["guaranteed_4_char"] = False
+                return picked
             else:
-                if c4_pickups:
-                    state["guaranteed_4_char"] = True
-                off_pool = [c for c in std_4_chars if c["id"] not in p4_ids] + std_4_lcs
-                picked = dict(rng.choice(off_pool or std_4_lcs))
+                state["guaranteed_4_char"] = True
+                non_pickup_4_chars = [c for c in std_4_chars if c["id"] not in p4_ids] or std_4_chars
+                if rng.random() < 0.50:
+                    picked = dict(rng.choice(non_pickup_4_chars))
+                else:
+                    picked = dict(rng.choice(std_4_lcs))
                 picked["is_pickup"] = False
-            return picked
+                return picked
 
-        picked = dict(rng.choice(warp_3_lcs))
+        picked = dict(rng.choice(std_3_lcs))
         picked["is_pickup"] = False
         return picked
 
@@ -1496,23 +1598,26 @@ def _roll_single_hsr(
             picked["pity_used"] = pity_used
             return picked
 
-        if roll < p5 + p4:
+        if state["pity_4_lc"] >= 10 or roll < p5 + p4:
             state["pity_4_lc"] = 0
             l4_pickups = eff_pickup["lc_4"]
             l4_ids = {l["id"] for l in l4_pickups}
             if l4_pickups and (state["guaranteed_4_lc"] or rng.random() < 0.75):
+                state["guaranteed_4_lc"] = False
                 picked = dict(rng.choice(l4_pickups))
                 picked["is_pickup"] = True
-                state["guaranteed_4_lc"] = False
+                return picked
             else:
-                if l4_pickups:
-                    state["guaranteed_4_lc"] = True
-                off_pool = std_4_chars + [l for l in std_4_lcs if l["id"] not in l4_ids]
-                picked = dict(rng.choice(off_pool or std_4_lcs))
+                state["guaranteed_4_lc"] = True
+                non_pickup_4_lcs = [l for l in std_4_lcs if l["id"] not in l4_ids] or std_4_lcs
+                if rng.random() < 0.50:
+                    picked = dict(rng.choice(non_pickup_4_lcs))
+                else:
+                    picked = dict(rng.choice(std_4_chars))
                 picked["is_pickup"] = False
-            return picked
+                return picked
 
-        picked = dict(rng.choice(warp_3_lcs))
+        picked = dict(rng.choice(std_3_lcs))
         picked["is_pickup"] = False
         return picked
 
@@ -1546,16 +1651,11 @@ def _roll_single_hsr(
             picked["pity_used"] = pity_used
             return picked
 
-        if roll < p5 + p4:
+        if state["pity_4_relic"] >= 10 or roll < p5 + p4:
             state["pity_4_relic"] = 0
-            if rng.random() < 0.75:
-                base_r = rng.choice(feat_relics)
-                is_pk = True
-            else:
-                base_r = rng.choice(all_relics)
-                is_pk = False
+            base_r = rng.choice(feat_relics) if rng.random() < 0.65 else rng.choice(all_relics)
             picked = _decorate_rolled_relic(base_r, 4, rng)
-            picked["is_pickup"] = is_pk
+            picked["is_pickup"] = (base_r["id"] in {x["id"] for x in feat_relics})
             return picked
 
         base_r = rng.choice(all_relics)
@@ -1581,7 +1681,7 @@ def _roll_single_hsr(
             picked["pity_used"] = pity_used
             return picked
 
-        if roll < p5 + p4:
+        if state["pity_4_standard"] >= 10 or roll < p5 + p4:
             state["pity_4_standard"] = 0
             if rng.random() < 0.50:
                 picked = dict(rng.choice(std_4_chars))
@@ -1590,13 +1690,13 @@ def _roll_single_hsr(
             picked["is_pickup"] = False
             return picked
 
-        picked = dict(rng.choice(warp_3_lcs))
+        picked = dict(rng.choice(std_3_lcs))
         picked["is_pickup"] = False
         return picked
 
 
 def _apply_hsr_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[int, int]:
-    """유저 스타레일 보관함에 캐릭터/광추/유물을 추가하고 성혼(E0~E6)/중첩(S1~S5)/강화(+15) 및 별빛/잔재를 계산합니다."""
+    """유저 스타레일 보관함에 캐릭터/광추/유물을 추가하고 성혼(E0~E6)/중첩(S1~S5)/강화(+3~+15) 및 별빛/잔재를 계산합니다."""
     items_map = u_data.setdefault("items", {})
     i_key = item["item_key"]
     rank = int(item.get("rank", 3))
@@ -1604,7 +1704,7 @@ def _apply_hsr_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[
 
     existing = items_map.get(i_key)
     gained_starlight = 0
-    gained_embers = 0
+    gained_embers = 20 if rank <= 3 else (30 if rank == 5 else 20)
 
     if existing:
         existing["count"] = int(existing.get("count", 1)) + 1
@@ -1613,7 +1713,7 @@ def _apply_hsr_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[
         item["is_new"] = False
         if rank > int(existing.get("rank", 3)):
             existing["rank"] = rank
-            existing["rarity_label"] = item.get("rarity_label", existing.get("rarity_label", "★★★★★"))
+            existing["rarity_label"] = "★" * rank
         if kind == "char":
             cur_e = int(existing.get("eidolon", min(6, existing["count"] - 2)))
             if cur_e < 6:
@@ -1641,8 +1741,6 @@ def _apply_hsr_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[
                 gained_starlight = 16
             elif rank == 4:
                 gained_starlight = 4
-            else:
-                gained_embers = 20
         else:
             cur_s = int(existing.get("superimposition", 1))
             new_s = min(5, cur_s + 1)
@@ -1652,8 +1750,6 @@ def _apply_hsr_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[
                 gained_starlight = 40
             elif rank == 4:
                 gained_starlight = 8
-            else:
-                gained_embers = 20
     else:
         item["is_new"] = True
         rec = {
@@ -1662,7 +1758,7 @@ def _apply_hsr_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[
             "item_key": i_key,
             "name": item["name"],
             "rank": rank,
-            "rarity_label": item["rarity_label"],
+            "rarity_label": "★" * rank,
             "path": item.get("path", "Warrior"),
             "path_name": item.get("path_name", "파멸"),
             "path_emoji": item.get("path_emoji", "⚔️"),
@@ -1696,8 +1792,6 @@ def _apply_hsr_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[
                 gained_starlight = 16
             elif rank == 4:
                 gained_starlight = 4
-            else:
-                gained_embers = 20
         else:
             rec["superimposition"] = 1
             item["new_super"] = 1
@@ -1705,8 +1799,6 @@ def _apply_hsr_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[
                 gained_starlight = 40
             elif rank == 4:
                 gained_starlight = 8
-            else:
-                gained_embers = 20
         items_map[i_key] = rec
 
     u_data["starlight"] = int(u_data.get("starlight", 0)) + gained_starlight
@@ -1718,12 +1810,12 @@ def _apply_hsr_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[
 
 def _build_hsr_pools():
     chars, lcs = load_hsr_kr_db()
-    std_5_chars = [c for c in chars if c["rank"] == 5 and c["id"] in HSR_STD_5_CHARS] or [c for c in chars if c["rank"] == 5]
+    std_5_chars = [c for c in chars if c["rank"] == 5 and c["id"] in HSR_STD_5_CHARS] or [c for c in chars if c["rank"] == 5 and c.get("warpable", True)]
     std_4_chars = [c for c in chars if c["rank"] == 4 and c["warpable"]] or [c for c in chars if c["rank"] == 4]
     std_5_lcs = [l for l in lcs if l["rank"] == 5 and l["warp_source"] == "standard"] or [l for l in lcs if l["rank"] == 5]
-    warp_3_lcs = [l for l in lcs if l["rank"] == 3]
     std_4_lcs = [l for l in lcs if l["rank"] == 4 and l["warp_source"] == "standard"] or [l for l in lcs if l["rank"] == 4 and l["warpable"]]
-    return std_5_chars, std_4_chars, std_5_lcs, warp_3_lcs, std_4_lcs
+    std_3_lcs = [l for l in lcs if l["rank"] == 3] or std_4_lcs
+    return std_5_chars, std_4_chars, std_5_lcs, std_4_lcs, std_3_lcs
 
 
 def execute_hsr_warp(guild_id: int, user_id: int, banner_key: str = "char1", count: int = 10, practice: bool = False) -> dict:
@@ -1733,7 +1825,7 @@ def execute_hsr_warp(guild_id: int, user_id: int, banner_key: str = "char1", cou
     count = 10 if count >= 10 else 1
 
     load_hsr_kr_db()
-    std_5_chars, std_4_chars, std_5_lcs, warp_3_lcs, std_4_lcs = _build_hsr_pools()
+    std_5_chars, std_4_chars, std_5_lcs, std_4_lcs, std_3_lcs = _build_hsr_pools()
 
     data = core.load_data()
     eff_pickup = resolve_effective_hsr_pickup(data.get("hsr_pickup"))
@@ -1745,7 +1837,7 @@ def execute_hsr_warp(guild_id: int, user_id: int, banner_key: str = "char1", cou
         owned_items = u_data.get("items", {})
         drawn = []
         for _ in range(count):
-            it = _roll_single_hsr(sim_state, banner_key, eff_pickup, std_5_chars, std_4_chars, std_5_lcs, warp_3_lcs, std_4_lcs, rng)
+            it = _roll_single_hsr(sim_state, banner_key, eff_pickup, std_5_chars, std_4_chars, std_5_lcs, std_4_lcs, std_3_lcs, rng)
             prev = owned_items.get(it["item_key"])
             it["is_new"] = prev is None
             if it["kind"] == "char":
@@ -1774,7 +1866,7 @@ def execute_hsr_warp(guild_id: int, user_id: int, banner_key: str = "char1", cou
     tot_sl = 0
     tot_em = 0
     for _ in range(count):
-        it = _roll_single_hsr(u_data, banner_key, eff_pickup, std_5_chars, std_4_chars, std_5_lcs, warp_3_lcs, std_4_lcs, rng)
+        it = _roll_single_hsr(u_data, banner_key, eff_pickup, std_5_chars, std_4_chars, std_5_lcs, std_4_lcs, std_3_lcs, rng)
         gs, ge = _apply_hsr_item_to_account(u_data, it, now_iso)
         tot_sl += gs
         tot_em += ge
@@ -2081,6 +2173,32 @@ def levelup_hsr_char(guild_id: int, user_id: int, item_key: str) -> tuple[bool, 
     return True, f"⬆️ **{c['name']}** 승급·육성 완료! `Lv.{cur_lv}` ➔ **`Lv.{new_lv}`** (`-2 여행 가이드`)", u_data
 
 
+def levelup_hsr_relic(guild_id: int, user_id: int, item_key: str) -> tuple[bool, str, dict]:
+    """불멸의 잔재 ×20을 소모해 보유 유물을 +3강씩 최대 +15강까지 강화합니다."""
+    data = core.load_data()
+    u_data = ensure_hsr_user(data, guild_id, user_id)
+    rel = u_data.get("items", {}).get(item_key)
+    if not rel or rel.get("kind") != "relic":
+        return False, "보유 중인 유물을 찾을 수 없습니다.", u_data
+    cur_lv = int(rel.get("level", 3))
+    if cur_lv >= 15:
+        return False, f"🏺 **{rel['name']}** 유물은 이미 최고 강화 단계(`+15강`)입니다!", u_data
+    embers = int(u_data.get("embers", 0))
+    if embers < 20:
+        return False, f"🫧 **불멸의 잔재**가 부족합니다! (필요: `20` / 보유: `{embers}`)", u_data
+    u_data["embers"] = embers - 20
+    new_lv = min(15, cur_lv + 3)
+    rel["level"] = new_lv
+    subs = list(rel.get("sub_stats") or [])
+    if len(subs) < 4:
+        avail = [s for s in HSR_RELIC_SUBSTATS if s not in subs]
+        if avail:
+            subs.append(random.choice(avail))
+            rel["sub_stats"] = subs
+    core.save_data(data)
+    return True, f"🔨 **{rel['name']}** 유물 강화 성공! `+{cur_lv}` ➔ **`+{new_lv}`** (`-20 불멸의 잔재`)", u_data
+
+
 def compute_hsr_char_power(char_obj: dict) -> int:
     rank = int(char_obj.get("rank", 4))
     lv = max(1, int(char_obj.get("level", 1)))
@@ -2171,10 +2289,12 @@ def get_hsr_pokedex_stats(guild_id: int, user_id: int) -> dict:
     l5_own = sum(1 for l in lcs if l["rank"] == 5 and l["item_key"] in owned_map)
     l4_tot = sum(1 for l in lcs if l["rank"] == 4)
     l4_own = sum(1 for l in lcs if l["rank"] == 4 and l["item_key"] in owned_map)
-    r_tot = len(relics)
-    r_own = sum(1 for r in relics if r["item_key"] in owned_map)
+    l3_tot = sum(1 for l in lcs if l["rank"] == 3)
+    l3_own = sum(1 for l in lcs if l["rank"] == 3 and l["item_key"] in owned_map)
+    r5_tot = len(relics)
+    r5_own = sum(1 for r in relics if r["item_key"] in owned_map)
 
-    rate = (w_owned / w_total) * 100.0
+    rate = (len(owned_all) / max(1, len(all_master))) * 100.0
     filled = int(round((rate / 100.0) * 10))
     bar = "🟪" * filled + "⬛" * max(0, 10 - filled)
 
@@ -2189,7 +2309,8 @@ def get_hsr_pokedex_stats(guild_id: int, user_id: int) -> dict:
         "c4": (c4_own, c4_tot),
         "l5": (l5_own, l5_tot),
         "l4": (l4_own, l4_tot),
-        "r5": (r_own, r_tot),
+        "l3": (l3_own, l3_tot),
+        "r5": (r5_own, r5_tot),
         "owned_items": owned_all,
         "unowned_items": unowned_all,
     }
