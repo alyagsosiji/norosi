@@ -153,7 +153,7 @@ def build_gacha_pull_embed(
         author_icon = user.display_avatar.url if hasattr(user, "display_avatar") else None
         embed.set_author(name=f"{user.display_name}님의 가챠 결과", icon_url=author_icon)
 
-    embed.set_footer(text=f"배너: {b_cfg['short_name']} • 적용 픽업: {pickup_summary} • 하단에서 배너 전환 및 연출 스킵 가능")
+    embed.set_footer(text=f"배너: {b_cfg['short_name']} • 적용 픽업: {pickup_summary} • 하단에서 연출 스킵 가능")
     return embed, has_4star
 
 
