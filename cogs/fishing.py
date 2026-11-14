@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import io
 import math
 import time
 from dataclasses import dataclass, field
@@ -76,6 +77,17 @@ def _format_weight(w_kg: float) -> str:
     return f"{w_kg:.2f} kg"
 
 
+def _strip_attachment_image(embed: Optional[discord.Embed]) -> Optional[discord.Embed]:
+    if embed is None:
+        return None
+    img_url = getattr(getattr(embed, "image", None), "url", None) or ""
+    if str(img_url).startswith("attachment://"):
+        cloned = embed.copy()
+        cloned.set_image(url=None)
+        return cloned
+    return embed
+
+
 async def _safe_update_message_or_interaction(
     interaction: Optional[discord.Interaction],
     message: Optional[discord.Message],
@@ -83,73 +95,81 @@ async def _safe_update_message_or_interaction(
     embed: Optional[discord.Embed] = None,
     view: Optional[discord.ui.View] = None,
     file: Optional[discord.File] = None,
+    png_bytes: Optional[bytes] = None,
+    png_filename: str = "catch_card.png",
     clear_attachments: bool = False,
     content: Optional[str] = None,
+    raise_on_fail: bool = False,
 ):
     """
     공개 메시지는 봇 토큰 직접 편집 우선, 나만 보기(ephemeral) 메시지는 인터랙션 원본 응답 편집 우선으로
-    첨부파일 잔존 및 404/40060/10062 오류 없이 안전하게 UI를 갱신합니다.
+    첨부파일 잔존/소진 버퍼 및 404/40060/10062/10015 오류 없이 안전하게 UI를 갱신합니다.
     """
-    kwargs: Dict[str, Any] = {}
-    if content is not None:
-        kwargs["content"] = content
-    if embed is not None:
-        kwargs["embed"] = embed
-    if view is not None:
-        kwargs["view"] = view
-    if file is not None:
-        kwargs["attachments"] = [file]
-    elif clear_attachments:
-        kwargs["attachments"] = []
+    has_attachment = (png_bytes is not None) or (file is not None)
 
-    is_ephemeral = bool(getattr(getattr(message, "flags", None), "ephemeral", False))
-
-    if is_ephemeral and interaction is not None:
-        try:
-            await core.safe_edit_response(interaction, **kwargs)
-            return interaction.message or message
-        except discord.HTTPException:
-            if "attachments" in kwargs:
+    def _build_kwargs(include_attachment: bool) -> Dict[str, Any]:
+        kw: Dict[str, Any] = {}
+        if content is not None:
+            kw["content"] = content
+        if view is not None:
+            kw["view"] = view
+        if include_attachment and has_attachment:
+            if embed is not None:
+                kw["embed"] = embed
+            if png_bytes is not None:
+                kw["attachments"] = [discord.File(fp=io.BytesIO(png_bytes), filename=png_filename)]
+            elif file is not None:
                 try:
-                    no_file_kw = {k: v for k, v in kwargs.items() if k != "attachments"}
-                    await core.safe_edit_response(interaction, **no_file_kw)
-                    return interaction.message or message
+                    file.fp.seek(0)
                 except Exception:
                     pass
-        except Exception:
-            pass
+                kw["attachments"] = [file]
+        else:
+            if embed is not None:
+                kw["embed"] = _strip_attachment_image(embed) if has_attachment else embed
+            if clear_attachments or has_attachment:
+                kw["attachments"] = []
+        return kw
+
+    is_ephemeral = bool(getattr(getattr(message, "flags", None), "ephemeral", False))
+    last_err: Optional[Exception] = None
+
+    if is_ephemeral and interaction is not None:
+        for inc_att in ((True, False) if has_attachment else (False,)):
+            try:
+                await core.safe_edit_response(interaction, **_build_kwargs(inc_att), raise_on_error=True)
+                return interaction.message or message
+            except Exception as ex:
+                last_err = ex
 
     # 1순위: 공개 메시지 직접 편집 (봇 토큰 기반이라 15분 웹훅 제한 무관)
     if message is not None and not is_ephemeral:
-        try:
-            await message.edit(**kwargs)
-            return message
-        except discord.HTTPException:
-            if "attachments" in kwargs:
-                try:
-                    no_file_kw = {k: v for k, v in kwargs.items() if k != "attachments"}
-                    no_file_kw["attachments"] = []
-                    await message.edit(**no_file_kw)
-                    return message
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        for inc_att in ((True, False) if has_attachment else (False,)):
+            kw = _build_kwargs(inc_att)
+            try:
+                await message.edit(**kw)
+                return message
+            except Exception as ex:
+                last_err = ex
+                ch = getattr(interaction, "channel", None) or getattr(message, "channel", None)
+                if ch is not None and hasattr(ch, "get_partial_message"):
+                    try:
+                        await ch.get_partial_message(message.id).edit(**kw)
+                        return message
+                    except Exception as p_ex:
+                        last_err = p_ex
 
     # 2순위: 인터랙션 원본 응답 편집 (ephemeral 메시지 등)
     if interaction is not None:
-        try:
-            await core.safe_edit_response(interaction, **kwargs)
-            return interaction.message or message
-        except Exception:
-            if "attachments" in kwargs:
-                try:
-                    no_file_kw = {k: v for k, v in kwargs.items() if k != "attachments"}
-                    await core.safe_edit_response(interaction, **no_file_kw)
-                    return interaction.message or message
-                except Exception:
-                    pass
+        for inc_att in ((True, False) if has_attachment else (False,)):
+            try:
+                await core.safe_edit_response(interaction, **_build_kwargs(inc_att), raise_on_error=True)
+                return interaction.message or message
+            except Exception as ex:
+                last_err = ex
 
+    if raise_on_fail and last_err is not None:
+        raise last_err
     return message
 
 
@@ -497,18 +517,43 @@ class FishingCastView(core.SafeView):
         self.sync_controls(phase="idle")
         embed = self.build_catch_embed(res)
         png_buf = await asyncio.to_thread(fishing_core.build_catch_card_bytes, res, self.user.display_name)
-        file = None
-        if png_buf is not None:
-            file = discord.File(fp=png_buf, filename="catch_card.png")
+        png_bytes = png_buf.getvalue() if png_buf is not None else None
+        if png_bytes is not None:
             embed.set_image(url="attachment://catch_card.png")
-        await _safe_update_message_or_interaction(
-            interaction,
-            message,
-            embed=embed,
-            view=self,
-            file=file,
-            content=None,
-        )
+        try:
+            updated_msg = await _safe_update_message_or_interaction(
+                interaction,
+                message,
+                embed=embed,
+                view=self,
+                png_bytes=png_bytes,
+                png_filename="catch_card.png",
+                content=None,
+                raise_on_fail=True,
+            )
+            if updated_msg is not None:
+                self.message = updated_msg
+        except Exception as edit_err:
+            print(f"⚠️ [낚시 포획 결과 편집 폴백] {edit_err}", flush=True)
+            if interaction is not None:
+                try:
+                    if png_bytes is not None:
+                        sent = await interaction.followup.send(
+                            embed=embed,
+                            file=discord.File(fp=io.BytesIO(png_bytes), filename="catch_card.png"),
+                            view=self,
+                            wait=True,
+                        )
+                    else:
+                        sent = await interaction.followup.send(embed=embed, view=self, wait=True)
+                    self.message = sent
+                except Exception:
+                    try:
+                        no_img = _strip_attachment_image(embed)
+                        sent = await interaction.followup.send(embed=no_img, view=self, wait=True)
+                        self.message = sent
+                    except Exception:
+                        pass
 
     @discord.ui.button(label="🪝 찌 던지기", style=discord.ButtonStyle.primary, row=2)
     async def btn_cast(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -576,35 +621,7 @@ class FishingCastView(core.SafeView):
                     if sess.cast_seq != my_seq or sess.phase != "waiting_bite":
                         return
                     sess.phase = "biting"
-                    sess.bite_started_at = time.monotonic()
-                    sess.updated_at = sess.bite_started_at
-
-                    async def _on_bite_expire():
-                        try:
-                            await asyncio.sleep(params["window_sec"] + params["grace_sec"])
-                            async with sess.lock:
-                                if sess.cast_seq != my_seq or sess.phase != "biting":
-                                    return
-                                sess.phase = "idle"
-                                sess.updated_at = time.monotonic()
-                            await self.refresh_summary()
-                            async with sess.lock:
-                                if sess.cast_seq != my_seq or sess.phase != "idle":
-                                    return
-                            self.sync_controls(phase="idle")
-                            miss_embed = self.build_dashboard_embed(
-                                status_banner="💨 **아쉽네요! 물고기가 미끼만 살짝 건드리고 도망갔습니다.** *(미끼는 소모되지 않았습니다 — 다시 `[🪝 찌 던지기]`를 눌러보세요!)*",
-                                phase="idle",
-                            )
-                            await _safe_update_message_or_interaction(
-                                interaction, self.message, embed=miss_embed, view=self, clear_attachments=True
-                            )
-                        except asyncio.CancelledError:
-                            return
-                        except Exception as ex:
-                            print(f"⚠️ [낚시 입질 만료 태스크 예외] {ex}", flush=True)
-
-                    sess.expire_task = asyncio.create_task(_on_bite_expire())
+                    sess.updated_at = time.monotonic()
 
                 self.sync_controls(phase="biting")
                 bite_embed = self.build_dashboard_embed(
@@ -614,9 +631,65 @@ class FishingCastView(core.SafeView):
                     ),
                     phase="biting",
                 )
-                await _safe_update_message_or_interaction(
-                    interaction, self.message, embed=bite_embed, view=self, clear_attachments=True
-                )
+                try:
+                    updated_bite_msg = await _safe_update_message_or_interaction(
+                        interaction,
+                        self.message,
+                        embed=bite_embed,
+                        view=self,
+                        clear_attachments=True,
+                        raise_on_fail=True,
+                    )
+                    if updated_bite_msg is not None:
+                        self.message = updated_bite_msg
+                except Exception as bite_edit_err:
+                    print(f"⚠️ [낚시 입질 UI 갱신 실패] {bite_edit_err}", flush=True)
+                    async with sess.lock:
+                        if sess.cast_seq == my_seq and sess.phase == "biting":
+                            sess.phase = "idle"
+                            sess.updated_at = time.monotonic()
+                    self.sync_controls(phase="idle")
+                    try:
+                        await interaction.followup.send(
+                            "⚠️ 입질 신호 메시지를 갱신하지 못해 출조를 초기화했습니다. `[🪝 찌 던지기]`를 다시 눌러주세요.",
+                            ephemeral=True,
+                        )
+                    except Exception:
+                        pass
+                    return
+
+                async def _on_bite_expire():
+                    try:
+                        await asyncio.sleep(params["window_sec"] + params["grace_sec"])
+                        async with sess.lock:
+                            if sess.cast_seq != my_seq or sess.phase != "biting":
+                                return
+                            sess.phase = "idle"
+                            sess.updated_at = time.monotonic()
+                        await self.refresh_summary()
+                        async with sess.lock:
+                            if sess.cast_seq != my_seq or sess.phase != "idle":
+                                return
+                        self.sync_controls(phase="idle")
+                        miss_embed = self.build_dashboard_embed(
+                            status_banner="💨 **아쉽네요! 물고기가 미끼만 살짝 건드리고 도망갔습니다.** *(미끼는 소모되지 않았습니다 — 다시 `[🪝 찌 던지기]`를 눌러보세요!)*",
+                            phase="idle",
+                        )
+                        await _safe_update_message_or_interaction(
+                            interaction, self.message, embed=miss_embed, view=self, clear_attachments=True
+                        )
+                    except asyncio.CancelledError:
+                        return
+                    except Exception as ex:
+                        print(f"⚠️ [낚시 입질 만료 태스크 예외] {ex}", flush=True)
+
+                # UI에 초록색 [지금 당기기!] 버튼이 실제로 표시된 이후부터 제한시간 카운트다운 시작
+                async with sess.lock:
+                    if sess.cast_seq != my_seq or sess.phase != "biting":
+                        return
+                    sess.bite_started_at = time.monotonic()
+                    sess.updated_at = sess.bite_started_at
+                    sess.expire_task = asyncio.create_task(_on_bite_expire())
             except asyncio.CancelledError:
                 return
             except Exception as ex:
@@ -648,12 +721,12 @@ class FishingCastView(core.SafeView):
             elif sess.phase == "waiting_bite":
                 await interaction.followup.send("⏳ 아직 입질이 오지 않았습니다! 초록색 버튼으로 바뀔 때까지 1~2초만 기다려 주세요.", ephemeral=True)
                 return
-            # 3. 봇 재시작 등으로 세션 메모리가 유실되었으나 기존 패널에 입질 메시지가 떠 있던 경우 복구 채집
+            # 3. 봇 재시작 등으로 세션 메모리가 유실되었으나 기존 패널에 입질 경보가 떠 있던 경우 복구 채집
             else:
                 emb_title = ""
                 if target_msg and target_msg.embeds:
                     emb_title = f"{target_msg.embeds[0].title or ''} {target_msg.embeds[0].description or ''}"
-                if "입질" in emb_title or "당기" in emb_title:
+                if "지금 당기세요" in emb_title or "입질 경보" in emb_title:
                     sess.cast_seq += 1
                     hab_id = self.habitat
                     z_id = self.zone_filter
@@ -669,6 +742,10 @@ class FishingCastView(core.SafeView):
                         embed=self.build_dashboard_embed(status_banner="🎣 새로운 출조를 준비했습니다! **`[🪝 찌 던지기]`**를 눌러 시작하세요."),
                         view=self,
                         clear_attachments=True,
+                    )
+                    await interaction.followup.send(
+                        "💨 이미 입질 시간이 지나갔거나 종료된 출조입니다. **`[🪝 찌 던지기]`**로 다시 던져주세요!",
+                        ephemeral=True,
                     )
                     return
 
@@ -1077,7 +1154,7 @@ class FishingBagView(core.SafeView):
 # ==========================================
 # 3. 낚시 도감 (호수 · 강 · 바다 · 보유 · 미보유 + 검색 모달/정렬/성급/세부 수역 필터)
 # ==========================================
-class FishingPokedexSearchModal(discord.ui.Modal, title="🔍 글로벌 어종 도감 검색 & 페이지 이동"):
+class FishingPokedexSearchModal(core.SafeModal, title="🔍 글로벌 어종 도감 검색 & 페이지 이동"):
     keyword = discord.ui.TextInput(
         label="어종 검색어 (비워두면 검색 초기화)",
         placeholder="예: 참다랑어, 연어, medaka, Regalecus, 심해...",
