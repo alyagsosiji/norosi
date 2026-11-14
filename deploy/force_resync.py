@@ -72,10 +72,15 @@ class ForceSyncBot(commands.Bot):
         intents.guilds = True
         super().__init__(command_prefix="!", intents=intents)
 
+    async def is_bot_owner_user(self, user: discord.abc.User) -> bool:
+        return await self.is_owner(user)
+
     async def setup_hook(self):
-        print("📦 [1/3] 9대 Cogs 모듈 전체 로드 중...", flush=True)
+        print("📦 [1/3] 11대 Cogs 모듈 전체 로드 중...", flush=True)
         for ext in (
             "cogs.gacha",
+            "cogs.genshin",
+            "cogs.hsr",
             "cogs.music",
             "cogs.dday",
             "cogs.logger",
@@ -90,7 +95,7 @@ class ForceSyncBot(commands.Bot):
 
     async def on_ready(self):
         print(f"✅ [2/3] Discord 로그인 성공: {self.user} (ID: {self.user.id})", flush=True)
-        print("🧹 [3/3] 슬래시 명령어 캐시 완전 초기화 및 74개 재등록 시작...", flush=True)
+        print("🧹 [3/3] 슬래시 명령어 캐시 완전 초기화 및 전체 재등록 시작...", flush=True)
 
         try:
             # 1. 연결된 모든 서버의 길드 캐시 명령어 완전 삭제
