@@ -414,6 +414,27 @@ class NorosiBot(commands.Bot):
         self.tree.on_error = self.on_app_command_error
 
         print("🔌 [2/4] Cogs 확장 모듈 등록 중 (gacha, genshin, hsr, fishing, music, dday, logger, ai, stats, roles, help, dashboard)...", flush=True)
+        # 서버 배포 파일 뒤바뀜(예: fishing_core.py에 cogs/fishing.py 덮어쓰기, cogs/gacha.py에 cogs/hsr.py 덮어쓰기) 사전 진단
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            integrity_checks = [
+                ("fishing_core.py", "FISH_BY_HABITAT", "class FishingCog", "cogs/fishing.py가 fishing_core.py로 잘못 저장되었습니다"),
+                (os.path.join("cogs", "gacha.py"), "class GachaCog", "class HSRCog", "cogs/hsr.py가 cogs/gacha.py로 잘못 저장되었습니다"),
+            ]
+            for rel_path, must_have, must_not_have, hint in integrity_checks:
+                full_path = os.path.join(base_dir, rel_path)
+                if os.path.isfile(full_path):
+                    with open(full_path, "r", encoding="utf-8", errors="ignore") as fp:
+                        txt = fp.read()
+                    if (must_not_have and must_not_have in txt) or (must_have and must_have not in txt):
+                        print(
+                            f"🚨 [파일 불일치 감지] '{rel_path}' 내용이 올바르지 않습니다 ({hint}). "
+                            f"최신 '{rel_path}' 원본 파일로 서버 파일을 교체해 주세요!",
+                            flush=True,
+                        )
+        except Exception:
+            pass
+
         ext_list = [
             "cogs.gacha",
             "cogs.genshin",
@@ -428,6 +449,7 @@ class NorosiBot(commands.Bot):
             "cogs.help",
             "cogs.dashboard",
         ]
+        failed_exts = []
         for ext in ext_list:
             try:
                 if ext in self.extensions:
@@ -449,7 +471,9 @@ class NorosiBot(commands.Bot):
                     )
             except Exception as e:
                 print(f"⚠️ [{ext}] 확장 모듈 로드 예외: {e}", flush=True)
-                raise
+                failed_exts.append((ext, e))
+        if len(failed_exts) == len(ext_list):
+            raise failed_exts[0][1]
 
         # 등록된 반응역할 메시지의 Persistent View 동적 복원 (버튼 상호작용 영구 작동)
         try:
