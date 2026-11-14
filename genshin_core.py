@@ -520,22 +520,25 @@ GENSHIN_EMBEDDED_FALLBACK_WEAPONS = [
     {"id": "11403", "kind": "weapon", "name": "제례검", "rank": 4, "weapon_type": "WEAPON_SWORD_ONE_HAND", "special_prop": "FIGHT_PROP_CHARGE_EFFICIENCY", "icon": "UI_EquipIcon_Sword_Fossil", "wish_source": "standard", "pool_type": "상시"},
     {"id": "14402", "kind": "weapon", "name": "음유시인의 악장", "rank": 4, "weapon_type": "WEAPON_CATALYST", "special_prop": "FIGHT_PROP_CRITICAL_HURT", "icon": "UI_EquipIcon_Catalyst_Troupe", "wish_source": "standard", "pool_type": "상시"},
     {"id": "15402", "kind": "weapon", "name": "절현", "rank": 4, "weapon_type": "WEAPON_BOW", "special_prop": "FIGHT_PROP_ELEMENT_MASTERY", "icon": "UI_EquipIcon_Bow_Troupe", "wish_source": "standard", "pool_type": "상시"},
-    {"id": "11302", "kind": "weapon", "name": "여명신검", "rank": 3, "weapon_type": "WEAPON_SWORD_ONE_HAND", "special_prop": "FIGHT_PROP_CRITICAL_HURT", "icon": "UI_EquipIcon_Sword_Dawn", "wish_source": "standard", "pool_type": "상시"},
-    {"id": "14302", "kind": "weapon", "name": "드래곤 슬레이어 영웅담", "rank": 3, "weapon_type": "WEAPON_CATALYST", "special_prop": "FIGHT_PROP_HP_PERCENT", "icon": "UI_EquipIcon_Catalyst_Pulpfic", "wish_source": "standard", "pool_type": "상시"},
-    {"id": "13303", "kind": "weapon", "name": "흑술창", "rank": 3, "weapon_type": "WEAPON_POLE", "special_prop": "FIGHT_PROP_HP_PERCENT", "icon": "UI_EquipIcon_Pole_Noire", "wish_source": "standard", "pool_type": "상시"},
+    {"id": "11301", "kind": "weapon", "name": "차가운 칼날", "rank": 3, "weapon_type": "WEAPON_SWORD_ONE_HAND", "special_prop": "FIGHT_PROP_ATTACK_PERCENT", "icon": "UI_EquipIcon_Sword_Steel", "wish_source": "standard", "pool_type": "상시(기원3성)"},
+    {"id": "11302", "kind": "weapon", "name": "여명신검", "rank": 3, "weapon_type": "WEAPON_SWORD_ONE_HAND", "special_prop": "FIGHT_PROP_CRITICAL_HURT", "icon": "UI_EquipIcon_Sword_Dawn", "wish_source": "standard", "pool_type": "상시(기원3성)"},
+    {"id": "13303", "kind": "weapon", "name": "흑술창", "rank": 3, "weapon_type": "WEAPON_POLE", "special_prop": "FIGHT_PROP_HP_PERCENT", "icon": "UI_EquipIcon_Pole_Noire", "wish_source": "standard", "pool_type": "상시(기원3성)"},
+    {"id": "14302", "kind": "weapon", "name": "드래곤 슬레이어 영웅담", "rank": 3, "weapon_type": "WEAPON_CATALYST", "special_prop": "FIGHT_PROP_HP_PERCENT", "icon": "UI_EquipIcon_Catalyst_Pulpfic", "wish_source": "standard", "pool_type": "상시(기원3성)"},
+    {"id": "15304", "kind": "weapon", "name": "탄궁", "rank": 3, "weapon_type": "WEAPON_BOW", "special_prop": "FIGHT_PROP_CRITICAL", "icon": "UI_EquipIcon_Bow_Sling", "wish_source": "standard", "pool_type": "상시(기원3성)"},
 ]
 
 GENSHIN_EMBEDDED_FALLBACK_ARTIFACTS = [
-    {"id": "15048", "kind": "artifact", "name": "용광로가 빚은 심장", "rank": 5, "icon": "UI_RelicIcon_15048_4", "set_2p": "공격력+18%", "set_4p": "별빛 반응 발동 시 공격력+12% 및 파티 별빛 반응 피해+50%", "pool_type": "축성 비경"},
-    {"id": "15047", "kind": "artifact", "name": "핏빛 증표", "rank": 5, "icon": "UI_RelicIcon_15047_4", "set_2p": "공격력+18%", "set_4p": "별 확산 반응 발동 후 치명타 확률+16% 및 별 확산 피해+40%", "pool_type": "축성 비경"},
-    {"id": "15042", "kind": "artifact", "name": "달을 엮는 밤노래", "rank": 5, "icon": "UI_RelicIcon_15042_4", "set_2p": "원소 충전 효율+20%", "set_4p": "원소 피해 시 파티 원소 마스터리 최대 +120pt 및 달빛 반응 피해 증가", "pool_type": "축성 비경"},
-    {"id": "15041", "kind": "artifact", "name": "하늘 경계가 드러난 밤", "rank": 5, "icon": "UI_RelicIcon_15041_4", "set_2p": "원소 마스터리+80pt", "set_4p": "달빛 반응 발동 시 치명타 확률 최대 +30% 및 달빛 반응 피해 증가", "pool_type": "축성 비경"},
-    {"id": "15038", "kind": "artifact", "name": "흑요석 비전", "rank": 5, "icon": "UI_RelicIcon_15038_4", "set_2p": "밤혼 가호 상태 피해+15%", "set_4p": "밤혼 소모 후 6초간 치명타 확률+40%", "pool_type": "축성 비경"},
-    {"id": "15037", "kind": "artifact", "name": "잿더미 성 용사 두루마리", "rank": 5, "icon": "UI_RelicIcon_15037_4", "set_2p": "밤혼 발산 시 원소 에너지 6pt 회복", "set_4p": "관련 원소 반응 발동 시 파티 모든 캐릭터 원소 피해 보너스 최대 +40%", "pool_type": "축성 비경"},
-    {"id": "15036", "kind": "artifact", "name": "그림자 사냥꾼", "rank": 5, "icon": "UI_RelicIcon_15036_4", "set_2p": "일반 공격 및 강공격 피해+15%", "set_4p": "HP 증감 시 치명타 확률+12% (최대 3스택 +36%)", "pool_type": "축성 비경"},
-    {"id": "15035", "kind": "artifact", "name": "황금 극단", "rank": 5, "icon": "UI_RelicIcon_15035_4", "set_2p": "원소전투 스킬 피해+20%", "set_4p": "원소전투 스킬 피해+25% (대기 상태 시 추가 +25%)", "pool_type": "축성 비경"},
-    {"id": "10007", "kind": "artifact", "name": "교관", "rank": 4, "icon": "UI_RelicIcon_10007_4", "set_2p": "원소 마스터리+80pt", "set_4p": "원소 반응 발동 후 파티 원소 마스터리+120pt", "pool_type": "보스/상자"},
-    {"id": "10009", "kind": "artifact", "name": "유배자", "rank": 4, "icon": "UI_RelicIcon_10009_4", "set_2p": "원소 충전 효율+20%", "set_4p": "원소폭발 발동 후 파티원 원소 에너지 회복", "pool_type": "보스/상자"},
+    {"id": "15048", "kind": "artifact", "name": "용광로가 빚은 심장", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15048_4", "set_2p": "공격력+18%", "set_4p": "별빛 반응 발동 시 공격력+12% 및 파티 별빛 반응 피해+50%", "pool_type": "축성 비경"},
+    {"id": "15047", "kind": "artifact", "name": "핏빛 증표", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15047_4", "set_2p": "공격력+18%", "set_4p": "별 확산 반응 발동 후 치명타 확률+16% 및 별 확산 피해+40%", "pool_type": "축성 비경"},
+    {"id": "15042", "kind": "artifact", "name": "달을 엮는 밤노래", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15042_4", "set_2p": "원소 충전 효율+20%", "set_4p": "원소 피해 시 파티 원소 마스터리 최대 +120pt 및 달빛 반응 피해 증가", "pool_type": "축성 비경"},
+    {"id": "15041", "kind": "artifact", "name": "하늘 경계가 드러난 밤", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15041_4", "set_2p": "원소 마스터리+80pt", "set_4p": "달빛 반응 발동 시 치명타 확률 최대 +30% 및 달빛 반응 피해 증가", "pool_type": "축성 비경"},
+    {"id": "15038", "kind": "artifact", "name": "흑요석 비전", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15038_4", "set_2p": "밤혼 가호 상태 피해+15%", "set_4p": "밤혼 소모 후 6초간 치명타 확률+40%", "pool_type": "축성 비경"},
+    {"id": "15037", "kind": "artifact", "name": "잿더미 성 용사 두루마리", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15037_4", "set_2p": "밤혼 발산 시 원소 에너지 6pt 회복", "set_4p": "관련 원소 반응 발동 시 파티 모든 캐릭터 원소 피해 보너스 최대 +40%", "pool_type": "축성 비경"},
+    {"id": "15036", "kind": "artifact", "name": "그림자 사냥꾼", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15036_4", "set_2p": "일반 공격 및 강공격 피해+15%", "set_4p": "HP 증감 시 치명타 확률+12% (최대 3스택 +36%)", "pool_type": "축성 비경"},
+    {"id": "15035", "kind": "artifact", "name": "황금 극단", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15035_4", "set_2p": "원소전투 스킬 피해+20%", "set_4p": "원소전투 스킬 피해+25% (대기 상태 시 추가 +25%)", "pool_type": "축성 비경"},
+    {"id": "10007", "kind": "artifact", "name": "교관", "rank": 4, "level_list": [3, 4], "icon": "UI_RelicIcon_10007_4", "set_2p": "원소 마스터리+80pt", "set_4p": "원소 반응 발동 후 파티 원소 마스터리+120pt", "pool_type": "비경/보스"},
+    {"id": "10009", "kind": "artifact", "name": "유배자", "rank": 4, "level_list": [3, 4], "icon": "UI_RelicIcon_10009_4", "set_2p": "원소 충전 효율+20%", "set_4p": "원소폭발 발동 후 파티원 원소 에너지 회복", "pool_type": "비경/보스"},
+    {"id": "10010", "kind": "artifact", "name": "모험가", "rank": 3, "level_list": [1, 2, 3], "icon": "UI_RelicIcon_10010_4", "set_2p": "HP 최대치+1000pt", "set_4p": "보물상자 오픈 후 5초간 HP 30% 회복", "pool_type": "모험/상자"},
 ]
 
 
@@ -548,17 +551,15 @@ def _clean_text(raw: str | None) -> str:
 
 
 def _should_exclude_avatar(cid: str, raw: dict) -> bool:
-    if cid.startswith("10000005") or cid.startswith("10000007"):  # 여행자
+    # 여여행자(10000007-*)는 남여행자(10000005-*)와 원소별 중복이므로 10000005-*로 통합 표기
+    if cid.startswith("10000007"):
         return True
-    if cid in ("10000117", "10000118", "10000062"):  # 별인형 / 에일로이
+    if cid in ("10000117", "10000118"):  # 별인형 더미 제외
         return True
     if raw.get("beta"):
         return True
     elem = raw.get("element")
     if not elem or elem == "None":
-        return True
-    reg = str(raw.get("region") or "")
-    if reg in ("MAINACTOR", "RANGER"):
         return True
     return False
 
@@ -599,16 +600,29 @@ def _parse_genshin_items(
         reg_code = str(raw.get("region") or "")
         reg_name = GENSHIN_REGION_MAP.get(reg_code, reg_code or "티바트")
 
-        if rank == 5:
+        raw_name = _clean_text(raw.get("name")) or f"캐릭터 {cid_s}"
+        if cid_s.startswith("10000005"):
+            char_name = f"여행자 ({elem_info['name']})"
+            pool_type = "주인공(기본)"
+            wishable = False
+        elif cid_s == "10000062":
+            char_name = raw_name
+            pool_type = "콜라보/배포"
+            wishable = False
+        elif rank == 5:
+            char_name = raw_name
             pool_type = "상시" if cid_s in GENSHIN_STD_5_CHARS else "한정"
+            wishable = True
         else:
+            char_name = raw_name
             pool_type = "초기지급(상시)" if cid_s in GENSHIN_STARTER_4_CHARS else "상시"
+            wishable = True
 
         chars.append({
             "id": cid_s,
             "kind": "char",
             "item_key": f"char:{cid_s}",
-            "name": _clean_text(raw.get("name")) or f"캐릭터 {cid_s}",
+            "name": char_name,
             "rank": rank,
             "rarity_label": "★★★★★" if rank == 5 else "★★★★",
             "element": elem_code,
@@ -624,7 +638,7 @@ def _parse_genshin_items(
             "icon": str(raw.get("icon") or ""),
             "release": int(raw.get("release") or 0),
             "pool_type": pool_type,
-            "wishable": True,
+            "wishable": wishable,
         })
 
     for wid, raw in weapon_items.items():
@@ -639,7 +653,7 @@ def _parse_genshin_items(
         if raw.get("beta"):
             continue
         rank = int(raw.get("rank") or 3)
-        if rank not in (3, 4, 5):
+        if rank not in (1, 2, 3, 4, 5):
             continue
 
         wtype_code = str(raw.get("type") or raw.get("weaponType") or "WEAPON_SWORD_ONE_HAND")
@@ -675,15 +689,19 @@ def _parse_genshin_items(
                 wish_source = "non_gacha"
                 pool_type = "단조/이벤트/기행"
                 wishable = False
-        else:
+        elif rank == 3:
             if wid_s in GENSHIN_3_WISH_WEAPONS:
                 wish_source = "standard"
-                pool_type = "기원 상시"
+                pool_type = "상시(기원3성)"
                 wishable = True
             else:
                 wish_source = "chest"
-                pool_type = "필드/상자"
+                pool_type = "상자/임무(3성)"
                 wishable = False
+        else:
+            wish_source = "chest"
+            pool_type = "기본/상자"
+            wishable = False
 
         weapons.append({
             "id": wid_s,
@@ -691,7 +709,7 @@ def _parse_genshin_items(
             "item_key": f"weapon:{wid_s}",
             "name": _clean_text(raw.get("name")) or f"무기 {wid_s}",
             "rank": rank,
-            "rarity_label": "★★★★★" if rank == 5 else ("★★★★" if rank == 4 else "★★★"),
+            "rarity_label": "★" * rank,
             "weapon_type": wtype_code,
             "weapon_type_name": wtype_info["name"],
             "weapon_type_emoji": wtype_info["emoji"],
@@ -711,7 +729,10 @@ def _parse_genshin_items(
             levels = raw.get("levelList") or []
             if not isinstance(levels, list) or not levels:
                 continue
-            max_lv = max(int(x) for x in levels if isinstance(x, (int, float)))
+            lv_ints = sorted(int(x) for x in levels if isinstance(x, (int, float)))
+            if not lv_ints:
+                continue
+            max_lv = max(lv_ints)
             if max_lv not in (3, 4, 5):
                 continue
             affix = raw.get("affixList") or {}
@@ -725,7 +746,8 @@ def _parse_genshin_items(
                 "item_key": f"artifact:{aid_s}",
                 "name": _clean_text(raw.get("name")) or f"성유물 {aid_s}",
                 "rank": max_lv,
-                "rarity_label": "★★★★★" if max_lv == 5 else ("★★★★" if max_lv == 4 else "★★★"),
+                "level_list": lv_ints,
+                "rarity_label": "★" * max_lv,
                 "weapon_type": "ARTIFACT_SET",
                 "weapon_type_name": "성유물 세트",
                 "weapon_type_emoji": "🏺",
@@ -736,8 +758,8 @@ def _parse_genshin_items(
                 "bonus_2p": set_2p,
                 "bonus_4p": set_4p,
                 "icon": str(raw.get("icon") or ""),
-                "wish_source": "domain" if max_lv == 5 else "standard",
-                "pool_type": "축성 비경" if max_lv == 5 else "비경/보스",
+                "wish_source": "domain" if max_lv == 5 else ("standard" if max_lv == 4 else "chest"),
+                "pool_type": "축성 비경" if max_lv == 5 else ("비경/보스" if max_lv == 4 else "모험/상자"),
                 "wishable": True,
             })
 
@@ -749,12 +771,18 @@ def _parse_genshin_items(
 
 def _set_db_state(chars: list[dict], weapons: list[dict], artifacts: list[dict], fetched_at: float):
     global GENSHIN_CHARS, GENSHIN_WEAPONS, GENSHIN_ARTIFACTS, GENSHIN_ALL_ITEMS, _GENSHIN_LAST_FETCH
+    chars = [c for c in chars if int(c.get("rank", 0)) in (4, 5)]
+    weapons = [w for w in weapons if int(w.get("rank", 0)) in (1, 2, 3, 4, 5)]
+    artifacts = [a for a in artifacts if int(a.get("rank", 0)) in (3, 4, 5)]
     chars.sort(key=lambda x: (-x["rank"], -x.get("release", 0), x.get("id", "")))
     weapons.sort(key=_weapon_sort_key)
     artifacts.sort(key=lambda x: (-x["rank"], -int(x["id"]) if str(x.get("id", "")).isdigit() else 0))
     for a in artifacts:
         a.setdefault("bonus_2p", a.get("set_2p", ""))
         a.setdefault("bonus_4p", a.get("set_4p", ""))
+        if "level_list" not in a:
+            rk = int(a.get("rank", 5))
+            a["level_list"] = [4, 5] if rk == 5 else ([3, 4] if rk == 4 else [1, 2, 3])
     GENSHIN_CHARS = chars
     GENSHIN_WEAPONS = weapons
     GENSHIN_ARTIFACTS = artifacts
@@ -883,10 +911,14 @@ def fetch_genshin_detail_kr(item_id: str, kind: str = "char") -> dict:
     """캐릭터/무기/성유물 상세 정보를 지연 로드 후 캐시합니다."""
     if kind == "artifact":
         art = GENSHIN_ALL_ITEMS.get(f"artifact:{item_id}") or {}
+        s2 = art.get("set_2p") or art.get("bonus_2p") or ""
+        s4 = art.get("set_4p") or art.get("bonus_4p") or ""
         return {
-            "set_2p": art.get("set_2p", ""),
-            "set_4p": art.get("set_4p", ""),
-            "description": f"[2세트] {art.get('set_2p', '-')} / [4세트] {art.get('set_4p', '-')}",
+            "set_2p": s2,
+            "set_4p": s4,
+            "bonus_2p": s2,
+            "bonus_4p": s4,
+            "description": f"[2세트] {s2 or '-'} / [4세트] {s4 or '-'}",
         }
 
     cache_key = f"{kind}:{item_id}"
@@ -1183,6 +1215,8 @@ def build_genshin_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1"
             dup_badge = ""
             if item.get("kind") == "char":
                 dup_badge = f"C{item.get('new_constellation', 0)}"
+            elif item.get("kind") == "artifact":
+                dup_badge = f"+{item.get('new_level', 4)}"
             else:
                 dup_badge = f"R{item.get('new_refinement', 1)}"
             if dup_badge:
@@ -1199,7 +1233,7 @@ def build_genshin_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1"
             if item.get("kind") == "char":
                 sub_raw = f"{item.get('element_name', '')} · {item.get('weapon_type_name', '')} · {item.get('pool_type', '')}"
             elif item.get("kind") == "artifact":
-                sub_raw = f"{item.get('artifact_piece', '성유물')} · {item.get('artifact_main_stat', item.get('set_2p', ''))}"
+                sub_raw = f"{item.get('slot_name', item.get('artifact_piece', '성유물'))} · {item.get('main_stat', item.get('artifact_main_stat', item.get('set_2p', '')))}"
             else:
                 sub_raw = f"{item.get('weapon_type_name', '')} · {item.get('pool_type', '')}"
             sub_clean = core._sanitize_grid_text(sub_raw)
@@ -1262,6 +1296,30 @@ def ensure_genshin_user(data: dict, guild_id: int | str, user_id: int | str) -> 
     u_data.setdefault("profile_char", None)
     u_data.setdefault("profile_note", "")
     u_data.setdefault("history", [])
+
+    # 성유물 마스터 필드 및 등급 라벨 보정 (캐릭터 5★/4★, 무기 5★~1★, 성유물 5★~3★ 모두 보존)
+    items_map = u_data.get("items")
+    if isinstance(items_map, dict) and items_map:
+        to_del = []
+        for ik, rec in list(items_map.items()):
+            if not isinstance(rec, dict):
+                to_del.append(ik)
+                continue
+            master = GENSHIN_ALL_ITEMS.get(ik)
+            if rec.get("kind") == "artifact" and master:
+                rec.setdefault("bonus_2p", master.get("bonus_2p") or master.get("set_2p", ""))
+                rec.setdefault("bonus_4p", master.get("bonus_4p") or master.get("set_4p", ""))
+                rec.setdefault("slot_name", rec.get("artifact_piece") or "🌸생명의 꽃")
+                rec.setdefault("main_stat", rec.get("artifact_main_stat") or "HP +4,780")
+                rec.setdefault("sub_stats", rec.get("artifact_sub_stats") or ["치명타 확률+3.9%", "치명타 피해+7.8%", "공격력+5.8%"])
+                if int(rec.get("level", 4)) < 4:
+                    rec["level"] = 4
+            rk = int(rec.get("rank") or (master.get("rank", 3) if master else 3))
+            rec["rank"] = rk
+            rec["rarity_label"] = "★" * rk
+        for ik in to_del:
+            items_map.pop(ik, None)
+
     return u_data
 
 
@@ -1445,10 +1503,17 @@ def _roll_artifact_piece_and_stats(item: dict, rng: random.Random) -> dict:
     main_stat = rng.choice(slot_info["main_pool"])
     sub_cnt = 4 if int(item.get("rank", 5)) == 5 else 3
     subs = rng.sample(GENSHIN_ARTIFACT_SUB_POOL, k=min(sub_cnt, len(GENSHIN_ARTIFACT_SUB_POOL)))
-    item["artifact_piece"] = f"{slot_info['emoji']}{slot_info['slot']}"
+    slot_label = f"{slot_info['emoji']}{slot_info['slot']}"
+    item["slot_code"] = slot_info["slot"]
+    item["slot_name"] = slot_label
+    item["main_stat"] = main_stat
+    item["sub_stats"] = subs
+    item["artifact_piece"] = slot_label
     item["artifact_main_stat"] = main_stat
     item["artifact_sub_stats"] = subs
-    item["artifact_stats_summary"] = f"{slot_info['emoji']}{slot_info['slot']} [{main_stat}] · {' / '.join(subs[:2])}"
+    item["bonus_2p"] = item.get("bonus_2p") or item.get("set_2p", "")
+    item["bonus_4p"] = item.get("bonus_4p") or item.get("set_4p", "")
+    item["artifact_stats_summary"] = f"{slot_label} [{main_stat}] · {' / '.join(subs[:2])}"
     return item
 
 
@@ -1460,10 +1525,11 @@ def _roll_single_genshin(
     std_4_chars: list[dict],
     all_std_4_chars_incl_starter: list[dict],
     std_5_wps: list[dict],
-    wish_3_wps: list[dict],
     gacha_4_wps_non_limited: list[dict],
+    std_3_wps: list[dict],
     rng: random.Random,
 ) -> dict:
+    """원신 기원 단일 추첨 (공식 DB 성급 기준: 5★ / 4★ / 3★ 기원 및 성유물 비경 5★ / 4★ / 3★ 드랍)"""
     if banner_key in ("char1", "char2"):
         state["pity_char"] += 1
         state["pity_4_char"] += 1
@@ -1521,23 +1587,26 @@ def _roll_single_genshin(
             picked["pity_used"] = pity_used
             return picked
 
-        if roll < p5 + p4:
+        if state["pity_4_char"] >= 10 or roll < p5 + p4:
             state["pity_4_char"] = 0
             c4_pickups = eff_pickup["char_4"]
             pickup_4_ids = {c["id"] for c in c4_pickups}
             if c4_pickups and (state["guaranteed_4_char"] or rng.random() < 0.50):
+                state["guaranteed_4_char"] = False
                 picked = dict(rng.choice(c4_pickups))
                 picked["is_pickup"] = True
-                state["guaranteed_4_char"] = False
+                return picked
             else:
-                if c4_pickups:
-                    state["guaranteed_4_char"] = True
-                off_pool = [c for c in std_4_chars if c["id"] not in pickup_4_ids] + gacha_4_wps_non_limited
-                picked = dict(rng.choice(off_pool or gacha_4_wps_non_limited))
+                state["guaranteed_4_char"] = True
+                non_pickup_4_chars = [c for c in std_4_chars if c["id"] not in pickup_4_ids] or std_4_chars
+                if rng.random() < 0.50:
+                    picked = dict(rng.choice(non_pickup_4_chars))
+                else:
+                    picked = dict(rng.choice(gacha_4_wps_non_limited))
                 picked["is_pickup"] = False
-            return picked
+                return picked
 
-        picked = dict(rng.choice(wish_3_wps))
+        picked = dict(rng.choice(std_3_wps))
         picked["is_pickup"] = False
         return picked
 
@@ -1588,23 +1657,26 @@ def _roll_single_genshin(
             picked["pity_used"] = pity_used
             return picked
 
-        if roll < p5 + p4:
+        if state["pity_4_weapon"] >= 10 or roll < p5 + p4:
             state["pity_4_weapon"] = 0
             w4_pickups = eff_pickup["weapon_4"]
             w4_ids = {w["id"] for w in w4_pickups}
             if w4_pickups and (state["guaranteed_4_weapon"] or rng.random() < 0.75):
+                state["guaranteed_4_weapon"] = False
                 picked = dict(rng.choice(w4_pickups))
                 picked["is_pickup"] = True
-                state["guaranteed_4_weapon"] = False
+                return picked
             else:
-                if w4_pickups:
-                    state["guaranteed_4_weapon"] = True
-                off_pool = std_4_chars + [w for w in gacha_4_wps_non_limited if w["id"] not in w4_ids]
-                picked = dict(rng.choice(off_pool or gacha_4_wps_non_limited))
+                state["guaranteed_4_weapon"] = True
+                non_pickup_4_wps = [w for w in gacha_4_wps_non_limited if w["id"] not in w4_ids] or gacha_4_wps_non_limited
+                if rng.random() < 0.50:
+                    picked = dict(rng.choice(non_pickup_4_wps))
+                else:
+                    picked = dict(rng.choice(std_4_chars))
                 picked["is_pickup"] = False
-            return picked
+                return picked
 
-        picked = dict(rng.choice(wish_3_wps))
+        picked = dict(rng.choice(std_3_wps))
         picked["is_pickup"] = False
         return picked
 
@@ -1616,12 +1688,14 @@ def _roll_single_genshin(
         roll = rng.random()
 
         arts_5 = [a for a in GENSHIN_ARTIFACTS if a["rank"] == 5] or GENSHIN_ARTIFACTS
-        arts_4 = [a for a in GENSHIN_ARTIFACTS if a["rank"] == 4] or arts_5
+        arts_4 = [a for a in GENSHIN_ARTIFACTS if 4 in (a.get("level_list") or [a["rank"]])] or arts_5
+        arts_3 = [a for a in GENSHIN_ARTIFACTS if 3 in (a.get("level_list") or [a["rank"]])] or arts_4
         promo_arts = [a for a in (eff_pickup.get("artifact_1"), eff_pickup.get("artifact_2")) if a] or arts_5[:2]
 
         if roll < p5:
             pity_used = state["pity_artifact"]
             state["pity_artifact"] = 0
+            state["pity_4_artifact"] = 0
             if state.get("guaranteed_artifact") or rng.random() < 0.80:
                 picked = dict(rng.choice(promo_arts))
                 picked["is_pickup"] = True
@@ -1631,16 +1705,19 @@ def _roll_single_genshin(
                 picked = dict(rng.choice(off_arts))
                 picked["is_pickup"] = False
                 state["guaranteed_artifact"] = True
+            picked["rank"] = 5
+            picked["rarity_label"] = "★★★★★"
             picked["pity_used"] = pity_used
             return _roll_artifact_piece_and_stats(picked, rng)
 
-        if roll < p5 + p4:
+        if state["pity_4_artifact"] >= 5 or roll < p5 + p4:
             state["pity_4_artifact"] = 0
             picked = dict(rng.choice(arts_4))
+            picked["rank"] = 4
+            picked["rarity_label"] = "★★★★"
             picked["is_pickup"] = False
             return _roll_artifact_piece_and_stats(picked, rng)
 
-        arts_3 = [a for a in GENSHIN_ARTIFACTS if a["rank"] == 3] or arts_4
         picked = dict(rng.choice(arts_3))
         picked["rank"] = 3
         picked["rarity_label"] = "★★★"
@@ -1665,7 +1742,7 @@ def _roll_single_genshin(
             picked["pity_used"] = pity_used
             return picked
 
-        if roll < p5 + p4:
+        if state["pity_4_standard"] >= 10 or roll < p5 + p4:
             state["pity_4_standard"] = 0
             if rng.random() < 0.50:
                 picked = dict(rng.choice(all_std_4_chars_incl_starter))
@@ -1674,13 +1751,13 @@ def _roll_single_genshin(
             picked["is_pickup"] = False
             return picked
 
-        picked = dict(rng.choice(wish_3_wps))
+        picked = dict(rng.choice(std_3_wps))
         picked["is_pickup"] = False
         return picked
 
 
 def _apply_gi_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[int, int]:
-    """유저 원신 보관함에 캐릭터/무기/성유물을 추가하고 운명의 자리/재련/성유물 세트 및 스타라이트/스타더스트 획득량을 계산합니다."""
+    """유저 원신 보관함에 캐릭터/무기/성유물을 추가하고 운명의 자리/재련/성유물(+4~+20) 및 스타라이트/스타더스트 획득량을 계산합니다."""
     items_map = u_data.setdefault("items", {})
     i_key = item["item_key"]
     rank = int(item.get("rank", 3))
@@ -1688,13 +1765,16 @@ def _apply_gi_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[i
 
     existing = items_map.get(i_key)
     gained_glitter = 0
-    gained_dust = 0
+    gained_dust = 15 if rank <= 3 else (25 if rank == 5 else 15)
 
     if existing:
         existing["count"] = int(existing.get("count", 1)) + 1
         existing["last_obtained_at"] = now_iso
         existing["icon"] = item.get("icon", existing.get("icon", ""))
         existing["name"] = item.get("name", existing.get("name", ""))
+        if rank > int(existing.get("rank", 3)):
+            existing["rank"] = rank
+            existing["rarity_label"] = "★" * rank
         item["is_new"] = False
         if kind == "char":
             cur_c = int(existing.get("constellation", min(6, existing["count"] - 2)))
@@ -1707,19 +1787,37 @@ def _apply_gi_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[i
                 existing["constellation"] = 6
                 gained_glitter = 25 if rank == 5 else 5
             item["new_constellation"] = new_c
+        elif kind == "artifact":
+            cur_lv = int(existing.get("level", 4))
+            new_lv = min(20, cur_lv + 4)
+            existing["level"] = new_lv
+            existing["refinement"] = min(5, int(existing.get("refinement", 1)) + 1)
+            if item.get("slot_name"):
+                existing["slot_name"] = item["slot_name"]
+                existing["main_stat"] = item.get("main_stat", "")
+                existing["sub_stats"] = item.get("sub_stats", [])
+                existing["artifact_piece"] = item["slot_name"]
+                existing["artifact_main_stat"] = item.get("main_stat", "")
+                existing["artifact_sub_stats"] = item.get("sub_stats", [])
+            if item.get("artifact_stats_summary"):
+                existing["special_prop_name"] = item["artifact_stats_summary"]
+            existing["bonus_2p"] = item.get("bonus_2p") or item.get("set_2p") or existing.get("bonus_2p", "")
+            existing["bonus_4p"] = item.get("bonus_4p") or item.get("set_4p") or existing.get("bonus_4p", "")
+            item["new_level"] = new_lv
+            item["new_refinement"] = existing["refinement"]
+            if rank == 5:
+                gained_glitter = 10
+            elif rank == 4:
+                gained_glitter = 2
         else:
             cur_r = int(existing.get("refinement", 1))
             new_r = min(5, cur_r + 1)
             existing["refinement"] = new_r
             item["new_refinement"] = new_r
-            if kind == "artifact" and item.get("artifact_stats_summary"):
-                existing["special_prop_name"] = item["artifact_stats_summary"]
             if rank == 5:
                 gained_glitter = 10
             elif rank == 4:
                 gained_glitter = 2
-            else:
-                gained_dust = 15
     else:
         item["is_new"] = True
         rec = {
@@ -1728,7 +1826,7 @@ def _apply_gi_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[i
             "item_key": i_key,
             "name": item["name"],
             "rank": rank,
-            "rarity_label": item["rarity_label"],
+            "rarity_label": "★" * rank,
             "weapon_type": item.get("weapon_type", ""),
             "weapon_type_name": item.get("weapon_type_name", ""),
             "weapon_type_emoji": item.get("weapon_type_emoji", ""),
@@ -1736,7 +1834,7 @@ def _apply_gi_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[i
             "icon": item.get("icon", ""),
             "pool_type": item.get("pool_type", "상시"),
             "count": 1,
-            "level": 1,
+            "level": 4 if kind == "artifact" else 1,
             "locked": (rank == 5),
             "obtained_at": now_iso,
             "last_obtained_at": now_iso,
@@ -1748,18 +1846,31 @@ def _apply_gi_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[i
             rec["region_name"] = item.get("region_name", "티바트")
             rec["constellation"] = 0
             item["new_constellation"] = 0
-        else:
+        elif kind == "artifact":
+            rec["slot_name"] = item.get("slot_name", "🌸생명의 꽃")
+            rec["main_stat"] = item.get("main_stat", "HP +4,780")
+            rec["sub_stats"] = item.get("sub_stats", [])
+            rec["artifact_piece"] = rec["slot_name"]
+            rec["artifact_main_stat"] = rec["main_stat"]
+            rec["artifact_sub_stats"] = rec["sub_stats"]
+            rec["set_2p"] = item.get("set_2p", "")
+            rec["set_4p"] = item.get("set_4p", "")
+            rec["bonus_2p"] = item.get("bonus_2p") or item.get("set_2p", "")
+            rec["bonus_4p"] = item.get("bonus_4p") or item.get("set_4p", "")
             rec["refinement"] = 1
+            item["new_level"] = 4
             item["new_refinement"] = 1
-            if kind == "artifact":
-                rec["set_2p"] = item.get("set_2p", "")
-                rec["set_4p"] = item.get("set_4p", "")
             if rank == 5:
                 gained_glitter = 10
             elif rank == 4:
                 gained_glitter = 2
-            else:
-                gained_dust = 15
+        else:
+            rec["refinement"] = 1
+            item["new_refinement"] = 1
+            if rank == 5:
+                gained_glitter = 10
+            elif rank == 4:
+                gained_glitter = 2
         items_map[i_key] = rec
 
     u_data["starglitter"] = int(u_data.get("starglitter", 0)) + gained_glitter
@@ -1771,13 +1882,13 @@ def _apply_gi_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[i
 
 def _build_gi_pools():
     chars, weapons = load_genshin_kr_db()
-    std_5_chars = [c for c in chars if c["rank"] == 5 and c["id"] in GENSHIN_STD_5_CHARS] or [c for c in chars if c["rank"] == 5]
-    all_std_4_chars_incl = [c for c in chars if c["rank"] == 4]
+    std_5_chars = [c for c in chars if c["rank"] == 5 and c["id"] in GENSHIN_STD_5_CHARS] or [c for c in chars if c["rank"] == 5 and c.get("wishable", True)]
+    all_std_4_chars_incl = [c for c in chars if c["rank"] == 4 and c.get("wishable", True)]
     std_4_chars = [c for c in all_std_4_chars_incl if c["id"] not in GENSHIN_STARTER_4_CHARS] or all_std_4_chars_incl
     std_5_wps = [w for w in weapons if w["rank"] == 5 and w["wish_source"] == "standard"] or [w for w in weapons if w["rank"] == 5]
-    wish_3_wps = [w for w in weapons if w["rank"] == 3 and w["wishable"]] or [w for w in weapons if w["rank"] == 3]
     gacha_4_wps_std = [w for w in weapons if w["rank"] == 4 and w["wish_source"] == "standard"] or [w for w in weapons if w["rank"] == 4 and w["wishable"]]
-    return std_5_chars, std_4_chars, all_std_4_chars_incl, std_5_wps, wish_3_wps, gacha_4_wps_std
+    std_3_wps = [w for w in weapons if w["rank"] == 3 and w.get("wishable")] or [w for w in weapons if w["rank"] == 3] or gacha_4_wps_std
+    return std_5_chars, std_4_chars, all_std_4_chars_incl, std_5_wps, gacha_4_wps_std, std_3_wps
 
 
 def execute_genshin_pull(guild_id: int, user_id: int, banner_key: str = "char1", count: int = 10, practice: bool = False) -> dict:
@@ -1787,7 +1898,7 @@ def execute_genshin_pull(guild_id: int, user_id: int, banner_key: str = "char1",
     count = 10 if count >= 10 else 1
 
     load_genshin_kr_db()
-    std_5_chars, std_4_chars, all_std_4_incl, std_5_wps, wish_3_wps, gacha_4_wps_std = _build_gi_pools()
+    std_5_chars, std_4_chars, all_std_4_incl, std_5_wps, gacha_4_wps_std, std_3_wps = _build_gi_pools()
 
     data = core.load_data()
     eff_pickup = resolve_effective_genshin_pickup(data.get("genshin_pickup"))
@@ -1799,11 +1910,14 @@ def execute_genshin_pull(guild_id: int, user_id: int, banner_key: str = "char1",
         owned_items = u_data.get("items", {})
         drawn = []
         for _ in range(count):
-            it = _roll_single_genshin(sim_state, banner_key, eff_pickup, std_5_chars, std_4_chars, all_std_4_incl, std_5_wps, wish_3_wps, gacha_4_wps_std, rng)
+            it = _roll_single_genshin(sim_state, banner_key, eff_pickup, std_5_chars, std_4_chars, all_std_4_incl, std_5_wps, gacha_4_wps_std, std_3_wps, rng)
             prev = owned_items.get(it["item_key"])
             it["is_new"] = prev is None
             if it["kind"] == "char":
                 it["new_constellation"] = min(6, int(prev.get("constellation", 0)) + 1) if prev else 0
+            elif it["kind"] == "artifact":
+                it["new_level"] = min(20, int(prev.get("level", 4)) + 4) if prev else 4
+                it["new_refinement"] = min(5, int(prev.get("refinement", 1)) + 1) if prev else 1
             else:
                 it["new_refinement"] = min(5, int(prev.get("refinement", 1)) + 1) if prev else 1
             it["gained_starglitter"] = 0
@@ -1824,7 +1938,7 @@ def execute_genshin_pull(guild_id: int, user_id: int, banner_key: str = "char1",
     tot_glitter = 0
     tot_dust = 0
     for _ in range(count):
-        it = _roll_single_genshin(u_data, banner_key, eff_pickup, std_5_chars, std_4_chars, all_std_4_incl, std_5_wps, wish_3_wps, gacha_4_wps_std, rng)
+        it = _roll_single_genshin(u_data, banner_key, eff_pickup, std_5_chars, std_4_chars, all_std_4_incl, std_5_wps, gacha_4_wps_std, std_3_wps, rng)
         gg, gd = _apply_gi_item_to_account(u_data, it, now_iso)
         tot_glitter += gg
         tot_dust += gd
@@ -2082,6 +2196,33 @@ def levelup_genshin_char(guild_id: int, user_id: int, item_key: str) -> tuple[bo
     return True, f"⬆️ **{c['name']}** 레벨업! `Lv.{cur_lv}` ➔ **`Lv.{new_lv}`** (`-2 영웅의 경험`)", u_data
 
 
+def levelup_genshin_artifact(guild_id: int, user_id: int, item_key: str) -> tuple[bool, str, dict]:
+    """주인 없는 스타더스트 ×20을 소모해 보유 성유물을 +4강씩 최대 +20강까지 강화합니다."""
+    data = core.load_data()
+    u_data = ensure_genshin_user(data, guild_id, user_id)
+    art = u_data.get("items", {}).get(item_key)
+    if not art or art.get("kind") != "artifact":
+        return False, "보유 중인 성유물을 찾을 수 없습니다.", u_data
+    cur_lv = int(art.get("level", 4))
+    if cur_lv >= 20:
+        return False, f"🏺 **{art['name']}** 성유물은 이미 최고 강화 단계(`+20강`)입니다!", u_data
+    dust = int(u_data.get("stardust", 0))
+    if dust < 20:
+        return False, f"💠 **주인 없는 스타더스트**가 부족합니다! (필요: `20` / 보유: `{dust}`)", u_data
+    u_data["stardust"] = dust - 20
+    new_lv = min(20, cur_lv + 4)
+    art["level"] = new_lv
+    subs = list(art.get("sub_stats") or [])
+    if len(subs) < 4:
+        avail = [s for s in GENSHIN_ARTIFACT_SUB_POOL if s not in subs]
+        if avail:
+            subs.append(random.choice(avail))
+            art["sub_stats"] = subs
+            art["artifact_sub_stats"] = subs
+    core.save_data(data)
+    return True, f"🔨 **{art['name']}** 성유물 강화 성공! `+{cur_lv}` ➔ **`+{new_lv}`** (`-20 스타더스트`)", u_data
+
+
 def compute_genshin_char_power(char_obj: dict) -> int:
     rank = int(char_obj.get("rank", 4))
     lv = max(1, int(char_obj.get("level", 1)))
@@ -2161,14 +2302,22 @@ def get_genshin_pokedex_stats(guild_id: int, user_id: int) -> dict:
     c5_own = sum(1 for c in chars if c["rank"] == 5 and c["item_key"] in owned_map)
     c4_tot = sum(1 for c in chars if c["rank"] == 4)
     c4_own = sum(1 for c in chars if c["rank"] == 4 and c["item_key"] in owned_map)
-    w5_tot = sum(1 for w in weapons if w["rank"] == 5 and w["wishable"])
-    w5_own = sum(1 for w in weapons if w["rank"] == 5 and w["wishable"] and w["item_key"] in owned_map)
-    w4_tot = sum(1 for w in weapons if w["rank"] == 4 and w["wishable"])
-    w4_own = sum(1 for w in weapons if w["rank"] == 4 and w["wishable"] and w["item_key"] in owned_map)
+    w5_tot = sum(1 for w in weapons if w["rank"] == 5)
+    w5_own = sum(1 for w in weapons if w["rank"] == 5 and w["item_key"] in owned_map)
+    w4_tot = sum(1 for w in weapons if w["rank"] == 4)
+    w4_own = sum(1 for w in weapons if w["rank"] == 4 and w["item_key"] in owned_map)
+    w3_tot = sum(1 for w in weapons if w["rank"] == 3)
+    w3_own = sum(1 for w in weapons if w["rank"] == 3 and w["item_key"] in owned_map)
+    w21_tot = sum(1 for w in weapons if w["rank"] in (1, 2))
+    w21_own = sum(1 for w in weapons if w["rank"] in (1, 2) and w["item_key"] in owned_map)
     a5_tot = sum(1 for a in artifacts if a["rank"] == 5)
     a5_own = sum(1 for a in artifacts if a["rank"] == 5 and a["item_key"] in owned_map)
+    a4_tot = sum(1 for a in artifacts if a["rank"] == 4)
+    a4_own = sum(1 for a in artifacts if a["rank"] == 4 and a["item_key"] in owned_map)
+    a3_tot = sum(1 for a in artifacts if a["rank"] == 3)
+    a3_own = sum(1 for a in artifacts if a["rank"] == 3 and a["item_key"] in owned_map)
 
-    rate = (w_owned / w_total) * 100.0
+    rate = (len(owned_all) / max(1, len(all_master))) * 100.0
     filled = int(round((rate / 100.0) * 10))
     bar = "🟨" * filled + "⬛" * max(0, 10 - filled)
 
@@ -2183,7 +2332,11 @@ def get_genshin_pokedex_stats(guild_id: int, user_id: int) -> dict:
         "c4": (c4_own, c4_tot),
         "w5": (w5_own, w5_tot),
         "w4": (w4_own, w4_tot),
+        "w3": (w3_own, w3_tot),
+        "w21": (w21_own, w21_tot),
         "a5": (a5_own, a5_tot),
+        "a4": (a4_own, a4_tot),
+        "a3": (a3_own, a3_tot),
         "owned_items": owned_all,
         "unowned_items": unowned_all,
     }
