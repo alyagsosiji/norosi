@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 scripts/build_fish_db.py
-공개 생물다양성 API(iNaturalist Taxa + Wikidata Taxon Labels/Measurements)로부터
-실제 공개 어류 데이터를 수집·정제하고, 기존 fishing_core.py의 140종 ID를 100% 보존하여
-1,000종+ 초대규모 글로벌 어류 JSON 데이터베이스(fish_species_db.json)를 생성합니다.
+공개 생물다양성 API(iNaturalist Taxa + Wikidata Taxon Labels/Measurements/Wikipedia)로부터
+실제 공개 어류 데이터를 대대적으로 수집·정제하고, 기존 어종 ID(원본 140종 + 기존 sp_* ID)를
+100% 보존하면서 10,000종+ 초대규모 글로벌 어류 JSON 데이터베이스(fish_species_db.json)를 생성합니다.
 """
 
 from __future__ import annotations
@@ -54,6 +54,7 @@ FAMILY_BIOLOGY: Dict[str, Tuple[str, str, Tuple[float, float], Tuple[float, floa
     "Cyprinidae": ("lake", "수초 연안", (10.0, 52.0), (0.016, 3.02), 1, "all", "clear", "dough", "🐟", "잉어과"),
     "Acheilognathidae": ("lake", "수초 연안", (4.0, 10.5), (0.014, 3.00), 1, "day", "clear", "dough", "🐠", "납자루아과"),
     "Xenocyprididae": ("lake", "맑은 중층수", (12.0, 58.0), (0.011, 3.02), 2, "day", "clear", "dough", "🐟", "강준치·치리아과"),
+    "Tincidae": ("lake", "수초 연안", (20.0, 52.0), (0.017, 3.02), 2, "day", "fog", "dough", "🐟", "틴카과"),
     "Centrarchidae": ("lake", "수초 연안", (14.0, 48.0), (0.019, 3.05), 2, "day", "clear", "lure", "🐟", "검정우럭과"),
     "Percidae": ("lake", "맑은 중층수", (14.0, 46.0), (0.014, 3.02), 2, "day", "fog", "lure", "🐟", "농어·퍼치과"),
     "Esocidae": ("lake", "수초 연안", (38.0, 118.0), (0.0085, 3.04), 3, "day", "fog", "lure", "🐊", "강꼬치고기과"),
@@ -63,67 +64,104 @@ FAMILY_BIOLOGY: Dict[str, Tuple[str, str, Tuple[float, float], Tuple[float, floa
     "Osteoglossidae": ("lake", "열대·아열대 대호", (48.0, 145.0), (0.008, 3.02), 4, "night", "rain", "golden", "🐉", "골설어과(아로와나)"),
     "Arapaimidae": ("lake", "열대·아열대 대호", (110.0, 260.0), (0.011, 3.00), 5, "day", "rain", "golden", "🐉", "아라파이마과"),
     "Osphronemidae": ("lake", "수초 연안", (5.0, 22.0), (0.016, 3.00), 2, "day", "fog", "worm", "🐠", "버들붕어·구라미과"),
-    "Betta": ("lake", "수초 연안", (4.0, 9.0), (0.015, 3.00), 2, "day", "clear", "worm", "🐠", "투어류"),
+    "Anabantidae": ("lake", "수초 연안", (8.0, 24.0), (0.017, 3.00), 2, "day", "rain", "worm", "🐠", "등목어(아나바스)과"),
+    "Helostomatidae": ("lake", "열대·아열대 대호", (12.0, 30.0), (0.020, 3.00), 2, "day", "clear", "dough", "🐠", "키싱구라미과"),
     "Poeciliidae": ("lake", "수초 연안", (3.0, 8.5), (0.012, 2.98), 1, "day", "clear", "dough", "🐠", "송사리·난태생송사리과"),
     "Cyprinodontidae": ("lake", "수초 연안", (3.5, 9.5), (0.013, 3.00), 2, "day", "clear", "dough", "🐟", "키리피시과"),
     "Adrianichthyidae": ("lake", "수초 연안", (2.5, 5.5), (0.011, 2.95), 1, "day", "clear", "dough", "🐟", "송사리과"),
     "Aplocheilidae": ("lake", "열대·아열대 대호", (4.0, 10.0), (0.012, 3.00), 2, "day", "rain", "worm", "🐠", "킬리피시과"),
     "Nothobranchiidae": ("lake", "열대·아열대 대호", (3.5, 8.5), (0.013, 3.00), 3, "day", "rain", "worm", "🐠", "아프리카 킬리피시과"),
+    "Rivulidae": ("lake", "열대·아열대 대호", (3.5, 10.0), (0.012, 3.00), 2, "day", "rain", "worm", "🐠", "신열대 킬리피시과"),
+    "Goodeidae": ("lake", "맑은 중층수", (4.5, 13.0), (0.014, 3.00), 3, "day", "clear", "dough", "🐠", "멕시코 호수 킬리피시과"),
     "Acipenseridae": ("lake", "깊은 심수층", (65.0, 210.0), (0.0078, 3.02), 4, "all", "storm", "shrimp", "🦈", "철갑상어과"),
-    "Polyodontidae": ("river", "대하천 본류", (85.0, 195.0), (0.0082, 3.00), 5, "all", "fog", "golden", "🔱", "주걱철갑상어과"),
-    "Lepisosteidae": ("river", "대하천 본류", (55.0, 175.0), (0.0068, 3.04), 4, "day", "storm", "lure", "🐊", "레피소스테우스과(가아)"),
-    "Amiidae": ("lake", "수초 연안", (40.0, 92.0), (0.012, 3.02), 4, "night", "fog", "lure", "🐊", "아미아과(보우핀)"),
-    "Latidae": ("lake", "열대·아열대 대호", (48.0, 150.0), (0.015, 3.02), 4, "night", "clear", "shrimp", "👑", "라테스과"),
     "Coregonidae": ("lake", "깊은 심수층", (24.0, 58.0), (0.011, 3.02), 3, "night", "fog", "glow", "❄️", "백어아과"),
     "Lotidae": ("lake", "깊은 심수층", (30.0, 88.0), (0.009, 3.02), 3, "night", "fog", "worm", "🐟", "모오케과"),
+    "Abyssocottidae": ("lake", "깊은 심수층", (8.0, 24.0), (0.013, 3.00), 3, "night", "fog", "glow", "❄️", "바이칼 심수 둑중개과"),
+    "Comephoridae": ("lake", "깊은 심수층", (10.0, 22.0), (0.009, 2.98), 4, "night", "fog", "glow", "❄️", "바이칼 골로먄카과"),
+    "Cottocomephoridae": ("lake", "깊은 심수층", (9.0, 26.0), (0.013, 3.00), 3, "night", "fog", "worm", "❄️", "바이칼 황색둑중개과"),
+    "Amiidae": ("lake", "수초 연안", (40.0, 92.0), (0.012, 3.02), 4, "night", "fog", "lure", "🐊", "아미아과(보우핀)"),
+    "Latidae": ("lake", "열대·아열대 대호", (48.0, 150.0), (0.015, 3.02), 4, "night", "clear", "shrimp", "👑", "라테스과"),
     "Synbranchidae": ("lake", "수초 연안", (25.0, 72.0), (0.0022, 2.98), 2, "night", "rain", "worm", "🐍", "드렁허리과"),
+    "Umbridae": ("lake", "수초 연안", (7.0, 18.0), (0.012, 3.00), 2, "all", "fog", "worm", "🐟", "머드미노우과"),
+    "Elassomatidae": ("lake", "수초 연안", (2.5, 4.8), (0.013, 2.98), 2, "day", "clear", "dough", "🐠", "피그미 선피시과"),
+    "Percopsidae": ("lake", "맑은 중층수", (8.0, 18.0), (0.012, 3.00), 2, "night", "clear", "worm", "🐟", "송어퍼치과"),
+    "Melanotaeniidae": ("lake", "열대·아열대 대호", (5.0, 14.0), (0.014, 3.00), 2, "day", "clear", "dough", "🌈", "레인보우피시과"),
+    "Pseudomugilidae": ("lake", "열대·아열대 대호", (2.5, 6.0), (0.012, 2.98), 2, "day", "clear", "dough", "🐠", "푸른눈 레인보우피시과"),
 
     # --- FRESHWATER: RIVERS & STREAMS ---
     "Salmonidae": ("river", "상류 1급수 계곡", (24.0, 82.0), (0.013, 3.02), 3, "day", "clear", "lure", "🌈", "연어과"),
     "Leuciscidae": ("river", "중류 자갈 여울", (7.0, 24.0), (0.010, 3.02), 1, "day", "clear", "dough", "🐟", "황어·피라미과"),
     "Gobionidae": ("river", "중류 자갈 여울", (7.5, 24.0), (0.010, 3.02), 1, "day", "clear", "worm", "🐟", "모래무지아과"),
     "Danionidae": ("river", "대하천 본류", (4.0, 14.0), (0.010, 3.00), 1, "day", "clear", "dough", "🐠", "다니오·피라미아과"),
-    "Tincidae": ("lake", "수초 연안", (20.0, 52.0), (0.017, 3.02), 2, "day", "fog", "dough", "🐟", "틴카과"),
     "Plecoglossidae": ("river", "상류 1급수 계곡", (13.0, 30.0), (0.010, 3.02), 2, "day", "clear", "dough", "🐟", "은어과"),
     "Cobitidae": ("river", "중류 자갈 여울", (7.0, 20.0), (0.0052, 3.02), 1, "night", "rain", "worm", "🐟", "미꾸리과"),
     "Nemacheilidae": ("river", "상류 1급수 계곡", (6.0, 15.0), (0.007, 3.00), 2, "night", "clear", "worm", "🐟", "종개과"),
     "Balitoridae": ("river", "상류 1급수 계곡", (5.0, 12.0), (0.009, 3.00), 2, "day", "clear", "worm", "🐟", "껍질미꾸리과"),
     "Botiidae": ("river", "대하천 본류", (8.0, 26.0), (0.011, 3.02), 2, "night", "rain", "worm", "🐠", "보티아과"),
+    "Catostomidae": ("river", "대하천 본류", (26.0, 72.0), (0.013, 3.02), 2, "day", "clear", "worm", "🐟", "서커(가자미잉어)과"),
+    "Polyodontidae": ("river", "대하천 본류", (85.0, 195.0), (0.0082, 3.00), 5, "all", "fog", "golden", "🔱", "주걱철갑상어과"),
+    "Lepisosteidae": ("river", "대하천 본류", (55.0, 175.0), (0.0068, 3.04), 4, "day", "storm", "lure", "🐊", "레피소스테우스과(가아)"),
     "Siluridae": ("river", "대하천 본류", (24.0, 95.0), (0.010, 3.02), 2, "night", "rain", "worm", "🐟", "메기과"),
     "Bagridae": ("river", "중류 자갈 여울", (14.0, 46.0), (0.013, 3.02), 2, "night", "rain", "worm", "🐡", "동자개과"),
     "Amblycipitidae": ("river", "상류 1급수 계곡", (7.0, 16.0), (0.011, 3.02), 2, "night", "rain", "worm", "🐟", "퉁가리과"),
     "Ictaluridae": ("river", "대하천 본류", (22.0, 88.0), (0.012, 3.02), 2, "night", "rain", "worm", "🐟", "북미메기과"),
     "Pimelodidae": ("river", "대하천 본류", (35.0, 125.0), (0.014, 3.02), 4, "night", "storm", "shrimp", "🐠", "피멜로두스메기과"),
+    "Doradidae": ("river", "대하천 본류", (12.0, 58.0), (0.016, 3.02), 3, "night", "rain", "worm", "🐟", "도라도(토킹캣)메기과"),
     "Loricariidae": ("river", "대하천 본류", (10.0, 42.0), (0.015, 3.00), 2, "night", "all", "worm", "🐟", "로리카리아(플레코)과"),
     "Callichthyidae": ("river", "대하천 본류", (4.5, 11.0), (0.018, 3.00), 2, "all", "clear", "worm", "🐟", "칼리크티스(코리도라스)과"),
     "Clariidae": ("river", "대하천 본류", (25.0, 82.0), (0.011, 3.02), 2, "night", "rain", "worm", "🐟", "클라리아스과"),
     "Pangasiidae": ("river", "대하천 본류", (45.0, 165.0), (0.013, 3.02), 4, "all", "rain", "shrimp", "🦈", "팡가시우스과"),
+    "Mochokidae": ("river", "대하천 본류", (10.0, 36.0), (0.015, 3.02), 2, "night", "clear", "worm", "🐠", "시노돈티스메기과"),
+    "Sisoridae": ("river", "상류 1급수 계곡", (12.0, 68.0), (0.011, 3.02), 3, "night", "rain", "worm", "🐟", "군치·시소르메기과"),
+    "Trichomycteridae": ("river", "상류 1급수 계곡", (6.0, 18.0), (0.008, 3.00), 2, "night", "clear", "worm", "🐟", "연필메기과"),
     "Sinipercidae": ("river", "중류 자갈 여울", (18.0, 56.0), (0.017, 3.04), 3, "night", "fog", "lure", "🐯", "쏘가리과"),
     "Centropomidae": ("river", "강·바다 기수역", (30.0, 98.0), (0.013, 3.02), 3, "night", "rain", "lure", "🐟", "센트로포무스과(스누크)"),
     "Odontobutidae": ("river", "중류 자갈 여울", (8.0, 22.0), (0.015, 3.02), 1, "night", "all", "worm", "🐟", "동사리과"),
+    "Eleotridae": ("river", "강·바다 기수역", (10.0, 34.0), (0.014, 3.02), 2, "night", "all", "worm", "🐟", "구굴무치(슬리퍼고비)과"),
+    "Oxudercidae": ("river", "강·바다 기수역", (7.0, 20.0), (0.011, 3.00), 1, "day", "clear", "worm", "🐟", "말뚝망둥어과"),
     "Characidae": ("river", "대하천 본류", (4.0, 22.0), (0.014, 3.02), 2, "day", "clear", "dough", "🐠", "카라신(테트라)과"),
     "Serrasalmidae": ("river", "대하천 본류", (15.0, 55.0), (0.024, 3.02), 3, "day", "rain", "shrimp", "🦈", "세라살무스(피라냐·파쿠)과"),
     "Alestidae": ("river", "대하천 본류", (25.0, 105.0), (0.014, 3.04), 4, "day", "storm", "lure", "🦈", "알레스테스(타이거피시)과"),
     "Erythrinidae": ("river", "대하천 본류", (24.0, 75.0), (0.014, 3.02), 3, "night", "fog", "lure", "🐟", "에리트리누스(울프피시)과"),
+    "Anostomidae": ("river", "대하천 본류", (14.0, 42.0), (0.013, 3.02), 2, "day", "clear", "dough", "🐠", "레포리누스과"),
+    "Curimatidae": ("river", "대하천 본류", (12.0, 30.0), (0.015, 3.02), 2, "day", "clear", "dough", "🐟", "쿠리마타과"),
+    "Bryconidae": ("river", "대하천 본류", (22.0, 62.0), (0.014, 3.02), 3, "day", "clear", "lure", "🐟", "브리콘과"),
+    "Gasteropelecidae": ("river", "대하천 본류", (4.0, 8.5), (0.014, 3.00), 2, "day", "clear", "dough", "🐠", "도끼고기(해칫피시)과"),
     "Gymnotidae": ("river", "대하천 본류", (45.0, 165.0), (0.005, 3.00), 4, "night", "storm", "glow", "⚡", "전기뱀장어과"),
+    "Apteronotidae": ("river", "대하천 본류", (18.0, 48.0), (0.004, 3.00), 3, "night", "fog", "glow", "⚡", "유령칼고기과"),
     "Anguillidae": ("river", "강·바다 기수역", (38.0, 120.0), (0.0020, 3.04), 3, "night", "rain", "worm", "🐍", "뱀장어과"),
     "Mugilidae": ("river", "강·바다 기수역", (24.0, 68.0), (0.014, 3.00), 2, "day", "clear", "dough", "🐟", "숭어과"),
     "Petromyzontidae": ("river", "상류 1급수 계곡", (16.0, 56.0), (0.0018, 2.98), 4, "night", "fog", "glow", "🪱", "칠성장어과"),
     "Cottidae": ("river", "상류 1급수 계곡", (8.0, 28.0), (0.014, 3.02), 2, "night", "clear", "worm", "🐟", "둑중개과"),
     "Gasterosteidae": ("river", "강·바다 기수역", (4.5, 11.0), (0.011, 3.00), 2, "day", "clear", "dough", "🐟", "큰가시고기과"),
     "Lateolabracidae": ("river", "강·바다 기수역", (32.0, 96.0), (0.012, 3.02), 3, "night", "storm", "lure", "🐟", "농어과"),
+    "Moronidae": ("river", "강·바다 기수역", (32.0, 96.0), (0.014, 3.02), 3, "night", "rain", "lure", "🐟", "모로네과(줄무늬농어)"),
+    "Fundulidae": ("river", "강·바다 기수역", (5.0, 13.0), (0.012, 3.00), 1, "day", "clear", "worm", "🐟", "킬리피시아목"),
+    "Scatophagidae": ("river", "강·바다 기수역", (14.0, 34.0), (0.025, 3.00), 2, "day", "clear", "dough", "🐠", "스카트과"),
+    "Monodactylidae": ("river", "강·바다 기수역", (12.0, 25.0), (0.022, 3.00), 2, "day", "clear", "shrimp", "🐠", "모노닥틸루스과"),
+    "Toxotidae": ("river", "강·바다 기수역", (14.0, 30.0), (0.020, 3.00), 3, "day", "clear", "worm", "🐠", "물총고기과"),
+    "Terapontidae": ("river", "강·바다 기수역", (14.0, 34.0), (0.018, 3.02), 2, "day", "clear", "worm", "🐟", "살벤자리과"),
+    "Kuhliidae": ("river", "강·바다 기수역", (12.0, 28.0), (0.017, 3.02), 2, "day", "clear", "shrimp", "🐟", "은줄돔과"),
     "Engraulidae": ("river", "강·바다 기수역", (9.0, 26.0), (0.007, 3.02), 1, "day", "clear", "dough", "🐟", "멸치과"),
+    "Mormyridae": ("river", "대하천 본류", (16.0, 62.0), (0.010, 3.00), 3, "night", "fog", "worm", "🐘", "코끼리코고기과"),
+    "Polypteridae": ("river", "대하천 본류", (24.0, 72.0), (0.010, 3.02), 4, "night", "rain", "worm", "🐉", "폴립테루스과"),
+    "Notopteridae": ("river", "대하천 본류", (25.0, 85.0), (0.008, 3.00), 3, "night", "fog", "lure", "⚔️", "나이프피시과"),
+    "Mastacembelidae": ("river", "대하천 본류", (20.0, 65.0), (0.004, 3.00), 3, "night", "rain", "worm", "🐍", "가시장어과"),
+    "Potamotrygonidae": ("river", "대하천 본류", (35.0, 95.0), (0.022, 2.95), 4, "night", "rain", "shrimp", "🦅", "담수가오리과"),
+    "Percichthyidae": ("river", "중류 자갈 여울", (18.0, 64.0), (0.016, 3.02), 3, "night", "clear", "lure", "🐟", "남반구 담수농어과"),
+    "Galaxiidae": ("river", "상류 1급수 계곡", (8.0, 24.0), (0.009, 3.02), 2, "night", "clear", "worm", "🐟", "갈락시아스과"),
 
     # --- MARINE: COASTAL, REEF, SHELF, PELAGIC, DEEP SEA ---
     "Sparidae": ("sea", "연안 갯바위·내만", (20.0, 72.0), (0.022, 3.01), 3, "all", "clear", "shrimp", "🐠", "도미과"),
     "Sebastidae": ("sea", "연안 갯바위·내만", (16.0, 52.0), (0.019, 3.02), 2, "night", "clear", "shrimp", "🐟", "볼락과"),
     "Scorpaenidae": ("sea", "연안 갯바위·내만", (14.0, 42.0), (0.020, 3.02), 2, "night", "all", "shrimp", "🐠", "양볼락·쏨뱅이과"),
     "Hexagrammidae": ("sea", "연안 갯바위·내만", (16.0, 48.0), (0.014, 3.02), 2, "day", "rain", "worm", "🐟", "쥐노래미과"),
-    "Gobiidae": ("sea", "연안 갯바위·내만", (6.0, 22.0), (0.012, 3.00), 1, "all", "all", "worm", "🐟", "망둑어과"),
-    "Oxudercidae": ("river", "강·바다 기수역", (7.0, 20.0), (0.011, 3.00), 1, "day", "clear", "worm", "🐟", "말뚝망둥어과"),
+    "Gobiidae": ("sea", "연안 갯바위·내만", (6.0, 20.0), (0.012, 3.00), 1, "all", "all", "worm", "🐟", "망둑어과"),
     "Blenniidae": ("sea", "연안 갯바위·내만", (6.0, 18.0), (0.011, 3.00), 1, "day", "clear", "worm", "🐟", "청베도라치과"),
     "Tripterygiidae": ("sea", "연안 갯바위·내만", (3.5, 9.0), (0.011, 3.00), 2, "day", "clear", "worm", "🐠", "먹베도라치과"),
-    "Labridae": ("sea", "산호초·열대 해역", (14.0, 62.0), (0.017, 3.02), 2, "day", "clear", "shrimp", "🐠", "놀래기·비늘베도라치과"),
+    "Chaenopsidae": ("sea", "산호초·열대 해역", (4.0, 11.0), (0.008, 3.00), 2, "day", "clear", "worm", "🐠", "튜브블레니과"),
+    "Labrisomidae": ("sea", "산호초·열대 해역", (6.0, 18.0), (0.012, 3.00), 2, "day", "clear", "worm", "🐠", "라브리소무스베도라치과"),
+    "Labridae": ("sea", "산호초·열대 해역", (14.0, 62.0), (0.017, 3.02), 2, "day", "clear", "shrimp", "🐠", "놀래기과"),
     "Scaridae": ("sea", "산호초·열대 해역", (24.0, 78.0), (0.019, 3.02), 3, "day", "clear", "shrimp", "🌈", "파랑비늘돔과"),
     "Pomacentridae": ("sea", "산호초·열대 해역", (6.0, 16.0), (0.021, 3.00), 1, "day", "clear", "dough", "🐠", "자리돔·흰동가리과"),
     "Chaetodontidae": ("sea", "산호초·열대 해역", (10.0, 24.0), (0.026, 3.00), 2, "day", "clear", "shrimp", "🐠", "나비고기과"),
@@ -132,13 +170,17 @@ FAMILY_BIOLOGY: Dict[str, Tuple[str, str, Tuple[float, float], Tuple[float, floa
     "Zanclidae": ("sea", "산호초·열대 해역", (14.0, 26.0), (0.025, 3.00), 3, "day", "clear", "shrimp", "🐠", "깃대돔과"),
     "Epinephelidae": ("sea", "산호초·열대 해역", (32.0, 118.0), (0.019, 3.02), 4, "night", "storm", "shrimp", "👑", "바리과(그루퍼)"),
     "Serranidae": ("sea", "산호초·열대 해역", (16.0, 65.0), (0.018, 3.02), 3, "day", "clear", "shrimp", "🐠", "바리·꽃돔과"),
+    "Anthiadidae": ("sea", "산호초·열대 해역", (8.0, 22.0), (0.016, 3.00), 2, "day", "clear", "shrimp", "🐠", "안티아스(꽃돔)과"),
     "Lutjanidae": ("sea", "산호초·열대 해역", (24.0, 76.0), (0.018, 3.02), 3, "night", "clear", "shrimp", "🐠", "퉁돔(스내퍼)과"),
+    "Caesionidae": ("sea", "산호초·열대 해역", (14.0, 32.0), (0.015, 3.02), 2, "day", "clear", "dough", "🐠", "세동가리(푸질리어)과"),
     "Haemulidae": ("sea", "산호초·열대 해역", (20.0, 56.0), (0.018, 3.02), 2, "night", "clear", "shrimp", "🐟", "하스돔과"),
     "Lethrinidae": ("sea", "산호초·열대 해역", (22.0, 64.0), (0.019, 3.02), 3, "night", "clear", "shrimp", "🐟", "갈돔과"),
     "Nemipteridae": ("sea", "대륙붕·외해", (15.0, 36.0), (0.016, 3.02), 2, "day", "clear", "shrimp", "🐠", "실꼬리돔과"),
     "Mullidae": ("sea", "산호초·열대 해역", (14.0, 38.0), (0.015, 3.02), 2, "day", "clear", "worm", "🐠", "촉수과"),
     "Apogonidae": ("sea", "산호초·열대 해역", (5.0, 14.0), (0.018, 3.00), 1, "night", "clear", "shrimp", "🐠", "동갈돔과"),
     "Holocentridae": ("sea", "산호초·열대 해역", (14.0, 36.0), (0.020, 3.00), 2, "night", "clear", "shrimp", "🐠", "얼게비늘과"),
+    "Pseudochromidae": ("sea", "산호초·열대 해역", (5.0, 13.0), (0.016, 3.00), 2, "day", "clear", "shrimp", "🐠", "도티백과"),
+    "Opistognathidae": ("sea", "산호초·열대 해역", (7.0, 18.0), (0.014, 3.00), 2, "day", "clear", "worm", "🐠", "후악치(조피시)과"),
     "Balistidae": ("sea", "산호초·열대 해역", (18.0, 52.0), (0.024, 3.00), 2, "day", "clear", "shrimp", "🐡", "쥐치복과"),
     "Monacanthidae": ("sea", "연안 갯바위·내만", (15.0, 42.0), (0.022, 3.00), 2, "day", "clear", "shrimp", "🐟", "쥐치과"),
     "Tetraodontidae": ("sea", "연안 갯바위·내만", (15.0, 52.0), (0.028, 3.00), 2, "day", "rain", "shrimp", "🐡", "참복과"),
@@ -157,11 +199,15 @@ FAMILY_BIOLOGY: Dict[str, Tuple[str, str, Tuple[float, float], Tuple[float, floa
     "Triglidae": ("sea", "대륙붕·외해", (18.0, 48.0), (0.012, 3.02), 2, "day", "all", "shrimp", "🐠", "성대과"),
     "Paralichthyidae": ("sea", "대륙붕·외해", (28.0, 92.0), (0.013, 3.02), 3, "all", "all", "lure", "🐟", "넙치과"),
     "Pleuronectidae": ("sea", "대륙붕·외해", (22.0, 82.0), (0.015, 3.00), 2, "day", "clear", "worm", "🐟", "가자미과"),
+    "Bothidae": ("sea", "대륙붕·외해", (16.0, 42.0), (0.014, 3.00), 2, "night", "clear", "worm", "🐟", "둥글넙치과"),
+    "Scophthalmidae": ("sea", "대륙붕·외해", (30.0, 85.0), (0.018, 3.00), 3, "night", "fog", "lure", "🐟", "터봇·대문짝넙치과"),
     "Soleidae": ("sea", "연안 갯바위·내만", (15.0, 42.0), (0.013, 3.00), 2, "night", "all", "worm", "🐟", "서대·납서대과"),
     "Cynoglossidae": ("sea", "대륙붕·외해", (18.0, 48.0), (0.009, 3.00), 2, "night", "all", "worm", "🐟", "참서대과"),
     "Sciaenidae": ("sea", "대륙붕·외해", (24.0, 86.0), (0.013, 3.02), 2, "night", "fog", "shrimp", "🐟", "민어과"),
     "Gadidae": ("sea", "대륙붕·외해", (35.0, 115.0), (0.012, 3.02), 3, "all", "fog", "lure", "🐟", "대구과"),
     "Merlucciidae": ("sea", "대륙붕·외해", (32.0, 98.0), (0.010, 3.02), 2, "night", "fog", "lure", "🐟", "민대구과"),
+    "Moridae": ("sea", "심해·해구", (25.0, 74.0), (0.009, 3.02), 3, "night", "fog", "glow", "💠", "돌대구(모리)과"),
+    "Ophidiidae": ("sea", "심해·해구", (22.0, 76.0), (0.005, 3.00), 3, "night", "fog", "glow", "🐍", "첨치과"),
     "Clupeidae": ("sea", "대륙붕·외해", (13.0, 32.0), (0.010, 3.02), 1, "day", "clear", "dough", "🐟", "청어과"),
     "Carangidae": ("sea", "원양·회유 해역", (30.0, 125.0), (0.013, 3.02), 3, "day", "rain", "lure", "🐟", "전갱이·방어과"),
     "Scombridae": ("sea", "원양·회유 해역", (36.0, 195.0), (0.014, 3.02), 3, "day", "clear", "lure", "🐟", "고등어·다랑어과"),
@@ -183,12 +229,15 @@ FAMILY_BIOLOGY: Dict[str, Tuple[str, str, Tuple[float, float], Tuple[float, floa
     "Ogcocephalidae": ("sea", "심해·해구", (10.0, 28.0), (0.022, 2.98), 3, "night", "fog", "glow", "🐡", "부치과"),
     "Myctophidae": ("sea", "심해·해구", (6.0, 18.0), (0.011, 3.02), 3, "night", "fog", "glow", "💠", "샛비늘치과"),
     "Macrouridae": ("sea", "심해·해구", (28.0, 92.0), (0.007, 3.00), 4, "night", "fog", "glow", "💠", "민태(긴꼬리대구)과"),
+    "Sternoptychidae": ("sea", "심해·해구", (4.0, 12.0), (0.015, 3.00), 4, "night", "fog", "glow", "💠", "도끼고기·심해손도끼치과"),
+    "Gonostomatidae": ("sea", "심해·해구", (7.0, 24.0), (0.004, 3.00), 3, "night", "fog", "glow", "💠", "앨퉁이과"),
     "Regalecidae": ("sea", "심해·해구", (180.0, 560.0), (0.0006, 2.95), 5, "night", "fog", "golden", "🐉", "산갈치과"),
     "Trachipteridae": ("sea", "심해·해구", (80.0, 220.0), (0.002, 2.96), 4, "night", "fog", "glow", "🐉", "투라치과"),
     "Chiasmodontidae": ("sea", "심해·해구", (12.0, 28.0), (0.010, 3.00), 4, "night", "storm", "glow", "💠", "검은별치과"),
     "Stomiidae": ("sea", "심해·해구", (15.0, 42.0), (0.005, 3.00), 4, "night", "storm", "glow", "💠", "별악어치(용치)과"),
     "Anoplopomatidae": ("sea", "심해·해구", (45.0, 110.0), (0.013, 3.02), 3, "night", "fog", "glow", "🐟", "은대구과"),
     "Berycidae": ("sea", "심해·해구", (24.0, 62.0), (0.021, 3.02), 4, "night", "fog", "glow", "🐠", "금눈돔과"),
+    "Trachichthyidae": ("sea", "심해·해구", (18.0, 58.0), (0.024, 3.02), 4, "night", "fog", "glow", "💠", "납작금눈돔(슬라임헤드)과"),
     "Zeidae": ("sea", "대륙붕·외해", (22.0, 58.0), (0.022, 3.00), 3, "all", "fog", "lure", "🐠", "달고기과"),
     "Lampridae": ("sea", "심해·해구", (65.0, 165.0), (0.028, 3.00), 5, "all", "fog", "golden", "🌈", "붉평치과"),
     "Bramidae": ("sea", "원양·회유 해역", (30.0, 75.0), (0.018, 3.02), 3, "night", "storm", "lure", "🐟", "새다래과"),
@@ -197,23 +246,31 @@ FAMILY_BIOLOGY: Dict[str, Tuple[str, str, Tuple[float, float], Tuple[float, floa
     "Trichodontidae": ("sea", "대륙붕·외해", (14.0, 30.0), (0.014, 3.02), 2, "night", "fog", "worm", "🐟", "도루묵과"),
     "Liparidae": ("sea", "심해·해구", (16.0, 52.0), (0.016, 3.00), 3, "night", "fog", "glow", "🐟", "꼼치과"),
     "Zoarcidae": ("sea", "심해·해구", (20.0, 65.0), (0.007, 3.00), 3, "night", "fog", "glow", "🐍", "등가시치과"),
+    "Nototheniidae": ("sea", "심해·해구", (26.0, 96.0), (0.013, 3.02), 3, "all", "fog", "lure", "❄️", "남극암치(메로)과"),
     "Carcharhinidae": ("sea", "원양·회유 해역", (95.0, 265.0), (0.011, 3.02), 4, "all", "storm", "shrimp", "🦈", "흉상어과"),
     "Sphyrnidae": ("sea", "원양·회유 해역", (110.0, 320.0), (0.010, 3.02), 4, "day", "storm", "lure", "🦈", "귀상어과"),
     "Lamnidae": ("sea", "원양·회유 해역", (140.0, 420.0), (0.013, 3.04), 5, "all", "storm", "golden", "🦈", "악상어과"),
     "Alopiidae": ("sea", "원양·회유 해역", (150.0, 390.0), (0.007, 3.02), 5, "day", "clear", "golden", "🦈", "환도상어과"),
     "Triakidae": ("sea", "대륙붕·외해", (60.0, 145.0), (0.009, 3.02), 3, "night", "all", "shrimp", "🦈", "까치상어과"),
     "Scyliorhinidae": ("sea", "대륙붕·외해", (38.0, 88.0), (0.008, 3.02), 3, "night", "fog", "shrimp", "🦈", "두툽상어과"),
+    "Pentanchidae": ("sea", "심해·해구", (38.0, 88.0), (0.008, 3.02), 3, "night", "fog", "glow", "🦈", "심해 두툽상어과"),
     "Heterodontidae": ("sea", "연안 갯바위·내만", (50.0, 130.0), (0.014, 3.02), 3, "night", "all", "shrimp", "🦈", "괭이상어과"),
     "Squalidae": ("sea", "심해·해구", (48.0, 115.0), (0.009, 3.02), 3, "night", "fog", "glow", "🦈", "곱상어과"),
+    "Etmopteridae": ("sea", "심해·해구", (28.0, 68.0), (0.008, 3.00), 4, "night", "fog", "glow", "🦈", "발광가시상어과"),
     "Somniosidae": ("sea", "심해·해구", (140.0, 420.0), (0.012, 3.02), 5, "night", "storm", "golden", "🦈", "잠상어과"),
+    "Hexanchidae": ("sea", "심해·해구", (160.0, 420.0), (0.010, 3.02), 5, "night", "storm", "golden", "🦈", "여섯줄아가미상어과"),
+    "Squatinidae": ("sea", "대륙붕·외해", (60.0, 145.0), (0.015, 3.00), 3, "night", "fog", "shrimp", "🦈", "전자상어과"),
     "Rhincodontidae": ("sea", "원양·회유 해역", (320.0, 850.0), (0.012, 3.00), 5, "day", "clear", "golden", "🐳", "고래상어과"),
     "Cetorhinidae": ("sea", "원양·회유 해역", (280.0, 720.0), (0.011, 3.00), 5, "day", "fog", "golden", "🐳", "돌묵상어과"),
     "Orectolobidae": ("sea", "산호초·열대 해역", (70.0, 195.0), (0.015, 3.02), 4, "night", "clear", "shrimp", "🦈", "수염상어과"),
     "Stegostomatidae": ("sea", "산호초·열대 해역", (90.0, 230.0), (0.012, 3.02), 4, "day", "clear", "shrimp", "🦈", "얼룩상어과"),
+    "Ginglymostomatidae": ("sea", "산호초·열대 해역", (90.0, 260.0), (0.014, 3.02), 4, "night", "clear", "shrimp", "🦈", "너스상어과"),
+    "Hemiscylliidae": ("sea", "산호초·열대 해역", (45.0, 105.0), (0.010, 3.00), 3, "night", "clear", "shrimp", "🦈", "대나무상어과"),
     "Mobulidae": ("sea", "원양·회유 해역", (130.0, 420.0), (0.018, 2.86), 5, "day", "fog", "golden", "🦅", "쥐가오리과"),
     "Myliobatidae": ("sea", "대륙붕·외해", (60.0, 185.0), (0.018, 2.90), 4, "day", "clear", "shrimp", "🦅", "매가오리과"),
     "Dasyatidae": ("sea", "대륙붕·외해", (42.0, 145.0), (0.020, 2.92), 3, "all", "all", "shrimp", "🦅", "색가오리과"),
     "Rajidae": ("sea", "대륙붕·외해", (40.0, 125.0), (0.016, 2.94), 3, "night", "fog", "shrimp", "🦅", "홍어과"),
+    "Arhynchobatidae": ("sea", "심해·해구", (38.0, 115.0), (0.016, 2.94), 3, "night", "fog", "glow", "🦅", "심해홍어과"),
     "Torpedinidae": ("sea", "대륙붕·외해", (35.0, 110.0), (0.022, 2.94), 4, "night", "storm", "glow", "⚡", "전기가오리과"),
     "Pristidae": ("sea", "강·바다 기수역", (160.0, 420.0), (0.009, 3.02), 5, "all", "storm", "golden", "⚔️", "톱가오리과"),
     "Rhinobatidae": ("sea", "연안 갯바위·내만", (45.0, 125.0), (0.012, 3.00), 3, "day", "clear", "shrimp", "🦈", "가래상어과"),
@@ -236,38 +293,60 @@ FAMILY_BIOLOGY: Dict[str, Tuple[str, str, Tuple[float, float], Tuple[float, floa
     "Alepisauridae": ("sea", "심해·해구", (70.0, 195.0), (0.005, 3.00), 4, "night", "storm", "glow", "⚔️", "란셋피시과"),
     "Anarhichadidae": ("sea", "심해·해구", (60.0, 145.0), (0.014, 3.02), 4, "all", "fog", "shrimp", "🐺", "늑대고기과"),
     "Cyclopteridae": ("sea", "대륙붕·외해", (15.0, 46.0), (0.032, 2.98), 3, "all", "fog", "shrimp", "🐡", "도치(뚝지)과"),
-    "Gobiidae": ("sea", "연안 갯바위·내만", (6.0, 20.0), (0.012, 3.00), 1, "all", "all", "worm", "🐟", "망둑어과"),
     "Clinidae": ("sea", "연안 갯바위·내만", (8.0, 24.0), (0.011, 3.00), 2, "day", "clear", "worm", "🐟", "베도라치아목"),
     "Pholidae": ("sea", "연안 갯바위·내만", (12.0, 28.0), (0.005, 3.00), 1, "all", "all", "worm", "🐍", "황줄베도라치과"),
     "Stichaeidae": ("sea", "연안 갯바위·내만", (14.0, 38.0), (0.007, 3.00), 2, "night", "clear", "worm", "🐟", "장갱이과"),
     "Batrachoididae": ("sea", "연안 갯바위·내만", (15.0, 42.0), (0.022, 3.00), 2, "night", "fog", "worm", "🐡", "두꺼비고기과"),
-    "Dactylopteridae": ("sea", "대륙붕·외해", (18.0, 46.0), (0.016, 3.00), 3, "day", "clear", "shrimp", "🦅", "날개달린성대(매가오리성대)과"),
+    "Dactylopteridae": ("sea", "대륙붕·외해", (18.0, 46.0), (0.016, 3.00), 3, "day", "clear", "shrimp", "🦅", "날개달린성대과"),
     "Callionymidae": ("sea", "연안 갯바위·내만", (10.0, 26.0), (0.010, 3.00), 2, "day", "clear", "worm", "🐠", "돛양태과"),
-    "Cirrhitidae": ("sea", "산호초·열대 해역", (8.0, 22.0), (0.020, 3.00), 2, "day", "clear", "shrimp", "🐠", "매퉁이·호크피시과"),
+    "Cirrhitidae": ("sea", "산호초·열대 해역", (8.0, 22.0), (0.020, 3.00), 2, "day", "clear", "shrimp", "🐠", "호크피시과"),
     "Synodontidae": ("sea", "연안 갯바위·내만", (16.0, 42.0), (0.009, 3.02), 2, "day", "clear", "lure", "🐟", "매퉁이과"),
-    "Moronidae": ("river", "강·바다 기수역", (32.0, 96.0), (0.014, 3.02), 3, "night", "rain", "lure", "🐟", "모로네과(줄무늬농어)"),
-    "Fundulidae": ("river", "강·바다 기수역", (5.0, 13.0), (0.012, 3.00), 1, "day", "clear", "worm", "🐟", "킬리피시아목"),
     "Atherinopsidae": ("sea", "연안 갯바위·내만", (12.0, 34.0), (0.008, 3.02), 1, "day", "clear", "dough", "🐟", "은줄멸과"),
     "Atherinidae": ("sea", "연안 갯바위·내만", (8.0, 18.0), (0.008, 3.00), 1, "day", "clear", "dough", "🐟", "색줄멸과"),
-    "Scatophagidae": ("river", "강·바다 기수역", (14.0, 34.0), (0.025, 3.00), 2, "day", "clear", "dough", "🐠", "스카트과"),
-    "Monodactylidae": ("river", "강·바다 기수역", (12.0, 25.0), (0.022, 3.00), 2, "day", "clear", "shrimp", "🐠", "모노닥틸루스과"),
-    "Toxotidae": ("river", "강·바다 기수역", (14.0, 30.0), (0.020, 3.00), 3, "day", "clear", "worm", "🐠", "물총고기과"),
-    "Polynemidae": ("sea", "연안 갯바위·내만", (25.0, 88.0), (0.012, 3.02), 3, "all", "fog", "shrimp", "🐟", "날가지숭어(스레드핀)과"),
-    "Terapontidae": ("river", "강·바다 기수역", (14.0, 34.0), (0.018, 3.02), 2, "day", "clear", "worm", "🐟", "살벤자리과"),
-    "Kuhliidae": ("river", "강·바다 기수역", (12.0, 28.0), (0.017, 3.02), 2, "day", "clear", "shrimp", "🐟", "은줄돔과"),
+    "Polynemidae": ("sea", "연안 갯바위·내만", (25.0, 88.0), (0.012, 3.02), 3, "all", "fog", "shrimp", "🐟", "날가지숭어과"),
     "Gerreidae": ("sea", "연안 갯바위·내만", (12.0, 30.0), (0.017, 3.00), 1, "day", "clear", "worm", "🐟", "게레치과"),
-    "Sparidae": ("sea", "연안 갯바위·내만", (20.0, 72.0), (0.022, 3.01), 3, "all", "clear", "shrimp", "🐠", "도미과"),
-    "Pomacentridae": ("sea", "산호초·열대 해역", (6.0, 16.0), (0.021, 3.00), 1, "day", "clear", "dough", "🐠", "자리돔과"),
-    "Cichlidae": ("lake", "열대·아열대 대호", (10.0, 42.0), (0.021, 3.02), 2, "day", "clear", "worm", "🐠", "시클리드과"),
-    "Mormyridae": ("river", "대하천 본류", (16.0, 62.0), (0.010, 3.00), 3, "night", "fog", "worm", "🐘", "코끼리코고기과"),
-    "Polypteridae": ("river", "대하천 본류", (24.0, 72.0), (0.010, 3.02), 4, "night", "rain", "worm", "🐉", "폴립테루스과"),
-    "Notopteridae": ("river", "대하천 본류", (25.0, 85.0), (0.008, 3.00), 3, "night", "fog", "lure", "⚔️", "나이프피시과"),
-    "Mastacembelidae": ("river", "대하천 본류", (20.0, 65.0), (0.004, 3.00), 3, "night", "rain", "worm", "🐍", "가시장어과"),
-    "Tetraodontidae": ("sea", "연안 갯바위·내만", (15.0, 52.0), (0.028, 3.00), 2, "day", "rain", "shrimp", "🐡", "참복과"),
-    "Scorpaenidae": ("sea", "연안 갯바위·내만", (14.0, 42.0), (0.020, 3.02), 2, "night", "all", "shrimp", "🐠", "양볼락과"),
+    "Ephippidae": ("sea", "산호초·열대 해역", (20.0, 52.0), (0.025, 3.00), 3, "day", "clear", "shrimp", "🐠", "제비활치과"),
+    "Lobotidae": ("sea", "원양·회유 해역", (32.0, 92.0), (0.020, 3.02), 3, "day", "fog", "shrimp", "🐟", "백세미돔과"),
+    "Cheilodactylidae": ("sea", "연안 갯바위·내만", (24.0, 68.0), (0.018, 3.02), 2, "day", "clear", "shrimp", "🐠", "다동가리과"),
+    "Acanthuridae": ("sea", "산호초·열대 해역", (16.0, 48.0), (0.023, 3.02), 2, "day", "clear", "dough", "🐠", "양쥐돔과"),
+    "Chaetodontidae": ("sea", "산호초·열대 해역", (10.0, 24.0), (0.026, 3.00), 2, "day", "clear", "shrimp", "🐠", "나비고기과"),
 }
 
-# 한국어 어종명 키워드 기반 서식지·구역·희귀도 휴리스틱 보정
+# 속(Genus) 기준 정밀 서식지/구역 오버라이드 (특히 호수 심수층·중층수·열대 대호 정확도 극대화)
+GENUS_BIOLOGY: Dict[str, Tuple[str, str, Tuple[float, float], Tuple[float, float], int, str, str, str, str, str]] = {
+    "Coregonus": ("lake", "깊은 심수층", (22.0, 56.0), (0.011, 3.02), 3, "night", "fog", "glow", "❄️", "연어과(심수 백어)"),
+    "Prosopium": ("lake", "깊은 심수층", (20.0, 48.0), (0.011, 3.02), 3, "night", "fog", "worm", "❄️", "연어과(마운틴화이트피시)"),
+    "Stenodus": ("lake", "깊은 심수층", (55.0, 125.0), (0.011, 3.02), 4, "night", "fog", "lure", "❄️", "연어과(이누콘누)"),
+    "Salvelinus": ("lake", "깊은 심수층", (28.0, 88.0), (0.012, 3.02), 3, "night", "fog", "lure", "❄️", "연어과(곤들매기·레이크트라우트)"),
+    "Lota": ("lake", "깊은 심수층", (32.0, 92.0), (0.009, 3.02), 3, "night", "fog", "worm", "🐟", "모오케과(모오케)"),
+    "Comephorus": ("lake", "깊은 심수층", (12.0, 22.0), (0.009, 2.98), 4, "night", "fog", "glow", "❄️", "바이칼 골로먄카과"),
+    "Cottocomephorus": ("lake", "깊은 심수층", (10.0, 22.0), (0.013, 3.00), 3, "night", "fog", "worm", "❄️", "바이칼 둑중개과"),
+    "Abyssocottus": ("lake", "깊은 심수층", (8.0, 18.0), (0.013, 3.00), 4, "night", "fog", "glow", "❄️", "바이칼 심수 둑중개과"),
+    "Limnocottus": ("lake", "깊은 심수층", (10.0, 24.0), (0.013, 3.00), 4, "night", "fog", "glow", "❄️", "바이칼 심수 둑중개과"),
+    "Batrachocottus": ("lake", "깊은 심수층", (12.0, 26.0), (0.013, 3.00), 3, "night", "fog", "worm", "❄️", "바이칼 큰머리둑중개과"),
+    "Perca": ("lake", "맑은 중층수", (16.0, 46.0), (0.015, 3.02), 2, "day", "clear", "lure", "🐟", "퍼치과(퍼치)"),
+    "Sander": ("lake", "맑은 중층수", (34.0, 92.0), (0.012, 3.02), 3, "night", "fog", "lure", "🐟", "퍼치과(월아이·잰더)"),
+    "Gymnocephalus": ("lake", "맑은 중층수", (10.0, 22.0), (0.014, 3.00), 2, "night", "clear", "worm", "🐟", "퍼치과(러프)"),
+    "Carassius": ("lake", "수초 연안", (12.0, 42.0), (0.019, 3.04), 1, "all", "clear", "dough", "🐟", "잉어과(붕어)"),
+    "Cyprinus": ("lake", "수초 연안", (24.0, 88.0), (0.018, 3.02), 2, "all", "clear", "dough", "🐟", "잉어과(잉어)"),
+    "Ctenopharyngodon": ("lake", "맑은 중층수", (45.0, 120.0), (0.014, 3.02), 3, "day", "clear", "dough", "🐟", "강준치·초어아과"),
+    "Hypophthalmichthys": ("lake", "맑은 중층수", (45.0, 115.0), (0.014, 3.02), 3, "day", "fog", "dough", "🐟", "강준치·백련어아과"),
+    "Mylopharyngodon": ("lake", "깊은 심수층", (50.0, 145.0), (0.015, 3.02), 4, "night", "fog", "shrimp", "🐟", "강준치·청어아과"),
+    "Alburnus": ("lake", "맑은 중층수", (10.0, 22.0), (0.010, 3.02), 1, "day", "clear", "dough", "🐟", "황어·블리크아과"),
+    "Abramis": ("lake", "맑은 중층수", (22.0, 58.0), (0.015, 3.02), 2, "day", "fog", "dough", "🐟", "황어·브림아과"),
+    "Rutilus": ("lake", "맑은 중층수", (12.0, 36.0), (0.013, 3.02), 1, "day", "clear", "dough", "🐟", "황어·로치아과"),
+    "Scardinius": ("lake", "수초 연안", (14.0, 40.0), (0.014, 3.02), 2, "day", "clear", "dough", "🐠", "황어·러드아과"),
+    "Blicca": ("lake", "맑은 중층수", (15.0, 34.0), (0.014, 3.02), 1, "day", "clear", "dough", "🐟", "황어과"),
+    "Alosa": ("lake", "맑은 중층수", (20.0, 54.0), (0.011, 3.02), 2, "day", "clear", "lure", "🐟", "청어과(담수 청어)"),
+    "Dorosoma": ("lake", "맑은 중층수", (14.0, 38.0), (0.012, 3.02), 1, "day", "clear", "dough", "🐟", "청어과(기저드섀드)"),
+    "Potamotrygon": ("river", "대하천 본류", (35.0, 95.0), (0.022, 2.95), 4, "night", "rain", "shrimp", "🦅", "담수가오리과"),
+    "Cichla": ("lake", "열대·아열대 대호", (36.0, 88.0), (0.017, 3.04), 4, "day", "clear", "lure", "👑", "시클리드과(피콕배스)"),
+    "Symphysodon": ("lake", "열대·아열대 대호", (12.0, 22.0), (0.028, 2.98), 4, "day", "clear", "worm", "🐠", "시클리드과(디스커스)"),
+    "Astronotus": ("lake", "열대·아열대 대호", (18.0, 38.0), (0.025, 3.00), 3, "day", "clear", "shrimp", "🐠", "시클리드과(오스카)"),
+    "Pterophyllum": ("lake", "열대·아열대 대호", (10.0, 18.0), (0.022, 2.98), 3, "day", "clear", "worm", "🐠", "시클리드과(엔젤피시)"),
+    "Betta": ("lake", "수초 연안", (4.0, 9.0), (0.015, 3.00), 2, "day", "clear", "worm", "🐠", "투어류"),
+}
+
 RIVER_KEYWORDS = (
     "피라미", "갈겨니", "버들", "송어", "연어", "산천어", "열목어", "모래무지", "미꾸", "미꾸라지",
     "종개", "꾸구리", "돌상어", "쉬리", "어름치", "은어", "쏘가리", "꺽지", "꺽저기", "메기", "동자개",
@@ -281,7 +360,7 @@ LAKE_KEYWORDS = (
     "백련어", "대두어", "송사리", "버들붕어", "구라미", "베타", "구피", "플래티", "몰리", "킬리피시",
     "시클리드", "틸라피아", "디스커스", "엔젤피시", "오스카", "파이크", "머스켈런지", "퍼치", "왈아이",
     "선피시", "크래피", "보우핀", "철갑상어", "납자루", "납줄개", "각시붕어", "치리", "금붕어", "오물",
-    "피라루쿠", "나일농어", "피콕", "아처피시",
+    "피라루쿠", "나일농어", "피콕", "아처피시", "모오케", "백어", "골로먄카",
 )
 SEA_KEYWORDS = (
     "상어", "가오리", "홍어", "돔", "다랑어", "참치", "고등어", "삼치", "방어", "부시리", "전갱이",
@@ -291,7 +370,7 @@ SEA_KEYWORDS = (
     "민어", "조기", "부세", "농어", "숭어", "꼬치고기", "바라쿠다", "새치", "청새치", "황새치",
     "만새기", "개복치", "해마", "실고기", "곰치", "붕장어", "갯장어", "날치", "도루묵", "꼼치",
     "베도라치", "망상어", "양태", "성대", "촉수", "고둥어", "은대구", "금눈돔", "붉평치", "실러캔스",
-    "만타", "래스", "그루퍼", "엔젤피시", "트리거", "거북복", "가시복", "블레니", "고비", "쏠배감펭",
+    "만타", "래스", "그루퍼", "트리거", "거북복", "가시복", "블레니", "고비", "쏠배감펭",
 )
 
 
@@ -301,9 +380,23 @@ def has_hangul(s: Optional[str]) -> bool:
 
 def sanitize_kr_name(s: str) -> str:
     s = re.sub(r"\s+", " ", (s or "").strip())
-    # 불필요한 위키/분류 접미사 제거
     s = re.sub(r"\s*\(어류\)|\s*\(물고기\)|\s*\(생물\)", "", s)
     return s.strip()
+
+
+def sanitize_en_name(s: str, sci: str) -> str:
+    s = re.sub(r"\s+", " ", (s or "").strip())
+    if not s or len(s) < 3 or len(s) > 48:
+        return ""
+    sl = s.lower()
+    if sl == sci.lower() or sl.startswith("species of "):
+        return ""
+    if any(bad in sl for bad in ("wikipedia", "category:", "stub", "disambiguation")):
+        return ""
+    # 첫 글자 대문자 정리 (Title Case 보정, 이미 대문자가 있으면 유지)
+    if s[0].islower():
+        s = s.title()
+    return s
 
 
 def make_species_id(sci_name: str, existing_ids: set) -> str:
@@ -336,7 +429,6 @@ def map_existing_canonical_zone(habitat: str, sub_zone: str, sp_name: str) -> st
         if any(k in sz for k in ("본류", "대하천", "열대", "고대", "콩고", "깊은 소")):
             return "대하천 본류"
         return "중류 자갈 여울"
-    # sea
     if any(k in sz for k in ("심해", "1,000m", "400m", "화산")):
         return "심해·해구"
     if any(k in sz for k in ("원양", "원도권", "조경", "대한해협", "태평양")):
@@ -348,8 +440,10 @@ def map_existing_canonical_zone(habitat: str, sub_zone: str, sp_name: str) -> st
     return "연안 갯바위·내만"
 
 
-def load_original_140() -> List[Dict[str, Any]]:
+def load_existing_preserved() -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
+    """원본 140종 + 기존 fish_species_db.json의 (학명 -> sp_* ID) 매핑 로드 (기존 도감/랭킹 ID 100% 보존)"""
     orig: List[Dict[str, Any]] = []
+    sci_to_sp_id: Dict[str, str] = {}
     db_path = os.path.join(ROOT_DIR, "fish_species_db.json")
     source_rows: List[Dict[str, Any]] = []
     if os.path.isfile(db_path):
@@ -357,7 +451,16 @@ def load_original_140() -> List[Dict[str, Any]]:
             with open(db_path, "r", encoding="utf-8") as f:
                 loaded = json.load(f)
             if isinstance(loaded, list):
-                source_rows = [sp for sp in loaded if not str(sp.get("id", "")).startswith("sp_")]
+                for sp in loaded:
+                    if not isinstance(sp, dict):
+                        continue
+                    fid = str(sp.get("id", ""))
+                    if not fid.startswith("sp_"):
+                        source_rows.append(sp)
+                    else:
+                        sci_l = str(sp.get("scientific_name", "")).lower().split(" (")[0].strip()
+                        if sci_l and sci_l not in sci_to_sp_id:
+                            sci_to_sp_id[sci_l] = fid
         except Exception:
             source_rows = []
     if len(source_rows) < 140:
@@ -370,24 +473,24 @@ def load_original_140() -> List[Dict[str, Any]]:
             item["habitat"], item.get("sub_zone", ""), item["name"]
         )
         orig.append(item)
-    return orig
+    return orig, sci_to_sp_id
 
 
 def fetch_json(url: str, timeout: int = 18) -> Any:
     req = urllib.request.Request(
         url,
-        headers={"User-Agent": "NorosiBotFishingETL/2.0 (https://norosi.bot)"},
+        headers={"User-Agent": "NorosiBotFishingETL/3.0 (https://norosi.bot)"},
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
 def fetch_all_fish_families() -> Dict[int, str]:
-    """iNaturalist에서 조기어류·연골어류 과(Family) ID -> 학명 맵을 수집"""
+    """iNaturalist에서 조기어류·연골어류·무악어류 과(Family) ID -> 학명 맵 수집"""
     fam_map: Dict[int, str] = {}
     urls = []
-    for root_id in (47178, 47273, 196614):  # Actinopterygii, Elasmobranchii, Chondrichthyes
-        for p in range(1, 5):
+    for root_id, max_p in ((47178, 5), (47273, 2), (196614, 2), (49216, 2), (49175, 2), (47388, 2), (47233, 3), (1303725, 2)):
+        for p in range(1, max_p + 1):
             urls.append(f"https://api.inaturalist.org/v1/taxa?taxon_id={root_id}&rank=family&per_page=200&page={p}")
 
     def _get(u: str):
@@ -395,10 +498,10 @@ def fetch_all_fish_families() -> Dict[int, str]:
             try:
                 return fetch_json(u, 15)
             except Exception:
-                time.sleep(0.4)
+                time.sleep(0.35)
         return {}
 
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with ThreadPoolExecutor(max_workers=5) as ex:
         for d in ex.map(_get, urls):
             for r in d.get("results", []):
                 tid = r.get("id")
@@ -409,29 +512,84 @@ def fetch_all_fish_families() -> Dict[int, str]:
 
 
 def collect_inat_species() -> Dict[str, Dict[str, Any]]:
-    """글로벌 최다 관측 어종 + 동아시아(한국/일본/대만) 어종 수집"""
+    """글로벌 전체 조기어류·상어/가오리·은상어·칠성장어 + 담수/심해/산호초 특화 목/과 대규모 병렬 수집"""
     species: Dict[str, Dict[str, Any]] = {}
     urls: List[str] = []
 
-    # 1. Global Actinopterygii top 9,000 species
-    for p in range(1, 46):
+    # 1. Global Actinopterygii top 10,000 species (iNat API max page window: 50 pages * 200 = 10,000)
+    for p in range(1, 51):
         urls.append(
             f"https://api.inaturalist.org/v1/taxa?taxon_id=47178&rank=species&locale=ko&is_active=true&per_page=200&page={p}"
         )
-    # 2. Sharks & Rays (Elasmobranchii) + Chimaeras (Holocephali) + Lampreys
-    for tid, max_p in ((47273, 8), (48096, 3), (49644, 3)):
+
+    # 2. Sharks, Rays (47273), Chimaeras (60450), Lampreys (49232)
+    for tid, max_p in ((47273, 7), (60450, 1), (49232, 1)):
         for p in range(1, max_p + 1):
             urls.append(
                 f"https://api.inaturalist.org/v1/taxa?taxon_id={tid}&rank=species&locale=ko&is_active=true&per_page=200&page={p}"
             )
-    # 3. Freshwater-rich orders: Cypriniformes(49238), Characiformes(53445), Siluriformes(49235), Salmoniformes(47514), Cichliformes(55469), Cyprinodontiformes(47717)
-    for tid, max_p in ((49238, 8), (53445, 5), (49235, 8), (47514, 3), (55469, 6), (47717, 4)):
+
+    # 3. Freshwater-rich Verified Orders & Families (잉어목·메기목·카라신목·시클리드목·송사리목·연어목·골설어목·철갑상어목 등)
+    freshwater_taxa = [
+        (49216, 15),    # Cypriniformes (4,941 sp)
+        (49175, 12),    # Siluriformes (4,296 sp)
+        (47388, 8),     # Characiformes (2,387 sp)
+        (1303736, 8),   # Cichliformes (1,766 sp)
+        (49333, 6),     # Cyprinodontiformes (1,507 sp)
+        (47521, 2),     # Salmoniformes (275 sp)
+        (49240, 2),     # Osteoglossiformes (255 sp)
+        (49824, 1),     # Acipenseriformes (29 sp)
+        (54544, 1),     # Lepisosteiformes (7 sp)
+        (85540, 1),     # Polypteriformes (14 sp)
+        (47645, 1),     # Cottidae (118 sp, coldwater lake/stream)
+        (49588, 1),     # Centrarchidae (44 sp)
+        (48158, 2),     # Percidae (252 sp)
+        (51369, 1),     # Esocidae (11 sp)
+        (85949, 1),     # Osmeridae (16 sp)
+        (85676, 1),     # Channidae (57 sp)
+        (84690, 1),     # Osphronemidae (136 sp)
+        (1303614, 1),   # Xenocyprididae (163 sp)
+        (1303618, 3),   # Leuciscidae (706 sp)
+        (1303617, 2),   # Gobionidae (235 sp)
+        (1303616, 1),   # Acheilognathidae (83 sp)
+        (85621, 2),     # Bagridae (225 sp)
+        (85876, 4),     # Loricariidae (1,070 sp)
+        (85699, 2),     # Cobitidae (245 sp)
+    ]
+    for tid, max_p in freshwater_taxa:
         for p in range(1, max_p + 1):
             urls.append(
                 f"https://api.inaturalist.org/v1/taxa?taxon_id={tid}&rank=species&locale=ko&is_active=true&per_page=200&page={p}"
             )
-    # 4. East Asia Focus: Korea(6891), Japan(6739), Taiwan(7887)
-    for place_id, max_p in ((6891, 10), (6739, 18), (7887, 10)):
+
+    # 4. Marine / Reef / Pelagic / Deep-Sea Verified Orders (심해·원양·산호초·바다 특화)
+    marine_taxa = [
+        (47233, 8),     # Perciformes (3,282 sp)
+        (1303725, 6),   # Gobiiformes (2,846 sp)
+        (1303727, 5),   # Carangiformes (1,103 sp)
+        (47314, 4),     # Anguilliformes (1,079 sp)
+        (1555654, 4),   # Labriformes (896 sp)
+        (47245, 3),     # Syngnathiformes (695 sp)
+        (63741, 3),     # Gadiformes (627 sp)
+        (47391, 2),     # Ophidiiformes (574 sp)
+        (49235, 3),     # Clupeiformes (454 sp)
+        (47177, 3),     # Tetraodontiformes (433 sp)
+        (61542, 2),     # Lophiiformes (413 sp)
+        (51485, 2),     # Beloniformes (301 sp)
+        (49409, 2),     # Aulopiformes (299 sp)
+        (1303739, 2),   # Scombriformes (290 sp)
+        (85530, 2),     # Myctophiformes (260 sp)
+        (49627, 2),     # Beryciformes (214 sp)
+        (85529, 1),     # Mugiliformes (129 sp)
+    ]
+    for tid, max_p in marine_taxa:
+        for p in range(1, max_p + 1):
+            urls.append(
+                f"https://api.inaturalist.org/v1/taxa?taxon_id={tid}&rank=species&locale=ko&is_active=true&per_page=200&page={p}"
+            )
+
+    # 5. East Asia Focus: Korea(6891), Japan(6739), Taiwan(7887)
+    for place_id, max_p in ((6891, 10), (6739, 15), (7887, 10)):
         for p in range(1, max_p + 1):
             urls.append(
                 f"https://api.inaturalist.org/v1/taxa?taxon_id=47178&place_id={place_id}&rank=species&locale=ko&is_active=true&per_page=200&page={p}"
@@ -446,24 +604,25 @@ def collect_inat_species() -> Dict[str, Dict[str, Any]]:
             try:
                 return fetch_json(u, 15)
             except Exception:
-                time.sleep(0.5 * (attempt + 1))
+                time.sleep(0.45 * (attempt + 1))
         return {}
 
     print(f"🌐 iNaturalist {len(urls)}개 페이지 병렬 수집 시작...", flush=True)
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with ThreadPoolExecutor(max_workers=6) as ex:
         for d in ex.map(_safe_get, urls):
             for r in d.get("results", []):
                 sci = (r.get("name") or "").strip()
                 parts = sci.split()
                 if len(parts) < 2 or len(parts) > 3 or "×" in sci or r.get("extinct"):
                     continue
+                raw_ko = r.get("preferred_common_name") or ""
+                ko = sanitize_kr_name(raw_ko) if has_hangul(raw_ko) else None
+                en_clean = sanitize_en_name(r.get("english_common_name") or "", sci)
                 if sci not in species:
-                    raw_ko = r.get("preferred_common_name") or ""
-                    ko = sanitize_kr_name(raw_ko) if has_hangul(raw_ko) else None
                     species[sci] = {
                         "sci": sci,
                         "ko": ko,
-                        "en": (r.get("english_common_name") or "").strip(),
+                        "en": en_clean,
                         "obs": int(r.get("observations_count") or 0),
                         "ancestors": [int(x) for x in (r.get("ancestor_ids") or [])],
                         "wiki": (r.get("wikipedia_url") or "").strip(),
@@ -472,26 +631,42 @@ def collect_inat_species() -> Dict[str, Dict[str, Any]]:
                         "wd_desc": "",
                         "family_sci": "",
                     }
-    print(f"✅ iNaturalist 고유 활성 어종 {len(species)}종 확보 (직접 한글명: {sum(1 for v in species.values() if v['ko'])}종)", flush=True)
+                else:
+                    rec = species[sci]
+                    if not rec["ko"] and ko:
+                        rec["ko"] = ko
+                    if not rec["en"] and en_clean:
+                        rec["en"] = en_clean
+    print(
+        f"✅ iNaturalist 고유 활성 어종 {len(species):,}종 확보 "
+        f"(한글명 {sum(1 for v in species.values() if v['ko']):,}종 / 영명 보유 {sum(1 for v in species.values() if v['en']):,}종)",
+        flush=True,
+    )
     return species
 
 
 def collect_wikidata_family_species(fam_map: Dict[int, str], species: Dict[str, Dict[str, Any]]) -> None:
-    """Wikidata 2-hop 과(Family)->속(Genus)->종(Species) SPARQL 조회로 한국어 공식 라벨이 있는 전 세계 어종 대량 발굴"""
+    """Wikidata 2-hop 과->속->종 SPARQL 조회 (한국어 라벨 + 한국어 위키백과 표제어)로 추가 어종 대량 발굴"""
     fam_names = sorted(set(fam_map.values()) | set(FAMILY_BIOLOGY.keys()))
     batches = [fam_names[i : i + 25] for i in range(0, len(fam_names), 25)]
-    print(f"🔬 Wikidata 2-hop 과(Family) {len(fam_names)}개 ({len(batches)}배치) 한국어 명칭 어종 발굴 시작...", flush=True)
+    print(f"🔬 Wikidata 2-hop 과(Family) {len(fam_names)}개 ({len(batches)}배치) 한국어 명칭·체장 발굴 시작...", flush=True)
 
     def _query_fam_batch(batch: List[str]):
         vals = " ".join('"' + s.replace('"', "") + '"' for s in batch)
-        q = f"""SELECT ?famSci ?taxon ?ko ?en ?koDesc ?len WHERE {{
+        q = f"""SELECT ?famSci ?taxon ?ko ?koWikiTitle ?en ?koDesc ?len WHERE {{
   VALUES ?famSci {{ {vals} }}
   ?fam wdt:P225 ?famSci .
   ?genus wdt:P171 ?fam .
   ?item wdt:P171 ?genus .
   ?item wdt:P105 wd:Q7432 .
   ?item wdt:P225 ?taxon .
-  ?item rdfs:label ?ko . FILTER(LANG(?ko) = "ko")
+  OPTIONAL {{ ?item rdfs:label ?ko . FILTER(LANG(?ko) = "ko") }}
+  OPTIONAL {{
+    ?art schema:about ?item ;
+         schema:isPartOf <https://ko.wikipedia.org/> ;
+         schema:name ?koWikiTitle .
+  }}
+  FILTER(BOUND(?ko) || BOUND(?koWikiTitle))
   OPTIONAL {{ ?item rdfs:label ?en . FILTER(LANG(?en) = "en") }}
   OPTIONAL {{ ?item schema:description ?koDesc . FILTER(LANG(?koDesc) = "ko") }}
   OPTIONAL {{ ?item wdt:P2043 ?len . }}
@@ -513,14 +688,14 @@ def collect_wikidata_family_species(fam_map: Dict[int, str], species: Dict[str, 
                 parts = sci.split()
                 if len(parts) < 2 or len(parts) > 3 or "×" in sci:
                     continue
-                ko_val = b.get("ko", {}).get("value", "")
+                ko_val = b.get("ko", {}).get("value", "") or b.get("koWikiTitle", {}).get("value", "")
                 if not ko_val or not has_hangul(ko_val):
                     continue
                 clean_ko = sanitize_kr_name(ko_val)
                 if not clean_ko or clean_ko.lower() == sci.lower():
                     continue
                 fam_sci = (b.get("famSci", {}).get("value") or "").strip()
-                en_val = (b.get("en", {}).get("value") or "").strip()
+                en_val = sanitize_en_name(b.get("en", {}).get("value", ""), sci)
                 desc_val = (b.get("koDesc", {}).get("value") or "").strip()
                 cm_val = None
                 if "len" in b:
@@ -540,7 +715,7 @@ def collect_wikidata_family_species(fam_map: Dict[int, str], species: Dict[str, 
                         upgraded_ko += 1
                     if not rec.get("family_sci") and fam_sci:
                         rec["family_sci"] = fam_sci
-                    if not rec.get("en") and en_val and en_val.lower() != sci.lower():
+                    if not rec.get("en") and en_val:
                         rec["en"] = en_val
                     if not rec.get("wd_desc") and desc_val and has_hangul(desc_val):
                         rec["wd_desc"] = desc_val
@@ -550,8 +725,8 @@ def collect_wikidata_family_species(fam_map: Dict[int, str], species: Dict[str, 
                     species[sci] = {
                         "sci": sci,
                         "ko": clean_ko,
-                        "en": en_val if en_val.lower() != sci.lower() else "",
-                        "obs": 120,
+                        "en": en_val,
+                        "obs": 150,
                         "ancestors": [],
                         "wiki": "",
                         "len": cm_val,
@@ -562,23 +737,31 @@ def collect_wikidata_family_species(fam_map: Dict[int, str], species: Dict[str, 
                     added_new += 1
 
     print(
-        f"✅ Wikidata 2-hop 과 발굴 완료: 신규 +{added_new}종, 한글명 보완 +{upgraded_ko}종 (누적 한글명 {sum(1 for v in species.values() if v['ko'])}종)",
+        f"✅ Wikidata 2-hop 과 발굴 완료: 신규 +{added_new:,}종, 한글명 보완 +{upgraded_ko:,}종 (누적 한글명 {sum(1 for v in species.values() if v['ko']):,}종)",
         flush=True,
     )
 
 
 def enrich_from_wikidata(species: Dict[str, Dict[str, Any]]) -> None:
-    """Wikidata SPARQL 배치 조회로 한국어 공식 라벨, 한국어 설명, 최대 체장 보강"""
-    scis = [k for k, v in species.items() if not v.get("ko") or v.get("len") is None]
+    """관측 빈도 높은 미매칭 어종 대상 Wikidata SPARQL 한국어 명칭·영명·설명·체장 보강"""
+    scis = [
+        k for k, v in sorted(species.items(), key=lambda kv: -kv[1].get("obs", 0))
+        if (not v.get("ko") or v.get("len") is None)
+    ][:9000]
     batches = [scis[i : i + 180] for i in range(0, len(scis), 180)]
     print(f"📚 Wikidata SPARQL {len(batches)}개 배치 한국어 명칭·체장 보강 시작...", flush=True)
 
     def _query_batch(batch: List[str]):
         vals = " ".join('"' + s.replace('"', "") + '"' for s in batch)
-        q = f"""SELECT ?taxon ?ko ?koDesc ?len WHERE {{
+        q = f"""SELECT ?taxon ?ko ?koWikiTitle ?koDesc ?len WHERE {{
   VALUES ?taxon {{ {vals} }}
   ?item wdt:P225 ?taxon .
   OPTIONAL {{ ?item rdfs:label ?ko . FILTER(LANG(?ko) = "ko") }}
+  OPTIONAL {{
+    ?art schema:about ?item ;
+         schema:isPartOf <https://ko.wikipedia.org/> ;
+         schema:name ?koWikiTitle .
+  }}
   OPTIONAL {{ ?item schema:description ?koDesc . FILTER(LANG(?koDesc) = "ko") }}
   OPTIONAL {{ ?item wdt:P2043 ?len . }}
 }}"""
@@ -587,7 +770,7 @@ def enrich_from_wikidata(species: Dict[str, Dict[str, Any]]) -> None:
             try:
                 return fetch_json(url, 22).get("results", {}).get("bindings", [])
             except Exception:
-                time.sleep(0.8 * (attempt + 1))
+                time.sleep(0.7 * (attempt + 1))
         return []
 
     added_ko = 0
@@ -599,7 +782,7 @@ def enrich_from_wikidata(species: Dict[str, Dict[str, Any]]) -> None:
                 if t not in species:
                     continue
                 rec = species[t]
-                ko_val = b.get("ko", {}).get("value", "")
+                ko_val = b.get("ko", {}).get("value", "") or b.get("koWikiTitle", {}).get("value", "")
                 if ko_val and has_hangul(ko_val):
                     clean = sanitize_kr_name(ko_val)
                     if clean and clean.lower() != t.lower():
@@ -625,7 +808,7 @@ def enrich_from_wikidata(species: Dict[str, Dict[str, Any]]) -> None:
                         pass
 
     print(
-        f"✅ Wikidata 보강 완료: +{added_ko}종 추가 (총 한글명 어종 {sum(1 for v in species.values() if v['ko'])}종 / 체장 매칭 {len_hits}건)",
+        f"✅ Wikidata 보강 완료: +{added_ko:,}종 한글명 추가 (총 한글명 {sum(1 for v in species.values() if v['ko']):,}종 / 체장 매칭 {len_hits:,}건)",
         flush=True,
     )
 
@@ -635,61 +818,55 @@ def classify_fish_entry(
     fam_map: Dict[int, str],
 ) -> Dict[str, Any]:
     sci = raw["sci"]
-    name_kr = raw["ko"]
+    disp_name = raw["display_name"]
+    name_ko = raw.get("ko") or ""
     ancestors = raw.get("ancestors", [])
 
-    # 1. 과(Family) 식별
     family_sci = raw.get("family_sci", "")
     for aid in reversed(ancestors):
         if aid in fam_map:
             family_sci = fam_map[aid]
             break
 
-    bio = FAMILY_BIOLOGY.get(family_sci)
-    if not bio:
-        # 속(Genus) 또는 키워드 기반 폴백 추정
-        genus = sci.split()[0]
-        if genus in FAMILY_BIOLOGY:
-            bio = FAMILY_BIOLOGY[genus]
+    genus = sci.split()[0]
+    bio = GENUS_BIOLOGY.get(genus) or FAMILY_BIOLOGY.get(family_sci)
 
     if bio:
         hab, zone, cm_range, (wa, wb), base_rar, atime, pweather, pbait, emoji, fam_kr = bio
         min_def, max_def = cm_range
     else:
-        # 키워드 기반 서식지 추론
-        text_probe = f"{name_kr} {raw.get('wd_desc', '')} {raw.get('en', '')}".lower()
-        if any(k in name_kr for k in RIVER_KEYWORDS) or any(
-            w in text_probe for w in ("river", "stream", "creek", "brook", "darter", "loach", "trout", "salmon", "tetra", "catfish", "민물", "하천", "계곡")
+        text_probe = f"{name_ko} {raw.get('wd_desc', '')} {raw.get('en', '')}".lower()
+        if (name_ko and any(k in name_ko for k in RIVER_KEYWORDS)) or any(
+            w in text_probe for w in ("river", "stream", "creek", "brook", "darter", "loach", "trout", "salmon", "tetra", "catfish", "characin", "barbel", "minnow", "shiner", "chub", "dace", "민물", "하천", "계곡")
         ):
             hab = "river"
             zone = "중류 자갈 여울"
-            fam_kr = f"{family_sci or '담수'}어류"
+            fam_kr = f"{family_sci or '담수'}과"
             min_def, max_def = (9.0, 32.0)
             wa, wb = (0.012, 3.02)
             base_rar = 2
             atime, pweather, pbait, emoji = ("day", "clear", "worm", "🐟")
-        elif any(k in name_kr for k in LAKE_KEYWORDS) or any(
-            w in text_probe for w in ("lake", "pond", "cichlid", "carp", "crucian", "bass", "sunfish", "pike", "killifish", "호수", "저수지")
+        elif (name_ko and any(k in name_ko for k in LAKE_KEYWORDS)) or any(
+            w in text_probe for w in ("lake", "pond", "cichlid", "carp", "crucian", "bass", "sunfish", "pike", "killifish", "tilapia", "gourami", "betta", "whitefish", "cisco", "호수", "저수지")
         ):
             hab = "lake"
             zone = "수초 연안"
-            fam_kr = f"{family_sci or '호수'}어류"
+            fam_kr = f"{family_sci or '호수'}과"
             min_def, max_def = (10.0, 38.0)
             wa, wb = (0.015, 3.02)
             base_rar = 2
             atime, pweather, pbait, emoji = ("day", "clear", "dough", "🐟")
         else:
             hab = "sea"
-            # 열대/산호 vs 심해 vs 연안
-            if any(w in text_probe for w in ("deep", "lantern", "angler", "grenadier", "abyss", "심해")):
+            if any(w in text_probe for w in ("deep", "lantern", "angler", "grenadier", "abyss", "viperfish", "hatchetfish", "cusk", "심해")):
                 zone = "심해·해구"
                 base_rar = 3
                 atime, pweather, pbait, emoji = ("night", "fog", "glow", "💠")
-            elif any(w in text_probe for w in ("coral", "reef", "butterfly", "damsel", "wrasse", "parrot", "tang", "clown", "산호", "열대")):
+            elif any(w in text_probe for w in ("coral", "reef", "butterfly", "damsel", "wrasse", "parrot", "tang", "clown", "angelfish", "snapper", "grouper", "anthias", "산호", "열대")):
                 zone = "산호초·열대 해역"
                 base_rar = 2
                 atime, pweather, pbait, emoji = ("day", "clear", "shrimp", "🐠")
-            elif any(w in text_probe for w in ("tuna", "marlin", "pelagic", "oceanic", "shark", "상어", "원양")) and "철갑상어" not in name_kr and "돌상어" not in name_kr:
+            elif any(w in text_probe for w in ("tuna", "marlin", "pelagic", "oceanic", "shark", "barracuda", "trevally", "jack", "mackerel", "상어", "원양")) and "철갑상어" not in name_ko and "돌상어" not in name_ko:
                 zone = "원양·회유 해역"
                 base_rar = 3
                 atime, pweather, pbait, emoji = ("day", "clear", "lure", "🦈")
@@ -697,29 +874,34 @@ def classify_fish_entry(
                 zone = "연안 갯바위·내만"
                 base_rar = 1
                 atime, pweather, pbait, emoji = ("all", "clear", "shrimp", "🐟")
-            fam_kr = f"{family_sci or '해양'}어류"
+            fam_kr = f"{family_sci or '해양'}과"
             min_def, max_def = (16.0, 52.0)
             wa, wb = (0.015, 3.01)
 
-    # 세부 한국어 키워드로 서식지 미세 보정 (담수 철갑상어·주걱철갑상어·돌상어는 제외)
-    is_freshwater_sturgeon_or_loach = (
-        family_sci in ("Acipenseridae", "Polyodontidae", "Gobionidae")
-        or any(k in name_kr for k in ("철갑상어", "주걱상어", "돌상어"))
+    # 세부 키워드 미세 보정 (담수 철갑상어·담수가오리·돌상어는 바다로 재분류하지 않음)
+    is_freshwater_exception = (
+        family_sci in ("Acipenseridae", "Polyodontidae", "Gobionidae", "Potamotrygonidae")
+        or genus == "Potamotrygon"
+        or (name_ko and any(k in name_ko for k in ("철갑상어", "주걱상어", "돌상어", "담수가오리")))
     )
-    if "심해" in name_kr:
+    en_l = (raw.get("en") or "").lower()
+    if "심해" in name_ko or any(w in en_l for w in ("deepsea", "deep-sea", "abyssal", "lanternfish", "grenadier")):
         hab, zone = "sea", "심해·해구"
         base_rar = max(base_rar, 3)
         pbait = "glow"
-    elif "산호" in name_kr or "나비" in name_kr or "흰동가리" in name_kr:
+    elif "산호" in name_ko or "나비" in name_ko or "흰동가리" in name_ko:
         if hab == "sea":
             zone = "산호초·열대 해역"
             emoji = "🐠"
-    elif (not is_freshwater_sturgeon_or_loach) and ("상어" in name_kr or "가오리" in name_kr or "새치" in name_kr):
+    elif "lake" in en_l and hab == "river" and genus not in ("Onchorhynchus",):
+        # e.g. Lake Chub, Lake Whitefish
+        if any(w in en_l for w in ("whitefish", "cisco", "charr", "trout", "burbot", "sculpin")):
+            hab, zone = "lake", "깊은 심수층"
+    elif (not is_freshwater_exception) and ("상어" in name_ko or "가오리" in name_ko or "새치" in name_ko):
         hab = "sea"
-        if "민물" in name_kr or "담수" in name_kr or "강" in name_kr:
+        if "민물" in name_ko or "담수" in name_ko or "강" in name_ko:
             hab, zone = "river", "대하천 본류"
 
-    # 서식지-세부구역 정합성 강제 가드
     canonical_zones = {
         "lake": ("수초 연안", "맑은 중층수", "깊은 심수층", "열대·아열대 대호"),
         "river": ("상류 1급수 계곡", "중류 자갈 여울", "대하천 본류", "강·바다 기수역"),
@@ -728,10 +910,8 @@ def classify_fish_entry(
     if zone not in canonical_zones.get(hab, ()):
         zone = canonical_zones[hab][0]
 
-    # 개체별 변동 시드 (결정론적 재현성)
     seed_int = int(hashlib.md5(sci.encode("utf-8")).hexdigest()[:8], 16)
 
-    # 체장 계산 (Wikidata 실측 P2043이 있으면 우선 반영)
     if raw.get("len"):
         max_cm = round(float(raw["len"]), 1)
         min_cm = round(max(2.0, max_cm * 0.36), 1)
@@ -742,33 +922,29 @@ def classify_fish_entry(
     if min_cm >= max_cm:
         max_cm = round(min_cm * 2.2, 1)
 
-    # 희귀도 산출 (과 기본 희귀도 + 관측 빈도(obs) + 대형 어종 보정)
     obs = raw.get("obs", 100)
     rarity = base_rar
     if max_cm >= 180.0:
         rarity = max(rarity, 4)
-    if max_cm >= 300.0 or (obs < 40 and max_cm >= 110.0):
+    if max_cm >= 300.0 or (obs < 35 and max_cm >= 110.0):
         rarity = 5
-    elif obs < 60 and rarity <= 2:
+    elif obs < 50 and rarity <= 2:
         rarity = min(4, rarity + 1)
-    elif obs > 5000 and rarity == 2 and max_cm < 35.0:
+    elif obs > 4500 and rarity == 2 and max_cm < 35.0:
         rarity = 1
     rarity = max(1, min(5, rarity))
 
-    # 시간대/날씨 다양성 미세 분산 (모두 동일 조건에 몰리지 않게)
     if atime == "all" and (seed_int % 5 == 0):
         atime = "night" if hab != "lake" else "day"
     if rarity >= 4 and pbait not in ("glow", "golden", "lure", "shrimp"):
         pbait = "golden" if rarity == 5 else "lure"
 
-    # 판매 골드 산정 (성급별 밸런스)
     gold_base_by_r = {1: 24, 2: 72, 3: 195, 4: 620, 5: 1900}
     size_bonus_gold = min(650, int(max_cm * 1.4))
     base_gold = int(gold_base_by_r[rarity] + size_bonus_gold * (0.25 + rarity * 0.12))
 
-    # 설명 문구 생성
     hab_kr = {"lake": "호수·저수지", "river": "하천·강 유역", "sea": "바다"}[hab]
-    en_suffix = f" ({raw['en']})" if raw.get("en") else ""
+    en_suffix = f" ({raw['en']})" if (raw.get("en") and raw["en"] != disp_name) else ""
     wd_d = raw.get("wd_desc", "").strip()
     if wd_d and len(wd_d) >= 12 and "종" not in wd_d[:4]:
         desc = f"[{fam_kr}] {hab_kr} '{zone}' 서식 실제 어종{en_suffix}. {wd_d}"
@@ -778,7 +954,7 @@ def classify_fish_entry(
         desc = desc[:132] + "..."
 
     return {
-        "name": name_kr,
+        "name": disp_name,
         "scientific_name": sci,
         "habitat": hab,
         "zone": zone,
@@ -799,54 +975,68 @@ def classify_fish_entry(
 
 
 def main():
-    orig_list = load_original_140()
-    print(f"📌 기존 보존 어종: {len(orig_list)}종 로드 완료", flush=True)
+    orig_list, prev_sci_to_id = load_existing_preserved()
+    print(f"📌 기존 원본 보존 어종: {len(orig_list)}종 · 기존 sp_* ID 매핑: {len(prev_sci_to_id):,}건 로드 완료", flush=True)
 
     existing_ids = {sp["id"] for sp in orig_list}
     existing_scis = {sp["scientific_name"].lower().split(" (")[0].strip() for sp in orig_list}
     existing_names = {sp["name"].strip() for sp in orig_list}
 
     fam_map = fetch_all_fish_families()
-    print(f"🧬 어류 과(Family) 매핑 테이블 {len(fam_map)}개 구축 완료", flush=True)
+    print(f"🧬 어류 과(Family) 매핑 테이블 {len(fam_map):,}개 구축 완료", flush=True)
 
     raw_species = collect_inat_species()
     collect_wikidata_family_species(fam_map, raw_species)
     enrich_from_wikidata(raw_species)
 
-    # 정렬: 관측수 높은 순(인기/대표 어종 우선) + 한글명 보유 필터
-    candidates = [v for v in raw_species.values() if v.get("ko")]
-    candidates.sort(key=lambda x: -x.get("obs", 0))
+    # 정렬: (1) 한글 공식명 보유 여부 우선, (2) 관측 빈도(obs) 높은 순 -> 인기/검증된 실측 종 최우선 포함
+    candidates = [
+        v for v in raw_species.values()
+        if (v.get("ko") and has_hangul(v["ko"])) or v.get("en")
+    ]
+    candidates.sort(key=lambda x: (0 if (x.get("ko") and has_hangul(x["ko"])) else 1, -x.get("obs", 0)))
 
     new_entries: List[Dict[str, Any]] = []
     for raw in candidates:
         sci_l = raw["sci"].lower().strip()
-        kr_name = sanitize_kr_name(raw["ko"])
-        if not kr_name or len(kr_name) < 2 or len(kr_name) > 36:
-            continue
-        # 영문자만 있거나 숫자/기호 위주 노이즈 제외
-        if not has_hangul(kr_name):
-            continue
         if sci_l in existing_scis:
             continue
 
-        # 한글명 충돌 시 학명 종소명 표기로 명확히 구분 (완벽한 1:1 어종명 보장)
-        if kr_name in existing_names:
+        ko_name = sanitize_kr_name(raw.get("ko") or "")
+        en_name = sanitize_en_name(raw.get("en") or "", raw["sci"])
+
+        if ko_name and has_hangul(ko_name) and 2 <= len(ko_name) <= 36:
+            disp_name = ko_name
+        elif en_name and 3 <= len(en_name) <= 44:
+            disp_name = en_name
+        else:
+            continue
+
+        # 동일 이름 충돌 시 학명 종소명 표기로 1:1 어종 구분
+        if disp_name in existing_names:
             epithet = raw["sci"].split()[-1]
-            kr_name = f"{kr_name} ({epithet})"
-            if kr_name in existing_names:
+            disp_name = f"{disp_name} ({epithet})"
+            if disp_name in existing_names:
                 continue
 
         raw_copy = dict(raw)
-        raw_copy["ko"] = kr_name
+        raw_copy["display_name"] = disp_name
+        raw_copy["ko"] = ko_name if has_hangul(ko_name) else ""
         entry = classify_fish_entry(raw_copy, fam_map)
-        entry["id"] = make_species_id(raw["sci"], existing_ids)
+
+        prev_id = prev_sci_to_id.get(sci_l)
+        if prev_id and prev_id not in existing_ids:
+            entry["id"] = prev_id
+            existing_ids.add(prev_id)
+        else:
+            entry["id"] = make_species_id(raw["sci"], existing_ids)
+
         existing_scis.add(sci_l)
-        existing_names.add(kr_name)
+        existing_names.add(disp_name)
         new_entries.append(entry)
 
     all_species = orig_list + new_entries
 
-    # 정렬: (habitat, rarity, min_cm, name)
     hab_order = {"lake": 0, "river": 1, "sea": 2}
     all_species.sort(key=lambda x: (hab_order.get(x["habitat"], 9), x["rarity"], x["min_cm"], x["name"]))
 
@@ -861,16 +1051,24 @@ def main():
         with open(p, "w", encoding="utf-8") as f:
             f.write(payload)
 
-    # 요약 출력
     by_h = {h: sum(1 for x in all_species if x["habitat"] == h) for h in ("lake", "river", "sea")}
     by_r = {r: sum(1 for x in all_species if x["rarity"] == r) for r in range(1, 6)}
+    by_z = {
+        (h, z): sum(1 for x in all_species if x["habitat"] == h and x.get("zone") == z)
+        for h in ("lake", "river", "sea")
+        for z in CANONICAL_ZONES[h]
+    }
+    ko_cnt = sum(1 for x in all_species if has_hangul(x["name"]))
     file_kb = os.path.getsize(out_paths[0]) / 1024.0
-    print("=" * 60)
-    print(f"🎉 최종 어종 데이터베이스 생성 완료: 총 {len(all_species)}종 ({file_kb:.1f} KB)")
-    print(f"   • 서식지별: 호수 {by_h['lake']}종 · 강 {by_h['river']}종 · 바다 {by_h['sea']}종")
-    print(f"   • 성급별: ★1({by_r[1]}) · ★2({by_r[2]}) · ★3({by_r[3]}) · ★4({by_r[4]}) · ★5({by_r[5]})")
-    print("   • 동기화 경로: fish_species_db.json · public/data/fish_species_db.json · public/bot_files/fish_species_db.json")
-    print("=" * 60)
+    print("=" * 66)
+    print(f"🎉 최종 어종 데이터베이스 생성 완료: 총 {len(all_species):,}종 ({file_kb:.1f} KB)")
+    print(f"   • 한글명 어종: {ko_cnt:,}종 · 영명/글로벌 어종: {len(all_species) - ko_cnt:,}종")
+    print(f"   • 서식지별: 호수 {by_h['lake']:,}종 · 강 {by_h['river']:,}종 · 바다 {by_h['sea']:,}종")
+    print(f"   • 성급별: ★1({by_r[1]:,}) · ★2({by_r[2]:,}) · ★3({by_r[3]:,}) · ★4({by_r[4]:,}) · ★5({by_r[5]:,})")
+    for h in ("lake", "river", "sea"):
+        z_str = " / ".join(f"{z}:{by_z[(h, z)]}" for z in CANONICAL_ZONES[h])
+        print(f"   • [{h}] {z_str}")
+    print("=" * 66)
 
 
 if __name__ == "__main__":
