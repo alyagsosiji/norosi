@@ -354,11 +354,12 @@ class NorosiBot(commands.Bot):
         # 글로벌 슬래시 커맨드 에러 핸들러 등록 ("명령어 응답 안함" 3초 타임아웃 차단)
         self.tree.on_error = self.on_app_command_error
 
-        print("🔌 [2/4] Cogs 확장 모듈 등록 중 (gacha, genshin, hsr, music, dday, logger, ai, stats, roles, help, dashboard)...", flush=True)
+        print("🔌 [2/4] Cogs 확장 모듈 등록 중 (gacha, genshin, hsr, fishing, music, dday, logger, ai, stats, roles, help, dashboard)...", flush=True)
         ext_list = [
             "cogs.gacha",
             "cogs.genshin",
             "cogs.hsr",
+            "cogs.fishing",
             "cogs.music",
             "cogs.dday",
             "cogs.logger",
