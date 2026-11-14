@@ -14,6 +14,21 @@ import core
 # ==========================================
 # 프로세카 UI 클래스 (연속 뽑기 / 카드 잠금 / 중복 변환 / 각성 전환 / 확률표 / 보관함 / 교환)
 # ==========================================
+async def _is_interaction_bot_owner(interaction: discord.Interaction, bot_instance=None) -> bool:
+    user = getattr(interaction, "user", None)
+    if not user:
+        return False
+    bot_ref = bot_instance or getattr(interaction, "client", None)
+    if bot_ref and hasattr(bot_ref, "is_bot_owner_user"):
+        try:
+            return bool(await bot_ref.is_bot_owner_user(user))
+        except Exception:
+            pass
+    if core.BOT_OWNER_ID and getattr(user, "id", None) == core.BOT_OWNER_ID:
+        return True
+    return False
+
+
 def build_gacha_intro_embed(drawn: list, banner_type: str = "normal", pull_count: int = 1) -> discord.Embed:
     """뽑기 결과 공개 직전 오브 승격 연출 및 ★4·생일 대사(gachaPhrase) 선공개 임베드"""
     b_cfg = core.BANNER_CONFIGS.get(banner_type, core.BANNER_CONFIGS["normal"])
@@ -153,7 +168,7 @@ def build_gacha_pull_embed(
         author_icon = user.display_avatar.url if hasattr(user, "display_avatar") else None
         embed.set_author(name=f"{user.display_name}님의 가챠 결과", icon_url=author_icon)
 
-    embed.set_footer(text=f"배너: {b_cfg['short_name']} • 적용 픽업: {pickup_summary} • 하단에서 배너 전환 및 연출 스킵 가능")
+    embed.set_footer(text=f"배너: {b_cfg['short_name']} • 적용 픽업: {pickup_summary} • 배너 변경은 봇주 전용 / 연출 스킵 가능")
     return embed, has_4star
 
 
@@ -460,10 +475,10 @@ check_and_update_gacha_cooldown = core.check_and_update_gacha_cooldown
 class GachaPullAgainView(core.SafeView):
     """가챠 결과 화면에서 배너 전환, 연출 스킵, 재뽑기, 생일 무료 단차, 마스터랭크, 라이브 등을 바로 여는 뷰"""
 
-    def __init__(self, user: discord.User | None = None, banner_type: str = "normal", skip_anim: bool = False):
+    def __init__(self, user: discord.User | None = None, banner_type: str | None = None, skip_anim: bool = False):
         super().__init__(timeout=600)
         self.user = user
-        self.banner_type = banner_type if banner_type in core.BANNER_CONFIGS else "normal"
+        self.banner_type = banner_type if banner_type in core.BANNER_CONFIGS else core.get_active_proseka_banner()
         self.skip_anim = bool(skip_anim)
         self._refresh_components()
 
@@ -517,21 +532,24 @@ class GachaPullAgainView(core.SafeView):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
         pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
-        drawn = await asyncio.to_thread(core.draw_proseka_cards, pickup_cfg, pull_count, self.banner_type)
+        active_banner = core.get_active_proseka_banner(pickup_cfg)
+        is_owner = await _is_interaction_bot_owner(interaction)
+        effective_banner = self.banner_type if is_owner else active_banner
+        drawn = await asyncio.to_thread(core.draw_proseka_cards, pickup_cfg, pull_count, effective_banner)
         if not drawn:
             await interaction.followup.send("❌ 한국 서버 캐릭터 DB를 불러오지 못했습니다.", ephemeral=True)
             return
 
         guild_id = interaction.guild_id or 0
-        await asyncio.to_thread(core.save_real_pull_and_records, guild_id, interaction.user.id, drawn, self.banner_type)
-        new_view = GachaPullAgainView(interaction.user, banner_type=self.banner_type, skip_anim=self.skip_anim)
+        await asyncio.to_thread(core.save_real_pull_and_records, guild_id, interaction.user.id, drawn, effective_banner)
+        new_view = GachaPullAgainView(interaction.user, banner_type=effective_banner, skip_anim=self.skip_anim)
         await send_gacha_pull_result(
             interaction,
             drawn,
             pickup_cfg,
             pull_count,
             new_view,
-            banner_type=self.banner_type,
+            banner_type=effective_banner,
             skip_anim=self.skip_anim,
         )
 
@@ -601,11 +619,18 @@ class GachaPullAgainView(core.SafeView):
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
     @discord.ui.select(
-        placeholder="🎰 재뽑기 배너 변경 (일반 / 컬러풀 페스티벌 / 생일)...",
+        placeholder="🔒 [봇주 전용] 재뽑기 배너 변경 (일반 / 컬러풀 페스티벌 / 생일)...",
         row=2,
         options=[discord.SelectOption(label="일반", value="normal")]
     )
     async def banner_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if not await _is_interaction_bot_owner(interaction):
+            await core.safe_send_response(
+                interaction,
+                "❌ 프로세카 가챠 배너 변경은 **봇주인(Bot Owner)**만 사용할 수 있습니다.",
+                ephemeral=True,
+            )
+            return
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 가챠를 실행한 본인만 배너를 바꿀 수 있습니다.", ephemeral=True)
             return
@@ -633,7 +658,9 @@ class GachaPullAgainView(core.SafeView):
             return
         data = await asyncio.to_thread(core.load_data)
         pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
-        new_view = GachaPullAgainView(interaction.user, banner_type="birthday", skip_anim=self.skip_anim)
+        is_owner = await _is_interaction_bot_owner(interaction)
+        next_banner = self.banner_type if is_owner else core.get_active_proseka_banner(pickup_cfg)
+        new_view = GachaPullAgainView(interaction.user, banner_type=next_banner, skip_anim=self.skip_anim)
         await send_gacha_pull_result(
             interaction,
             drawn,
@@ -649,12 +676,12 @@ class GachaPullAgainView(core.SafeView):
 class RerollSimulatorView(core.SafeView):
     """보관함/랭킹/쿨타임 영향 없이 10연차와 픽업 저격 확률을 체험하는 리세마라 연습 시뮬레이터 뷰"""
 
-    def __init__(self, user: discord.User | None = None, guild_id: int = 0, pickup_cfg: dict | None = None, banner_type: str = "normal", initial_drawn: list | None = None):
+    def __init__(self, user: discord.User | None = None, guild_id: int = 0, pickup_cfg: dict | None = None, banner_type: str | None = None, initial_drawn: list | None = None):
         super().__init__(timeout=600)
         self.user = user
         self.guild_id = guild_id
         self.pickup_cfg = core.as_dict(pickup_cfg) or core.DEFAULT_CONFIG["gacha_pickup"]
-        self.banner_type = banner_type if banner_type in core.BANNER_CONFIGS else "normal"
+        self.banner_type = banner_type if banner_type in core.BANNER_CONFIGS else core.get_active_proseka_banner(self.pickup_cfg)
         self.attempt_count = 1
         self.drawn = initial_drawn or []
         self.total_high = sum(1 for c in self.drawn if c.get("star_num", 0) >= 4)
@@ -825,11 +852,18 @@ class RerollSimulatorView(core.SafeView):
                 await interaction.edit_original_response(embed=embed, attachments=[], view=self)
 
     @discord.ui.select(
-        placeholder="🧪 연습 배너 선택...",
+        placeholder="🔒 [봇주 전용] 연습 배너 선택...",
         row=1,
         options=[discord.SelectOption(label="일반", value="normal")]
     )
     async def sim_banner_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if not await _is_interaction_bot_owner(interaction):
+            await core.safe_send_response(
+                interaction,
+                "❌ 프로세카 가챠 배너 변경은 **봇주인(Bot Owner)**만 사용할 수 있습니다.",
+                ephemeral=True,
+            )
+            return
         if interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 연습 시뮬레이션을 시작한 본인만 배너를 바꿀 수 있습니다.", ephemeral=True)
             return
@@ -3370,7 +3404,7 @@ class GachaCog(commands.Cog):
     @app_commands.command(name="프로세카뽑기", description="프로세카 한섭 뽑기 (일반·페스·생일 / 리세마라 연습 / 일일 운명 다시 뽑기 / 생일 무료 단차)")
     @app_commands.describe(
         횟수="1회 뽑기(단차) 또는 10회 뽑기(10연차 - ★3 이상 확정)를 선택하세요.",
-        배너="(선택) 뽑기 배너를 선택하세요 (일반·페스티벌 ★4 2배·생일 스페셜)",
+        배너="[봇주인 전용] 뽑기 배너를 선택합니다 (일반·페스티벌 ★4 2배·생일 스페셜)",
         연출="(선택) 무지개 승격 & 대사 선공개 연출 표시 여부를 선택하세요.",
         모드="(선택) 일반 뽑기 / 리세마라 연습(무저장·무쿨타임) / 운명 다시 뽑기(1일 1회) / 생일 무료 단차"
     )
@@ -3403,8 +3437,16 @@ class GachaCog(commands.Cog):
         연출: app_commands.Choice[str] = None,
         모드: app_commands.Choice[str] = None,
     ):
+        is_owner = await _is_interaction_bot_owner(interaction, self.bot)
+        if 배너 is not None and not is_owner:
+            await core.safe_send_response(
+                interaction,
+                content="❌ 프로세카 가챠 배너 선택은 **봇주인(Bot Owner)**만 사용할 수 있습니다.",
+                ephemeral=True,
+            )
+            return
+
         mode_val = 모드.value if 모드 else "normal"
-        banner_key = 배너.value if 배너 else "normal"
         skip_anim = (연출 is not None and 연출.value == "skip")
         guild_id = interaction.guild_id or 0
 
@@ -3412,6 +3454,7 @@ class GachaCog(commands.Cog):
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
             pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
+            banner_key = 배너.value if (배너 is not None and is_owner) else core.get_active_proseka_banner(pickup_cfg)
             drawn = await asyncio.to_thread(core.draw_proseka_cards, pickup_cfg, count=10, banner_type=banner_key)
             if not drawn:
                 await interaction.followup.send("❌ 한국 서버 캐릭터 DB를 불러오지 못했습니다.")
@@ -3444,7 +3487,8 @@ class GachaCog(commands.Cog):
                 return
             data = await asyncio.to_thread(core.load_data)
             pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
-            repull_view = GachaPullAgainView(interaction.user, banner_type="birthday", skip_anim=skip_anim)
+            next_banner = (배너.value if (배너 is not None and is_owner) else core.get_active_proseka_banner(pickup_cfg))
+            repull_view = GachaPullAgainView(interaction.user, banner_type=next_banner, skip_anim=skip_anim)
             await send_gacha_pull_result(
                 interaction,
                 drawn,
@@ -3475,6 +3519,7 @@ class GachaCog(commands.Cog):
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
             pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
+            banner_key = 배너.value if (배너 is not None and is_owner) else core.get_active_proseka_banner(pickup_cfg)
             ok, msg, first_set = await asyncio.to_thread(
                 core.start_daily_destiny_reroll, guild_id, interaction.user.id, pickup_cfg, banner_key
             )
@@ -3508,6 +3553,7 @@ class GachaCog(commands.Cog):
 
         data = await asyncio.to_thread(core.load_data)
         pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
+        banner_key = 배너.value if (배너 is not None and is_owner) else core.get_active_proseka_banner(pickup_cfg)
         drawn = await asyncio.to_thread(core.draw_proseka_cards, pickup_cfg, count=pull_count, banner_type=banner_key)
 
         if not drawn:
@@ -3554,9 +3600,9 @@ class GachaCog(commands.Cog):
     ])
     async def proseka_rate_list_cmd(self, interaction: discord.Interaction, 배너: app_commands.Choice[str] = None):
         await core.safe_defer(interaction)
-        banner_key = 배너.value if 배너 else "normal"
         data = await asyncio.to_thread(core.load_data)
         pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
+        banner_key = 배너.value if 배너 else core.get_active_proseka_banner(pickup_cfg)
         prob_cards = core.calculate_card_probabilities(pickup_cfg, banner_type=banner_key)
 
         view = ProsekaRatePaginationView(prob_cards, pickup_cfg, items_per_page=5, banner_type=banner_key)
@@ -4179,13 +4225,14 @@ class GachaCog(commands.Cog):
         view = GachaRankingView(interaction.user, guild_name, total_db_cards, stats_list, hall_of_fame)
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
-    @app_commands.command(name="픽업설정", description="[봇주인 전용] 현재 한섭 이벤트에 맞춰 픽업을 자동 연동하거나 유닛/캐릭터/한정 여부를 직접 설정합니다.")
+    @app_commands.command(name="픽업설정", description="[봇주인 전용] 현재 한섭 이벤트에 맞춰 픽업을 자동 연동하거나 유닛/캐릭터/배너/한정 여부를 직접 설정합니다.")
     @app_commands.autocomplete(캐릭터=core.proseka_char_autocomplete)
     @app_commands.describe(
         모드="픽업 설정 방식 (현재 한섭 이벤트 자동 맞춤 / 수동 지정 / 픽업 해제)",
         유닛="[수동] 픽업 확률을 높일 유닛 선택 ('해제' 선택 시 유닛 픽업 해제)",
         캐릭터="[수동] 픽업 확률을 높일 캐릭터 선택 ('해제' 선택 시 캐릭터 픽업 해제)",
-        한정포함="[수동] 기간한정/페스한정/생일한정 카드를 뽑기 풀에 포함할지 여부 (기본: True)"
+        한정포함="[수동] 기간한정/페스한정/생일한정 카드를 뽑기 풀에 포함할지 여부 (기본: True)",
+        배너="[전역 배너] 전체 유저 기본 프로세카 가챠 배너 변경 (일반 / 페스티벌 ★4 2배 / 생일 스페셜)"
     )
     @app_commands.choices(
         모드=[
@@ -4201,7 +4248,12 @@ class GachaCog(commands.Cog):
             app_commands.Choice(name="원더랜즈×쇼타임", value="원더랜즈×쇼타임"),
             app_commands.Choice(name="25시, 나이트 코드에서.", value="25시, 나이트 코드에서."),
             app_commands.Choice(name="버츄얼 싱어", value="버츄얼 싱어")
-        ]
+        ],
+        배너=[
+            app_commands.Choice(name="🌟 일반 / 현재 픽업 가챠 (★4 3.0%)", value="normal"),
+            app_commands.Choice(name="🎊 컬러풀 페스티벌 (★4 2배 · 6.0%!)", value="fes"),
+            app_commands.Choice(name="🎂 생일 / 기념일 스페셜 (생일한정 UP!)", value="birthday"),
+        ],
     )
     async def set_pickup_cmd(
         self,
@@ -4209,7 +4261,8 @@ class GachaCog(commands.Cog):
         모드: app_commands.Choice[str] = None,
         유닛: app_commands.Choice[str] = None,
         캐릭터: str = None,
-        한정포함: bool = True
+        한정포함: bool = True,
+        배너: app_commands.Choice[str] = None,
     ):
         if not await self.bot.is_bot_owner_user(interaction.user):
             await core.safe_send_response(interaction, content="❌ 이 명령어는 **봇주인(Bot Owner)**만 사용할 수 있습니다.", ephemeral=True)
@@ -4224,11 +4277,21 @@ class GachaCog(commands.Cog):
                 await core.safe_send_response(interaction, content=f"❌ {msg}", ephemeral=True)
                 return
 
+            if 배너 is not None:
+                with core._DATA_LOCK:
+                    d_sync = core.load_data()
+                    gp_sync = core.ensure_dict_path(d_sync, "gacha_pickup")
+                    gp_sync["banner_type"] = 배너.value
+                    core.save_data(d_sync)
+                    pickup_obj["banner_type"] = 배너.value
+
+            b_cfg = core.BANNER_CONFIGS.get(core.get_active_proseka_banner(pickup_obj), core.BANNER_CONFIGS["normal"])
             labels = pickup_obj.get("pickup_card_labels") or []
             cards_txt = "\n".join(f"• `{lbl}`" for lbl in labels) if labels else f"• 유닛 픽업: `{pickup_obj.get('unit') or '전체 동일'}`"
             embed = discord.Embed(
                 title="🎯 [봇주인 전용] 현재 한섭 이벤트 픽업 자동 연동 완료",
                 description=(
+                    f"• **적용 배너:** `{b_cfg['name']}`\n"
                     f"• **적용 이벤트:** `{pickup_obj.get('event_name')}` ({pickup_obj.get('event_status', '진행 중')})\n"
                     f"• **한정/페스/생일 카드 포함:** `포함됨`\n"
                     f"• **픽업 대상 ({len(labels)}종):**\n{cards_txt}\n\n"
@@ -4242,16 +4305,44 @@ class GachaCog(commands.Cog):
 
         data = await asyncio.to_thread(core.load_data)
         if mode_val == "reset":
-            data["gacha_pickup"] = copy.deepcopy(core.DEFAULT_CONFIG["gacha_pickup"])
+            reset_obj = copy.deepcopy(core.DEFAULT_CONFIG["gacha_pickup"])
+            if 배너 is not None:
+                reset_obj["banner_type"] = 배너.value
+            data["gacha_pickup"] = reset_obj
             await asyncio.to_thread(core.save_data, data)
+            b_cfg = core.BANNER_CONFIGS.get(core.get_active_proseka_banner(reset_obj), core.BANNER_CONFIGS["normal"])
             embed = discord.Embed(
                 title="🧹 [봇주인 전용] 프로세카 픽업 설정 초기화 완료",
-                description="이벤트/유닛/캐릭터 픽업 설정이 모두 해제되어 전체 카드 동일 확률(기본값)로 복원되었습니다.",
+                description=(
+                    f"이벤트/유닛/캐릭터 픽업 설정이 모두 해제되어 전체 카드 동일 확률(기본값)로 복원되었습니다.\n"
+                    f"• **적용 배너:** `{b_cfg['name']}`"
+                ),
                 color=discord.Color.from_rgb(0, 204, 221)
             )
             await core.safe_send_response(interaction, embed=embed)
             return
 
+        if mode_val is None and 배너 is not None and 유닛 is None and 캐릭터 is None:
+            gp = core.ensure_dict_path(data, "gacha_pickup")
+            gp["banner_type"] = 배너.value
+            await asyncio.to_thread(core.save_data, data)
+            b_cfg = core.BANNER_CONFIGS.get(배너.value, core.BANNER_CONFIGS["normal"])
+            embed = discord.Embed(
+                title="🎰 [봇주인 전용] 프로세카 전역 가챠 배너 변경 완료",
+                description=(
+                    f"• **적용 배너:** `{b_cfg['name']}`\n"
+                    f"• **배너 설명:** {b_cfg['desc']}\n"
+                    f"• **유지 중인 픽업:** `{core.format_pickup_summary(gp)}`\n\n"
+                    "이제 모든 유저의 `/프로세카뽑기` 및 `/프로세카확률목록`에 해당 배너가 기본 적용됩니다!"
+                ),
+                color=discord.Color.from_rgb(*b_cfg.get("color", (0, 204, 221))),
+                timestamp=datetime.datetime.now(core.KST),
+            )
+            await core.safe_send_response(interaction, embed=embed)
+            return
+
+        prev_banner = core.get_active_proseka_banner(core.as_dict(data.get("gacha_pickup")))
+        active_banner = 배너.value if 배너 is not None else prev_banner
         selected_unit = None if (not 유닛 or 유닛.value == "NONE") else 유닛.value
         selected_char = None if (not 캐릭터 or 캐릭터 == "NONE") else 캐릭터
 
@@ -4262,13 +4353,16 @@ class GachaCog(commands.Cog):
             "event_id": None,
             "event_name": None,
             "pickup_card_labels": [],
-            "include_limited": 한정포함
+            "include_limited": 한정포함,
+            "banner_type": active_banner,
         }
         await asyncio.to_thread(core.save_data, data)
 
+        b_cfg = core.BANNER_CONFIGS.get(active_banner, core.BANNER_CONFIGS["normal"])
         embed = discord.Embed(
             title="🎯 [봇주인 전용] 프로세카 픽업 설정 완료",
             description=(
+                f"• **적용 배너:** `{b_cfg['name']}`\n"
                 f"• **픽업 유닛:** `{selected_unit or '미지정 (전체 동일)'}`\n"
                 f"• **픽업 캐릭터:** `{selected_char or '미지정 (전체 동일)'}`\n"
                 f"• **한정/페스/생일 카드 포함:** `{'포함됨' if 한정포함 else '제외됨 (통상만 등장)'}`\n\n"
