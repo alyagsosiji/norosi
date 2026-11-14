@@ -591,7 +591,7 @@ def _dedup_species(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
-def _load_fish_species_db() -> List[Dict[str, Any]]:
+def _load_fish_species_db() -> Tuple[List[Dict[str, Any]], str]:
     base_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
         os.path.join(base_dir, "fish_species_db.json"),
@@ -610,13 +610,21 @@ def _load_fish_species_db() -> List[Dict[str, Any]]:
                         if isinstance(sp, dict) and sp.get("id") and sp.get("name")
                     ])
                     if len(normalized) >= 140:
-                        return normalized
+                        rel_name = os.path.basename(path)
+                        print(f"✅ [fishing_core] 글로벌 어종 DB 로드 완료: {len(normalized):,}종 ({rel_name})", flush=True)
+                        return normalized, f"json:{rel_name}"
             except Exception as e:
                 print(f"⚠️ [fishing_core] JSON 어종 DB 로드 실패({path}): {e}", flush=True)
-    return _dedup_species([_normalize_fish_entry(sp) for sp in _FALLBACK_ORIGINAL_140])
+    fallback = _dedup_species([_normalize_fish_entry(sp) for sp in _FALLBACK_ORIGINAL_140])
+    print(
+        f"🚨 [fishing_core] fish_species_db.json을 찾지 못해 기본 {len(fallback)}종 폴백으로 동작합니다! "
+        f"(확인 경로: {base_dir}/fish_species_db.json)",
+        flush=True,
+    )
+    return fallback, "fallback_140"
 
 
-FISH_SPECIES_DB: List[Dict[str, Any]] = _load_fish_species_db()
+FISH_SPECIES_DB, FISH_DB_SOURCE = _load_fish_species_db()
 
 FISH_BY_ID: Dict[str, Dict[str, Any]] = {f["id"]: f for f in FISH_SPECIES_DB}
 FISH_BY_HABITAT: Dict[str, List[Dict[str, Any]]] = {
@@ -627,6 +635,11 @@ FISH_BY_ZONE: Dict[Tuple[str, str], List[Dict[str, Any]]] = {
     (h, z): [f for f in FISH_BY_HABITAT[h] if f["zone"] == z]
     for h in ("lake", "river", "sea")
     for z in CANONICAL_ZONES[h]
+}
+FISH_BY_HABITAT_RARITY: Dict[Tuple[str, int], List[Dict[str, Any]]] = {
+    (h, r): [f for f in FISH_BY_HABITAT[h] if f["rarity"] == r]
+    for h in ("lake", "river", "sea")
+    for r in range(1, 6)
 }
 
 
@@ -996,60 +1009,83 @@ def _roll_species_weighted(
     bait: Dict[str, Any],
     env: Dict[str, Any],
     zone_filter: str = "all",
+    pokedex_ids: Optional[set] = None,
 ) -> Dict[str, Any]:
-    pool = FISH_BY_HABITAT.get(habitat) or FISH_BY_HABITAT.get("lake") or FISH_SPECIES_DB
+    """2단계 성급 정규화 추첨: (1) 장비·미끼·날씨 기반 성급 결정 → (2) 해당 성급 풀 내 수역·시간·한글·신규 도감 가중 추첨"""
+    if habitat not in HABITATS:
+        habitat = "lake"
+    pool = FISH_BY_HABITAT.get(habitat) or FISH_SPECIES_DB
     rare_factor = (
         (1.0 + rod["rare_bonus"])
         * bait["rare_mult"]
         * env["weather_rare_mult"]
         * env["feeding_mult"]
     )
-    # 기본 성급별 가중치: ★1(100), ★2(46), ★3(16), ★4(3.6), ★5(0.85)
-    base_rarity_w = {1: 100.0, 2: 46.0, 3: 16.0, 4: 3.6, 5: 0.85}
     use_zone_focus = bool(zone_filter and zone_filter != "all" and zone_filter in CANONICAL_ZONES.get(habitat, []))
 
-    weights: List[float] = []
-    for sp in pool:
-        r = sp["rarity"]
-        w = base_rarity_w.get(r, 10.0)
-        if r == 2:
-            w *= (1.0 + (rare_factor - 1.0) * 0.25)
+    # 1단계: 어종 수가 13,444종으로 늘어나도 성급별 확률 분포가 붕괴되지 않도록 목표 성급 확률을 먼저 결정
+    avail_rarities = [r for r in range(1, 6) if FISH_BY_HABITAT_RARITY.get((habitat, r))]
+    if not avail_rarities:
+        avail_rarities = [1]
+
+    tier_weights: List[float] = []
+    for r in avail_rarities:
+        if r == 1:
+            tw = 54.0 / max(1.0, rare_factor ** 0.45)
+        elif r == 2:
+            tw = 28.0 * (1.0 + (rare_factor - 1.0) * 0.28)
         elif r == 3:
-            w *= (1.0 + (rare_factor - 1.0) * 0.65)
+            tw = 13.0 * (1.0 + (rare_factor - 1.0) * 0.72)
         elif r == 4:
-            w *= (1.0 + (rare_factor - 1.0) * 1.15)
-        elif r >= 5:
-            w *= (1.0 + (rare_factor - 1.0) * 1.40)
+            tw = 3.8 * (1.0 + (rare_factor - 1.0) * 1.35)
+        else:
+            tw = 1.2 * (1.0 + (rare_factor - 1.0) * 1.75)
+        tier_weights.append(max(0.2, tw))
+
+    chosen_rarity = random.choices(avail_rarities, weights=tier_weights, k=1)[0]
+    bucket = FISH_BY_HABITAT_RARITY.get((habitat, chosen_rarity)) or pool
+
+    # 2단계: 선택된 (서식지, 성급) 버킷 내부에서 생태 조건 · 세부 수역 · 한국어명 · 미수집 도감 가중치 적용
+    weights: List[float] = []
+    time_phase = env["time_phase"]
+    weather_id = env["weather_id"]
+    bait_id = bait["id"]
+    for sp in bucket:
+        w = 1.0
 
         # 시간대 보정
         atime = sp["active_time"]
-        if atime == env["time_phase"]:
+        if atime == time_phase:
             w *= 1.65
         elif atime != "all":
-            w *= 0.45
+            w *= 0.50
 
         # 날씨 선호 보정
         pw = sp["prefer_weather"]
-        if pw == env["weather_id"]:
+        if pw == weather_id:
             w *= 1.55
-        elif pw != "all" and env["weather_id"] != pw:
-            w *= 0.80
+        elif pw != "all" and weather_id != pw:
+            w *= 0.85
 
         # 미끼 선호 보정
-        if sp["prefer_bait"] == bait["id"]:
-            w *= 1.40
-
-        # 한국어 공식 명칭·원본 대표 어종 친숙도 밸런스 (글로벌 확장 종과 조화)
-        if _IS_HANGUL_SP_CACHE.get(sp["id"], False):
+        if sp["prefer_bait"] == bait_id:
             w *= 1.45
 
-        # 세부 수역 집중 탐색 보너스 (3.0x 가중치)
+        # 한국어 공식 명칭·원본 대표 어종 친숙도 밸런스
+        if _IS_HANGUL_SP_CACHE.get(sp["id"], False):
+            w *= 1.85
+
+        # 세부 수역 집중 탐색 보너스 (3.2x 가중치)
         if use_zone_focus and (sp.get("zone") == zone_filter or sp.get("sub_zone") == zone_filter):
-            w *= 3.00
+            w *= 3.20
+
+        # 도감 미보유 신어종 발견 보너스
+        if pokedex_ids is not None and sp["id"] not in pokedex_ids:
+            w *= 1.35
 
         weights.append(max(0.05, w))
 
-    return random.choices(pool, weights=weights, k=1)[0]
+    return random.choices(bucket, weights=weights, k=1)[0]
 
 
 def finalize_fish_catch(
@@ -1093,7 +1129,8 @@ def finalize_fish_catch(
         reel = REELS[u["reel_id"]]
         bait = BAITS[use_bait_id]
 
-        sp = _roll_species_weighted(habitat, rod, bait, env, zone_filter=use_zone)
+        pokedex_keys = set(core.as_dict(u.get("pokedex")).keys())
+        sp = _roll_species_weighted(habitat, rod, bait, env, zone_filter=use_zone, pokedex_ids=pokedex_keys)
 
         # 체장(cm) 계산: 정규분포 중심 + 장비·날씨·반응속도 보정
         span = sp["max_cm"] - sp["min_cm"]
@@ -1690,39 +1727,50 @@ def get_fishing_leaderboard(guild_id: int | str, habitat_filter: str = "all") ->
 # ==========================================
 # 자동완성 (고속 랭킹형 인메모리 DB 검색 - 전체 글로벌 어종 대응)
 # ==========================================
+def search_fish_species(query: str, limit: Optional[int] = 200, habitat_filter: str = "all") -> List[Dict[str, Any]]:
+    """인메모리 인덱스를 이용해 한글/영문/학명/세부수역/설명 키워드로 어종 고속 검색"""
+    q = (query or "").strip().lower()
+    if not q:
+        rows = [row[9] for row in _SEARCH_INDEX]
+        if habitat_filter in HABITATS:
+            rows = [sp for sp in rows if sp["habitat"] == habitat_filter]
+        return rows[:limit] if limit else rows
+
+    buckets: List[List[Dict[str, Any]]] = [[], [], [], [], [], []]
+    for _, _, _, _, name_l, sci_l, zone_l, hab_l, desc_l, sp in _SEARCH_INDEX:
+        if habitat_filter in HABITATS and sp["habitat"] != habitat_filter:
+            continue
+        if name_l == q:
+            b = buckets[0]
+        elif name_l.startswith(q):
+            b = buckets[1]
+        elif q in name_l:
+            b = buckets[2]
+        elif q in zone_l or q in hab_l:
+            b = buckets[3]
+        elif q in sci_l:
+            b = buckets[4]
+        elif q in desc_l:
+            b = buckets[5]
+        else:
+            continue
+        b.append(sp)
+
+    picked: List[Dict[str, Any]] = []
+    for b in buckets:
+        picked.extend(b)
+        if limit and len(picked) >= limit:
+            return picked[:limit]
+    return picked
+
+
 async def fish_species_autocomplete(interaction, current: str):
     from discord import app_commands
-    q = (current or "").strip().lower()
-    if not q:
-        picked = _DEFAULT_AUTOCOMPLETE_SPECIES
-    else:
-        buckets: List[List[Dict[str, Any]]] = [[], [], [], [], [], []]
-        for _, _, _, _, name_l, sci_l, zone_l, hab_l, desc_l, sp in _SEARCH_INDEX:
-            if name_l == q:
-                b = buckets[0]
-            elif name_l.startswith(q):
-                b = buckets[1]
-            elif q in name_l:
-                b = buckets[2]
-            elif q in zone_l or q in hab_l:
-                b = buckets[3]
-            elif q in sci_l:
-                b = buckets[4]
-            elif q in desc_l:
-                b = buckets[5]
-            else:
-                continue
-            if len(b) < 25:
-                b.append(sp)
-        picked = []
-        for b in buckets:
-            picked.extend(b)
-            if len(picked) >= 25:
-                picked = picked[:25]
-                break
+    q = (current or "").strip()
+    picked = _DEFAULT_AUTOCOMPLETE_SPECIES if not q else search_fish_species(q, limit=25)
 
     cands = []
-    for sp in picked:
+    for sp in picked[:25]:
         hab = HABITATS.get(sp["habitat"], HABITATS["lake"])
         zone_txt = sp.get("zone") or sp.get("sub_zone", "")
         cands.append(app_commands.Choice(
