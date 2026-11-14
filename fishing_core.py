@@ -1,6 +1,6 @@
 """
-fishing_core.py - Norosi 통합 낚시 엔진, 공개 어종 DB (호수·강·바다 140종),
-KST 시간/날씨 환경 로테이션, 장비·미끼·수족관·도감·최대어 랭킹 및 PNG 포획 카드 생성기
+fishing_core.py - Norosi 통합 낚시 엔진, 글로벌 공개 어종 DB (호수·강·바다 1,300+종),
+KST 시간/날씨 환경 로테이션, 세부 수역 탐사, 장비·미끼·수족관·도감·최대어 랭킹 및 PNG 포획 카드 생성기
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ import copy
 import datetime
 import hashlib
 import io
+import json
 import math
 import os
 import random
@@ -307,8 +308,13 @@ BAITS: Dict[str, Dict[str, Any]] = {
 
 
 # ==========================================
-# 공개 실제 어종 마스터 데이터베이스 (140종: 호수 46 · 강 46 · 바다 48)
+# 세부 수역 (13개 표준 서식 구역) & 공개 어종 마스터 데이터베이스 (1,330+종 JSON 연동)
 # ==========================================
+CANONICAL_ZONES: Dict[str, List[str]] = {
+    "lake": ["수초 연안", "맑은 중층수", "깊은 심수층", "열대·아열대 대호"],
+    "river": ["상류 1급수 계곡", "중류 자갈 여울", "대하천 본류", "강·바다 기수역"],
+    "sea": ["연안 갯바위·내만", "산호초·열대 해역", "대륙붕·외해", "원양·회유 해역", "심해·해구"],
+}
 def _sp(
     fid: str,
     name: str,
@@ -347,7 +353,7 @@ def _sp(
     }
 
 
-FISH_SPECIES_DB: List[Dict[str, Any]] = [
+_FALLBACK_ORIGINAL_140: List[Dict[str, Any]] = [
     # ------------------------------------------
     # 1. 🏞️ 호수 (46종)
     # ------------------------------------------
@@ -513,10 +519,95 @@ FISH_SPECIES_DB: List[Dict[str, Any]] = [
     _sp("sea_coelacanth", "실러캔스", "Latimeria chalumnae", "sea", "심해 화산 해저 동굴", 5, 110.0, 195.0, 0.018, 3.02, 3000, "night", "storm", "golden", "💠", "4억 년 전 데본기부터 모습을 바꾸지 않고 심해 동굴에 살아온 기적의 태고 신화어."),
 ]
 
+
+def _normalize_fish_entry(sp: Dict[str, Any]) -> Dict[str, Any]:
+    hab = sp.get("habitat", "lake")
+    if hab not in HABITATS:
+        hab = "lake"
+    valid_zones = CANONICAL_ZONES[hab]
+    zone = sp.get("zone") or ""
+    if zone not in valid_zones:
+        sz = str(sp.get("sub_zone") or "")
+        if hab == "lake":
+            if any(k in sz for k in ("심", "바이칼", "카스피", "냉수", "빙하", "깊은")):
+                zone = "깊은 심수층"
+            elif any(k in sz for k in ("아마존", "아프리카", "열대", "고목")):
+                zone = "열대·아열대 대호"
+            elif any(k in sz for k in ("중층", "표층", "개방", "대호", "대형")):
+                zone = "맑은 중층수"
+            else:
+                zone = "수초 연안"
+        elif hab == "river":
+            if any(k in sz for k in ("상류", "계곡", "산간", "1급수", "고산", "최상류")):
+                zone = "상류 1급수 계곡"
+            elif any(k in sz for k in ("기수", "하구", "연안")):
+                zone = "강·바다 기수역"
+            elif any(k in sz for k in ("본류", "대하천", "고대", "협곡", "열대")):
+                zone = "대하천 본류"
+            else:
+                zone = "중류 자갈 여울"
+        else:
+            if any(k in sz for k in ("심해", "해구", "화산", "400m", "1,000m")):
+                zone = "심해·해구"
+            elif any(k in sz for k in ("산호", "열대", "제주")):
+                zone = "산호초·열대 해역"
+            elif any(k in sz for k in ("원양", "대한해협", "태평양")):
+                zone = "원양·회유 해역"
+            elif any(k in sz for k in ("외해", "본류대", "조경", "동해")):
+                zone = "대륙붕·외해"
+            else:
+                zone = "연안 갯바위·내만"
+
+    out = dict(sp)
+    out["habitat"] = hab
+    out["zone"] = zone
+    out["sub_zone"] = sp.get("sub_zone") or zone
+    out["rarity"] = max(1, min(5, int(sp.get("rarity", 1))))
+    out["min_cm"] = float(sp.get("min_cm", 10.0))
+    out["max_cm"] = max(out["min_cm"] + 1.0, float(sp.get("max_cm", 30.0)))
+    out["weight_a"] = float(sp.get("weight_a", 0.012))
+    out["weight_b"] = float(sp.get("weight_b", 3.0))
+    out["base_gold"] = int(sp.get("base_gold", 40))
+    out["active_time"] = sp.get("active_time", "all") if sp.get("active_time") in ("day", "night", "all") else "all"
+    out["prefer_weather"] = sp.get("prefer_weather", "all")
+    out["prefer_bait"] = sp.get("prefer_bait", "dough") if sp.get("prefer_bait") in BAITS else "dough"
+    out["emoji"] = sp.get("emoji") or "🐟"
+    out["desc"] = sp.get("desc") or ""
+    return out
+
+
+def _load_fish_species_db() -> List[Dict[str, Any]]:
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(base_dir, "fish_species_db.json"),
+        os.path.join(base_dir, "public", "data", "fish_species_db.json"),
+        os.path.join(base_dir, "public", "bot_files", "fish_species_db.json"),
+    ]
+    for path in candidates:
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    raw = json.load(f)
+                if isinstance(raw, list) and len(raw) >= 140:
+                    normalized = [_normalize_fish_entry(sp) for sp in raw if isinstance(sp, dict) and sp.get("id") and sp.get("name")]
+                    if len(normalized) >= 140:
+                        return normalized
+            except Exception as e:
+                print(f"⚠️ [fishing_core] JSON 어종 DB 로드 실패({path}): {e}", flush=True)
+    return [_normalize_fish_entry(sp) for sp in _FALLBACK_ORIGINAL_140]
+
+
+FISH_SPECIES_DB: List[Dict[str, Any]] = _load_fish_species_db()
+
 FISH_BY_ID: Dict[str, Dict[str, Any]] = {f["id"]: f for f in FISH_SPECIES_DB}
 FISH_BY_HABITAT: Dict[str, List[Dict[str, Any]]] = {
     h: [f for f in FISH_SPECIES_DB if f["habitat"] == h]
     for h in ("lake", "river", "sea")
+}
+FISH_BY_ZONE: Dict[Tuple[str, str], List[Dict[str, Any]]] = {
+    (h, z): [f for f in FISH_BY_HABITAT[h] if f["zone"] == z]
+    for h in ("lake", "river", "sea")
+    for z in CANONICAL_ZONES[h]
 }
 
 
@@ -659,6 +750,7 @@ def ensure_fishing_user(data: dict, guild_id: int | str, user_id: int | str, use
     u.setdefault("owned_reels", ["basic_reel"])
     u.setdefault("selected_bait", "dough")
     u.setdefault("selected_habitat", "lake")
+    u.setdefault("selected_zone", "all")
     u.setdefault("auto_mode", False)
     u.setdefault("baits", {"worm": 5})  # 입문 선물 지렁이 5마리
     u.setdefault("bag", [])
@@ -684,6 +776,8 @@ def ensure_fishing_user(data: dict, guild_id: int | str, user_id: int | str, use
         u["selected_bait"] = "dough"
     if u["selected_habitat"] not in HABITATS:
         u["selected_habitat"] = "lake"
+    if u["selected_zone"] != "all" and u["selected_zone"] not in CANONICAL_ZONES.get(u["selected_habitat"], []):
+        u["selected_zone"] = "all"
     if "bamboo" not in u["owned_rods"]:
         u["owned_rods"].append("bamboo")
     if "basic_reel" not in u["owned_reels"]:
@@ -775,12 +869,20 @@ def update_user_fishing_prefs(
     habitat: Optional[str] = None,
     bait_id: Optional[str] = None,
     auto_mode: Optional[bool] = None,
+    zone_filter: Optional[str] = None,
 ) -> Dict[str, Any]:
     with _FISHING_LOCK:
         data = core.load_data()
         u = ensure_fishing_user(data, guild_id, user_id, user_name)
         if habitat and habitat in HABITATS:
+            if u.get("selected_habitat") != habitat and zone_filter is None:
+                u["selected_zone"] = "all"
             u["selected_habitat"] = habitat
+        if zone_filter is not None:
+            if zone_filter == "all" or zone_filter in CANONICAL_ZONES.get(u["selected_habitat"], []):
+                u["selected_zone"] = zone_filter
+            else:
+                u["selected_zone"] = "all"
         if bait_id and bait_id in BAITS:
             u["selected_bait"] = bait_id
         if auto_mode is not None:
@@ -790,7 +892,7 @@ def update_user_fishing_prefs(
 
 
 def prepare_cast_parameters(guild_id: int | str, user_id: int | str, user_name: str = "") -> Dict[str, Any]:
-    """찌 던지기 시작 시 대기시간·당기기 허용시간·사용할 미끼 계산 (아직 미끼 차감 전 단계)"""
+    """찌 던지기 시작 시 대기시간·당기기 허용시간·사용할 미끼·세부 수역 계산 (아직 미끼 차감 전 단계)"""
     with _FISHING_LOCK:
         data = core.load_data()
         u = ensure_fishing_user(data, guild_id, user_id, user_name)
@@ -811,6 +913,7 @@ def prepare_cast_parameters(guild_id: int | str, user_id: int | str, user_name: 
 
         return {
             "habitat": u["selected_habitat"],
+            "zone_filter": u.get("selected_zone", "all"),
             "bait_id": bait_id,
             "bait": bait,
             "rod": rod,
@@ -823,7 +926,13 @@ def prepare_cast_parameters(guild_id: int | str, user_id: int | str, user_name: 
         }
 
 
-def _roll_species_weighted(habitat: str, rod: Dict[str, Any], bait: Dict[str, Any], env: Dict[str, Any]) -> Dict[str, Any]:
+def _roll_species_weighted(
+    habitat: str,
+    rod: Dict[str, Any],
+    bait: Dict[str, Any],
+    env: Dict[str, Any],
+    zone_filter: str = "all",
+) -> Dict[str, Any]:
     pool = FISH_BY_HABITAT.get(habitat, FISH_BY_HABITAT["lake"])
     rare_factor = (
         (1.0 + rod["rare_bonus"])
@@ -833,6 +942,7 @@ def _roll_species_weighted(habitat: str, rod: Dict[str, Any], bait: Dict[str, An
     )
     # 기본 성급별 가중치: ★1(100), ★2(46), ★3(16), ★4(3.6), ★5(0.85)
     base_rarity_w = {1: 100.0, 2: 46.0, 3: 16.0, 4: 3.6, 5: 0.85}
+    use_zone_focus = bool(zone_filter and zone_filter != "all" and zone_filter in CANONICAL_ZONES.get(habitat, []))
 
     weights: List[float] = []
     for sp in pool:
@@ -865,6 +975,10 @@ def _roll_species_weighted(habitat: str, rod: Dict[str, Any], bait: Dict[str, An
         if sp["prefer_bait"] == bait["id"]:
             w *= 1.40
 
+        # 세부 수역 집중 탐색 보너스 (2.2x 가중치)
+        if use_zone_focus and sp.get("zone") == zone_filter:
+            w *= 2.20
+
         weights.append(max(0.05, w))
 
     return random.choices(pool, weights=weights, k=1)[0]
@@ -877,6 +991,7 @@ def finalize_fish_catch(
     habitat: str,
     bait_id: Optional[str] = None,
     reaction_sec: Optional[float] = None,
+    zone_filter: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     채집 성공 시 어종·cm·kg·월척·신기록·도감·가방·일일퀘스트·크리스탈 보너스를 단일 락 안에서 원자적으로 저장합니다.
@@ -889,6 +1004,8 @@ def finalize_fish_catch(
 
         if habitat not in HABITATS:
             habitat = u["selected_habitat"]
+
+        use_zone = zone_filter if zone_filter is not None else u.get("selected_zone", "all")
 
         use_bait_id = bait_id or u.get("selected_bait", "dough")
         if use_bait_id not in BAITS:
@@ -908,7 +1025,7 @@ def finalize_fish_catch(
         reel = REELS[u["reel_id"]]
         bait = BAITS[use_bait_id]
 
-        sp = _roll_species_weighted(habitat, rod, bait, env)
+        sp = _roll_species_weighted(habitat, rod, bait, env, zone_filter=use_zone)
 
         # 체장(cm) 계산: 정규분포 중심 + 장비·날씨·반응속도 보정
         span = sp["max_cm"] - sp["min_cm"]
@@ -952,6 +1069,8 @@ def finalize_fish_catch(
             "name": sp["name"],
             "scientific_name": sp["scientific_name"],
             "habitat": sp["habitat"],
+            "zone": sp.get("zone") or sp.get("sub_zone", ""),
+            "sub_zone": sp.get("sub_zone") or sp.get("zone", ""),
             "rarity": sp["rarity"],
             "emoji": sp["emoji"],
             "length_cm": length_cm,
@@ -1351,10 +1470,27 @@ def get_fishing_pokedex_stats(guild_id: int | str, user_id: int | str) -> Dict[s
     pd = u.get("pokedex", {}) if isinstance(u, dict) else {}
 
     by_habitat: Dict[str, Dict[str, int]] = {}
+    by_zone: Dict[str, Dict[str, Dict[str, int]]] = {}
     for hab in ("lake", "river", "sea"):
         all_sp = FISH_BY_HABITAT[hab]
         owned_cnt = sum(1 for sp in all_sp if sp["id"] in pd)
         by_habitat[hab] = {"owned": owned_cnt, "total": len(all_sp)}
+        z_map: Dict[str, Dict[str, int]] = {}
+        for z in CANONICAL_ZONES[hab]:
+            z_sp = FISH_BY_ZONE.get((hab, z), [])
+            z_map[z] = {
+                "owned": sum(1 for sp in z_sp if sp["id"] in pd),
+                "total": len(z_sp),
+            }
+        by_zone[hab] = z_map
+
+    by_rarity: Dict[int, Dict[str, int]] = {}
+    for r in range(1, 6):
+        r_sp = [sp for sp in FISH_SPECIES_DB if sp["rarity"] == r]
+        by_rarity[r] = {
+            "owned": sum(1 for sp in r_sp if sp["id"] in pd),
+            "total": len(r_sp),
+        }
 
     total_species = len(FISH_SPECIES_DB)
     owned_total = sum(1 for sp in FISH_SPECIES_DB if sp["id"] in pd)
@@ -1362,6 +1498,8 @@ def get_fishing_pokedex_stats(guild_id: int | str, user_id: int | str) -> Dict[s
         "total_species": total_species,
         "owned_total": owned_total,
         "by_habitat": by_habitat,
+        "by_zone": by_zone,
+        "by_rarity": by_rarity,
         "pokedex": pd,
     }
 
@@ -1475,21 +1613,47 @@ def get_fishing_leaderboard(guild_id: int | str, habitat_filter: str = "all") ->
 
 
 # ==========================================
-# 자동완성 (0ms 인메모리 DB 검색)
+# 자동완성 (0ms 랭킹형 인메모리 DB 검색 - 1,330+종 전수 대응)
 # ==========================================
 async def fish_species_autocomplete(interaction, current: str):
     from discord import app_commands
     q = (current or "").strip().lower()
-    cands = []
+    scored: List[Tuple[int, int, str, Dict[str, Any]]] = []
     for sp in FISH_SPECIES_DB:
-        if not q or q in sp["name"].lower() or q in sp["scientific_name"].lower() or q in HABITATS[sp["habitat"]]["name"]:
-            hab = HABITATS[sp["habitat"]]
-            cands.append(app_commands.Choice(
-                name=f"[{hab['name']}] ★{sp['rarity']} {sp['name']} ({sp['min_cm']}~{sp['max_cm']}cm)"[:100],
-                value=sp["id"],
-            ))
-            if len(cands) >= 25:
-                break
+        name_l = sp["name"].lower()
+        sci_l = sp["scientific_name"].lower()
+        zone_l = (sp.get("zone") or sp.get("sub_zone") or "").lower()
+        hab_l = HABITATS[sp["habitat"]]["name"].lower()
+
+        if not q:
+            # 검색어 미입력 시 대표 고성급·원본 인기 어종 우선 노출
+            is_orig = 0 if not sp["id"].startswith("sp_") else 1
+            scored.append((is_orig, -sp["rarity"], sp["name"], sp))
+            continue
+
+        if name_l == q:
+            rank = 0
+        elif name_l.startswith(q):
+            rank = 1
+        elif q in name_l:
+            rank = 2
+        elif q in zone_l or q in hab_l:
+            rank = 3
+        elif q in sci_l:
+            rank = 4
+        else:
+            continue
+        scored.append((rank, -sp["rarity"], sp["name"], sp))
+
+    scored.sort(key=lambda item: (item[0], item[1], item[2]))
+    cands = []
+    for _, _, _, sp in scored[:25]:
+        hab = HABITATS[sp["habitat"]]
+        zone_txt = sp.get("zone") or sp.get("sub_zone", "")
+        cands.append(app_commands.Choice(
+            name=f"[{hab['name']}·{zone_txt}] ★{sp['rarity']} {sp['name']} ({sp['min_cm']}~{sp['max_cm']}cm)"[:100],
+            value=sp["id"],
+        ))
     return cands
 
 
