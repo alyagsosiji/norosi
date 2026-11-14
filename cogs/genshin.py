@@ -95,7 +95,8 @@ def _build_genshin_result_embed(result: dict, user: discord.abc.User | None) -> 
     b_cfg = genshin_core.GENSHIN_BANNER_CONFIGS.get(banner_key, genshin_core.GENSHIN_BANNER_CONFIGS["char1"])
     r5 = [it for it in drawn if it["rank"] == 5]
     r4 = [it for it in drawn if it["rank"] == 4]
-    r3 = [it for it in drawn if it["rank"] == 3]
+    r3 = [it for it in drawn if it["rank"] <= 3]
+    pickups = [it for it in drawn if it.get("is_pickup")]
 
     if r5:
         color = discord.Color.from_rgb(255, 204, 82)
@@ -177,7 +178,7 @@ def _build_genshin_result_embed(result: dict, user: discord.abc.User | None) -> 
         f" · 💫 **보상:** `+{result['total_glitter']} 스타라이트` / `+{result['total_dust']} 스타더스트`"
         if not practice else ""
     )
-    stat_bar = f"★★★★★ `{len(r5)}` · ★★★★ `{len(r4)}` · ★★★ `{len(r3)}`{rew_sum}"
+    stat_bar = f"★★★★★ `{len(r5)}` · ★★★★ `{len(r4)}` · ★★★ `{len(r3)}` · 🎯픽업 `{len(pickups)}`{rew_sum}"
 
     header = f"{mode_banner}🎰 **기원:** `{b_cfg['name']}`{rot_tag}\n🎯 **현재 픽업:** `{feat_str}`\n\n"
     footer_block = f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{stat_bar}\n{pity_line}"
@@ -612,6 +613,8 @@ class GenshinInventoryView(core.SafeView):
             items = [it for it in items if it.get("rank") == 5]
         elif self.filter_mode == "r4":
             items = [it for it in items if it.get("rank") == 4]
+        elif self.filter_mode == "r3":
+            items = [it for it in items if int(it.get("rank", 3)) <= 3]
         elif self.filter_mode == "locked":
             items = [it for it in items if it.get("locked")]
         kind_ord = {"char": 0, "weapon": 1, "artifact": 2}
@@ -632,6 +635,7 @@ class GenshinInventoryView(core.SafeView):
             discord.SelectOption(label="🏺 성유물만 보기", value="artifact", default=(self.filter_mode == "artifact")),
             discord.SelectOption(label="🌟 5성만 보기", value="r5", default=(self.filter_mode == "r5")),
             discord.SelectOption(label="💜 4성만 보기", value="r4", default=(self.filter_mode == "r4")),
+            discord.SelectOption(label="💙 3성 이하 보기", value="r3", default=(self.filter_mode == "r3")),
             discord.SelectOption(label="🔒 잠금 항목만", value="locked", default=(self.filter_mode == "locked")),
         ]
         sel_f = discord.ui.Select(placeholder="🔍 보관함 필터 선택...", options=f_opts, row=0)
@@ -776,6 +780,16 @@ class GenshinItemDetailView(core.SafeView):
             )
             b_lv.callback = self._on_lvup
             self.add_item(b_lv)
+        elif it and it.get("kind") == "artifact":
+            art_lv = int(it.get("level", 4))
+            b_alv = discord.ui.Button(
+                label="🔨 성유물 강화 (+4강 · 더스트 20)" if art_lv < 20 else "✅ +20강 MAX",
+                style=discord.ButtonStyle.success,
+                disabled=(art_lv >= 20),
+                row=0,
+            )
+            b_alv.callback = self._on_art_lvup
+            self.add_item(b_alv)
 
     async def build_embed_and_file(self) -> tuple[discord.Embed, discord.File | None]:
         genshin_core.load_genshin_kr_db()
@@ -810,10 +824,16 @@ class GenshinItemDetailView(core.SafeView):
             if det.get("description"):
                 lines.append(f"\n> {det['description'][:300]}")
 
+        rk = int(it.get("rank", 4))
+        emb_color = (
+            discord.Color.from_rgb(255, 204, 82)
+            if rk == 5
+            else (discord.Color.from_rgb(174, 118, 255) if rk == 4 else discord.Color.from_rgb(84, 168, 255))
+        )
         emb = discord.Embed(
             title=f"{'🔒 ' if it.get('locked') else ''}{it.get('rarity_label', '')} {it.get('name', '')}",
             description="\n".join(lines),
-            color=discord.Color.from_rgb(255, 204, 82) if it.get("rank") == 5 else discord.Color.from_rgb(174, 118, 255),
+            color=emb_color,
         )
         file_obj = None
         if img_bytes:
@@ -847,6 +867,19 @@ class GenshinItemDetailView(core.SafeView):
         emb, _ = await self.build_embed_and_file()
         await core.safe_edit_response(interaction, content=msg, embed=emb, view=self)
 
+    async def _on_art_lvup(self, interaction: discord.Interaction):
+        if self.user and interaction.user.id != self.user.id:
+            return await core.safe_send_response(interaction, "❌ 본인 성유물만 강화할 수 있습니다.", ephemeral=True)
+        self.user = self.user or interaction.user
+        gid = self.guild_id or (interaction.guild_id or 0)
+        self.guild_id = gid
+        ok, msg, _ = await asyncio.to_thread(genshin_core.levelup_genshin_artifact, gid, interaction.user.id, self.item_key)
+        if not ok:
+            return await core.safe_send_response(interaction, msg, ephemeral=True)
+        self._build()
+        emb, _ = await self.build_embed_and_file()
+        await core.safe_edit_response(interaction, content=msg, embed=emb, view=self)
+
 
 class GenshinPokedexView(core.SafeView):
     def __init__(self, guild_id: int = 0, user: discord.User | None = None, tab: str = "owned", kind_filter: str = "all", page: int = 0):
@@ -869,6 +902,12 @@ class GenshinPokedexView(core.SafeView):
             raw = [it for it in raw if it["kind"] == "weapon"]
         elif self.kind_filter == "artifact":
             raw = [it for it in raw if it["kind"] == "artifact"]
+        elif self.kind_filter == "r5":
+            raw = [it for it in raw if int(it.get("rank", 4)) == 5]
+        elif self.kind_filter == "r4":
+            raw = [it for it in raw if int(it.get("rank", 4)) == 4]
+        elif self.kind_filter == "r3":
+            raw = [it for it in raw if int(it.get("rank", 3)) <= 3]
         kind_ord = {"char": 0, "weapon": 1, "artifact": 2}
         raw.sort(key=lambda x: (-int(x.get("rank", 3)), kind_ord.get(x.get("kind"), 9), x.get("name", "")))
         return stats, raw
@@ -895,7 +934,7 @@ class GenshinPokedexView(core.SafeView):
             b.callback = _cb
             self.add_item(b)
 
-        for lbl, kf in [("전체종류", "all"), ("캐릭터만", "char"), ("무기만", "weapon"), ("성유물만", "artifact")]:
+        for lbl, kf in [("전체", "all"), ("캐릭터", "char"), ("무기", "weapon"), ("성유물", "artifact"), ("★5만", "r5")]:
             b = discord.ui.Button(label=lbl, style=discord.ButtonStyle.success if self.kind_filter == kf else discord.ButtonStyle.secondary, row=1)
 
             async def _cb_k(interaction: discord.Interaction, k=kf):
@@ -910,6 +949,22 @@ class GenshinPokedexView(core.SafeView):
 
             b.callback = _cb_k
             self.add_item(b)
+
+        for lbl, kf in [("★4만", "r4"), ("★3이하", "r3")]:
+            b_rk = discord.ui.Button(label=lbl, style=discord.ButtonStyle.success if self.kind_filter == kf else discord.ButtonStyle.secondary, row=2)
+
+            async def _cb_rk(interaction: discord.Interaction, k=kf):
+                if self.user and interaction.user.id != self.user.id:
+                    return await core.safe_send_response(interaction, "❌ 본인 도감 화면에서만 전환 가능합니다.", ephemeral=True)
+                self.user = self.user or interaction.user
+                self.guild_id = self.guild_id or (interaction.guild_id or 0)
+                self.kind_filter = k if self.kind_filter != k else "all"
+                self.page = 0
+                self._build()
+                await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+            b_rk.callback = _cb_rk
+            self.add_item(b_rk)
 
         b_prev = discord.ui.Button(label="◀ 이전", style=discord.ButtonStyle.secondary, disabled=(self.page <= 0), row=2)
         b_next = discord.ui.Button(label="다음 ▶", style=discord.ButtonStyle.secondary, disabled=(self.page >= max_page), row=2)
@@ -948,24 +1003,29 @@ class GenshinPokedexView(core.SafeView):
                 lines.append(f"• {it['rarity_label']} **{it['name']}**{c_txt} ({it.get('element_emoji', '')}{it.get('element_name', '')} · `{it.get('pool_type', '')}`)")
             elif it["kind"] == "artifact":
                 l_txt = f" `+{it['level']}`" if "level" in it else ""
-                lines.append(f"• 🏺 **{it['name']}**{l_txt} ({it.get('bonus_2p', '비경 성유물')[:38]})")
+                lines.append(f"• {it.get('rarity_label', '★★★★★')} 🏺 **{it['name']}**{l_txt} ({it.get('bonus_2p', '비경 성유물')[:36]})")
             else:
                 r_txt = f" `R{it['refinement']}`" if "refinement" in it else ""
                 lines.append(f"• {it['rarity_label']} **{it['name']}**{r_txt} ({it.get('weapon_type_emoji', '')}{it.get('weapon_type_name', '')} · `{it.get('pool_type', '')}`)")
         list_body = "\n".join(lines) if lines else "*(표시할 항목이 없습니다)*"
         owner_n = self.user.display_name if self.user else "여행자"
+        w3_own, w3_tot = stats.get("w3", (0, 0))
+        w21_own, w21_tot = stats.get("w21", (0, 0))
         a5_own, a5_tot = stats.get("a5", (0, 0))
+        a4_own, a4_tot = stats.get("a4", (0, 0))
+        a3_own, a3_tot = stats.get("a3", (0, 0))
         return discord.Embed(
-            title=f"📖 {owner_n}님의 원신 티바트 도감",
+            title=f"📖 {owner_n}님의 원신 티바트 도감 (공식 DB 전체 동기화)",
             description=(
                 f"• **기원 도감 수집률:** `{stats['wishable_owned']}/{stats['wishable_total']}` (**`{stats['rate']:.1f}%`**)\n"
                 f"  {stats['bar']}\n"
-                f"• **캐릭터:** ★5 `{stats['c5'][0]}/{stats['c5'][1]}` · ★4 `{stats['c4'][0]}/{stats['c4'][1]}`\n"
-                f"• **무기 & 성유물:** 무기 ★5 `{stats['w5'][0]}/{stats['w5'][1]}` · ★4 `{stats['w4'][0]}/{stats['w4'][1]}` · 성유물 세트 `{a5_own}/{a5_tot}`\n\n"
+                f"• **캐릭터 (5★·4★):** ★5 `{stats['c5'][0]}/{stats['c5'][1]}` · ★4 `{stats['c4'][0]}/{stats['c4'][1]}`\n"
+                f"• **무기 (5★~1★):** ★5 `{stats['w5'][0]}/{stats['w5'][1]}` · ★4 `{stats['w4'][0]}/{stats['w4'][1]}` · ★3 `{w3_own}/{w3_tot}` · ★2~1 `{w21_own}/{w21_tot}`\n"
+                f"• **성유물 세트 (5★~3★):** ★5 `{a5_own}/{a5_tot}` · ★4 `{a4_own}/{a4_tot}` · ★3 `{a3_own}/{a3_tot}`\n\n"
                 f"{list_body}"
             )[:4050],
             color=discord.Color.from_rgb(244, 198, 92),
-        ).set_footer(text=f"페이지 {self.page + 1}/{max_page} • 전체 DB {stats['total_all']}종 실시간 동기화")
+        ).set_footer(text=f"페이지 {self.page + 1}/{max_page} • 공식 DB 전체 {stats['total_all']}종 동기화 완료")
 
 
 class GenshinShopView(core.SafeView):
@@ -1276,6 +1336,7 @@ class GenshinRateView(core.SafeView):
                 f"• **시각별 로테이션:** `⏰ {rot_win}` ({eff.get('banner_name', '')})\n"
                 f"• **픽업 ★★★★★ 캐릭터:** **`{feat['name'] if feat else '-'}`** ({feat['element_emoji'] if feat else ''}{feat['element_name'] if feat else '-'} · {feat['weapon_type_name'] if feat else '-'})\n"
                 f"• **픽업 ★★★★ 캐릭터 (50% 확률업):** `{c4_txt}`\n"
+                f"• **공식 DB 구성:** ★5/★4 캐릭터 · ★4 상시 무기 · ★3 기원 무기 13종 (10회 내 ★4 이상 1회 확정)\n"
                 f"• **기본 5성 확률:** `0.6%` (`74스택`부터 매회 +6% 소프트 천장 · `90스택` 확정)\n"
                 f"• **픽뚫 보정:** 50/50 실패 시 다음 ★5 확정! **포착된 광휘** 시스템 자동 적용 (연속 픽뚫 방지)\n"
                 f"• **공유 규칙:** 캐릭터 이벤트 기원 ①과 ②는 5성 천장·확정·광휘 스택을 공유합니다."
@@ -1287,6 +1348,7 @@ class GenshinRateView(core.SafeView):
                 f"• **픽업 ★★★★★ 무기 ①:** **`{w1['name'] if w1 else '-'}`** ({w1['weapon_type_name'] if w1 else '-'})\n"
                 f"• **픽업 ★★★★★ 무기 ②:** **`{w2['name'] if w2 else '-'}`** ({w2['weapon_type_name'] if w2 else '-'})\n"
                 f"• **픽업 ★★★★ 무기 (75% 확률업):** `{w4_txt}`\n"
+                f"• **공식 DB 구성:** ★5/★4 무기 · ★4 상시 캐릭터 · ★3 기원 무기 13종 (10회 내 ★4 이상 확정)\n"
                 f"• **기본 5성 확률:** `0.7%` (`63스택`부터 매회 +7% 소프트 천장 · `80스택` 확정)\n"
                 f"• **운명의 궤도 (`0/1 ➔ 1/1`):** 원하는 무기 미획득 시 명정 포인트 1 적립, 다음 ★5는 **100% 목표 무기 확정!** (`/원신 운명의궤도`)"
             )
@@ -1296,14 +1358,14 @@ class GenshinRateView(core.SafeView):
                 f"• **시각별 비경 로테이션:** `⏰ {rot_win}`\n"
                 f"• **픽업 ★★★★★ 성유물 세트 ①:** **`{a1['name'] if a1 else '-'}`** ({a1.get('bonus_2p', '-') if a1 else '-'})\n"
                 f"• **픽업 ★★★★★ 성유물 세트 ②:** **`{a2['name'] if a2 else '-'}`** ({a2.get('bonus_2p', '-') if a2 else '-'})\n"
-                f"• **드랍 및 감정 규칙:** 5부위(🌸생명의 꽃 · 🪶죽음의 깃털 · ⏳시간의 모래 · 🏆공간의 성배 · 👑이성의 왕관) 및 주옵션·부옵션 4줄 실시간 감정!\n"
+                f"• **공식 DB 구성:** ★★★★★ · ★★★★ · ★★★ 성유물 세트 (5부위 꽃/깃털/모래/성배/왕관 + 주옵션·부옵션 감정)\n"
                 f"• **기본 5성 확률:** `2.5%` (`35스택` 소프트 · `50스택` 확정 · 픽업 세트 80% 우대)"
             )
         else:
             body = (
                 "• **상시 ★★★★★ 캐릭터(8인):** 진, 다이루크, 치치, 모나, 각청, 타이나리, 데히야, 유메미즈키 미즈키\n"
                 "• **상시 ★★★★★ 무기(10종):** 매의 검, 천공의 검/긍지/마루/두루마리/날개, 늑대의 말로, 화박연, 사풍 원서, 아모스의 활\n"
-                "• **상시 전용 4성 포함:** 엠버 · 케이아 · 리사 획득 가능\n"
+                "• **공식 DB 구성:** ★5/★4 상시 캐릭터 & 무기 (엠버·케이아·리사 포함) · ★3 기원 무기 13종\n"
                 "• **확률:** `0.6%` (`74스택` 소프트 · `90스택` 확정 · 캐릭터/무기 50:50)"
             )
         return discord.Embed(
@@ -1419,6 +1481,7 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
         app_commands.Choice(name="성유물만", value="artifact"),
         app_commands.Choice(name="★5만", value="r5"),
         app_commands.Choice(name="★4만", value="r4"),
+        app_commands.Choice(name="★3이하", value="r3"),
         app_commands.Choice(name="잠금🔒만", value="locked"),
     ])
     async def inventory_cmd(self, interaction: discord.Interaction, 필터: str = "all"):
