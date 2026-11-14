@@ -334,14 +334,13 @@ class CommandRemoteSelect(discord.ui.Select):
             discord.SelectOption(label="🌤️ /날씨", value="weather", description="기상청/ECMWF 초정밀 실시간 날씨·미세먼지·강수확률"),
             discord.SelectOption(label="🔤 /끝말잇기", value="word_chain", description="표준 두음법칙 적용 실시간 끝말잇기 대결 (+150💎)"),
             discord.SelectOption(label="🔫 /러시안룰렛", value="roulette", description="6연발 리볼버 스릴 만점 생존 게임"),
-            discord.SelectOption(label="🪪 /유저정보", value="user_info", description="멤버 가입일, 서버 입장 순번, 역할, 활동량 상세 조회"),
+            discord.SelectOption(label="🏆 /낚시랭킹 (대물 보드)", value="fishing_rank", description="서버 내 물고기 최대 크기(cm)·무게(kg) 순위 & 랭커 정보"),
             discord.SelectOption(label="🎶 /이벤트", value="event_info", description="한섭/일섭 실시간 이벤트 및 가챠 배너 정보"),
             discord.SelectOption(label="🎰 /프로세카뽑기 (10회)", value="pull_10", description="10회 연속 뽑기 (★3 이상 1장 확정 / 2,000💎 소모)"),
             discord.SelectOption(label="🌠 /원신 기원 (10회)", value="genshin_wish", description="원신 5대 배너(캐릭터·무기·성유물·상시) 기원"),
             discord.SelectOption(label="🚄 /스타레일 워프 (10회)", value="hsr_warp", description="붕괴: 스타레일 5대 배너(캐릭터·광추·유물·상시) 워프"),
-            discord.SelectOption(label="🎒 /내캐릭터", value="my_chars", description="뽑은 캐릭터 보관함 & 잠금(🔒) 관리"),
+            discord.SelectOption(label="🎣 /낚시 출조 (호수·강·바다)", value="fishing_cast", description="실제 어종 140종 낚시·입질 미니게임·수족관·최대어 랭킹"),
             discord.SelectOption(label="👗 /의상", value="wardrobe", description="캐릭터 3D 의상 착용·어나더 컬러 및 타 캐릭터 의상 제작"),
-            discord.SelectOption(label="🏆 /마스터랭크", value="master_rank", description="카드 한계 돌파(MR 0~5) 및 어나더 컬러·한정 헤어 해금"),
             discord.SelectOption(label="⚔️ /라이브", value="sekai_live", description="5인 유닛 덱 & 3D 의상 시너지 세카이 라이브 + 스탬프 랠리"),
             discord.SelectOption(label="📖 /카드도감", value="pokedex", description="캐릭터별 수집률(%) 및 미보유 카드 조회"),
             discord.SelectOption(label="🌟 /내프로필", value="profile", description="오시 일러, 덱, 출석, 가챠 통계 프로필 카드"),
@@ -351,7 +350,7 @@ class CommandRemoteSelect(discord.ui.Select):
             discord.SelectOption(label="📋 /디데이목록", value="dday_list", description="등록된 모든 D-Day 전광판 진행 상황 확인"),
             discord.SelectOption(label="💑 /파트너", value="partner", description="연인·친구 파트너 맺기 및 공동 D-Day 관리"),
             discord.SelectOption(label="❓ /도움말", value="help", description="norosi 봇 전체 명령어 카테고리별 상세 도움말"),
-        ]
+        ][:25]
         super().__init__(
             placeholder="🔍 올인원 원클릭 리모컨 (기능 선택)...",
             min_values=1,
@@ -457,6 +456,18 @@ class CommandRemoteSelect(discord.ui.Select):
                 await hsr_cog._handle_warp(interaction, banner_key="char1", count=10, practice_mode=False, skip_animation=False)
             else:
                 await core.safe_send_response(interaction, "❌ 스타레일 워프 모듈이 로드되지 않았습니다.", ephemeral=True)
+        elif val == "fishing_cast":
+            fishing_cog = self.bot_instance.get_cog("FishingCog")
+            if fishing_cog:
+                await fishing_cog._open_cast_hub(interaction)
+            else:
+                await core.safe_send_response(interaction, "❌ 낚시 모듈이 로드되지 않았습니다.", ephemeral=True)
+        elif val == "fishing_rank":
+            await core.safe_defer(interaction)
+            from cogs.fishing import FishingRankingView
+            view = FishingRankingView(interaction.user, guild_id=interaction.guild_id or 0)
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
         elif val == "my_chars":
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
@@ -702,6 +713,14 @@ class QuickMenuHubView(core.SafeView):
         view = TodoTrackerView(interaction.user, profile)
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
+    @discord.ui.button(label="🎣 낚시 출조", style=discord.ButtonStyle.success, row=1)
+    async def btn_fishing(self, interaction: discord.Interaction, button: discord.ui.Button):
+        fishing_cog = self.bot_instance.get_cog("FishingCog")
+        if fishing_cog:
+            await fishing_cog._open_cast_hub(interaction)
+        else:
+            await core.safe_send_response(interaction, "❌ 낚시 모듈이 로드되지 않았습니다.", ephemeral=True)
+
     @discord.ui.button(label="📅 미래시 달력", style=discord.ButtonStyle.primary, row=2)
     async def btn_forecast(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
@@ -765,6 +784,14 @@ class QuickMenuHubView(core.SafeView):
         gacha_cog = self.bot_instance.get_cog("GachaCog")
         if gacha_cog:
             await gacha_cog.my_profile_cmd.callback(gacha_cog, interaction, None)
+
+    @discord.ui.button(label="🐳 낚시 대물랭킹", style=discord.ButtonStyle.secondary, row=3)
+    async def btn_fishing_rank(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        from cogs.fishing import FishingRankingView
+        view = FishingRankingView(interaction.user, guild_id=interaction.guild_id or 0)
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        view.message = msg
 
     @discord.ui.button(label="❓ 도움말", style=discord.ButtonStyle.secondary, row=3)
     async def btn_help(self, interaction: discord.Interaction, button: discord.ui.Button):
