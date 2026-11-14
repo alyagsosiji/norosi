@@ -555,10 +555,11 @@ def reconstruct_safe_view(view_cls_or_name: Union[type[SafeView], str], interact
             if name in ("bot", "bot_instance"):
                 kwargs[name] = interaction.client
             elif name in ("owner",):
-                orig_user = getattr(getattr(interaction, "message", None), "interaction", None)
-                kwargs[name] = getattr(orig_user, "user", None) or interaction.user
+                orig_inter = getattr(getattr(interaction, "message", None), "interaction_metadata", None) or getattr(getattr(interaction, "message", None), "interaction", None)
+                kwargs[name] = getattr(orig_inter, "user", None) or interaction.user
             elif name in ("user", "caller", "member", "viewer", "target_user", "host_user", "author", "host"):
-                kwargs[name] = interaction.user
+                orig_inter = getattr(getattr(interaction, "message", None), "interaction_metadata", None) or getattr(getattr(interaction, "message", None), "interaction", None)
+                kwargs[name] = getattr(orig_inter, "user", None) or interaction.user
             elif name in ("requester", "target"):
                 kwargs[name] = interaction.user
             elif name in ("guild",):
@@ -3202,6 +3203,30 @@ def coerce_dict_like(val) -> dict:
     return {}
 
 
+def coerce_list_like(val) -> list:
+    """
+    Firebase RTDB에서 배열이 숫자 키 dict({"0": {...}, "2": {...}})로 강제 변환된 경우
+    정수 인덱스 순서를 유지하여 리스트로 무손실 복구합니다.
+    """
+    if isinstance(val, list):
+        return [item for item in val if item is not None]
+    if isinstance(val, tuple):
+        return [item for item in val if item is not None]
+    if isinstance(val, dict):
+        items = []
+        for k, v in val.items():
+            if v is None:
+                continue
+            try:
+                idx = int(k)
+            except (TypeError, ValueError):
+                idx = 10**9
+            items.append((idx, str(k), v))
+        items.sort(key=lambda x: (x[0], x[1]))
+        return [x[2] for x in items]
+    return []
+
+
 def as_dict(val) -> dict:
     return val if isinstance(val, dict) else {}
 
@@ -3364,13 +3389,22 @@ def normalize_data(data):
             if not isinstance(fu.get("pokedex"), dict):
                 fu["pokedex"] = coerce_dict_like(fu.get("pokedex"))
             if not isinstance(fu.get("bag"), list):
-                fu["bag"] = []
+                fu["bag"] = [x for x in coerce_list_like(fu.get("bag")) if isinstance(x, dict)]
+            else:
+                fu["bag"] = [x for x in fu["bag"] if isinstance(x, dict)]
             if not isinstance(fu.get("tank"), list):
-                fu["tank"] = []
+                fu["tank"] = [x for x in coerce_list_like(fu.get("tank")) if isinstance(x, dict)]
+            else:
+                fu["tank"] = [x for x in fu["tank"] if isinstance(x, dict)]
             if not isinstance(fu.get("owned_rods"), list):
-                fu["owned_rods"] = ["bamboo"]
+                rods = [str(r) for r in coerce_list_like(fu.get("owned_rods")) if r]
+                fu["owned_rods"] = rods if rods else ["bamboo"]
             if not isinstance(fu.get("owned_reels"), list):
-                fu["owned_reels"] = ["basic_reel"]
+                reels = [str(r) for r in coerce_list_like(fu.get("owned_reels")) if r]
+                fu["owned_reels"] = reels if reels else ["basic_reel"]
+            dq = fu.get("daily_quests")
+            if isinstance(dq, dict) and not isinstance(dq.get("items"), list):
+                dq["items"] = [q for q in coerce_list_like(dq.get("items")) if isinstance(q, dict)]
     data["fishing_users"] = f_users
 
     raw_f_rec = coerce_dict_like(data.get("fishing_records"))
