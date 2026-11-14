@@ -392,6 +392,17 @@ class NorosiBot(commands.Bot):
         await self.ensure_fresh_http_session()
         await super().login(token)
 
+    async def add_cog(self, cog: commands.Cog, /, *, override: bool = False, **kwargs) -> None:
+        cog_name = getattr(cog, "__cog_name__", type(cog).__name__)
+        if not override and self.get_cog(cog_name) is not None:
+            print(
+                f"⚠️ [Cog 중복 등록 방지] '{cog_name}' Cog가 이미 등록되어 있어 기존 Cog를 교체합니다. "
+                "(서버의 cogs/*.py 파일이 최신 버전으로 모두 동기화되었는지 확인해 주세요.)",
+                flush=True,
+            )
+            override = True
+        await super().add_cog(cog, override=override, **kwargs)
+
     async def setup_hook(self):
         # 0. VM 터미널 로그 실시간 캡처 활성화
         self.setup_terminal_log_capture()
@@ -420,9 +431,22 @@ class NorosiBot(commands.Bot):
         for ext in ext_list:
             try:
                 if ext in self.extensions:
-                    await self.reload_extension(ext)
+                    try:
+                        await self.reload_extension(ext)
+                    except Exception:
+                        try:
+                            await self.unload_extension(ext)
+                        except Exception:
+                            pass
+                        await self.load_extension(ext)
                 else:
                     await self.load_extension(ext)
+                if ext == "cogs.gacha" and self.get_cog("GachaCog") is None:
+                    print(
+                        "🚨 [파일 동기화 경고] 'cogs.gacha' 로드 후 GachaCog가 등록되지 않았습니다! "
+                        "서버의 cogs/gacha.py 파일이 최신 버전으로 교체되었는지 확인해 주세요.",
+                        flush=True,
+                    )
             except Exception as e:
                 print(f"⚠️ [{ext}] 확장 모듈 로드 예외: {e}", flush=True)
                 raise
@@ -2121,6 +2145,12 @@ async def main():
                     http_client.connector = None
                 except Exception:
                     pass
+
+        for loaded_ext in list(getattr(bot, "extensions", {}).keys()):
+            try:
+                await bot.unload_extension(loaded_ext)
+            except Exception:
+                pass
 
         try:
             bot.clear()
