@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 import io
 import re
@@ -120,8 +121,28 @@ try:
     requests = _real_requests
 except ImportError:
     requests = _RequestsCompat()
-import discord
-from discord import app_commands
+try:
+    import discord
+    from discord import app_commands
+except ImportError:
+    class _StubView:
+        __view_children_items__: dict = {}
+    class _StubModal:
+        pass
+    class _StubUI:
+        View = _StubView
+        Modal = _StubModal
+        Item = object
+    class _StubUtils:
+        MISSING = object()
+    class _StubDiscord:
+        ui = _StubUI()
+        utils = _StubUtils()
+        InteractionResponded = Exception
+        HTTPException = Exception
+        NotFound = Exception
+    discord = _StubDiscord()  # type: ignore
+    app_commands = None  # type: ignore
 try:
     import yt_dlp
 except ImportError:
