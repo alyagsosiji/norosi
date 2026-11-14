@@ -405,10 +405,17 @@ async def safe_send_response(interaction: discord.Interaction, embed=None, conte
             print(f"⚠️ [safe_send_response 예외] {e}", flush=True)
 
 
-async def safe_edit_response(interaction: discord.Interaction, embed=None, content=None, view=None, attachments=None):
+async def safe_edit_response(
+    interaction: discord.Interaction,
+    embed=None,
+    content=None,
+    view=None,
+    attachments=None,
+    raise_on_error: bool = False,
+):
     """
     interaction 수신/지연(defer) 상태에 맞춰 response.edit_message 또는 edit_original_response / message.edit를
-    안전하게 선택하여 실행합니다. 이미 승인된 경우(40060)에도 완벽 대응합니다.
+    안전하게 선택하여 실행합니다. 이미 승인된 경우(40060) 및 15분 웹훅 만료 시에도 대응합니다.
     """
     kwargs = {}
     if embed is not None:
@@ -420,6 +427,20 @@ async def safe_edit_response(interaction: discord.Interaction, embed=None, conte
     if attachments is not None:
         kwargs["attachments"] = attachments
 
+    msg = getattr(interaction, "message", None) if interaction else None
+    is_eph_msg = bool(getattr(getattr(msg, "flags", None), "ephemeral", False))
+
+    async def _fallback_msg_edit():
+        if msg is not None and not is_eph_msg:
+            try:
+                return await msg.edit(**kwargs)
+            except Exception:
+                ch = getattr(interaction, "channel", None)
+                if ch is not None and hasattr(ch, "get_partial_message"):
+                    return await ch.get_partial_message(msg.id).edit(**kwargs)
+                raise
+        raise RuntimeError("No non-ephemeral message to fallback edit")
+
     try:
         if interaction and getattr(interaction, "response", None) and interaction.response.is_done():
             return await interaction.edit_original_response(**kwargs)
@@ -427,28 +448,36 @@ async def safe_edit_response(interaction: discord.Interaction, embed=None, conte
             return await interaction.response.edit_message(**kwargs)
     except (discord.InteractionResponded, discord.HTTPException) as e:
         if isinstance(e, discord.HTTPException) and getattr(e, "code", None) != 40060:
-            print(f"⚠️ [safe_edit_response HTTP 예외] {e}", flush=True)
-            return None
+            try:
+                return await _fallback_msg_edit()
+            except Exception as fb_err:
+                print(f"⚠️ [safe_edit_response HTTP 예외] {e}", flush=True)
+                if raise_on_error:
+                    raise e from fb_err
+                return None
         try:
             return await interaction.edit_original_response(**kwargs)
-        except Exception:
+        except Exception as inner_e:
             try:
-                if interaction.message:
-                    return await interaction.message.edit(**kwargs)
+                return await _fallback_msg_edit()
             except Exception:
-                pass
+                if raise_on_error:
+                    raise inner_e
     except Exception as e:
         if "40060" in str(e) or "already been acknowledged" in str(e):
             try:
                 return await interaction.edit_original_response(**kwargs)
-            except Exception:
+            except Exception as inner_e:
                 try:
-                    if interaction.message:
-                        return await interaction.message.edit(**kwargs)
+                    return await _fallback_msg_edit()
                 except Exception:
-                    pass
+                    if raise_on_error:
+                        raise inner_e
         else:
             print(f"⚠️ [safe_edit_response 예외] {e}", flush=True)
+            if raise_on_error:
+                raise
+    return None
 
 
 SAFE_VIEW_REGISTRY: dict[str, type["SafeView"]] = {}
@@ -548,26 +577,55 @@ def reconstruct_safe_view(view_cls_or_name: Union[type[SafeView], str], interact
 
     try:
         sig = inspect.signature(view_cls.__init__)
+        cached_data = None
+
+        def _data():
+            nonlocal cached_data
+            if cached_data is None:
+                cached_data = get_cached_data()
+            return cached_data
+
+        orig_inter = getattr(getattr(interaction, "message", None), "interaction_metadata", None) or getattr(getattr(interaction, "message", None), "interaction", None)
+        orig_user = getattr(orig_inter, "user", None) or interaction.user
+
         kwargs = {}
         for name, p in sig.parameters.items():
             if name == "self":
                 continue
             if name in ("bot", "bot_instance"):
                 kwargs[name] = interaction.client
+            elif name in ("interaction",):
+                kwargs[name] = interaction
             elif name in ("owner",):
-                orig_inter = getattr(getattr(interaction, "message", None), "interaction_metadata", None) or getattr(getattr(interaction, "message", None), "interaction", None)
-                kwargs[name] = getattr(orig_inter, "user", None) or interaction.user
+                kwargs[name] = orig_user
             elif name in ("user", "caller", "member", "viewer", "target_user", "host_user", "author", "host"):
-                orig_inter = getattr(getattr(interaction, "message", None), "interaction_metadata", None) or getattr(getattr(interaction, "message", None), "interaction", None)
-                kwargs[name] = getattr(orig_inter, "user", None) or interaction.user
+                kwargs[name] = orig_user
             elif name in ("requester", "target"):
                 kwargs[name] = interaction.user
             elif name in ("guild",):
                 kwargs[name] = interaction.guild
             elif name in ("guild_id",):
                 kwargs[name] = interaction.guild.id if interaction.guild else 0
+            elif name in ("channel",):
+                kwargs[name] = interaction.channel
+            elif name in ("channel_id",):
+                kwargs[name] = getattr(interaction, "channel_id", None)
             elif name in ("data",):
-                kwargs[name] = get_cached_data()
+                kwargs[name] = _data()
+            elif name in ("ai_cog",):
+                kwargs[name] = interaction.client.get_cog("AiCog") if hasattr(interaction.client, "get_cog") else None
+            elif name in ("char_key",):
+                kwargs[name] = safe_get_dict(_data(), "user_ai_config", str(orig_user.id)).get("default_char", "kanade")
+            elif name in ("s_ddays",):
+                kwargs[name] = safe_get_dict(_data(), "secret_ddays", str(orig_user.id))
+            elif name in ("partner_id",):
+                p_val = safe_get_dict(_data(), "partners", str(orig_user.id)).get("partner_id", "")
+                kwargs[name] = str(p_val or "")
+            elif name in ("ddays",):
+                kwargs[name] = as_dict(_data().get("ddays"))
+            elif name in ("guild_cfg",):
+                gid_s = str(interaction.guild.id if interaction.guild else 0)
+                kwargs[name] = safe_get_dict(_data(), "server_logs", gid_s)
             elif name in ("card_list", "items", "options", "all_prob_cards", "stats_list", "first_set", "initial_drawn"):
                 kwargs[name] = []
             elif name in ("stats", "profile", "user_cfg", "config", "cal_info", "game", "card", "pickup_cfg", "preview_info", "hall_of_fame", "req_card", "tgt_card", "req_cards", "tgt_cards"):
@@ -3526,11 +3584,11 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
         if not isinstance(rem_prof, dict):
             merged["user_profiles"][u_key] = local_prof
         else:
-            if local_prof.get("crystals", 0) > rem_prof.get("crystals", 0):
-                rem_prof["crystals"] = local_prof["crystals"]
+            if int(local_prof.get("crystals", 0) or 0) > int(rem_prof.get("crystals", 0) or 0):
+                rem_prof["crystals"] = int(local_prof.get("crystals", 0) or 0)
             l_att = as_dict(local_prof.get("attendance"))
             r_att = as_dict(rem_prof.get("attendance"))
-            if l_att.get("total_days", 0) > r_att.get("total_days", 0):
+            if int(l_att.get("total_days", 0) or 0) > int(r_att.get("total_days", 0) or 0):
                 rem_prof["attendance"] = copy.deepcopy(l_att)
             l_pls = local_prof.get("playlists") if isinstance(local_prof.get("playlists"), list) else []
             r_pls = rem_prof.get("playlists") if isinstance(rem_prof.get("playlists"), list) else []
@@ -3546,7 +3604,7 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                 if not isinstance(l_rec, dict):
                     continue
                 r_rec = rem_g_att.get(u_key)
-                if not isinstance(r_rec, dict) or l_rec.get("total_days", 0) > r_rec.get("total_days", 0):
+                if not isinstance(r_rec, dict) or int(l_rec.get("total_days", 0) or 0) > int(r_rec.get("total_days", 0) or 0):
                     rem_g_att[u_key] = copy.deepcopy(l_rec)
 
     for g_key, local_g_users in as_dict(local_norm.get("gacha_users")).items():
@@ -3573,7 +3631,7 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                     if not isinstance(local_u, dict):
                         continue
                     rem_u = rem_g.get(u_key)
-                    if not isinstance(rem_u, dict) or local_u.get("total_pulls", 0) > rem_u.get("total_pulls", 0):
+                    if not isinstance(rem_u, dict) or int(local_u.get("total_pulls", 0) or 0) > int(rem_u.get("total_pulls", 0) or 0):
                         rem_g[u_key] = copy.deepcopy(local_u)
 
     for hof_key in ("genshin_hall_of_fame", "hsr_hall_of_fame"):
@@ -3602,7 +3660,7 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                 if not isinstance(local_fu, dict):
                     continue
                 rem_fu = rem_g.get(u_key)
-                if not isinstance(rem_fu, dict) or local_fu.get("total_catches", 0) > rem_fu.get("total_catches", 0):
+                if not isinstance(rem_fu, dict) or int(local_fu.get("total_catches", 0) or 0) > int(rem_fu.get("total_catches", 0) or 0):
                     rem_g[u_key] = copy.deepcopy(local_fu)
 
     for g_key, local_f_rec in as_dict(local_norm.get("fishing_records")).items():
@@ -3619,7 +3677,7 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                     for metric_k in ("max_cm", "max_kg"):
                         l_m = l_obj.get(metric_k)
                         r_m = rem_rec[fid].get(metric_k)
-                        if isinstance(l_m, dict) and (not isinstance(r_m, dict) or l_m.get("val", 0) > r_m.get("val", 0)):
+                        if isinstance(l_m, dict) and (not isinstance(r_m, dict) or float(l_m.get("val", 0) or 0) > float(r_m.get("val", 0) or 0)):
                             rem_rec[fid][metric_k] = copy.deepcopy(l_m)
 
     for p_key in ("genshin_pickup", "hsr_pickup"):
