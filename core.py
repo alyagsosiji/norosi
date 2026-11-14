@@ -54,6 +54,7 @@ class _RequestsCompat:
     @staticmethod
     def get(url, headers=None, params=None, auth=None, timeout=5, **kwargs):
         headers = dict(headers or {})
+        headers.setdefault("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
         _RequestsCompat._apply_auth(headers, auth)
         if params:
             query = urllib.parse.urlencode(params)
@@ -70,6 +71,7 @@ class _RequestsCompat:
     @staticmethod
     def post(url, data=None, json_data=None, json=None, headers=None, auth=None, timeout=5, **kwargs):
         headers = dict(headers or {})
+        headers.setdefault("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
         _RequestsCompat._apply_auth(headers, auth)
         body = None
         j_data = json if json is not None else json_data
@@ -97,6 +99,7 @@ class _RequestsCompat:
     @staticmethod
     def put(url, json_data=None, json=None, headers=None, auth=None, timeout=5, **kwargs):
         headers = dict(headers or {})
+        headers.setdefault("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
         _RequestsCompat._apply_auth(headers, auth)
         body = None
         j_data = json if json is not None else json_data
@@ -119,7 +122,10 @@ except ImportError:
     requests = _RequestsCompat()
 import discord
 from discord import app_commands
-import yt_dlp
+try:
+    import yt_dlp
+except ImportError:
+    yt_dlp = None
 
 # ==========================================
 # ==========================================
@@ -553,6 +559,8 @@ def reconstruct_safe_view(view_cls_or_name: Union[type[SafeView], str], interact
                 kwargs[name] = cogs.music.get_voice_player(interaction.client, interaction.guild)
             elif p.default is not inspect.Parameter.empty:
                 kwargs[name] = p.default
+            else:
+                kwargs[name] = None
 
         inst = view_cls(**kwargs)
         if interaction.message:
@@ -2771,6 +2779,8 @@ DEFAULT_CONFIG = {
         "weapon_1": None,
         "weapon_2": None,
         "weapon_4_ids": [],
+        "artifact_1": None,
+        "artifact_2": None,
         "banner_name": "기본 모험 기원",
         "version_label": None,
         "updated_at": None
@@ -2784,6 +2794,8 @@ DEFAULT_CONFIG = {
         "lc_1": None,
         "lc_2": None,
         "lc_4_ids": [],
+        "relic_1": None,
+        "relic_2": None,
         "banner_name": "별을 향한 도약",
         "version_label": None,
         "updated_at": None
@@ -6973,5 +6985,3 @@ def remove_reaction_role_entry(data: dict, message_id: int) -> bool:
         del rr_map[mid_str]
         return True
     return False
-
-
