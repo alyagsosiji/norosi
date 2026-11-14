@@ -337,6 +337,8 @@ class CommandRemoteSelect(discord.ui.Select):
             discord.SelectOption(label="🪪 /유저정보", value="user_info", description="멤버 가입일, 서버 입장 순번, 역할, 활동량 상세 조회"),
             discord.SelectOption(label="🎶 /이벤트", value="event_info", description="한섭/일섭 실시간 이벤트 및 가챠 배너 정보"),
             discord.SelectOption(label="🎰 /프로세카뽑기 (10회)", value="pull_10", description="10회 연속 뽑기 (★3 이상 1장 확정 / 2,000💎 소모)"),
+            discord.SelectOption(label="🌠 /원신 기원 (10회)", value="genshin_wish", description="원신 5대 배너(캐릭터·무기·성유물·상시) 기원"),
+            discord.SelectOption(label="🚄 /스타레일 워프 (10회)", value="hsr_warp", description="붕괴: 스타레일 5대 배너(캐릭터·광추·유물·상시) 워프"),
             discord.SelectOption(label="🎒 /내캐릭터", value="my_chars", description="뽑은 캐릭터 보관함 & 잠금(🔒) 관리"),
             discord.SelectOption(label="👗 /의상", value="wardrobe", description="캐릭터 3D 의상 착용·어나더 컬러 및 타 캐릭터 의상 제작"),
             discord.SelectOption(label="🏆 /마스터랭크", value="master_rank", description="카드 한계 돌파(MR 0~5) 및 어나더 컬러·한정 헤어 해금"),
@@ -347,7 +349,6 @@ class CommandRemoteSelect(discord.ui.Select):
             discord.SelectOption(label="🎧 /음악지금추천", value="music_now", description="현재 설정 조건으로 세카이 감성 음악 선곡"),
             discord.SelectOption(label="💿 /플레이리스트", value="playlist", description="유튜브·스포티파이·사클 나만의 음악 플리 제작 및 공유"),
             discord.SelectOption(label="📋 /디데이목록", value="dday_list", description="등록된 모든 D-Day 전광판 진행 상황 확인"),
-            discord.SelectOption(label="💌 /비밀디데이", value="dday_secret", description="나만 볼 수 있는 비밀 D-Day & 타임캡슐 DM"),
             discord.SelectOption(label="💑 /파트너", value="partner", description="연인·친구 파트너 맺기 및 공동 D-Day 관리"),
             discord.SelectOption(label="❓ /도움말", value="help", description="norosi 봇 전체 명령어 카테고리별 상세 도움말"),
         ]
@@ -444,6 +445,18 @@ class CommandRemoteSelect(discord.ui.Select):
             count = 1 if val == "pull_1" else 10
             repull_view = GachaPullAgainView(interaction.user)
             await repull_view._handle_repull(interaction, count)
+        elif val == "genshin_wish":
+            genshin_cog = self.bot_instance.get_cog("GenshinCog")
+            if genshin_cog:
+                await genshin_cog._handle_wish(interaction, banner_key="char1", count=10, practice_mode=False, skip_animation=False)
+            else:
+                await core.safe_send_response(interaction, "❌ 원신 기원 모듈이 로드되지 않았습니다.", ephemeral=True)
+        elif val == "hsr_warp":
+            hsr_cog = self.bot_instance.get_cog("HSRCog")
+            if hsr_cog:
+                await hsr_cog._handle_warp(interaction, banner_key="char1", count=10, practice_mode=False, skip_animation=False)
+            else:
+                await core.safe_send_response(interaction, "❌ 스타레일 워프 모듈이 로드되지 않았습니다.", ephemeral=True)
         elif val == "my_chars":
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
@@ -3266,4 +3279,3 @@ class ReminderHubView(core.SafeView):
 
 async def setup(bot):
     await bot.add_cog(DDayCog(bot))
-
