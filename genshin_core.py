@@ -13,13 +13,19 @@ import threading
 from collections import OrderedDict
 from typing import Optional
 
-from PIL import Image, ImageDraw, ImageFilter
+try:
+    from PIL import Image, ImageDraw, ImageFilter
+except ImportError:
+    Image = None
+    ImageDraw = None
+    ImageFilter = None
+
 import core
 
 requests = core.requests
 
 GENSHIN_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "genshin_kr_cache.json")
-GENSHIN_CACHE_TTL = 60 * 60 * 24  # 24시간
+GENSHIN_CACHE_TTL = 60 * 60 * 12  # 12시간 주기 자동 갱신
 
 _GENSHIN_DB_LOCK = threading.Lock()
 _GENSHIN_DETAIL_LOCK = threading.Lock()
@@ -27,6 +33,7 @@ _GENSHIN_IMG_LOCK = threading.Lock()
 
 GENSHIN_CHARS: list[dict] = []
 GENSHIN_WEAPONS: list[dict] = []
+GENSHIN_ARTIFACTS: list[dict] = []
 GENSHIN_ALL_ITEMS: dict[str, dict] = {}
 _GENSHIN_LAST_FETCH: float = 0.0
 
@@ -95,6 +102,7 @@ GENSHIN_WEAPON_TYPE_MAP = {
     "WEAPON_POLE": {"name": "장병기", "emoji": "🔱"},
     "WEAPON_BOW": {"name": "활", "emoji": "🏹"},
     "WEAPON_CATALYST": {"name": "법구", "emoji": "📖"},
+    "ARTIFACT_SET": {"name": "성유물", "emoji": "🏺"},
 }
 
 GENSHIN_REGION_MAP = {
@@ -135,6 +143,26 @@ GENSHIN_STAT_MAP = {
     "NONE": "-",
 }
 
+# 성유물 5부위 및 주옵션/부옵션 테이블 (성유물 비경 기원용)
+GENSHIN_ARTIFACT_SLOTS = [
+    {"slot": "생명의 꽃", "emoji": "🌸", "main_pool": ["HP (고정)"]},
+    {"slot": "죽음의 깃털", "emoji": "🪶", "main_pool": ["공격력 (고정)"]},
+    {"slot": "시간의 모래", "emoji": "⏳", "main_pool": ["공격력%", "원소 충전 효율%", "원소 마스터리", "HP%", "방어력%"]},
+    {"slot": "공간의 성배", "emoji": "🏆", "main_pool": ["원소 피해 보너스%", "공격력%", "원소 마스터리", "HP%", "물리 피해 보너스%"]},
+    {"slot": "이성의 왕관", "emoji": "👑", "main_pool": ["치명타 확률%", "치명타 피해%", "치유 보너스%", "원소 마스터리", "공격력%"]},
+]
+
+GENSHIN_ARTIFACT_SUB_POOL = [
+    "치명타 확률+3.9%",
+    "치명타 피해+7.8%",
+    "공격력+5.8%",
+    "원소 마스터리+23",
+    "원소 충전 효율+6.5%",
+    "HP+5.8%",
+    "방어력+7.3%",
+    "공격력+19",
+]
+
 # 상시 5성 캐릭터 8종 (50/50 실패 및 상시 기원)
 GENSHIN_STD_5_CHARS = {
     "10000003",  # 진
@@ -161,6 +189,62 @@ GENSHIN_STD_5_WEAPONS = {
     "13502", "13505",  # 천공의 마루, 화박연
     "14501", "14502",  # 천공의 두루마리, 사풍 원서
     "15501", "15502",  # 천공의 날개, 아모스의 활
+}
+
+# 임무/스토리 지급 비가챠 5성 무기 제외 목록
+GENSHIN_NON_GACHA_5_WEAPONS = {
+    "11521",  # 별빛검 (스네즈나야 월드 임무 무기)
+}
+
+# 5성 캐릭터별 전용 5성 무기 자동 매칭 테이블
+GENSHIN_SIGNATURE_WEAPONS = {
+    "10000136": "14525",  # 미탸 -> 별빛 계시
+    "10000140": "14524",  # 보댜니차 -> 파도의 찬송가
+    "10000143": "11522",  # 베스나 -> 나비의 우화
+    "10000150": "11520",  # 오데트 -> 백조의 호수
+    "10000133": "12516",  # 산드로네 -> 초월의 열쇠
+    "10000129": "13517",  # 로엔 -> 재앙
+    "10000131": "14523",  # 니콜 -> 일곱빛 계시
+    "10000130": "15516",  # 린네아 -> 서리 맺힌 금빛 가지
+    "10000128": "12515",  # 바르카 -> 늑대의 무용담
+    "10000126": "11519",  # 자백 -> 신월의 달빛
+    "10000125": "14522",  # 콜롬비나 -> 막간의 야상곡
+    "10000123": "11518",  # 두린 -> 검은 침식
+    "10000122": "14521",  # 네페르 -> 진실의 함
+    "10000120": "13516",  # 플린스 -> 피로 물든 성
+    "10000119": "14520",  # 라우마 -> 밤을 엮는 거울
+    "10000116": "13515",  # 이네파 -> 파멸의 빛고리
+    "10000114": "11517",  # 스커크 -> 창백한 섬광
+    "10000112": "13514",  # 에스코피에 -> 맛의 지휘자
+    "10000111": "14519",  # 바레사 -> 빛나는 마음
+    "10000109": "14518",  # 유메미즈키 미즈키 -> 나른한 새해
+    "10000106": "12514",  # 마비카 -> 타오르는 천 개의 태양
+    "10000107": "14517",  # 시틀라리 -> 별지기의 시선
+    "10000104": "15514",  # 차스카 -> 붉은 깃 별독수리
+    "10000103": "11516",  # 실로닌 -> 바위산을 맴도는 노래
+    "10000101": "12513",  # 키니치 -> 산왕의 엄니
+    "10000102": "14516",  # 말라니 -> 서핑 타임
+    "10000099": "13513",  # 에밀리 -> 등방울꽃의 애가
+    "10000095": "15513",  # 시그윈 -> 심금을 울리는 하얀 비
+    "10000098": "11515",  # 클로린드 -> 사면
+    "10000096": "13512",  # 아를레키노 -> 붉은 달의 형상
+    "10000094": "11514",  # 치오리 -> 우라쿠의 미스기리
+    "10000093": "14515",  # 한운 -> 학의 여음
+    "10000091": "12512",  # 나비아 -> 판정
+    "10000089": "11513",  # 푸리나 -> 고요히 샘솟는 빛
+    "10000087": "14514",  # 느비예트 -> 영원히 샘솟는 법전
+    "10000086": "14513",  # 라이오슬리 -> 현금 흐름 감독
+    "10000084": "15512",  # 리니 -> 최초의 대마술
+    "10000078": "11512",  # 알하이탐 -> 잎을 가르는 빛
+    "10000075": "14512",  # 방랑자 -> 툴레이툴라의 기억
+    "10000073": "14511",  # 나히다 -> 떠오르는 천일 밤의 꿈
+    "10000070": "11511",  # 닐루 -> 성현의 열쇠
+    "10000052": "13509",  # 라이덴 쇼군 -> 예초의 번개
+    "10000002": "11509",  # 카미사토 아야카 -> 안개를 가르는 회광
+    "10000046": "13501",  # 호두 -> 호마의 지팡이
+    "10000047": "11503",  # 카에데하라 카즈하 -> 오래된 자유의 서약
+    "10000030": "13504",  # 종려 -> 관홍의 창
+    "10000022": "15503",  # 벤티 -> 종말 탄식의 노래
 }
 
 # 기원 드랍 3성 무기 13종 (나머지 11종은 필드/상자 전용)
@@ -233,6 +317,17 @@ GENSHIN_BANNER_CONFIGS = {
         "color": (255, 159, 67),
         "desc": "픽업 5성 무기 2종 75% (80천장 · 63소프트 · 운명의 궤도 1/1 확정!)",
     },
+    "artifact": {
+        "name": "🏺 축성 비경 기원 (성유물 탐색)",
+        "short_name": "축성 비경 (성유물)",
+        "currency_name": "농축 레진",
+        "hard_pity": 50,
+        "soft_start": 35,
+        "base_5_pct": 2.5,
+        "base_4_pct": 18.0,
+        "color": (88, 214, 168),
+        "desc": "시각별 로테이션 5성 성유물 세트 80% 픽업 (50천장 · 35소프트 · 5부위 & 주/부옵션 자동 감정!)",
+    },
     "standard": {
         "name": "🌌 세상 여행 (상시 기원)",
         "short_name": "상시 기원",
@@ -246,7 +341,7 @@ GENSHIN_BANNER_CONFIGS = {
     },
 }
 
-# 스타라이트 상점 6개월 순환 4성 캐릭터 로테이션 (매월 2명씩 1·7 / 2·8 / 3·9 / 4·10 / 5·11 / 6·12월)
+# 스타라이트 상점 6개월 순환 4성 캐릭터 로테이션
 GENSHIN_STARGLITTER_CHAR_ROTATION = [
     ("10000031", "10000023"),  # 1·7월: 피슬 · 향릉
     ("10000024", "10000034"),  # 2·8월: 북두 · 노엘
@@ -256,57 +351,145 @@ GENSHIN_STARGLITTER_CHAR_ROTATION = [
     ("10000014", "10000015"),  # 6·12월: 바바라 · 케이아
 ]
 
+# 시각별 로테이션용 대표 5성 캐릭터 페어 & 성유물 비경 페어
+GENSHIN_TIME_ROTATION_CHAR_PAIRS = [
+    ("10000136", "10000140", "스네즈나야 뇌광 & 파도의 찬송 (미탸 / 보댜니차)"),
+    ("10000143", "10000150", "스네즈나야 나비 & 백조의 호수 (베스나 / 오데트)"),
+    ("10000133", "10000125", "우인단 집행관의 귀환 (산드로네 / 콜롬비나)"),
+    ("10000128", "10000123", "몬드의 대단장 & 붉은 용 (바르카 / 두린)"),
+    ("10000131", "10000130", "티바트 계시 & 노드크라이 박물학 (니콜 / 린네아)"),
+    ("10000126", "10000122", "노드크라이 신월 & 진실의 함 (자백 / 네페르)"),
+    ("10000120", "10000119", "노드크라이 밤의 등불 & 달거울 (플린스 / 라우마)"),
+    ("10000114", "10000112", "심연의 검귀 & 폰타인 미식 지휘자 (스커크 / 에스코피에)"),
+    ("10000106", "10000107", "나타 불의 신 & 밤바람의 별지기 (마비카 / 시틀라리)"),
+    ("10000089", "10000087", "폰타인 물의 신 & 최고 심판관 (푸리나 / 느비예트)"),
+    ("10000052", "10000096", "이나즈마 번개의 신 & 붉은 달 (라이덴 쇼군 / 아를레키노)"),
+    ("10000073", "10000078", "수메르 지혜의 신 & 서기관 (나히다 / 알하이탐)"),
+]
+
+GENSHIN_TIME_ROTATION_ARTIFACT_PAIRS = [
+    ("15048", "15047", "용광로가 빚은 심장 & 핏빛 증표 비경"),
+    ("15046", "15045", "그림자 속 산산조각 난 꿈 & 하늘의 은총 비경"),
+    ("15044", "15043", "바람이 시작되는 날 & 샛별과 달의 여명 비경"),
+    ("15042", "15041", "달을 엮는 밤노래 & 하늘 경계가 드러난 밤 비경"),
+    ("15040", "15039", "깊은 회랑의 피날레 & 긴 밤의 맹세 비경"),
+    ("15038", "15037", "흑요석 비전 & 잿더미 성 용사 두루마리 비경"),
+    ("15036", "15035", "그림자 사냥꾼 & 황금 극단 비경"),
+    ("15027", "15026", "절연의 기치 & 청록색 그림자 비경"),
+]
+
 # 대표 픽업 프리셋 (봇주인 픽업설정용)
 GENSHIN_BANNER_PRESETS = {
-    "latest": {
-        "label": "🌟 최신 캐릭터 자동 연동",
-        "banner_name": "최신 버전 기원",
+    "time_rotation": {
+        "label": "⏰ 실시간 시각별 자동 로테이션 (캐릭터·무기·성유물)",
+        "banner_name": "티바트 시각별 라이브 로테이션",
+        "mode": "time_rotation",
         "char1": None,
         "char2": None,
         "char_4_ids": [],
         "weapon_1": None,
         "weapon_2": None,
+        "artifact_1": None,
+        "artifact_2": None,
+    },
+    "latest": {
+        "label": "🌟 최신 캐릭터 자동 연동 (미탸 / 보댜니차)",
+        "banner_name": "최신 버전 기원",
+        "mode": "latest",
+        "char1": None,
+        "char2": None,
+        "char_4_ids": [],
+        "weapon_1": None,
+        "weapon_2": None,
+        "artifact_1": "15048",
+        "artifact_2": "15047",
+    },
+    "snezhnaya_star": {
+        "label": "❄️ 스네즈나야 & 우인단 (미탸 / 산드로네)",
+        "banner_name": "별빛 계시 & 거울 속 자동인형",
+        "mode": "preset",
+        "char1": "10000136",  # 미탸
+        "char2": "10000133",  # 산드로네
+        "char_4_ids": ["10000137", "10000148", "10000132"],  # 발레리, 알료샤, 프루네
+        "weapon_1": "14525",  # 별빛 계시
+        "weapon_2": "12516",  # 초월의 열쇠
+        "artifact_1": "15048",
+        "artifact_2": "15047",
+    },
+    "nodkrai_moon": {
+        "label": "🌙 노드크라이 공월 & 대단장 (콜롬비나 / 바르카)",
+        "banner_name": "돌아온 공월 & 북풍의 늑대",
+        "mode": "preset",
+        "char1": "10000125",  # 콜롬비나
+        "char2": "10000128",  # 바르카
+        "char_4_ids": ["10000127", "10000124", "10000121"],  # 일루가, 야호다, 아이노
+        "weapon_1": "14522",  # 막간의 야상곡
+        "weapon_2": "12515",  # 늑대의 무용담
+        "artifact_1": "15042",
+        "artifact_2": "15041",
     },
     "fontaine_archon": {
         "label": "💧 폰타인 물의 신 & 최고 심판관 (푸리나 / 느비예트)",
         "banner_name": "뭇별의 노래 & 궁정의 물결",
+        "mode": "preset",
         "char1": "10000089",  # 푸리나
         "char2": "10000087",  # 느비예트
         "char_4_ids": ["10000088", "10000025", "10000031"],  # 샤를로트, 행추, 피슬
         "weapon_1": "11513",  # 고요히 샘솟는 빛
         "weapon_2": "14514",  # 영원히 샘솟는 법전
+        "artifact_1": "15036",
+        "artifact_2": "15035",
     },
     "natlan_archon": {
         "label": "🔥 나타 불의 신 & 밤바람 (마비카 / 시틀라리)",
         "banner_name": "태양을 품은 불꽃 & 별빛 장막",
+        "mode": "preset",
         "char1": "10000106",  # 마비카
         "char2": "10000107",  # 시틀라리
         "char_4_ids": ["10000100", "10000032", "10000068"],  # 카치나, 베넷, 도리
         "weapon_1": "12514",  # 타오르는 천 개의 태양
         "weapon_2": "14517",  # 별지기의 시선
+        "artifact_1": "15038",
+        "artifact_2": "15037",
     },
     "inazuma_thunder": {
         "label": "⚡ 이나즈마 번개의 신 & 우인단 (라이덴 쇼군 / 아를레키노)",
         "banner_name": "영원의 정토 & 붉은 달의 그림자",
+        "mode": "preset",
         "char1": "10000052",  # 라이덴 쇼군
         "char2": "10000096",  # 아를레키노
         "char_4_ids": ["10000056", "10000090", "10000032"],  # 쿠죠 사라, 슈브르즈, 베넷
         "weapon_1": "13509",  # 예초의 번개
         "weapon_2": "13512",  # 붉은 달의 형상
+        "artifact_1": "15027",
+        "artifact_2": "15036",
     },
     "sumeru_dendro": {
         "label": "🌿 수메르 풀의 신 & 유랑자 (나히다 / 방랑자)",
         "banner_name": "지혜의 달빛 & 부평초의 노래",
+        "mode": "preset",
         "char1": "10000073",  # 나히다
         "char2": "10000075",  # 방랑자
         "char_4_ids": ["10000076", "10000074", "10000065"],  # 파루잔, 레일라, 쿠키 시노부
         "weapon_1": "14511",  # 떠오르는 천일 밤의 꿈
         "weapon_2": "14512",  # 툴레이툴라의 기억
+        "artifact_1": "15026",
+        "artifact_2": "15027",
     },
 }
 
-# 오프라인/네트워크 장애 대비 내장 최소 폴백 데이터
+# 오프라인/네트워크 장애 대비 내장 최신 폴백 데이터
 GENSHIN_EMBEDDED_FALLBACK_CHARS = [
+    {"id": "10000136", "kind": "char", "name": "미탸", "rank": 5, "element": "Electric", "weapon_type": "WEAPON_CATALYST", "region": "SNEZHNAYA_STAR", "special_prop": "FIGHT_PROP_CRITICAL_HURT", "icon": "UI_AvatarIcon_Mitya", "release": 1793656800, "pool_type": "한정"},
+    {"id": "10000140", "kind": "char", "name": "보댜니차", "rank": 5, "element": "Water", "weapon_type": "WEAPON_CATALYST", "region": "SNEZHNAYA", "special_prop": "FIGHT_PROP_HP_PERCENT", "icon": "UI_AvatarIcon_Vodyanitsa", "release": 1790024400, "pool_type": "한정"},
+    {"id": "10000143", "kind": "char", "name": "베스나", "rank": 5, "element": "Wind", "weapon_type": "WEAPON_SWORD_ONE_HAND", "region": "SNEZHNAYA_STAR", "special_prop": "FIGHT_PROP_CRITICAL_HURT", "icon": "UI_AvatarIcon_Vesna", "release": 1790024400, "pool_type": "한정"},
+    {"id": "10000150", "kind": "char", "name": "오데트", "rank": 5, "element": "Ice", "weapon_type": "WEAPON_SWORD_ONE_HAND", "region": "SNEZHNAYA_STAR", "special_prop": "FIGHT_PROP_CRITICAL", "icon": "UI_AvatarIcon_Odette", "release": 1786395600, "pool_type": "한정"},
+    {"id": "10000133", "kind": "char", "name": "산드로네", "rank": 5, "element": "Ice", "weapon_type": "WEAPON_CLAYMORE", "region": "SNEZHNAYA_STAR", "special_prop": "FIGHT_PROP_CRITICAL_HURT", "icon": "UI_AvatarIcon_MarionetteNew", "release": 1782766800, "pool_type": "한정"},
+    {"id": "10000128", "kind": "char", "name": "바르카", "rank": 5, "element": "Wind", "weapon_type": "WEAPON_CLAYMORE", "region": "MONDSTADT", "special_prop": "FIGHT_PROP_CRITICAL", "icon": "UI_AvatarIcon_Varka", "release": 1771884000, "pool_type": "한정"},
+    {"id": "10000125", "kind": "char", "name": "콜롬비나", "rank": 5, "element": "Water", "weapon_type": "WEAPON_CATALYST", "region": "NODKRAI", "special_prop": "FIGHT_PROP_CRITICAL_HURT", "icon": "UI_AvatarIcon_Columbina", "release": 1768255200, "pool_type": "한정"},
+    {"id": "10000114", "kind": "char", "name": "스커크", "rank": 5, "element": "Ice", "weapon_type": "WEAPON_SWORD_ONE_HAND", "region": "OMNI_SCOURGE", "special_prop": "FIGHT_PROP_CRITICAL", "icon": "UI_AvatarIcon_SkirkNew", "release": 1750107600, "pool_type": "한정"},
+    {"id": "10000106", "kind": "char", "name": "마비카", "rank": 5, "element": "Fire", "weapon_type": "WEAPON_CLAYMORE", "region": "NATLAN", "special_prop": "FIGHT_PROP_CRITICAL_HURT", "icon": "UI_AvatarIcon_Mavuika", "release": 1735596000, "pool_type": "한정"},
+    {"id": "10000107", "kind": "char", "name": "시틀라리", "rank": 5, "element": "Ice", "weapon_type": "WEAPON_CATALYST", "region": "NATLAN", "special_prop": "FIGHT_PROP_ELEMENT_MASTERY", "icon": "UI_AvatarIcon_Citlali", "release": 1735596000, "pool_type": "한정"},
     {"id": "10000089", "kind": "char", "name": "푸리나", "rank": 5, "element": "Water", "weapon_type": "WEAPON_SWORD_ONE_HAND", "region": "FONTAINE", "special_prop": "FIGHT_PROP_CRITICAL", "icon": "UI_AvatarIcon_Furina", "release": 1699416000, "pool_type": "한정"},
     {"id": "10000087", "kind": "char", "name": "느비예트", "rank": 5, "element": "Water", "weapon_type": "WEAPON_CATALYST", "region": "FONTAINE", "special_prop": "FIGHT_PROP_CRITICAL_HURT", "icon": "UI_AvatarIcon_Neuvillette", "release": 1695787200, "pool_type": "한정"},
     {"id": "10000052", "kind": "char", "name": "라이덴 쇼군", "rank": 5, "element": "Electric", "weapon_type": "WEAPON_POLE", "region": "INAZUMA", "special_prop": "FIGHT_PROP_CHARGE_EFFICIENCY", "icon": "UI_AvatarIcon_Shougun", "release": 1630468800, "pool_type": "한정"},
@@ -314,6 +497,7 @@ GENSHIN_EMBEDDED_FALLBACK_CHARS = [
     {"id": "10000003", "kind": "char", "name": "진", "rank": 5, "element": "Wind", "weapon_type": "WEAPON_SWORD_ONE_HAND", "region": "MONDSTADT", "special_prop": "FIGHT_PROP_HEAL_ADD", "icon": "UI_AvatarIcon_Qin", "release": 1601265600, "pool_type": "상시"},
     {"id": "10000016", "kind": "char", "name": "다이루크", "rank": 5, "element": "Fire", "weapon_type": "WEAPON_CLAYMORE", "region": "MONDSTADT", "special_prop": "FIGHT_PROP_CRITICAL", "icon": "UI_AvatarIcon_Diluc", "release": 1601265600, "pool_type": "상시"},
     {"id": "10000041", "kind": "char", "name": "모나", "rank": 5, "element": "Water", "weapon_type": "WEAPON_CATALYST", "region": "MONDSTADT", "special_prop": "FIGHT_PROP_CHARGE_EFFICIENCY", "icon": "UI_AvatarIcon_Mona", "release": 1601265600, "pool_type": "상시"},
+    {"id": "10000109", "kind": "char", "name": "유메미즈키 미즈키", "rank": 5, "element": "Wind", "weapon_type": "WEAPON_CATALYST", "region": "INAZUMA", "special_prop": "FIGHT_PROP_ELEMENT_MASTERY", "icon": "UI_AvatarIcon_Mizuki", "release": 1739224800, "pool_type": "상시"},
     {"id": "10000032", "kind": "char", "name": "베넷", "rank": 4, "element": "Fire", "weapon_type": "WEAPON_SWORD_ONE_HAND", "region": "MONDSTADT", "special_prop": "FIGHT_PROP_CHARGE_EFFICIENCY", "icon": "UI_AvatarIcon_Bennett", "release": 1601265600, "pool_type": "상시"},
     {"id": "10000025", "kind": "char", "name": "행추", "rank": 4, "element": "Water", "weapon_type": "WEAPON_SWORD_ONE_HAND", "region": "LIYUE", "special_prop": "FIGHT_PROP_ATTACK_PERCENT", "icon": "UI_AvatarIcon_Xingqiu", "release": 1601265600, "pool_type": "상시"},
     {"id": "10000031", "kind": "char", "name": "피슬", "rank": 4, "element": "Electric", "weapon_type": "WEAPON_BOW", "region": "MONDSTADT", "special_prop": "FIGHT_PROP_ATTACK_PERCENT", "icon": "UI_AvatarIcon_Fischl", "release": 1601265600, "pool_type": "상시"},
@@ -321,7 +505,15 @@ GENSHIN_EMBEDDED_FALLBACK_CHARS = [
 ]
 
 GENSHIN_EMBEDDED_FALLBACK_WEAPONS = [
-    {"id": "11509", "kind": "weapon", "name": "안개를 가르는 회광", "rank": 5, "weapon_type": "WEAPON_SWORD_ONE_HAND", "special_prop": "FIGHT_PROP_CRITICAL_HURT", "icon": "UI_EquipIcon_Sword_Narukami", "wish_source": "limited", "pool_type": "무기한정"},
+    {"id": "14525", "kind": "weapon", "name": "별빛 계시", "rank": 5, "weapon_type": "WEAPON_CATALYST", "special_prop": "FIGHT_PROP_CRITICAL_HURT", "icon": "UI_EquipIcon_Catalyst_Chernaya", "wish_source": "limited", "pool_type": "무기한정"},
+    {"id": "14524", "kind": "weapon", "name": "파도의 찬송가", "rank": 5, "weapon_type": "WEAPON_CATALYST", "special_prop": "FIGHT_PROP_HP_PERCENT", "icon": "UI_EquipIcon_Catalyst_Bludnye", "wish_source": "limited", "pool_type": "무기한정"},
+    {"id": "11522", "kind": "weapon", "name": "나비의 우화", "rank": 5, "weapon_type": "WEAPON_SWORD_ONE_HAND", "special_prop": "FIGHT_PROP_CRITICAL_HURT", "icon": "UI_EquipIcon_Sword_Samosvist", "wish_source": "limited", "pool_type": "무기한정"},
+    {"id": "12516", "kind": "weapon", "name": "초월의 열쇠", "rank": 5, "weapon_type": "WEAPON_CLAYMORE", "special_prop": "FIGHT_PROP_CRITICAL_HURT", "icon": "UI_EquipIcon_Claymore_CrystallineSword", "wish_source": "limited", "pool_type": "무기한정"},
+    {"id": "12515", "kind": "weapon", "name": "늑대의 무용담", "rank": 5, "weapon_type": "WEAPON_CLAYMORE", "special_prop": "FIGHT_PROP_CRITICAL", "icon": "UI_EquipIcon_Claymore_EnsisAquilonis", "wish_source": "limited", "pool_type": "무기한정"},
+    {"id": "14522", "kind": "weapon", "name": "막간의 야상곡", "rank": 5, "weapon_type": "WEAPON_CATALYST", "special_prop": "FIGHT_PROP_CRITICAL_HURT", "icon": "UI_EquipIcon_Catalyst_Brisingamen", "wish_source": "limited", "pool_type": "무기한정"},
+    {"id": "12514", "kind": "weapon", "name": "타오르는 천 개의 태양", "rank": 5, "weapon_type": "WEAPON_CLAYMORE", "special_prop": "FIGHT_PROP_CRITICAL", "icon": "UI_EquipIcon_Claymore_RadianceSword", "wish_source": "limited", "pool_type": "무기한정"},
+    {"id": "11513", "kind": "weapon", "name": "고요히 샘솟는 빛", "rank": 5, "weapon_type": "WEAPON_SWORD_ONE_HAND", "special_prop": "FIGHT_PROP_CRITICAL_HURT", "icon": "UI_EquipIcon_Sword_Regalis", "wish_source": "limited", "pool_type": "무기한정"},
+    {"id": "14514", "kind": "weapon", "name": "영원히 샘솟는 법전", "rank": 5, "weapon_type": "WEAPON_CATALYST", "special_prop": "FIGHT_PROP_CRITICAL_HURT", "icon": "UI_EquipIcon_Catalyst_Iudex", "wish_source": "limited", "pool_type": "무기한정"},
     {"id": "13509", "kind": "weapon", "name": "예초의 번개", "rank": 5, "weapon_type": "WEAPON_POLE", "special_prop": "FIGHT_PROP_CHARGE_EFFICIENCY", "icon": "UI_EquipIcon_Pole_Narukami", "wish_source": "limited", "pool_type": "무기한정"},
     {"id": "11501", "kind": "weapon", "name": "매의 검", "rank": 5, "weapon_type": "WEAPON_SWORD_ONE_HAND", "special_prop": "FIGHT_PROP_PHYSICAL_ADD_HURT", "icon": "UI_EquipIcon_Sword_Falcon", "wish_source": "standard", "pool_type": "상시"},
     {"id": "12502", "kind": "weapon", "name": "늑대의 말로", "rank": 5, "weapon_type": "WEAPON_CLAYMORE", "special_prop": "FIGHT_PROP_ATTACK_PERCENT", "icon": "UI_EquipIcon_Claymore_Wolfmound", "wish_source": "standard", "pool_type": "상시"},
@@ -333,6 +525,19 @@ GENSHIN_EMBEDDED_FALLBACK_WEAPONS = [
     {"id": "13303", "kind": "weapon", "name": "흑술창", "rank": 3, "weapon_type": "WEAPON_POLE", "special_prop": "FIGHT_PROP_HP_PERCENT", "icon": "UI_EquipIcon_Pole_Noire", "wish_source": "standard", "pool_type": "상시"},
 ]
 
+GENSHIN_EMBEDDED_FALLBACK_ARTIFACTS = [
+    {"id": "15048", "kind": "artifact", "name": "용광로가 빚은 심장", "rank": 5, "icon": "UI_RelicIcon_15048_4", "set_2p": "공격력+18%", "set_4p": "별빛 반응 발동 시 공격력+12% 및 파티 별빛 반응 피해+50%", "pool_type": "축성 비경"},
+    {"id": "15047", "kind": "artifact", "name": "핏빛 증표", "rank": 5, "icon": "UI_RelicIcon_15047_4", "set_2p": "공격력+18%", "set_4p": "별 확산 반응 발동 후 치명타 확률+16% 및 별 확산 피해+40%", "pool_type": "축성 비경"},
+    {"id": "15042", "kind": "artifact", "name": "달을 엮는 밤노래", "rank": 5, "icon": "UI_RelicIcon_15042_4", "set_2p": "원소 충전 효율+20%", "set_4p": "원소 피해 시 파티 원소 마스터리 최대 +120pt 및 달빛 반응 피해 증가", "pool_type": "축성 비경"},
+    {"id": "15041", "kind": "artifact", "name": "하늘 경계가 드러난 밤", "rank": 5, "icon": "UI_RelicIcon_15041_4", "set_2p": "원소 마스터리+80pt", "set_4p": "달빛 반응 발동 시 치명타 확률 최대 +30% 및 달빛 반응 피해 증가", "pool_type": "축성 비경"},
+    {"id": "15038", "kind": "artifact", "name": "흑요석 비전", "rank": 5, "icon": "UI_RelicIcon_15038_4", "set_2p": "밤혼 가호 상태 피해+15%", "set_4p": "밤혼 소모 후 6초간 치명타 확률+40%", "pool_type": "축성 비경"},
+    {"id": "15037", "kind": "artifact", "name": "잿더미 성 용사 두루마리", "rank": 5, "icon": "UI_RelicIcon_15037_4", "set_2p": "밤혼 발산 시 원소 에너지 6pt 회복", "set_4p": "관련 원소 반응 발동 시 파티 모든 캐릭터 원소 피해 보너스 최대 +40%", "pool_type": "축성 비경"},
+    {"id": "15036", "kind": "artifact", "name": "그림자 사냥꾼", "rank": 5, "icon": "UI_RelicIcon_15036_4", "set_2p": "일반 공격 및 강공격 피해+15%", "set_4p": "HP 증감 시 치명타 확률+12% (최대 3스택 +36%)", "pool_type": "축성 비경"},
+    {"id": "15035", "kind": "artifact", "name": "황금 극단", "rank": 5, "icon": "UI_RelicIcon_15035_4", "set_2p": "원소전투 스킬 피해+20%", "set_4p": "원소전투 스킬 피해+25% (대기 상태 시 추가 +25%)", "pool_type": "축성 비경"},
+    {"id": "10007", "kind": "artifact", "name": "교관", "rank": 4, "icon": "UI_RelicIcon_10007_4", "set_2p": "원소 마스터리+80pt", "set_4p": "원소 반응 발동 후 파티 원소 마스터리+120pt", "pool_type": "보스/상자"},
+    {"id": "10009", "kind": "artifact", "name": "유배자", "rank": 4, "icon": "UI_RelicIcon_10009_4", "set_2p": "원소 충전 효율+20%", "set_4p": "원소폭발 발동 후 파티원 원소 에너지 회복", "pool_type": "보스/상자"},
+]
+
 
 def _clean_text(raw: str | None) -> str:
     if not raw:
@@ -342,7 +547,7 @@ def _clean_text(raw: str | None) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
-def _should_exclude_avatar(cid: str, raw: dict, now_ts: float) -> bool:
+def _should_exclude_avatar(cid: str, raw: dict) -> bool:
     if cid.startswith("10000005") or cid.startswith("10000007"):  # 여행자
         return True
     if cid in ("10000117", "10000118", "10000062"):  # 별인형 / 에일로이
@@ -355,22 +560,34 @@ def _should_exclude_avatar(cid: str, raw: dict, now_ts: float) -> bool:
     reg = str(raw.get("region") or "")
     if reg in ("MAINACTOR", "RANGER"):
         return True
-    rel = raw.get("release") or 0
-    if isinstance(rel, (int, float)) and rel > now_ts + 86400:
-        return True
     return False
 
 
-def _parse_genshin_items(avatar_items: dict, weapon_items: dict) -> tuple[list[dict], list[dict]]:
-    now_ts = time.time()
+def _weapon_sort_key(w: dict) -> tuple:
+    wid = str(w.get("id", ""))
+    rank = int(w.get("rank", 3))
+    if wid.isdigit():
+        w_int = int(wid)
+        # 11522(한손검 #22), 12516(양손검 #16), 14525(법구 #25) 등 무기군에 무관하게 최신 출시 순번이 먼저 오도록 정렬
+        series_idx = w_int % 100
+        return (-rank, 0 if w.get("wish_source") == "limited" else 1, -series_idx, -w_int)
+    return (-rank, 1, 0, 0)
+
+
+def _parse_genshin_items(
+    avatar_items: dict,
+    weapon_items: dict,
+    reliquary_items: dict | None = None,
+) -> tuple[list[dict], list[dict], list[dict]]:
     chars: list[dict] = []
     weapons: list[dict] = []
+    artifacts: list[dict] = []
 
     for cid, raw in avatar_items.items():
         if not isinstance(raw, dict):
             continue
         cid_s = str(raw.get("id") or cid)
-        if _should_exclude_avatar(cid_s, raw, now_ts):
+        if _should_exclude_avatar(cid_s, raw):
             continue
         rank = int(raw.get("rank") or 4)
         if rank not in (4, 5):
@@ -383,10 +600,7 @@ def _parse_genshin_items(avatar_items: dict, weapon_items: dict) -> tuple[list[d
         reg_name = GENSHIN_REGION_MAP.get(reg_code, reg_code or "티바트")
 
         if rank == 5:
-            if cid_s in GENSHIN_STD_5_CHARS:
-                pool_type = "상시"
-            else:
-                pool_type = "한정"
+            pool_type = "상시" if cid_s in GENSHIN_STD_5_CHARS else "한정"
         else:
             pool_type = "초기지급(상시)" if cid_s in GENSHIN_STARTER_4_CHARS else "상시"
 
@@ -432,7 +646,11 @@ def _parse_genshin_items(avatar_items: dict, weapon_items: dict) -> tuple[list[d
         wtype_info = GENSHIN_WEAPON_TYPE_MAP.get(wtype_code, GENSHIN_WEAPON_TYPE_MAP["WEAPON_SWORD_ONE_HAND"])
 
         if rank == 5:
-            if wid_s in GENSHIN_STD_5_WEAPONS:
+            if wid_s in GENSHIN_NON_GACHA_5_WEAPONS:
+                wish_source = "non_gacha"
+                pool_type = "임무/스토리"
+                wishable = False
+            elif wid_s in GENSHIN_STD_5_WEAPONS:
                 wish_source = "standard"
                 pool_type = "상시"
                 wishable = True
@@ -485,22 +703,63 @@ def _parse_genshin_items(avatar_items: dict, weapon_items: dict) -> tuple[list[d
             "wishable": wishable,
         })
 
+    if isinstance(reliquary_items, dict):
+        for aid, raw in reliquary_items.items():
+            if not isinstance(raw, dict):
+                continue
+            aid_s = str(raw.get("id") or aid)
+            levels = raw.get("levelList") or []
+            if not isinstance(levels, list) or not levels:
+                continue
+            max_lv = max(int(x) for x in levels if isinstance(x, (int, float)))
+            if max_lv not in (3, 4, 5):
+                continue
+            affix = raw.get("affixList") or {}
+            affix_vals = [_clean_text(v) for _, v in sorted(affix.items())] if isinstance(affix, dict) else []
+            set_2p = affix_vals[0] if len(affix_vals) >= 1 else "2세트 원소/공격 보너스"
+            set_4p = affix_vals[1] if len(affix_vals) >= 2 else set_2p
+
+            artifacts.append({
+                "id": aid_s,
+                "kind": "artifact",
+                "item_key": f"artifact:{aid_s}",
+                "name": _clean_text(raw.get("name")) or f"성유물 {aid_s}",
+                "rank": max_lv,
+                "rarity_label": "★★★★★" if max_lv == 5 else ("★★★★" if max_lv == 4 else "★★★"),
+                "weapon_type": "ARTIFACT_SET",
+                "weapon_type_name": "성유물 세트",
+                "weapon_type_emoji": "🏺",
+                "special_prop": "ARTIFACT_BONUS",
+                "special_prop_name": set_2p[:42],
+                "set_2p": set_2p,
+                "set_4p": set_4p,
+                "icon": str(raw.get("icon") or ""),
+                "wish_source": "domain" if max_lv == 5 else "standard",
+                "pool_type": "축성 비경" if max_lv == 5 else "비경/보스",
+                "wishable": True,
+            })
+
     chars.sort(key=lambda x: (-x["rank"], -x["release"], x["id"]))
-    weapons.sort(key=lambda x: (-x["rank"], -int(x["id"]) if str(x.get("id", "")).isdigit() else 0))
-    return chars, weapons
+    weapons.sort(key=_weapon_sort_key)
+    artifacts.sort(key=lambda x: (-x["rank"], -int(x["id"]) if str(x.get("id", "")).isdigit() else 0))
+    return chars, weapons, artifacts
 
 
-def _set_db_state(chars: list[dict], weapons: list[dict], fetched_at: float):
-    global GENSHIN_CHARS, GENSHIN_WEAPONS, GENSHIN_ALL_ITEMS, _GENSHIN_LAST_FETCH
+def _set_db_state(chars: list[dict], weapons: list[dict], artifacts: list[dict], fetched_at: float):
+    global GENSHIN_CHARS, GENSHIN_WEAPONS, GENSHIN_ARTIFACTS, GENSHIN_ALL_ITEMS, _GENSHIN_LAST_FETCH
     chars.sort(key=lambda x: (-x["rank"], -x.get("release", 0), x.get("id", "")))
-    weapons.sort(key=lambda x: (-x["rank"], -int(x["id"]) if str(x.get("id", "")).isdigit() else 0))
+    weapons.sort(key=_weapon_sort_key)
+    artifacts.sort(key=lambda x: (-x["rank"], -int(x["id"]) if str(x.get("id", "")).isdigit() else 0))
     GENSHIN_CHARS = chars
     GENSHIN_WEAPONS = weapons
+    GENSHIN_ARTIFACTS = artifacts
     merged: dict[str, dict] = {}
     for c in chars:
         merged[c["item_key"]] = c
     for w in weapons:
         merged[w["item_key"]] = w
+    for a in artifacts:
+        merged[a["item_key"]] = a
     GENSHIN_ALL_ITEMS = merged
     _GENSHIN_LAST_FETCH = fetched_at
 
@@ -534,7 +793,21 @@ def _normalize_fallback():
             "special_prop_name": GENSHIN_STAT_MAP.get(w["special_prop"], "-"),
             "wishable": True,
         })
-    return chars, weapons
+    artifacts = []
+    for a in GENSHIN_EMBEDDED_FALLBACK_ARTIFACTS:
+        artifacts.append({
+            **a,
+            "item_key": f"artifact:{a['id']}",
+            "rarity_label": "★★★★★" if a["rank"] == 5 else "★★★★",
+            "weapon_type": "ARTIFACT_SET",
+            "weapon_type_name": "성유물 세트",
+            "weapon_type_emoji": "🏺",
+            "special_prop": "ARTIFACT_BONUS",
+            "special_prop_name": a.get("set_2p", "-"),
+            "wish_source": "domain" if a["rank"] == 5 else "standard",
+            "wishable": True,
+        })
+    return chars, weapons, artifacts
 
 
 def hydrate_genshin_kr_cache_from_disk() -> bool:
@@ -546,9 +819,12 @@ def hydrate_genshin_kr_cache_from_disk() -> bool:
             payload = json.load(f)
         chars = payload.get("chars") or []
         weapons = payload.get("weapons") or []
+        artifacts = payload.get("artifacts") or []
         fetched_at = float(payload.get("fetched_at") or 0.0)
         if chars and weapons:
-            _set_db_state(chars, weapons, fetched_at)
+            if not artifacts:
+                _, _, artifacts = _normalize_fallback()
+            _set_db_state(chars, weapons, artifacts, fetched_at)
             return True
     except Exception:
         pass
@@ -556,29 +832,33 @@ def hydrate_genshin_kr_cache_from_disk() -> bool:
 
 
 def load_genshin_kr_db(force_refresh: bool = False) -> tuple[list[dict], list[dict]]:
-    """원신 한국어 DB를 실시간(gi.yatta.moe/kr)에서 동기화하고 로컬 캐시에 저장합니다."""
+    """원신 한국어 DB(캐릭터·무기·성유물)를 실시간(gi.yatta.moe/kr)에서 동기화하고 로컬 캐시에 저장합니다."""
     with _GENSHIN_DB_LOCK:
         now = time.time()
-        if not force_refresh and GENSHIN_CHARS and GENSHIN_WEAPONS and (now - _GENSHIN_LAST_FETCH < GENSHIN_CACHE_TTL):
+        if not force_refresh and GENSHIN_CHARS and GENSHIN_WEAPONS and GENSHIN_ARTIFACTS and (now - _GENSHIN_LAST_FETCH < GENSHIN_CACHE_TTL):
             return GENSHIN_CHARS, GENSHIN_WEAPONS
 
         if not force_refresh and not GENSHIN_CHARS and hydrate_genshin_kr_cache_from_disk():
-            if now - _GENSHIN_LAST_FETCH < GENSHIN_CACHE_TTL:
+            if now - _GENSHIN_LAST_FETCH < GENSHIN_CACHE_TTL and len(GENSHIN_ARTIFACTS) >= 15:
                 return GENSHIN_CHARS, GENSHIN_WEAPONS
 
         try:
             r_av = requests.get("https://gi.yatta.moe/api/v2/kr/avatar", timeout=15)
             r_wp = requests.get("https://gi.yatta.moe/api/v2/kr/weapon", timeout=15)
+            r_rl = requests.get("https://gi.yatta.moe/api/v2/kr/reliquary", timeout=15)
             if r_av.status_code == 200 and r_wp.status_code == 200:
                 av_data = (r_av.json().get("data") or {}).get("items") or {}
                 wp_data = (r_wp.json().get("data") or {}).get("items") or {}
-                chars, weapons = _parse_genshin_items(av_data, wp_data)
+                rl_data = ((r_rl.json().get("data") or {}).get("items") or {}) if r_rl.status_code == 200 else {}
+                chars, weapons, artifacts = _parse_genshin_items(av_data, wp_data, rl_data)
                 if chars and weapons:
-                    _set_db_state(chars, weapons, now)
+                    if not artifacts:
+                        _, _, artifacts = _normalize_fallback()
+                    _set_db_state(chars, weapons, artifacts, now)
                     try:
                         tmp_f = f"{GENSHIN_CACHE_FILE}.tmp"
                         with open(tmp_f, "w", encoding="utf-8") as f:
-                            json.dump({"fetched_at": now, "chars": chars, "weapons": weapons}, f, ensure_ascii=False)
+                            json.dump({"fetched_at": now, "chars": chars, "weapons": weapons, "artifacts": artifacts}, f, ensure_ascii=False)
                         os.replace(tmp_f, GENSHIN_CACHE_FILE)
                     except Exception:
                         pass
@@ -589,13 +869,21 @@ def load_genshin_kr_db(force_refresh: bool = False) -> tuple[list[dict], list[di
         if GENSHIN_CHARS and GENSHIN_WEAPONS:
             return GENSHIN_CHARS, GENSHIN_WEAPONS
 
-        fb_chars, fb_weapons = _normalize_fallback()
-        _set_db_state(fb_chars, fb_weapons, 0.0)
+        fb_chars, fb_weapons, fb_artifacts = _normalize_fallback()
+        _set_db_state(fb_chars, fb_weapons, fb_artifacts, 0.0)
         return GENSHIN_CHARS, GENSHIN_WEAPONS
 
 
 def fetch_genshin_detail_kr(item_id: str, kind: str = "char") -> dict:
-    """캐릭터/무기 상세 정보(이명·운명의 자리·소속·소개 대사/설명)를 지연 로드 후 캐시합니다."""
+    """캐릭터/무기/성유물 상세 정보를 지연 로드 후 캐시합니다."""
+    if kind == "artifact":
+        art = GENSHIN_ALL_ITEMS.get(f"artifact:{item_id}") or {}
+        return {
+            "set_2p": art.get("set_2p", ""),
+            "set_4p": art.get("set_4p", ""),
+            "description": f"[2세트] {art.get('set_2p', '-')} / [4세트] {art.get('set_4p', '-')}",
+        }
+
     cache_key = f"{kind}:{item_id}"
     with _GENSHIN_DETAIL_LOCK:
         if cache_key in _GENSHIN_DETAIL_CACHE:
@@ -640,6 +928,11 @@ def get_genshin_item_urls(item: dict, splash: bool = True) -> list[str]:
     kind = item.get("kind", "char")
     if not icon:
         return []
+    if kind == "artifact":
+        return [
+            f"https://enka.network/ui/{icon}.png",
+            f"https://gi.yatta.moe/assets/UI/reliquary/{icon}.png",
+        ]
     if splash:
         if kind == "char":
             gacha_icon = icon.replace("UI_AvatarIcon_", "UI_Gacha_AvatarImg_")
@@ -670,7 +963,7 @@ def get_genshin_primary_image_url(item: dict, splash: bool = True) -> str:
 
 def _compress_splash_if_needed(raw_bytes: bytes, base_name: str, is_splash: bool) -> tuple[bytes, str]:
     """원신 가챠 스플래시 PNG(~1.8MB)를 선명한 WebP(~180KB)로 압축해 10연차 첨부 한도를 여유롭게 유지합니다."""
-    if len(raw_bytes) <= 820_000 and not is_splash:
+    if Image is None or (len(raw_bytes) <= 820_000 and not is_splash):
         return raw_bytes, f"{base_name}.png"
     try:
         with Image.open(io.BytesIO(raw_bytes)) as im:
@@ -740,7 +1033,7 @@ def fetch_genshin_thumb_bytes(item: dict) -> bytes | None:
 # ==========================================
 def build_genshin_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1", header_tag: str = "") -> tuple[bytes | None, str | None]:
     """원신 전용 5×2 티바트 별밤·셀레스티아 골드 스타일 10연차 결과판 이미지를 생성합니다."""
-    if not drawn:
+    if not drawn or Image is None or ImageDraw is None:
         return None, None
 
     load_genshin_kr_db()
@@ -766,7 +1059,6 @@ def build_genshin_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1"
         canvas_w = pad_x * 2 + cols * tile_w + (cols - 1) * gap_x
         canvas_h = pad_top + rows * tile_h + (rows - 1) * gap_y + pad_bot
 
-        # 티바트 심야 네이비 그라데이션 배경
         canvas = Image.new("RGBA", (canvas_w, canvas_h), (11, 16, 38, 255))
         draw = ImageDraw.Draw(canvas)
         for y in range(canvas_h):
@@ -776,7 +1068,6 @@ def build_genshin_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1"
             b_c = int(38 + 30 * t)
             draw.line([(0, y), (canvas_w, y)], fill=(r_c, g_c, b_c, 255))
 
-        # 배경 별빛 & 골드 별자리 장식
         rng = random.Random(42 + len(drawn))
         for _ in range(95):
             sx = rng.randint(15, canvas_w - 15)
@@ -786,7 +1077,6 @@ def build_genshin_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1"
             col = (245, 212, 130, alpha) if rng.random() < 0.35 else (195, 220, 255, alpha)
             draw.ellipse([sx - sr, sy - sr, sx + sr, sy + sr], fill=col)
 
-        # 상단 헤더 바
         b_cfg = GENSHIN_BANNER_CONFIGS.get(banner_key, GENSHIN_BANNER_CONFIGS["char1"])
         font_hdr = core._get_grid_font(28, bold=True)
         font_sub = core._get_grid_font(17, bold=False)
@@ -829,7 +1119,6 @@ def build_genshin_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1"
                 inner_col = (158, 212, 255, 150)
                 star_col = (130, 200, 255, 255)
 
-            # 타일 카드 바탕 + 그라데이션
             tile = Image.new("RGBA", (tile_w, tile_h), (0, 0, 0, 0))
             tdraw = ImageDraw.Draw(tile)
             tdraw.rounded_rectangle([0, 0, tile_w - 1, tile_h - 1], radius=18, fill=(*bg_bot, 250))
@@ -840,12 +1129,10 @@ def build_genshin_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1"
                 bc = int(bg_bot[2] + (bg_top[2] - bg_bot[2]) * alpha_f)
                 tdraw.line([(6, ly), (tile_w - 7, ly)], fill=(rc, gc, bc, 245))
 
-            # 원소 빛 배경 오브
             elem_code = item.get("element")
             orb_rgb = GENSHIN_ELEMENT_MAP.get(elem_code, {}).get("color", border_col[:3])
             tdraw.ellipse([tile_w // 2 - 78, 28, tile_w // 2 + 78, 184], fill=(*orb_rgb, 55), outline=(*orb_rgb, 110), width=2)
 
-            # 아이콘 합성
             tb = thumb_results[idx]
             if tb:
                 try:
@@ -858,20 +1145,16 @@ def build_genshin_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1"
                 except Exception:
                     pass
 
-            # 테두리 (5성은 이중 광휘 테두리)
             tdraw.rounded_rectangle([0, 0, tile_w - 1, tile_h - 1], radius=18, outline=border_col, width=4 if rank >= 4 else 3)
             if rank == 5:
                 tdraw.rounded_rectangle([5, 5, tile_w - 6, tile_h - 6], radius=14, outline=inner_col, width=2)
 
-            # 하단 텍스트 정보 영역
             tdraw.rounded_rectangle([6, 200, tile_w - 7, tile_h - 7], radius=14, fill=(10, 14, 30, 225))
             tdraw.line([(16, 200), (tile_w - 16, 200)], fill=(*border_col[:3], 150), width=1)
 
-            # 별 등급 표시
             stars_txt = "★" * rank
             tdraw.text((16, 206), stars_txt, font=font_badge, fill=star_col)
 
-            # 우측 상태 배지 (NEW / PICKUP / 돌파 C# or R#)
             badge_x = tile_w - 14
             badges = []
             if item.get("is_new"):
@@ -892,7 +1175,6 @@ def build_genshin_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1"
                 tdraw.text((bx0 + 6, 15), sb_txt, font=font_badge, fill=b_fg)
                 badge_x = bx0 - 6
 
-            # 돌파/재련 배지 (하단 우측 별 옆)
             dup_badge = ""
             if item.get("kind") == "char":
                 dup_badge = f"C{item.get('new_constellation', 0)}"
@@ -904,16 +1186,15 @@ def build_genshin_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1"
                 tdraw.rounded_rectangle([tile_w - 16 - dw, 205, tile_w - 16, 224], radius=6, fill=(40, 52, 92, 230))
                 tdraw.text((tile_w - 16 - dw + 5, 207), dup_badge, font=font_badge, fill=(235, 242, 255, 255))
 
-            # 이름 (2줄 또는 클램프)
             clean_name = core._sanitize_grid_text(item.get("name", ""))
-            # 긴 이름 폭 맞춤 축약
             while len(clean_name) > 2 and tdraw.textbbox((0, 0), clean_name, font=font_name)[2] > (tile_w - 30):
                 clean_name = clean_name[:-2] + "…"
             tdraw.text((16, 232), clean_name, font=font_name, fill=(248, 250, 255, 255))
 
-            # 서브 메타 (원소·무기종류·한정여부)
             if item.get("kind") == "char":
                 sub_raw = f"{item.get('element_name', '')} · {item.get('weapon_type_name', '')} · {item.get('pool_type', '')}"
+            elif item.get("kind") == "artifact":
+                sub_raw = f"{item.get('artifact_piece', '성유물')} · {item.get('artifact_main_stat', item.get('set_2p', ''))}"
             else:
                 sub_raw = f"{item.get('weapon_type_name', '')} · {item.get('pool_type', '')}"
             sub_clean = core._sanitize_grid_text(sub_raw)
@@ -921,7 +1202,6 @@ def build_genshin_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1"
                 sub_clean = sub_clean[:-2] + "…"
             tdraw.text((16, 262), sub_clean, font=font_meta, fill=(176, 196, 232, 240))
 
-            # 순번
             idx_txt = f"#{idx + 1:02d}"
             tdraw.text((14, 12), idx_txt, font=font_badge, fill=(220, 230, 255, 210))
 
@@ -937,7 +1217,7 @@ def build_genshin_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1"
 
 
 # ==========================================
-# 유저 데이터 구조 · 픽업 해석 · 천장/확률 기원 엔진
+# 유저 데이터 구조 · 시각별 픽업 로테이션 · 천장/확률 기원 엔진
 # ==========================================
 def ensure_genshin_user(data: dict, guild_id: int | str, user_id: int | str) -> dict:
     g_key = str(guild_id or 0)
@@ -962,6 +1242,9 @@ def ensure_genshin_user(data: dict, guild_id: int | str, user_id: int | str) -> 
     u_data.setdefault("guaranteed_4_weapon", False)
     u_data.setdefault("fate_target_id", None)
     u_data.setdefault("fate_point", 0)
+    u_data.setdefault("pity_artifact", 0)
+    u_data.setdefault("guaranteed_artifact", False)
+    u_data.setdefault("pity_4_artifact", 0)
     u_data.setdefault("pity_standard", 0)
     u_data.setdefault("pity_4_standard", 0)
     u_data.setdefault("starglitter", 0)
@@ -977,61 +1260,142 @@ def ensure_genshin_user(data: dict, guild_id: int | str, user_id: int | str) -> 
     return u_data
 
 
+def get_genshin_time_rotation_context(now_dt: datetime.datetime | None = None) -> dict:
+    """현재 한국 표준시(KST) 2시간 단위 타임슬롯을 기준으로 캐릭터/무기/성유물 비경 로테이션 인덱스를 계산합니다."""
+    now_kst = now_dt or datetime.datetime.now(core.KST)
+    block_2h = now_kst.hour // 2
+    day_seed = now_kst.timetuple().tm_yday + now_kst.year * 366
+    slot_seq = day_seed * 12 + block_2h
+    next_hour = (block_2h + 1) * 2
+    window_str = f"{now_kst.month:02d}/{now_kst.day:02d} {block_2h * 2:02d}:00~{next_hour - 1:02d}:59 KST"
+    return {
+        "slot_seq": slot_seq,
+        "char_idx": slot_seq,
+        "weapon_idx": slot_seq * 3 + 1,
+        "artifact_idx": slot_seq * 5 + 2,
+        "window_str": window_str,
+    }
+
+
 def resolve_effective_genshin_pickup(pickup_cfg: dict | None) -> dict:
-    """설정된 원신 픽업을 유효한 실제 아이템 객체들로 해석합니다 (미설정 시 최신 캐릭터·무기 자동 할당)."""
+    """설정된 원신 픽업을 유효한 실제 아이템 객체들로 해석합니다 (미설정/타임로테이션 시 현재 시각에 맞춰 캐릭터·무기·성유물을 다르게 배정)."""
     chars, weapons = load_genshin_kr_db()
+    artifacts = GENSHIN_ARTIFACTS
     by_char = {c["id"]: c for c in chars}
     by_wp = {w["id"]: w for w in weapons}
+    by_art = {a["id"]: a for a in artifacts}
     cfg = copy.deepcopy(pickup_cfg or {})
+
+    t_ctx = get_genshin_time_rotation_context()
+    mode = cfg.get("mode") or ("latest" if cfg.get("version_label") and "최신 캐릭터" in str(cfg.get("version_label")) else "time_rotation")
 
     lim_5_chars = [c for c in chars if c["rank"] == 5 and c["pool_type"] == "한정"]
     pool_4_chars = [c for c in chars if c["rank"] == 4 and c["id"] not in GENSHIN_STARTER_4_CHARS]
     lim_5_wps = [w for w in weapons if w["rank"] == 5 and w["wish_source"] == "limited"]
     gacha_4_wps = [w for w in weapons if w["rank"] == 4 and w["wishable"]]
+    dom_5_arts = [a for a in artifacts if a["rank"] == 5]
 
     c1_id = cfg.get("char1")
     c2_id = cfg.get("char2")
-    if not c1_id or c1_id not in by_char:
-        c1_id = lim_5_chars[0]["id"] if lim_5_chars else (chars[0]["id"] if chars else None)
-    if not c2_id or c2_id not in by_char:
-        cand = [c["id"] for c in lim_5_chars if c["id"] != c1_id]
-        c2_id = cand[0] if cand else c1_id
+    rot_banner_title = None
+
+    if (not c1_id or c1_id not in by_char) and (not c2_id or c2_id not in by_char):
+        if mode == "latest":
+            c1_id = lim_5_chars[0]["id"] if lim_5_chars else (chars[0]["id"] if chars else None)
+            cand = [c["id"] for c in lim_5_chars if c["id"] != c1_id]
+            c2_id = cand[0] if cand else c1_id
+        else:
+            valid_pairs = [(p1, p2, title) for p1, p2, title in GENSHIN_TIME_ROTATION_CHAR_PAIRS if p1 in by_char and p2 in by_char]
+            if valid_pairs:
+                c1_id, c2_id, rot_banner_title = valid_pairs[t_ctx["char_idx"] % len(valid_pairs)]
+            else:
+                c1_id = lim_5_chars[0]["id"] if lim_5_chars else (chars[0]["id"] if chars else None)
+                cand = [c["id"] for c in lim_5_chars if c["id"] != c1_id]
+                c2_id = cand[0] if cand else c1_id
+    else:
+        if not c1_id or c1_id not in by_char:
+            c1_id = lim_5_chars[0]["id"] if lim_5_chars else (chars[0]["id"] if chars else None)
+        if not c2_id or c2_id not in by_char:
+            cand = [c["id"] for c in lim_5_chars if c["id"] != c1_id]
+            c2_id = cand[0] if cand else c1_id
 
     c4_ids = [cid for cid in (cfg.get("char_4_ids") or []) if cid in by_char][:3]
-    if len(c4_ids) < 3:
-        for c in pool_4_chars:
-            if c["id"] not in c4_ids:
-                c4_ids.append(c["id"])
+    if len(c4_ids) < 3 and pool_4_chars:
+        start_4 = (t_ctx["char_idx"] * 3) % len(pool_4_chars)
+        for offset in range(len(pool_4_chars)):
+            cand_c = pool_4_chars[(start_4 + offset) % len(pool_4_chars)]
+            if cand_c["id"] not in c4_ids:
+                c4_ids.append(cand_c["id"])
             if len(c4_ids) >= 3:
                 break
 
     w1_id = cfg.get("weapon_1")
     w2_id = cfg.get("weapon_2")
     if not w1_id or w1_id not in by_wp:
-        w1_id = lim_5_wps[0]["id"] if lim_5_wps else (weapons[0]["id"] if weapons else None)
+        # 1순위: 픽업 캐릭터 ①의 전용 무기 / 시각별 로테이션 시 시간대 오프셋 반영
+        sig1 = GENSHIN_SIGNATURE_WEAPONS.get(c1_id or "")
+        if sig1 and sig1 in by_wp:
+            w1_id = sig1
+        elif lim_5_wps:
+            w1_id = lim_5_wps[t_ctx["weapon_idx"] % len(lim_5_wps)]["id"]
+        elif weapons:
+            w1_id = weapons[0]["id"]
     if not w2_id or w2_id not in by_wp:
-        cand_w = [w["id"] for w in lim_5_wps if w["id"] != w1_id]
-        w2_id = cand_w[0] if cand_w else w1_id
+        sig2 = GENSHIN_SIGNATURE_WEAPONS.get(c2_id or "")
+        if sig2 and sig2 in by_wp and sig2 != w1_id:
+            w2_id = sig2
+        else:
+            cand_w = [w["id"] for w in lim_5_wps if w["id"] != w1_id]
+            w2_id = cand_w[t_ctx["weapon_idx"] % len(cand_w)] if cand_w else w1_id
 
     w4_ids = [wid for wid in (cfg.get("weapon_4_ids") or []) if wid in by_wp and by_wp[wid].get("wishable")][:5]
-    if len(w4_ids) < 5:
+    if len(w4_ids) < 5 and gacha_4_wps:
         lim4 = [w for w in gacha_4_wps if w["wish_source"] == "limited"]
         std4 = [w for w in gacha_4_wps if w["wish_source"] == "standard"]
-        for w in (lim4[:2] + std4):
+        ordered_4w = lim4 + std4
+        start_w4 = (t_ctx["weapon_idx"] * 2) % max(1, len(ordered_4w))
+        for offset in range(len(ordered_4w)):
+            w = ordered_4w[(start_w4 + offset) % len(ordered_4w)]
             if w["id"] not in w4_ids:
                 w4_ids.append(w["id"])
             if len(w4_ids) >= 5:
                 break
 
+    a1_id = cfg.get("artifact_1")
+    a2_id = cfg.get("artifact_2")
+    art_domain_title = "축성 비경 로테이션"
+    if (not a1_id or a1_id not in by_art) or (not a2_id or a2_id not in by_art):
+        valid_art_pairs = [(p1, p2, title) for p1, p2, title in GENSHIN_TIME_ROTATION_ARTIFACT_PAIRS if p1 in by_art and p2 in by_art]
+        if valid_art_pairs:
+            pa1, pa2, art_domain_title = valid_art_pairs[t_ctx["artifact_idx"] % len(valid_art_pairs)]
+            if not a1_id or a1_id not in by_art:
+                a1_id = pa1
+            if not a2_id or a2_id not in by_art:
+                a2_id = pa2
+        else:
+            if not a1_id or a1_id not in by_art:
+                a1_id = dom_5_arts[0]["id"] if dom_5_arts else (artifacts[0]["id"] if artifacts else None)
+            if not a2_id or a2_id not in by_art:
+                cand_a = [a["id"] for a in dom_5_arts if a["id"] != a1_id]
+                a2_id = cand_a[0] if cand_a else a1_id
+
+    banner_name = cfg.get("banner_name")
+    if not banner_name or banner_name == "기본 모험 기원":
+        banner_name = rot_banner_title or "티바트 시각별 이벤트 기원"
+
     return {
-        "banner_name": cfg.get("banner_name") or "티바트 이벤트 기원",
-        "version_label": cfg.get("version_label") or "라이브 동기화",
+        "banner_name": banner_name,
+        "version_label": cfg.get("version_label") or f"⏰ {t_ctx['window_str']} 로테이션",
+        "time_window": t_ctx["window_str"],
+        "artifact_domain_name": art_domain_title,
         "char1": by_char.get(c1_id),
         "char2": by_char.get(c2_id),
         "char_4": [by_char[i] for i in c4_ids if i in by_char],
         "weapon_1": by_wp.get(w1_id),
         "weapon_2": by_wp.get(w2_id),
         "weapon_4": [by_wp[i] for i in w4_ids if i in by_wp],
+        "artifact_1": by_art.get(a1_id),
+        "artifact_2": by_art.get(a2_id),
         "raw": cfg,
     }
 
@@ -1043,6 +1407,12 @@ def _gi_soft_pity_prob(pity_after: int, banner_key: str) -> float:
         if pity_after >= 63:
             return min(1.0, 0.007 + 0.07 * (pity_after - 62))
         return 0.007
+    elif banner_key == "artifact":
+        if pity_after >= 50:
+            return 1.0
+        if pity_after >= 35:
+            return min(1.0, 0.025 + 0.09 * (pity_after - 34))
+        return 0.025
     else:
         if pity_after >= 90:
             return 1.0
@@ -1052,12 +1422,29 @@ def _gi_soft_pity_prob(pity_after: int, banner_key: str) -> float:
 
 
 def _gi_soft_4_prob(pity4_after: int, banner_key: str) -> float:
+    if banner_key == "artifact":
+        if pity4_after >= 5:
+            return 1.0
+        return 0.180
     base = 0.060 if banner_key == "weapon" else 0.051
     if pity4_after >= 10:
         return 1.0
     if pity4_after == 9:
         return base + 0.51
     return base
+
+
+def _roll_artifact_piece_and_stats(item: dict, rng: random.Random) -> dict:
+    """성유물 드랍 시 5부위(꽃/깃털/모래/성배/왕관)와 주옵션·부옵션을 감정하여 부착합니다."""
+    slot_info = rng.choice(GENSHIN_ARTIFACT_SLOTS)
+    main_stat = rng.choice(slot_info["main_pool"])
+    sub_cnt = 4 if int(item.get("rank", 5)) == 5 else 3
+    subs = rng.sample(GENSHIN_ARTIFACT_SUB_POOL, k=min(sub_cnt, len(GENSHIN_ARTIFACT_SUB_POOL)))
+    item["artifact_piece"] = f"{slot_info['emoji']}{slot_info['slot']}"
+    item["artifact_main_stat"] = main_stat
+    item["artifact_sub_stats"] = subs
+    item["artifact_stats_summary"] = f"{slot_info['emoji']}{slot_info['slot']} [{main_stat}] · {' / '.join(subs[:2])}"
+    return item
 
 
 def _roll_single_genshin(
@@ -1216,6 +1603,45 @@ def _roll_single_genshin(
         picked["is_pickup"] = False
         return picked
 
+    elif banner_key == "artifact":
+        state["pity_artifact"] = int(state.get("pity_artifact", 0)) + 1
+        state["pity_4_artifact"] = int(state.get("pity_4_artifact", 0)) + 1
+        p5 = _gi_soft_pity_prob(state["pity_artifact"], "artifact")
+        p4 = _gi_soft_4_prob(state["pity_4_artifact"], "artifact")
+        roll = rng.random()
+
+        arts_5 = [a for a in GENSHIN_ARTIFACTS if a["rank"] == 5] or GENSHIN_ARTIFACTS
+        arts_4 = [a for a in GENSHIN_ARTIFACTS if a["rank"] == 4] or arts_5
+        promo_arts = [a for a in (eff_pickup.get("artifact_1"), eff_pickup.get("artifact_2")) if a] or arts_5[:2]
+
+        if roll < p5:
+            pity_used = state["pity_artifact"]
+            state["pity_artifact"] = 0
+            if state.get("guaranteed_artifact") or rng.random() < 0.80:
+                picked = dict(rng.choice(promo_arts))
+                picked["is_pickup"] = True
+                state["guaranteed_artifact"] = False
+            else:
+                off_arts = [a for a in arts_5 if a["id"] not in {p["id"] for p in promo_arts}] or arts_5
+                picked = dict(rng.choice(off_arts))
+                picked["is_pickup"] = False
+                state["guaranteed_artifact"] = True
+            picked["pity_used"] = pity_used
+            return _roll_artifact_piece_and_stats(picked, rng)
+
+        if roll < p5 + p4:
+            state["pity_4_artifact"] = 0
+            picked = dict(rng.choice(arts_4))
+            picked["is_pickup"] = False
+            return _roll_artifact_piece_and_stats(picked, rng)
+
+        arts_3 = [a for a in GENSHIN_ARTIFACTS if a["rank"] == 3] or arts_4
+        picked = dict(rng.choice(arts_3))
+        picked["rank"] = 3
+        picked["rarity_label"] = "★★★"
+        picked["is_pickup"] = False
+        return _roll_artifact_piece_and_stats(picked, rng)
+
     else:  # standard
         state["pity_standard"] += 1
         state["pity_4_standard"] += 1
@@ -1249,7 +1675,7 @@ def _roll_single_genshin(
 
 
 def _apply_gi_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[int, int]:
-    """유저 원신 보관함에 캐릭터/무기를 추가하고 운명의 자리/재련 및 스타라이트/스타더스트 획득량을 계산합니다."""
+    """유저 원신 보관함에 캐릭터/무기/성유물을 추가하고 운명의 자리/재련/성유물 세트 및 스타라이트/스타더스트 획득량을 계산합니다."""
     items_map = u_data.setdefault("items", {})
     i_key = item["item_key"]
     rank = int(item.get("rank", 3))
@@ -1262,7 +1688,6 @@ def _apply_gi_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[i
     if existing:
         existing["count"] = int(existing.get("count", 1)) + 1
         existing["last_obtained_at"] = now_iso
-        # DB 메타 최신화
         existing["icon"] = item.get("icon", existing.get("icon", ""))
         existing["name"] = item.get("name", existing.get("name", ""))
         item["is_new"] = False
@@ -1282,6 +1707,8 @@ def _apply_gi_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[i
             new_r = min(5, cur_r + 1)
             existing["refinement"] = new_r
             item["new_refinement"] = new_r
+            if kind == "artifact" and item.get("artifact_stats_summary"):
+                existing["special_prop_name"] = item["artifact_stats_summary"]
             if rank == 5:
                 gained_glitter = 10
             elif rank == 4:
@@ -1300,7 +1727,7 @@ def _apply_gi_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[i
             "weapon_type": item.get("weapon_type", ""),
             "weapon_type_name": item.get("weapon_type_name", ""),
             "weapon_type_emoji": item.get("weapon_type_emoji", ""),
-            "special_prop_name": item.get("special_prop_name", "-"),
+            "special_prop_name": item.get("artifact_stats_summary") or item.get("special_prop_name", "-"),
             "icon": item.get("icon", ""),
             "pool_type": item.get("pool_type", "상시"),
             "count": 1,
@@ -1319,6 +1746,9 @@ def _apply_gi_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[i
         else:
             rec["refinement"] = 1
             item["new_refinement"] = 1
+            if kind == "artifact":
+                rec["set_2p"] = item.get("set_2p", "")
+                rec["set_4p"] = item.get("set_4p", "")
             if rank == 5:
                 gained_glitter = 10
             elif rank == 4:
@@ -1397,7 +1827,6 @@ def execute_genshin_pull(guild_id: int, user_id: int, banner_key: str = "char1",
 
     u_data["total_pulls"] = int(u_data.get("total_pulls", 0)) + count
 
-    # 기원 기록 (최근 50건) & 명예의 전당 갱신
     hist = u_data.setdefault("history", [])
     b_short = GENSHIN_BANNER_CONFIGS[banner_key]["short_name"]
     for it in drawn:
@@ -1702,11 +2131,12 @@ def analyze_genshin_party(party_chars: list[dict]) -> dict:
 
 def get_genshin_pokedex_stats(guild_id: int, user_id: int) -> dict:
     chars, weapons = load_genshin_kr_db()
+    artifacts = GENSHIN_ARTIFACTS
     data = core.load_data()
     u_data = ensure_genshin_user(data, guild_id, user_id)
     owned_map = u_data.get("items", {})
 
-    all_master = chars + weapons
+    all_master = chars + weapons + artifacts
     wishable_master = [it for it in all_master if it.get("wishable", True)]
 
     owned_all = []
@@ -1726,10 +2156,12 @@ def get_genshin_pokedex_stats(guild_id: int, user_id: int) -> dict:
     c5_own = sum(1 for c in chars if c["rank"] == 5 and c["item_key"] in owned_map)
     c4_tot = sum(1 for c in chars if c["rank"] == 4)
     c4_own = sum(1 for c in chars if c["rank"] == 4 and c["item_key"] in owned_map)
-    w5_tot = sum(1 for w in weapons if w["rank"] == 5)
-    w5_own = sum(1 for w in weapons if w["rank"] == 5 and w["item_key"] in owned_map)
+    w5_tot = sum(1 for w in weapons if w["rank"] == 5 and w["wishable"])
+    w5_own = sum(1 for w in weapons if w["rank"] == 5 and w["wishable"] and w["item_key"] in owned_map)
     w4_tot = sum(1 for w in weapons if w["rank"] == 4 and w["wishable"])
     w4_own = sum(1 for w in weapons if w["rank"] == 4 and w["wishable"] and w["item_key"] in owned_map)
+    a5_tot = sum(1 for a in artifacts if a["rank"] == 5)
+    a5_own = sum(1 for a in artifacts if a["rank"] == 5 and a["item_key"] in owned_map)
 
     rate = (w_owned / w_total) * 100.0
     filled = int(round((rate / 100.0) * 10))
@@ -1746,6 +2178,7 @@ def get_genshin_pokedex_stats(guild_id: int, user_id: int) -> dict:
         "c4": (c4_own, c4_tot),
         "w5": (w5_own, w5_tot),
         "w4": (w4_own, w4_tot),
+        "a5": (a5_own, a5_tot),
         "owned_items": owned_all,
         "unowned_items": unowned_all,
     }
@@ -1767,7 +2200,7 @@ def apply_genshin_pickup_preset(preset_key: str) -> tuple[bool, str, dict]:
     if preset_key == "reset":
         data["genshin_pickup"] = copy.deepcopy(core.DEFAULT_CONFIG["genshin_pickup"])
         core.save_data(data)
-        return True, "🧹 원신 기원 픽업 설정이 기본값으로 초기화되었습니다.", resolve_effective_genshin_pickup(data["genshin_pickup"])
+        return True, "🧹 원신 기원 픽업 설정이 기본값(시각별 자동 로테이션)으로 초기화되었습니다.", resolve_effective_genshin_pickup(data["genshin_pickup"])
 
     preset = GENSHIN_BANNER_PRESETS.get(preset_key)
     if not preset:
@@ -1775,12 +2208,15 @@ def apply_genshin_pickup_preset(preset_key: str) -> tuple[bool, str, dict]:
 
     now_iso = datetime.datetime.now(core.KST).isoformat()
     cfg = {
+        "mode": preset.get("mode", "preset"),
         "char1": preset.get("char1"),
         "char2": preset.get("char2"),
         "char_4_ids": list(preset.get("char_4_ids") or []),
         "weapon_1": preset.get("weapon_1"),
         "weapon_2": preset.get("weapon_2"),
         "weapon_4_ids": [],
+        "artifact_1": preset.get("artifact_1"),
+        "artifact_2": preset.get("artifact_2"),
         "banner_name": preset.get("banner_name", "티바트 이벤트 기원"),
         "version_label": preset.get("label", "프리셋 연동"),
         "updated_at": now_iso,
@@ -1816,10 +2252,10 @@ async def genshin_5star_weapon_autocomplete(interaction, current: str):
     from discord import app_commands
     _, weapons = load_genshin_kr_db()
     q = (current or "").strip().lower()
-    cands = [w for w in weapons if w["rank"] == 5 and (not q or q in w["name"].lower() or q in w["id"])]
+    cands = [w for w in weapons if w["rank"] == 5 and w.get("wishable", True) and (not q or q in w["name"].lower() or q in w["id"])]
     return [
         app_commands.Choice(name=f"★★★★★ {w['name']} ({w['weapon_type_emoji']}{w['weapon_type_name']} · {w['pool_type']})"[:100], value=w["id"])
-        for w in cands[:25]
+        for c, w in enumerate(cands[:25])
     ]
 
 
