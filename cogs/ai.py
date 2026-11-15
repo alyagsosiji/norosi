@@ -71,7 +71,7 @@ class AiPersonaModal(core.SafeModal, title="💬 나만의 맞춤 AI 페르소�
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
         u_key = str(interaction.user.id)
-        user_ai = data.setdefault("user_ai_config", {}).setdefault(u_key, {})
+        user_ai = core.ensure_dict_path(data, "user_ai_config", u_key)
         user_ai["custom_prompt"] = self.prompt_input.value.strip()
         await asyncio.to_thread(core.save_data, data)
 
@@ -92,11 +92,16 @@ class AiCog(commands.Cog):
     def _check_rate_limit(self, user_id: int, data: dict):
         u_key = str(user_id)
         today_str = datetime.datetime.now(core.KST).strftime("%Y-%m-%d")
-        usage = data.setdefault("ai_usage", {}).setdefault(u_key, {
-            "last_time": 0,
-            "daily_count": 0,
-            "date_str": today_str
-        })
+        usage_root = core.ensure_dict_path(data, "ai_usage")
+        raw_usage = usage_root.get(u_key)
+        if not isinstance(raw_usage, dict):
+            raw_usage = {
+                "last_time": 0,
+                "daily_count": 0,
+                "date_str": today_str
+            }
+            usage_root[u_key] = raw_usage
+        usage = raw_usage
 
         if usage.get("date_str") != today_str:
             usage["daily_count"] = 0
@@ -117,7 +122,7 @@ class AiCog(commands.Cog):
         u_key = str(user_id)
         usage["last_time"] = time.time()
         usage["daily_count"] = usage.get("daily_count", 0) + 1
-        data.setdefault("ai_usage", {})[u_key] = usage
+        core.ensure_dict_path(data, "ai_usage")[u_key] = usage
         await asyncio.to_thread(core.save_data, data)
 
     @app_commands.command(name="인공지능대화", description="[제미나이 AI] 프로세카 캐릭터(카나데, 미쿠 등)의 말투로 실시간 대화를 나눠보세요.")
@@ -149,7 +154,7 @@ class AiCog(commands.Cog):
             return
 
         u_key = str(interaction.user.id)
-        user_cfg = data.get("user_ai_config", {}).get(u_key, {})
+        user_cfg = core.safe_get_dict(data, "user_ai_config", u_key)
         char_key = 캐릭터.value if 캐릭터 else user_cfg.get("default_char", "kanade")
         custom_prompt = user_cfg.get("custom_prompt", "")
 
@@ -199,7 +204,7 @@ class AiCog(commands.Cog):
         if 기본캐릭터:
             await core.safe_defer(interaction, ephemeral=True)
             data = await asyncio.to_thread(core.load_data)
-            user_cfg = data.setdefault("user_ai_config", {}).setdefault(u_key, {})
+            user_cfg = core.ensure_dict_path(data, "user_ai_config", u_key)
             user_cfg["default_char"] = 기본캐릭터.value
             await asyncio.to_thread(core.save_data, data)
             c_info = AI_PERSONAS.get(기본캐릭터.value, AI_PERSONAS["kanade"])
@@ -215,7 +220,7 @@ class AiCog(commands.Cog):
             await core.safe_send_response(interaction, embed=embed, ephemeral=True)
         else:
             data = await asyncio.to_thread(core.load_data)
-            user_cfg = data.setdefault("user_ai_config", {}).setdefault(u_key, {})
+            user_cfg = core.ensure_dict_path(data, "user_ai_config", u_key)
             cur_p = user_cfg.get("custom_prompt", "")
             modal = AiPersonaModal(cur_p)
             await interaction.response.send_modal(modal)
@@ -240,7 +245,7 @@ class AiCog(commands.Cog):
                 return
 
             u_key = str(message.author.id)
-            user_cfg = data.get("user_ai_config", {}).get(u_key, {})
+            user_cfg = core.safe_get_dict(data, "user_ai_config", u_key)
             char_key = user_cfg.get("default_char", "kanade")
             custom_prompt = user_cfg.get("custom_prompt", "")
 
@@ -274,7 +279,7 @@ class AiCog(commands.Cog):
                 async with session.post("http://127.0.0.1:3000/api/ai-chat", json=payload) as resp:
                     if resp.status == 200:
                         res_data = await resp.json()
-                        if res_data.get("reply"):
+                        if isinstance(res_data, dict) and res_data.get("reply"):
                             return res_data["reply"]
         except Exception:
             pass
@@ -322,7 +327,7 @@ class AiContinueChatModal(core.SafeModal, title="💬 세카이 AI 이어서 대
         await self.ai_cog._update_rate_limit(usage, data, interaction.user.id)
 
         u_key = str(interaction.user.id)
-        user_cfg = data.get("user_ai_config", {}).get(u_key, {})
+        user_cfg = core.safe_get_dict(data, "user_ai_config", u_key)
         custom_prompt = user_cfg.get("custom_prompt", "")
 
         char_info = AI_PERSONAS.get(self.char_key, AI_PERSONAS["kanade"])
@@ -374,7 +379,7 @@ class AiPersonaSelect(discord.ui.Select):
 
         data = await asyncio.to_thread(core.load_data)
         u_key = str(self.user.id)
-        user_cfg = data.setdefault("user_ai_config", {}).setdefault(u_key, {})
+        user_cfg = core.ensure_dict_path(data, "user_ai_config", u_key)
         user_cfg["default_char"] = chosen_key
         await asyncio.to_thread(core.save_data, data)
 
@@ -420,4 +425,3 @@ class AiChatReplyView(core.SafeView):
 
 async def setup(bot):
     await bot.add_cog(AiCog(bot))
-

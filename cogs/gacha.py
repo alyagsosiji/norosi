@@ -14,6 +14,21 @@ import core
 # ==========================================
 # 프로세카 UI 클래스 (연속 뽑기 / 카드 잠금 / 중복 변환 / 각성 전환 / 확률표 / 보관함 / 교환)
 # ==========================================
+async def _is_interaction_bot_owner(interaction: discord.Interaction, bot_instance=None) -> bool:
+    user = getattr(interaction, "user", None)
+    if not user:
+        return False
+    bot_ref = bot_instance or getattr(interaction, "client", None)
+    if bot_ref and hasattr(bot_ref, "is_bot_owner_user"):
+        try:
+            return bool(await bot_ref.is_bot_owner_user(user))
+        except Exception:
+            pass
+    if core.BOT_OWNER_ID and getattr(user, "id", None) == core.BOT_OWNER_ID:
+        return True
+    return False
+
+
 def build_gacha_intro_embed(drawn: list, banner_type: str = "normal", pull_count: int = 1) -> discord.Embed:
     """뽑기 결과 공개 직전 오브 승격 연출 및 ★4·생일 대사(gachaPhrase) 선공개 임베드"""
     b_cfg = core.BANNER_CONFIGS.get(banner_type, core.BANNER_CONFIGS["normal"])
@@ -158,7 +173,7 @@ def build_gacha_pull_embed(
         author_icon = user.display_avatar.url if hasattr(user, "display_avatar") else None
         embed.set_author(name=f"{user.display_name}님의 가챠 결과", icon_url=author_icon)
 
-    embed.set_footer(text=f"배너: {b_cfg['short_name']} • 적용 픽업: {pickup_summary} • 하단에서 배너 전환 및 연출 스킵 가능")
+    embed.set_footer(text=f"배너: {b_cfg['short_name']} • 적용 픽업: {pickup_summary} • 배너 변경은 봇주 전용 / 연출 스킵 가능")
     return embed, has_4star
 
 
@@ -405,8 +420,14 @@ class DuplicateConvertConfirmView(core.SafeView):
 
         # 열려 있는 /내캐릭터 보관함 뷰가 있다면 실시간으로 수량을 1장으로 갱신하고 원본 메시지 업데이트
         if self.parent_inventory_view:
-            for c in self.parent_inventory_view.cards:
+            target_pool = getattr(self.parent_inventory_view, "all_cards", None) or self.parent_inventory_view.cards
+            seen_ids = set()
+            for c in target_pool:
+                seen_ids.add(id(c))
                 if not c.get("locked", False) and c.get("count", 1) > 1:
+                    c["count"] = 1
+            for c in self.parent_inventory_view.cards:
+                if id(c) not in seen_ids and not c.get("locked", False) and c.get("count", 1) > 1:
                     c["count"] = 1
             if self.parent_inventory_message:
                 try:
@@ -468,10 +489,10 @@ check_and_update_gacha_cooldown = core.check_and_update_gacha_cooldown
 class GachaPullAgainView(core.SafeView):
     """가챠 결과 화면에서 배너 전환, 연출 스킵, 재뽑기, 생일 무료 단차, 마스터랭크, 라이브 등을 바로 여는 뷰"""
 
-    def __init__(self, user: discord.User | None = None, banner_type: str = "normal", skip_anim: bool = False):
+    def __init__(self, user: discord.User | None = None, banner_type: str | None = None, skip_anim: bool = False):
         super().__init__(timeout=600)
         self.user = user
-        self.banner_type = banner_type if banner_type in core.BANNER_CONFIGS else "normal"
+        self.banner_type = banner_type if banner_type in core.BANNER_CONFIGS else core.get_active_proseka_banner()
         self.skip_anim = bool(skip_anim)
         self._refresh_components()
 
@@ -530,22 +551,25 @@ class GachaPullAgainView(core.SafeView):
 
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
-        pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
-        drawn = await asyncio.to_thread(core.draw_proseka_cards, pickup_cfg, pull_count, self.banner_type)
+        pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
+        active_banner = core.get_active_proseka_banner(pickup_cfg)
+        is_owner = await _is_interaction_bot_owner(interaction)
+        effective_banner = self.banner_type if is_owner else active_banner
+        drawn = await asyncio.to_thread(core.draw_proseka_cards, pickup_cfg, pull_count, effective_banner)
         if not drawn:
             await interaction.followup.send("❌ 한국 서버 캐릭터 DB를 불러오지 못했습니다.", ephemeral=True)
             return
 
         guild_id = interaction.guild_id or 0
-        await asyncio.to_thread(core.save_real_pull_and_records, guild_id, interaction.user.id, drawn, self.banner_type)
-        new_view = GachaPullAgainView(interaction.user, banner_type=self.banner_type, skip_anim=self.skip_anim)
+        await asyncio.to_thread(core.save_real_pull_and_records, guild_id, interaction.user.id, drawn, effective_banner)
+        new_view = GachaPullAgainView(interaction.user, banner_type=effective_banner, skip_anim=self.skip_anim)
         await send_gacha_pull_result(
             interaction,
             drawn,
             pickup_cfg,
             pull_count,
             new_view,
-            banner_type=self.banner_type,
+            banner_type=effective_banner,
             skip_anim=self.skip_anim,
         )
 
@@ -582,7 +606,7 @@ class GachaPullAgainView(core.SafeView):
         data = await asyncio.to_thread(core.load_data)
         g_key = str(interaction.guild_id or 0)
         u_key = str(interaction.user.id)
-        user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+        user_cards_dict = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
         view = MyInventoryView(interaction.user, list(user_cards_dict.values()), items_per_page=10, guild_id=interaction.guild_id or 0)
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
@@ -615,11 +639,18 @@ class GachaPullAgainView(core.SafeView):
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
     @discord.ui.select(
-        placeholder="🎰 재뽑기 배너 변경 (일반 / 컬러풀 페스티벌 / 생일)...",
+        placeholder="🔒 [봇주 전용] 재뽑기 배너 변경 (일반 / 컬러풀 페스티벌 / 생일)...",
         row=2,
         options=[discord.SelectOption(label="일반", value="normal")]
     )
     async def banner_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if not await _is_interaction_bot_owner(interaction):
+            await core.safe_send_response(
+                interaction,
+                "❌ 프로세카 가챠 배너 변경은 **봇주인(Bot Owner)**만 사용할 수 있습니다.",
+                ephemeral=True,
+            )
+            return
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 가챠를 실행한 본인만 배너를 바꿀 수 있습니다.", ephemeral=True)
             return
@@ -646,8 +677,10 @@ class GachaPullAgainView(core.SafeView):
             await interaction.followup.send(f"❌ {msg}", ephemeral=True)
             return
         data = await asyncio.to_thread(core.load_data)
-        pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
-        new_view = GachaPullAgainView(interaction.user, banner_type="birthday", skip_anim=self.skip_anim)
+        pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
+        is_owner = await _is_interaction_bot_owner(interaction)
+        next_banner = self.banner_type if is_owner else core.get_active_proseka_banner(pickup_cfg)
+        new_view = GachaPullAgainView(interaction.user, banner_type=next_banner, skip_anim=self.skip_anim)
         await send_gacha_pull_result(
             interaction,
             drawn,
@@ -663,12 +696,12 @@ class GachaPullAgainView(core.SafeView):
 class RerollSimulatorView(core.SafeView):
     """보관함/랭킹/쿨타임 영향 없이 10연차와 픽업 저격 확률을 체험하는 리세마라 연습 시뮬레이터 뷰"""
 
-    def __init__(self, user: discord.User | None = None, guild_id: int = 0, pickup_cfg: dict | None = None, banner_type: str = "normal", initial_drawn: list | None = None):
+    def __init__(self, user: discord.User | None = None, guild_id: int = 0, pickup_cfg: dict | None = None, banner_type: str | None = None, initial_drawn: list | None = None):
         super().__init__(timeout=600)
         self.user = user
         self.guild_id = guild_id
-        self.pickup_cfg = pickup_cfg or core.DEFAULT_CONFIG["gacha_pickup"]
-        self.banner_type = banner_type if banner_type in core.BANNER_CONFIGS else "normal"
+        self.pickup_cfg = core.as_dict(pickup_cfg) or core.DEFAULT_CONFIG["gacha_pickup"]
+        self.banner_type = banner_type if banner_type in core.BANNER_CONFIGS else core.get_active_proseka_banner(self.pickup_cfg)
         self.attempt_count = 1
         self.drawn = initial_drawn or []
         self.total_high = sum(1 for c in self.drawn if c.get("star_num", 0) >= 4)
@@ -743,7 +776,7 @@ class RerollSimulatorView(core.SafeView):
             await core.safe_defer(interaction)
             def _do_roll():
                 d = core.load_data()
-                p_cfg = d.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
+                p_cfg = core.as_dict(d.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
                 dr = core.draw_proseka_cards(p_cfg, count=10, banner_type=self.banner_type)
                 core.annotate_drawn_is_new(self.guild_id, self.user.id, dr)
                 return p_cfg, dr
@@ -778,7 +811,7 @@ class RerollSimulatorView(core.SafeView):
 
             def _run_batch():
                 d = core.load_data()
-                p_cfg = d.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
+                p_cfg = core.as_dict(d.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
                 prob_cards = core.calculate_card_probabilities(p_cfg, banner_type=self.banner_type)
                 if not prob_cards:
                     return p_cfg, 0, [], False, 0, 0, False
@@ -839,11 +872,18 @@ class RerollSimulatorView(core.SafeView):
                 await interaction.edit_original_response(embed=embed, attachments=[], view=self)
 
     @discord.ui.select(
-        placeholder="🧪 연습 배너 선택...",
+        placeholder="🔒 [봇주 전용] 연습 배너 선택...",
         row=1,
         options=[discord.SelectOption(label="일반", value="normal")]
     )
     async def sim_banner_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if not await _is_interaction_bot_owner(interaction):
+            await core.safe_send_response(
+                interaction,
+                "❌ 프로세카 가챠 배너 변경은 **봇주인(Bot Owner)**만 사용할 수 있습니다.",
+                ephemeral=True,
+            )
+            return
         if interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 연습 시뮬레이션을 시작한 본인만 배너를 바꿀 수 있습니다.", ephemeral=True)
             return
@@ -1490,6 +1530,10 @@ class CardIllustToggleView(core.SafeView):
 
         self.card["locked"] = new_locked
         if self.parent_inventory_view:
+            target_pool = getattr(self.parent_inventory_view, "all_cards", None) or self.parent_inventory_view.cards
+            for c in target_pool:
+                if str(c.get("id")) == str(self.card.get("id")):
+                    c["locked"] = new_locked
             for c in self.parent_inventory_view.cards:
                 if str(c.get("id")) == str(self.card.get("id")):
                     c["locked"] = new_locked
@@ -1708,8 +1752,8 @@ class CharacterCostumeWardrobeView(core.SafeView):
         # 1. 착용 캐릭터(현재 선택한 캐릭터)의 대표 카드 찾기
         g_key = str(self.guild_id or 0)
         u_key = str(self.user.id)
-        user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
-        my_char_cards = [c for c in user_cards_dict.values() if c.get("char_id") == self.current_char_id]
+        user_cards_dict = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
+        my_char_cards = [c for c in user_cards_dict.values() if isinstance(c, dict) and c.get("char_id") == self.current_char_id]
 
         char_card = None
         if my_char_cards:
@@ -1823,9 +1867,10 @@ class ProsekaRatePaginationView(core.SafeView):
     def __init__(self, all_prob_cards=None, pickup_cfg=None, items_per_page=5, banner_type: str = "normal"):
         super().__init__(timeout=600)
         self.banner_type = banner_type if banner_type in core.BANNER_CONFIGS else "normal"
+        pickup_cfg = core.as_dict(pickup_cfg)
         if not pickup_cfg:
             d = core.get_cached_data()
-            pickup_cfg = d.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
+            pickup_cfg = core.as_dict(d.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
         self.pickup_cfg = pickup_cfg
         if not all_prob_cards:
             all_prob_cards = core.calculate_card_probabilities(self.pickup_cfg, banner_type=self.banner_type)
@@ -2002,25 +2047,38 @@ class ProsekaRatePaginationView(core.SafeView):
 
 
 class MyInventoryView(core.SafeView):
-    """내 캐릭터 보관함 (검색어 필터 + 정렬 + 잠금 표시 + 중복 카드 크리스탈 변환 + 일러스트 & 각성 전환)"""
-    def __init__(self, user: discord.User | None = None, card_list: list | None = None, items_per_page=10, search_keyword: str = None, guild_id: int = 0):
+    """내 캐릭터 보관함 (유닛/캐릭터별 필터 + 검색어 필터 + 정렬 + 잠금 표시 + 중복 카드 크리스탈 변환 + 일러스트 & 각성 전환)"""
+    def __init__(
+        self,
+        user: discord.User | None = None,
+        card_list: list | None = None,
+        items_per_page=10,
+        search_keyword: str = None,
+        guild_id: int = 0,
+        initial_unit: str | None = None,
+        initial_char_id: int | None = None,
+    ):
         super().__init__(timeout=600)
         self.user = user
         self.guild_id = guild_id
-        if card_list:
-            self.cards = list(card_list)
+        if card_list is not None:
+            self.all_cards = [c for c in card_list if isinstance(c, dict)]
         elif self.user:
             d = core.get_cached_data()
-            u_cards = d.get("gacha_users", {}).get(str(self.guild_id or 0), {}).get(str(self.user.id), {}).get("cards", {})
-            self.cards = list(u_cards.values())
+            u_cards = core.safe_get_dict(d, "gacha_users", str(self.guild_id or 0), str(self.user.id), "cards")
+            self.all_cards = [c for c in u_cards.values() if isinstance(c, dict)]
         else:
-            self.cards = []
+            self.all_cards = []
+        self.cards: list = []
         self.items_per_page = items_per_page
         self.search_keyword = search_keyword
         self.current_page = 0
+        self.sort_mode = "obtained_desc"
         self.sort_mode_label = "획득일 최신순"
-        self.apply_sort("obtained_desc")
-        self.update_illust_select()
+        self.selected_unit = initial_unit if (initial_unit in core.UNIT_ORDER) else "ALL"
+        self.selected_char_id = int(initial_char_id) if initial_char_id is not None else None
+        self.has_more_chars_notice = False
+        self.apply_filters_and_sort()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         await super().interaction_check(interaction)
@@ -2035,12 +2093,144 @@ class MyInventoryView(core.SafeView):
             return False
         if not self.user:
             self.user = interaction.user
-            if not self.cards:
+            if not self.all_cards:
                 d = core.get_cached_data()
-                u_cards = d.get("gacha_users", {}).get(str(self.guild_id or 0), {}).get(str(self.user.id), {}).get("cards", {})
-                self.cards = list(u_cards.values())
-                self.apply_sort("obtained_desc")
+                u_cards = core.safe_get_dict(d, "gacha_users", str(self.guild_id or 0), str(self.user.id), "cards")
+                self.all_cards = [c for c in u_cards.values() if isinstance(c, dict)]
+                self.apply_filters_and_sort()
         return True
+
+    @staticmethod
+    def _resolve_card_char_id(card: dict) -> int | None:
+        cid = card.get("char_id")
+        if cid is not None:
+            try:
+                return int(cid)
+            except Exception:
+                pass
+        cname = card.get("char_name", "")
+        for map_cid, info in core.CHARACTER_MAP.items():
+            if info.get("name") == cname:
+                return map_cid
+        return None
+
+    @classmethod
+    def _card_matches_unit(cls, card: dict, unit_name: str) -> bool:
+        if unit_name == "ALL":
+            return True
+        if card.get("unit") == unit_name or card.get("support_unit") == unit_name:
+            return True
+        cid = cls._resolve_card_char_id(card)
+        if cid in core.CHARACTER_MAP and core.CHARACTER_MAP[cid].get("unit") == unit_name:
+            return True
+        return False
+
+    def apply_filters_and_sort(self, mode: str | None = None):
+        if mode is not None:
+            self.sort_mode = mode
+        filtered = list(self.all_cards)
+        if self.selected_unit != "ALL":
+            filtered = [c for c in filtered if self._card_matches_unit(c, self.selected_unit)]
+        if self.selected_char_id is not None:
+            filtered = [c for c in filtered if self._resolve_card_char_id(c) == self.selected_char_id]
+        self.cards = filtered
+        self.apply_sort(self.sort_mode)
+        if self.current_page > self.max_page:
+            self.current_page = self.max_page
+        self.update_filter_selects()
+        self.update_illust_select()
+
+    def update_filter_selects(self):
+        # Row 3: 유닛별 필터
+        unit_emojis = {
+            "Leo/need": "🎸",
+            "MORE MORE JUMP!": "🍀",
+            "Vivid BAD SQUAD": "🎧",
+            "원더랜즈×쇼타임": "🎪",
+            "25시, 나이트 코드에서.": "🌃",
+            "버츄얼 싱어": "🎤",
+        }
+        total_unique_all = len(self.all_cards)
+        total_pulls_all = sum(c.get("count", 1) for c in self.all_cards)
+        unit_opts = [
+            discord.SelectOption(
+                label=f"🌐 전체 유닛 보기 ({total_unique_all}종 / {total_pulls_all}장)"[:100],
+                value="ALL",
+                description="모든 유닛의 보유 카드를 한 번에 표시합니다",
+                default=(self.selected_unit == "ALL"),
+            )
+        ]
+        for u_name in core.UNIT_ORDER:
+            u_cards = [c for c in self.all_cards if self._card_matches_unit(c, u_name)]
+            u_pulls = sum(c.get("count", 1) for c in u_cards)
+            u_emoji = unit_emojis.get(u_name, "🏷️")
+            unit_opts.append(
+                discord.SelectOption(
+                    label=f"{u_emoji} {u_name} ({len(u_cards)}종)"[:100],
+                    value=u_name,
+                    description=f"총 {u_pulls:,}장 보유 · {u_name} 소속 캐릭터만 보기"[:100],
+                    default=(self.selected_unit == u_name),
+                )
+            )
+        self.unit_select.options = unit_opts[:25]
+
+        # Row 4: 캐릭터별 필터
+        base_pool = (
+            self.all_cards
+            if self.selected_unit == "ALL"
+            else [c for c in self.all_cards if self._card_matches_unit(c, self.selected_unit)]
+        )
+        char_counts: dict[int, tuple[int, int]] = {}
+        for c in base_pool:
+            cid = self._resolve_card_char_id(c)
+            if cid is None:
+                continue
+            prev_u, prev_p = char_counts.get(cid, (0, 0))
+            char_counts[cid] = (prev_u + 1, prev_p + int(c.get("count", 1)))
+
+        base_pulls = sum(c.get("count", 1) for c in base_pool)
+        if self.selected_unit == "ALL":
+            all_char_label = f"🌐 전체 캐릭터 보기 ({len(base_pool)}종 / {base_pulls}장)"
+            candidate_cids = sorted(cid for cid in char_counts.keys() if cid in core.CHARACTER_MAP)
+            if self.selected_char_id is not None and self.selected_char_id in core.CHARACTER_MAP and self.selected_char_id not in candidate_cids:
+                candidate_cids.append(self.selected_char_id)
+                candidate_cids.sort()
+        else:
+            all_char_label = f"🌐 {self.selected_unit} 전체 캐릭터 ({len(base_pool)}종)"
+            unit_member_cids = [cid for cid, info in core.CHARACTER_MAP.items() if info.get("unit") == self.selected_unit]
+            extra_cids = [cid for cid in sorted(char_counts.keys()) if cid in core.CHARACTER_MAP and cid not in unit_member_cids]
+            candidate_cids = unit_member_cids + extra_cids
+
+        char_opts = [
+            discord.SelectOption(
+                label=all_char_label[:100],
+                value="ALL",
+                description="선택된 범위의 모든 캐릭터 카드를 표시합니다",
+                default=(self.selected_char_id is None),
+            )
+        ]
+
+        self.has_more_chars_notice = False
+        if len(candidate_cids) > 24:
+            self.has_more_chars_notice = True
+            display_cids = candidate_cids[:24]
+            if self.selected_char_id is not None and self.selected_char_id in candidate_cids and self.selected_char_id not in display_cids:
+                display_cids = display_cids[:-1] + [self.selected_char_id]
+        else:
+            display_cids = candidate_cids
+
+        for cid in display_cids:
+            c_info = core.CHARACTER_MAP.get(cid, {"name": f"캐릭터 #{cid}", "unit": "-"})
+            u_cnt, p_cnt = char_counts.get(cid, (0, 0))
+            char_opts.append(
+                discord.SelectOption(
+                    label=f"👤 {c_info['name']} ({u_cnt}종 / {p_cnt}장)"[:100],
+                    value=str(cid),
+                    description=f"{c_info['unit']} · {c_info['name']} 카드만 모아보기"[:100],
+                    default=(self.selected_char_id == cid),
+                )
+            )
+        self.char_select.options = char_opts[:25]
 
     @property
     def max_page(self):
@@ -2080,6 +2270,7 @@ class MyInventoryView(core.SafeView):
             self.illust_select.disabled = False
 
     def apply_sort(self, mode: str):
+        self.sort_mode = mode
         if mode == "obtained_desc":
             self.cards.sort(key=lambda x: x.get("last_obtained_at", ""), reverse=True)
             self.sort_mode_label = "획득일 최신순"
@@ -2110,6 +2301,7 @@ class MyInventoryView(core.SafeView):
             self.sort_mode_label = "🔒 잠금 카드 우선"
 
     def build_embed(self):
+        self.update_filter_selects()
         self.update_illust_select()
         total_unique = len(self.cards)
         total_pulls = sum(c.get("count", 1) for c in self.cards)
@@ -2118,20 +2310,42 @@ class MyInventoryView(core.SafeView):
         start_idx = self.current_page * self.items_per_page
         page_items = self.get_current_page_items()
 
+        unit_label = "전체 유닛" if self.selected_unit == "ALL" else self.selected_unit
+        char_label = (
+            core.CHARACTER_MAP.get(self.selected_char_id, {}).get("name", f"캐릭터 #{self.selected_char_id}")
+            if self.selected_char_id is not None
+            else "전체 캐릭터"
+        )
+        is_filtered = (self.selected_unit != "ALL" or self.selected_char_id is not None)
+        all_scope_note = f" *(전체 `{len(self.all_cards):,}종` 중)*" if is_filtered else ""
+
         search_line = f"• **검색어 필터:** `{self.search_keyword}`\n" if self.search_keyword else ""
+        filter_line = f"• **유닛 / 캐릭터 필터:** `{unit_label}` · `{char_label}`\n"
+        tip_line = (
+            "\n> 💡 *25명 이상 보유 시 하단 유닛 필터를 먼저 선택하면 MEIKO·KAITO 포함 모든 캐릭터를 바로 선택할 수 있습니다.*"
+            if self.has_more_chars_notice
+            else ""
+        )
         embed = discord.Embed(
             title=f"🎒 {self.user.display_name}님의 프로세카 캐릭터 보관함",
             description=(
                 f"{search_line}"
-                f"• **보유 종류:** `{total_unique:,}종` (총 누적: `{total_pulls:,}장` · 🔒잠금: `{locked_cnt}종` · 💎변환가능 중복: `{dup_cnt}장`)\n"
+                f"{filter_line}"
+                f"• **보유 종류:** `{total_unique:,}종`{all_scope_note} (총 누적: `{total_pulls:,}장` · 🔒잠금: `{locked_cnt}종` · 💎변환가능 중복: `{dup_cnt}장`)\n"
                 f"• **현재 정렬 기준:** `{self.sort_mode_label}`"
+                f"{tip_line}"
             ),
             color=discord.Color.gold(),
             timestamp=datetime.datetime.now(core.KST)
         )
 
         if not page_items:
-            empty_msg = f"`{self.search_keyword}` 검색 조건에 맞는 보유 카드가 없습니다." if self.search_keyword else "`/프로세카뽑기` 명령어로 캐릭터를 뽑아보세요!"
+            if self.selected_char_id is not None or self.selected_unit != "ALL":
+                empty_msg = f"`{unit_label}` · `{char_label}` 조건에 해당하는 보유 카드가 없습니다. 하단 드롭다운에서 다른 캐릭터나 전체 보기를 선택해 보세요!"
+            elif self.search_keyword:
+                empty_msg = f"`{self.search_keyword}` 검색 조건에 맞는 보유 카드가 없습니다."
+            else:
+                empty_msg = "`/프로세카뽑기` 명령어로 캐릭터를 뽑아보세요!"
             embed.add_field(name="조회된 카드가 없습니다", value=empty_msg, inline=False)
         else:
             lines = []
@@ -2157,7 +2371,7 @@ class MyInventoryView(core.SafeView):
                 max_chars=950
             )
 
-        embed.set_footer(text="하단에서 카드를 선택해 일러스트 감상·각성 전환·잠금(🔒)을 설정하거나, 💎 버튼으로 중복 카드를 크리스탈로 변환하세요.")
+        embed.set_footer(text="하단 드롭다운으로 유닛·캐릭터별 필터링 및 일러스트·각성·잠금(🔒) 관리가 가능합니다.")
         return embed
 
     @discord.ui.button(label="⏪ -5", style=discord.ButtonStyle.secondary, row=0)
@@ -2250,6 +2464,38 @@ class MyInventoryView(core.SafeView):
         else:
             embed.set_image(url=core.get_proseka_card_image_url(selected_card, init_mode))
             await interaction.followup.send(embed=embed, view=toggle_view)
+
+    @discord.ui.select(
+        placeholder="🏷️ 유닛별 보기 필터 (전체 유닛 / 6개 유닛 선택)...",
+        row=3,
+        options=[discord.SelectOption(label="🌐 전체 유닛 보기", value="ALL")]
+    )
+    async def unit_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        chosen_unit = select.values[0]
+        self.selected_unit = chosen_unit
+        if self.selected_char_id is not None and chosen_unit != "ALL":
+            char_unit = core.CHARACTER_MAP.get(self.selected_char_id, {}).get("unit")
+            has_match = any(
+                self._card_matches_unit(c, chosen_unit) and self._resolve_card_char_id(c) == self.selected_char_id
+                for c in self.all_cards
+            )
+            if char_unit != chosen_unit and not has_match:
+                self.selected_char_id = None
+        self.current_page = 0
+        self.apply_filters_and_sort()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.select(
+        placeholder="👤 캐릭터별 보기 선택 (원하는 캐릭터 카드만 모아보기)...",
+        row=4,
+        options=[discord.SelectOption(label="🌐 전체 캐릭터 보기", value="ALL")]
+    )
+    async def char_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        chosen = select.values[0]
+        self.selected_char_id = None if chosen == "ALL" else int(chosen)
+        self.current_page = 0
+        self.apply_filters_and_sort()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
 
 class CardPokedexView(core.SafeView):
@@ -2614,11 +2860,13 @@ class GuildGachaResetConfirmView(core.SafeView):
         data = await asyncio.to_thread(core.load_data)
         g_key = str(target_guild.id)
         changed = False
-        if g_key in data.get("gacha_users", {}):
-            del data["gacha_users"][g_key]
+        gacha_users_map = core.ensure_dict_path(data, "gacha_users")
+        if g_key in gacha_users_map:
+            del gacha_users_map[g_key]
             changed = True
-        if g_key in data.get("gacha_hall_of_fame", {}):
-            del data["gacha_hall_of_fame"][g_key]
+        hof_map = core.ensure_dict_path(data, "gacha_hall_of_fame")
+        if g_key in hof_map:
+            del hof_map[g_key]
             changed = True
         if changed:
             await asyncio.to_thread(core.save_data, data)
@@ -3038,8 +3286,8 @@ class MasterRankView(core.SafeView):
     def _get_sorted_cards(self, data: dict) -> list[dict]:
         g_key = str(self.guild_id or 0)
         u_key = str(self.user.id) if self.user else "0"
-        u_cards = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
-        cards = list(u_cards.values())
+        u_cards = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
+        cards = [c for c in u_cards.values() if isinstance(c, dict)]
         cards.sort(key=lambda c: (
             -int(c.get("count", 1) >= 2 and int(c.get("master_rank", 0)) < 5),
             -c.get("star_num", 1),
@@ -3249,10 +3497,8 @@ class MasterRankView(core.SafeView):
         data = await asyncio.to_thread(core.load_data)
         g_key = str(self.guild_id or (interaction.guild_id or 0))
         u_key = str(interaction.user.id)
-        card = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get(
-            "cards", {}
-        ).get(str(self.selected_card_id))
-        init_cid = card.get("char_id", 1) if card else 1
+        card = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards").get(str(self.selected_card_id))
+        init_cid = card.get("char_id", 1) if isinstance(card, dict) else 1
         view = CharacterCostumeWardrobeView(interaction.user, guild_id=self.guild_id or (interaction.guild_id or 0), initial_char_id=init_cid)
         embed = await asyncio.to_thread(view.build_embed)
         await interaction.followup.send(embed=embed, view=view)
@@ -3322,20 +3568,22 @@ class SekaiLiveView(core.SafeView):
         g_key = str(self.guild_id or 0)
         u_key = str(self.user.id)
         prof = core.ensure_user_profile(data, u_key, self.user.display_name)
-        g_user = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {})
-        u_cards = g_user.get("cards", {})
+        g_user = core.safe_get_dict(data, "gacha_users", g_key, u_key)
+        u_cards = core.as_dict(g_user.get("cards"))
 
         song = next((s for s in core.PROSEKA_LIVE_SONGS if s["id"] == self.selected_song_id), core.PROSEKA_LIVE_SONGS[0])
 
-        saved_deck_ids = prof.get("deck") or g_user.get("deck", [])
-        deck_cards = [u_cards[str(cid)] for cid in saved_deck_ids if str(cid) in u_cards]
+        saved_deck_ids = prof.get("deck") or g_user.get("deck") or []
+        if not isinstance(saved_deck_ids, list):
+            saved_deck_ids = []
+        deck_cards = [u_cards[str(cid)] for cid in saved_deck_ids if str(cid) in u_cards and isinstance(u_cards.get(str(cid)), dict)]
         used_auto = False
         if not deck_cards and u_cards:
             used_auto = True
-            deck_cards = sorted(u_cards.values(), key=lambda c: (-core.get_card_power(c), -c.get("star_num", 1)))[:5]
+            deck_cards = sorted([c for c in u_cards.values() if isinstance(c, dict)], key=lambda c: (-core.get_card_power(c), -c.get("star_num", 1)))[:5]
 
         today_str = core.get_today_str()
-        live_stats = prof.get("sekai_live", {})
+        live_stats = core.as_dict(prof.get("sekai_live"))
         daily_used = int(live_stats.get("daily_count", 0)) if live_stats.get("last_date") == today_str else 0
         stamps = int(live_stats.get("stamps", 0))
         best_score = int(live_stats.get("best_score", 0))
@@ -3483,7 +3731,7 @@ class GachaCog(commands.Cog):
     @app_commands.command(name="프로세카뽑기", description="프로세카 한섭 뽑기 (일반·페스·생일 / 리세마라 연습 / 일일 운명 다시 뽑기 / 생일 무료 단차)")
     @app_commands.describe(
         횟수="1회 뽑기(단차) 또는 10회 뽑기(10연차 - ★3 이상 확정)를 선택하세요.",
-        배너="(선택) 뽑기 배너를 선택하세요 (일반·페스티벌 ★4 2배·생일 스페셜)",
+        배너="[봇주인 전용] 뽑기 배너를 선택합니다 (일반·페스티벌 ★4 2배·생일 스페셜)",
         연출="(선택) 무지개 승격 & 대사 선공개 연출 표시 여부를 선택하세요.",
         모드="(선택) 일반 뽑기 / 리세마라 연습(무저장·무쿨타임) / 운명 다시 뽑기(1일 1회) / 생일 무료 단차"
     )
@@ -3517,15 +3765,24 @@ class GachaCog(commands.Cog):
         연출: app_commands.Choice[str] = None,
         모드: app_commands.Choice[str] = None,
     ):
+        is_owner = await _is_interaction_bot_owner(interaction, self.bot)
+        if 배너 is not None and not is_owner:
+            await core.safe_send_response(
+                interaction,
+                content="❌ 프로세카 가챠 배너 선택은 **봇주인(Bot Owner)**만 사용할 수 있습니다.",
+                ephemeral=True,
+            )
+            return
+
         mode_val = 모드.value if 모드 else "normal"
-        banner_key = 배너.value if 배너 else "normal"
         skip_anim = (연출 is not None and 연출.value == "skip")
         guild_id = interaction.guild_id or 0
 
         if mode_val == "practice":
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
-            pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
+            pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
+            banner_key = 배너.value if (배너 is not None and is_owner) else core.get_active_proseka_banner(pickup_cfg)
             drawn = await asyncio.to_thread(core.draw_proseka_cards, pickup_cfg, count=10, banner_type=banner_key)
             if not drawn:
                 await interaction.followup.send("❌ 한국 서버 캐릭터 DB를 불러오지 못했습니다.")
@@ -3557,8 +3814,9 @@ class GachaCog(commands.Cog):
                 await interaction.followup.send(f"❌ {msg}", ephemeral=True)
                 return
             data = await asyncio.to_thread(core.load_data)
-            pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
-            repull_view = GachaPullAgainView(interaction.user, banner_type="birthday", skip_anim=skip_anim)
+            pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
+            next_banner = (배너.value if (배너 is not None and is_owner) else core.get_active_proseka_banner(pickup_cfg))
+            repull_view = GachaPullAgainView(interaction.user, banner_type=next_banner, skip_anim=skip_anim)
             await send_gacha_pull_result(
                 interaction,
                 drawn,
@@ -3588,7 +3846,8 @@ class GachaCog(commands.Cog):
                 return
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
-            pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
+            pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
+            banner_key = 배너.value if (배너 is not None and is_owner) else core.get_active_proseka_banner(pickup_cfg)
             ok, msg, first_set = await asyncio.to_thread(
                 core.start_daily_destiny_reroll, guild_id, interaction.user.id, pickup_cfg, banner_key
             )
@@ -3621,7 +3880,8 @@ class GachaCog(commands.Cog):
         pull_count = 횟수.value if 횟수 else 1
 
         data = await asyncio.to_thread(core.load_data)
-        pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
+        pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
+        banner_key = 배너.value if (배너 is not None and is_owner) else core.get_active_proseka_banner(pickup_cfg)
         drawn = await asyncio.to_thread(core.draw_proseka_cards, pickup_cfg, count=pull_count, banner_type=banner_key)
 
         if not drawn:
@@ -3669,28 +3929,30 @@ class GachaCog(commands.Cog):
     ])
     async def proseka_rate_list_cmd(self, interaction: discord.Interaction, 배너: app_commands.Choice[str] = None):
         await core.safe_defer(interaction)
-        banner_key = 배너.value if 배너 else "normal"
         data = await asyncio.to_thread(core.load_data)
-        pickup_cfg = data.get("gacha_pickup", core.DEFAULT_CONFIG["gacha_pickup"])
+        pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
+        banner_key = 배너.value if 배너 else core.get_active_proseka_banner(pickup_cfg)
         prob_cards = core.calculate_card_probabilities(pickup_cfg, banner_type=banner_key)
 
         view = ProsekaRatePaginationView(prob_cards, pickup_cfg, items_per_page=5, banner_type=banner_key)
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
-    @app_commands.command(name="내캐릭터", description="내가 뽑은 프로세카 캐릭터를 검색/정렬하고 일러스트(각성 전·후), 잠금(🔒), 중복 변환을 관리합니다.")
+    @app_commands.command(name="내캐릭터", description="내가 뽑은 프로세카 캐릭터를 캐릭터별·유닛별로 확인하고 일러스트, 잠금(🔒), 중복 변환을 관리합니다.")
     @app_commands.describe(
         유저="(선택) 다른 유저의 캐릭터 보관함을 구경할 수 있습니다.",
-        검색어="(선택) 캐릭터 이름, 카드명, 유닛, 한정 여부 등으로 보유 카드를 검색합니다 (예: 카나데, 한정)"
+        캐릭터="(선택) 특정 캐릭터의 보유 카드만 바로 필터링하여 봅니다 (예: 요이사키 카나데, 하츠네 미쿠)",
+        검색어="(선택) 캐릭터 이름, 카드명, 유닛, 한정 여부 등으로 보유 카드를 검색합니다 (예: 한정, 버츄얼)"
     )
-    async def my_characters_cmd(self, interaction: discord.Interaction, 유저: discord.User = None, 검색어: str = None):
+    @app_commands.autocomplete(캐릭터=core.oshi_char_autocomplete)
+    async def my_characters_cmd(self, interaction: discord.Interaction, 유저: discord.User = None, 캐릭터: str = None, 검색어: str = None):
         await core.safe_defer(interaction)
         target_user = 유저 or interaction.user
         data = await asyncio.to_thread(core.load_data)
         g_key = str(interaction.guild_id or 0)
         u_key = str(target_user.id)
 
-        user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
-        card_list = list(user_cards_dict.values())
+        user_cards_dict = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
+        card_list = [c for c in user_cards_dict.values() if isinstance(c, dict)]
 
         clean_kw = 검색어.strip() if 검색어 and 검색어.strip() else None
         if clean_kw:
@@ -3706,7 +3968,27 @@ class GachaCog(commands.Cog):
                 or kw_lower in c.get("rarity_label", "").lower()
             ]
 
-        view = MyInventoryView(target_user, card_list, items_per_page=10, search_keyword=clean_kw, guild_id=interaction.guild_id or 0)
+        initial_char_id = None
+        if 캐릭터 and 캐릭터.strip() and 캐릭터.strip() != "NONE":
+            c_q = 캐릭터.strip().lower()
+            initial_char_id = next(
+                (cid for cid, info in core.CHARACTER_MAP.items() if info["name"].lower() == c_q),
+                None,
+            )
+            if initial_char_id is None:
+                initial_char_id = next(
+                    (cid for cid, info in core.CHARACTER_MAP.items() if c_q in info["name"].lower()),
+                    None,
+                )
+
+        view = MyInventoryView(
+            target_user,
+            card_list,
+            items_per_page=10,
+            search_keyword=clean_kw,
+            guild_id=interaction.guild_id or 0,
+            initial_char_id=initial_char_id,
+        )
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
     @app_commands.command(name="카드도감", description="캐릭터별 수집률(%)과 아직 획득하지 못한 미보유 카드를 별도 탭으로 확인하는 전체 카드 도감을 엽니다.")
@@ -3770,8 +4052,8 @@ class GachaCog(commands.Cog):
                     ephemeral=True
                 )
                 return
-            req_cards = data.get("gacha_users", {}).get(g_key, {}).get(r_key, {}).get("cards", {})
-            tgt_cards = data.get("gacha_users", {}).get(g_key, {}).get(t_key, {}).get("cards", {})
+            req_cards = core.safe_get_dict(data, "gacha_users", g_key, r_key, "cards")
+            tgt_cards = core.safe_get_dict(data, "gacha_users", g_key, t_key, "cards")
             if not req_cards:
                 await interaction.followup.send("❌ 보유한 카드가 없습니다. `/프로세카뽑기`로 먼저 캐릭터를 뽑아주세요!", ephemeral=True)
                 return
@@ -3792,7 +4074,7 @@ class GachaCog(commands.Cog):
         r_key = str(interaction.user.id)
         t_key = str(상대유저.id)
 
-        my_crystals = data.get("user_profiles", {}).get(r_key, {}).get("crystals", 0)
+        my_crystals = core.safe_get_dict(data, "user_profiles", r_key).get("crystals", 0)
         if my_crystals < 100:
             await interaction.followup.send(
                 f"❌ **카드 교환에는 크리스탈 `100개`가 필요합니다!**\n"
@@ -3801,8 +4083,8 @@ class GachaCog(commands.Cog):
             )
             return
 
-        req_cards = data.get("gacha_users", {}).get(g_key, {}).get(r_key, {}).get("cards", {})
-        tgt_cards = data.get("gacha_users", {}).get(g_key, {}).get(t_key, {}).get("cards", {})
+        req_cards = core.safe_get_dict(data, "gacha_users", g_key, r_key, "cards")
+        tgt_cards = core.safe_get_dict(data, "gacha_users", g_key, t_key, "cards")
 
         if 내카드 not in req_cards or req_cards[내카드].get("count", 0) < 1:
             await interaction.followup.send("❌ 선택한 `내카드`를 보유하고 있지 않습니다.", ephemeral=True)
@@ -3856,7 +4138,7 @@ class GachaCog(commands.Cog):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
         u_key = str(interaction.user.id)
-        partner_id = data.get("user_profiles", {}).get(u_key, {}).get("partner_id")
+        partner_id = core.safe_get_dict(data, "user_profiles", u_key).get("partner_id")
 
         if not partner_id:
             await interaction.followup.send(
@@ -4011,7 +4293,7 @@ class GachaCog(commands.Cog):
         g_key = str(interaction.guild_id or 0)
         u_key = str(interaction.user.id)
 
-        user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+        user_cards_dict = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
         if not user_cards_dict:
             await interaction.followup.send("❌ 보유한 카드가 없습니다. `/프로세카뽑기`로 먼저 캐릭터를 뽑아주세요!", ephemeral=True)
             return
@@ -4107,8 +4389,8 @@ class GachaCog(commands.Cog):
         partner_id = profile.get("partner_id")
         crystals = profile.get("crystals", 0)
 
-        global_att = profile.get("attendance", {})
-        guild_att = data.get("guild_attendance", {}).get(g_key, {}).get(u_key, {})
+        global_att = core.as_dict(profile.get("attendance"))
+        guild_att = core.safe_get_dict(data, "guild_attendance", g_key, u_key)
 
         g_total = guild_att.get("total_days", 0)
         g_streak = guild_att.get("streak", 0)
@@ -4117,8 +4399,8 @@ class GachaCog(commands.Cog):
 
         grass_bar, _ = core.get_todo_galaxy_grass(profile)
 
-        user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
-        cards = list(user_cards_dict.values())
+        user_cards_dict = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
+        cards = [c for c in user_cards_dict.values() if isinstance(c, dict)]
 
         total_pulls = sum(c.get("count", 1) for c in cards)
         total_unique = len(cards)
@@ -4188,7 +4470,7 @@ class GachaCog(commands.Cog):
         else:
             embed.add_field(name="🎸 나만의 5인 유닛 덱", value="미편성 (`/덱편성` 명령어로 5인 유닛을 꾸며보세요!)", inline=False)
 
-        live_stats = profile.get("sekai_live", {})
+        live_stats = core.as_dict(profile.get("sekai_live"))
         today_str = core.get_today_str()
         live_daily = int(live_stats.get("daily_count", 0)) if live_stats.get("last_date") == today_str else 0
         live_stamps = int(live_stats.get("stamps", 0))
@@ -4258,14 +4540,16 @@ class GachaCog(commands.Cog):
         data = await asyncio.to_thread(core.load_data)
         guild_id = interaction.guild_id or 0
         g_key = str(guild_id)
-        guild_users = data.get("gacha_users", {}).get(g_key, {})
-        hall_of_fame = core.get_gacha_hall_of_fame(guild_id)
+        guild_users = core.safe_get_dict(data, "gacha_users", g_key)
+        hall_of_fame = core.as_dict(core.get_gacha_hall_of_fame(guild_id))
 
         total_db_cards = max(1, len(core.PROSEKA_KR_CARDS))
         stats_list = []
 
         for uid_str, u_data in guild_users.items():
-            u_cards = list(u_data.get("cards", {}).values())
+            if not isinstance(u_data, dict):
+                continue
+            u_cards = [c for c in core.as_dict(u_data.get("cards")).values() if isinstance(c, dict)]
             if not u_cards:
                 continue
             unique_cnt = len(u_cards)
@@ -4292,13 +4576,14 @@ class GachaCog(commands.Cog):
         view = GachaRankingView(interaction.user, guild_name, total_db_cards, stats_list, hall_of_fame)
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
-    @app_commands.command(name="픽업설정", description="[봇주인 전용] 현재 한섭 이벤트에 맞춰 픽업을 자동 연동하거나 유닛/캐릭터/한정 여부를 직접 설정합니다.")
+    @app_commands.command(name="픽업설정", description="[봇주인 전용] 현재 한섭 이벤트에 맞춰 픽업을 자동 연동하거나 유닛/캐릭터/배너/한정 여부를 직접 설정합니다.")
     @app_commands.autocomplete(캐릭터=core.proseka_char_autocomplete)
     @app_commands.describe(
         모드="픽업 설정 방식 (현재 한섭 이벤트 자동 맞춤 / 수동 지정 / 픽업 해제)",
         유닛="[수동] 픽업 확률을 높일 유닛 선택 ('해제' 선택 시 유닛 픽업 해제)",
         캐릭터="[수동] 픽업 확률을 높일 캐릭터 선택 ('해제' 선택 시 캐릭터 픽업 해제)",
-        한정포함="[수동] 기간한정/페스한정/생일한정 카드를 뽑기 풀에 포함할지 여부 (기본: True)"
+        한정포함="[수동] 기간한정/페스한정/생일한정 카드를 뽑기 풀에 포함할지 여부 (기본: True)",
+        배너="[전역 배너] 전체 유저 기본 프로세카 가챠 배너 변경 (일반 / 페스티벌 ★4 2배 / 생일 스페셜)"
     )
     @app_commands.choices(
         모드=[
@@ -4314,7 +4599,12 @@ class GachaCog(commands.Cog):
             app_commands.Choice(name="원더랜즈×쇼타임", value="원더랜즈×쇼타임"),
             app_commands.Choice(name="25시, 나이트 코드에서.", value="25시, 나이트 코드에서."),
             app_commands.Choice(name="버츄얼 싱어", value="버츄얼 싱어")
-        ]
+        ],
+        배너=[
+            app_commands.Choice(name="🌟 일반 / 현재 픽업 가챠 (★4 3.0%)", value="normal"),
+            app_commands.Choice(name="🎊 컬러풀 페스티벌 (★4 2배 · 6.0%!)", value="fes"),
+            app_commands.Choice(name="🎂 생일 / 기념일 스페셜 (생일한정 UP!)", value="birthday"),
+        ],
     )
     async def set_pickup_cmd(
         self,
@@ -4322,7 +4612,8 @@ class GachaCog(commands.Cog):
         모드: app_commands.Choice[str] = None,
         유닛: app_commands.Choice[str] = None,
         캐릭터: str = None,
-        한정포함: bool = True
+        한정포함: bool = True,
+        배너: app_commands.Choice[str] = None,
     ):
         if not await self.bot.is_bot_owner_user(interaction.user):
             await core.safe_send_response(interaction, content="❌ 이 명령어는 **봇주인(Bot Owner)**만 사용할 수 있습니다.", ephemeral=True)
@@ -4337,11 +4628,21 @@ class GachaCog(commands.Cog):
                 await core.safe_send_response(interaction, content=f"❌ {msg}", ephemeral=True)
                 return
 
+            if 배너 is not None:
+                with core._DATA_LOCK:
+                    d_sync = core.load_data()
+                    gp_sync = core.ensure_dict_path(d_sync, "gacha_pickup")
+                    gp_sync["banner_type"] = 배너.value
+                    core.save_data(d_sync)
+                    pickup_obj["banner_type"] = 배너.value
+
+            b_cfg = core.BANNER_CONFIGS.get(core.get_active_proseka_banner(pickup_obj), core.BANNER_CONFIGS["normal"])
             labels = pickup_obj.get("pickup_card_labels") or []
             cards_txt = "\n".join(f"• `{lbl}`" for lbl in labels) if labels else f"• 유닛 픽업: `{pickup_obj.get('unit') or '전체 동일'}`"
             embed = discord.Embed(
                 title="🎯 [봇주인 전용] 현재 한섭 이벤트 픽업 자동 연동 완료",
                 description=(
+                    f"• **적용 배너:** `{b_cfg['name']}`\n"
                     f"• **적용 이벤트:** `{pickup_obj.get('event_name')}` ({pickup_obj.get('event_status', '진행 중')})\n"
                     f"• **한정/페스/생일 카드 포함:** `포함됨`\n"
                     f"• **픽업 대상 ({len(labels)}종):**\n{cards_txt}\n\n"
@@ -4355,16 +4656,44 @@ class GachaCog(commands.Cog):
 
         data = await asyncio.to_thread(core.load_data)
         if mode_val == "reset":
-            data["gacha_pickup"] = copy.deepcopy(core.DEFAULT_CONFIG["gacha_pickup"])
+            reset_obj = copy.deepcopy(core.DEFAULT_CONFIG["gacha_pickup"])
+            if 배너 is not None:
+                reset_obj["banner_type"] = 배너.value
+            data["gacha_pickup"] = reset_obj
             await asyncio.to_thread(core.save_data, data)
+            b_cfg = core.BANNER_CONFIGS.get(core.get_active_proseka_banner(reset_obj), core.BANNER_CONFIGS["normal"])
             embed = discord.Embed(
                 title="🧹 [봇주인 전용] 프로세카 픽업 설정 초기화 완료",
-                description="이벤트/유닛/캐릭터 픽업 설정이 모두 해제되어 전체 카드 동일 확률(기본값)로 복원되었습니다.",
+                description=(
+                    f"이벤트/유닛/캐릭터 픽업 설정이 모두 해제되어 전체 카드 동일 확률(기본값)로 복원되었습니다.\n"
+                    f"• **적용 배너:** `{b_cfg['name']}`"
+                ),
                 color=discord.Color.from_rgb(0, 204, 221)
             )
             await core.safe_send_response(interaction, embed=embed)
             return
 
+        if mode_val is None and 배너 is not None and 유닛 is None and 캐릭터 is None:
+            gp = core.ensure_dict_path(data, "gacha_pickup")
+            gp["banner_type"] = 배너.value
+            await asyncio.to_thread(core.save_data, data)
+            b_cfg = core.BANNER_CONFIGS.get(배너.value, core.BANNER_CONFIGS["normal"])
+            embed = discord.Embed(
+                title="🎰 [봇주인 전용] 프로세카 전역 가챠 배너 변경 완료",
+                description=(
+                    f"• **적용 배너:** `{b_cfg['name']}`\n"
+                    f"• **배너 설명:** {b_cfg['desc']}\n"
+                    f"• **유지 중인 픽업:** `{core.format_pickup_summary(gp)}`\n\n"
+                    "이제 모든 유저의 `/프로세카뽑기` 및 `/프로세카확률목록`에 해당 배너가 기본 적용됩니다!"
+                ),
+                color=discord.Color.from_rgb(*b_cfg.get("color", (0, 204, 221))),
+                timestamp=datetime.datetime.now(core.KST),
+            )
+            await core.safe_send_response(interaction, embed=embed)
+            return
+
+        prev_banner = core.get_active_proseka_banner(core.as_dict(data.get("gacha_pickup")))
+        active_banner = 배너.value if 배너 is not None else prev_banner
         selected_unit = None if (not 유닛 or 유닛.value == "NONE") else 유닛.value
         selected_char = None if (not 캐릭터 or 캐릭터 == "NONE") else 캐릭터
 
@@ -4375,13 +4704,16 @@ class GachaCog(commands.Cog):
             "event_id": None,
             "event_name": None,
             "pickup_card_labels": [],
-            "include_limited": 한정포함
+            "include_limited": 한정포함,
+            "banner_type": active_banner,
         }
         await asyncio.to_thread(core.save_data, data)
 
+        b_cfg = core.BANNER_CONFIGS.get(active_banner, core.BANNER_CONFIGS["normal"])
         embed = discord.Embed(
             title="🎯 [봇주인 전용] 프로세카 픽업 설정 완료",
             description=(
+                f"• **적용 배너:** `{b_cfg['name']}`\n"
                 f"• **픽업 유닛:** `{selected_unit or '미지정 (전체 동일)'}`\n"
                 f"• **픽업 캐릭터:** `{selected_char or '미지정 (전체 동일)'}`\n"
                 f"• **한정/페스/생일 카드 포함:** `{'포함됨' if 한정포함 else '제외됨 (통상만 등장)'}`\n\n"
@@ -4431,7 +4763,7 @@ class GachaCog(commands.Cog):
 
         profile = core.ensure_user_profile(data, u_key, interaction.user.display_name)
         user_crystals = profile.get("crystals", 0)
-        user_cards_dict = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+        user_cards_dict = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
 
         if not user_cards_dict:
             await interaction.followup.send("❌ 보유한 카드가 없습니다. `/프로세카뽑기`로 먼저 캐릭터를 뽑아주세요!", ephemeral=True)
@@ -4547,7 +4879,7 @@ class GachaCog(commands.Cog):
             data = await asyncio.to_thread(core.load_data)
             g_key = str(interaction.guild_id or 0)
             u_key = str(interaction.user.id)
-            u_cards = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+            u_cards = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
             q = 카드선택.strip().lower()
             if q in u_cards:
                 initial_cid = q
@@ -4725,10 +5057,10 @@ class MySekaiHubView(core.SafeView):
         )
 
         # 오시 카드가 있다면 룸 대표 액자로 썸네일/이미지 연동
-        user_cards_dict = self.data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {})
+        user_cards_dict = core.safe_get_dict(self.data, "gacha_users", g_key, u_key, "cards")
         oshi_raw = profile.get("oshi")
         if oshi_raw and user_cards_dict:
-            oshi_cards = [c for c in user_cards_dict.values() if c.get("char_name") == oshi_raw]
+            oshi_cards = [c for c in user_cards_dict.values() if isinstance(c, dict) and c.get("char_name") == oshi_raw]
             if oshi_cards:
                 oshi_cards.sort(key=lambda x: (-x.get("star_num", 1), -int(x.get("is_limited", False))))
                 embed.set_image(url=core.get_proseka_card_image_url(oshi_cards[0], "auto"))
@@ -4752,7 +5084,10 @@ class MySekaiHubView(core.SafeView):
         data = await asyncio.to_thread(core.load_data)
         profile = core.ensure_user_profile(data, self.owner.id, self.owner.display_name)
         ms = core.ensure_my_sekai(profile)
-        owned_themes = ms.setdefault("owned_themes", ["default"])
+        owned_themes = ms.get("owned_themes")
+        if not isinstance(owned_themes, list):
+            owned_themes = ["default"]
+            ms["owned_themes"] = owned_themes
 
         if t_key in owned_themes:
             ms["theme"] = t_key
@@ -4795,7 +5130,10 @@ class MySekaiHubView(core.SafeView):
         data = await asyncio.to_thread(core.load_data)
         profile = core.ensure_user_profile(data, self.owner.id, self.owner.display_name)
         ms = core.ensure_my_sekai(profile)
-        furn_list = ms.setdefault("furniture", [])
+        furn_list = ms.get("furniture")
+        if not isinstance(furn_list, list):
+            furn_list = []
+            ms["furniture"] = furn_list
 
         if f_key in furn_list:
             await interaction.followup.send(
@@ -4841,4 +5179,3 @@ class MySekaiHubView(core.SafeView):
 
 async def setup(bot):
     await bot.add_cog(GachaCog(bot))
-

@@ -6,6 +6,8 @@ import time
 import logging
 import asyncio
 import datetime
+import traceback
+import aiohttp
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
@@ -122,6 +124,7 @@ class NorosiBot(commands.Bot):
         self.start_time = datetime.datetime.now(core.KST)
         self._commands_synced = False
         self._web_started = False
+        self._web_runner: Optional[web.AppRunner] = None
         self._handled_interaction_ids: OrderedDict[int, float] = OrderedDict()
 
         # 터미널 로그 브릿지 상태 변수
@@ -176,15 +179,19 @@ class NorosiBot(commands.Bot):
                 payload = await request.json()
             except Exception:
                 return web.json_response({"error": "Invalid JSON"}, status=400)
+            if not isinstance(payload, dict):
+                return web.json_response({"error": "Invalid JSON object"}, status=400)
 
             data = core.get_cached_data()
-            configs = core.get_github_webhook_configs(data)
+            configs = core.as_dict(core.get_github_webhook_configs(data))
 
             # 대상 채널 및 멘션 역할 탐색: 연동된 모든 서버 채널에 동시 전파
             target_channels_with_roles = []
             seen_channel_ids = set()
 
             for gid, cfg in configs.items():
+                if not isinstance(cfg, dict):
+                    continue
                 if cfg.get("enabled", True) and cfg.get("channel_id"):
                     cid = cfg["channel_id"]
                     if cid not in seen_channel_ids:
@@ -204,7 +211,7 @@ class NorosiBot(commands.Bot):
 
             if event == "ping":
                 zen = payload.get("zen", "Keep it logically awesome.")
-                repo_name = payload.get("repository", {}).get("full_name", "저장소")
+                repo_name = core.as_dict(payload.get("repository")).get("full_name", "저장소")
                 embed = discord.Embed(
                     title="🏓 GitHub 웹훅(Webhook) 연결 성공!",
                     description=(
@@ -218,16 +225,17 @@ class NorosiBot(commands.Bot):
                 embed.set_footer(text="GitHub Webhook Ping • norosi 연동 테스트")
 
             elif event == "push":
-                repo = payload.get("repository", {}) or {}
+                repo = core.as_dict(payload.get("repository"))
                 repo_full = repo.get("full_name", repo.get("name", "norosi"))
                 repo_url = repo.get("html_url", "https://github.com")
                 ref = payload.get("ref", "")
                 branch = ref.split("/")[-1] if "/" in ref else (ref or "master")
-                pusher = payload.get("pusher", {}).get("name", "개발자")
-                sender = payload.get("sender", {})
+                pusher = core.as_dict(payload.get("pusher")).get("name", "개발자")
+                sender = core.as_dict(payload.get("sender"))
                 sender_avatar = sender.get("avatar_url", "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png")
-                commits = payload.get("commits", []) or []
-                head_commit = payload.get("head_commit", {}) or (commits[-1] if commits else {})
+                raw_commits = payload.get("commits")
+                commits = raw_commits if isinstance(raw_commits, list) else []
+                head_commit = core.as_dict(payload.get("head_commit") or (commits[-1] if commits else {}))
 
                 raw_msg = head_commit.get("message", "새로운 변경사항 푸시 완료")
                 first_line = raw_msg.strip().split("\n")[0]
@@ -235,9 +243,9 @@ class NorosiBot(commands.Bot):
                 commit_url = head_commit.get("url", repo_url)
                 compare_url = payload.get("compare", commit_url)
 
-                added_cnt = len(head_commit.get("added", []))
-                modified_cnt = len(head_commit.get("modified", []))
-                removed_cnt = len(head_commit.get("removed", []))
+                added_cnt = len(head_commit.get("added") or [])
+                modified_cnt = len(head_commit.get("modified") or [])
+                removed_cnt = len(head_commit.get("removed") or [])
 
                 embed_title = f"🚀 업데이트 완료: {first_line}"
                 if len(embed_title) > 250:
@@ -267,13 +275,13 @@ class NorosiBot(commands.Bot):
                 if action != "completed":
                     return web.json_response({"status": "ignored", "action": action})
 
-                wf = payload.get("workflow_run", {}) or {}
+                wf = core.as_dict(payload.get("workflow_run"))
                 wf_name = wf.get("name", "Deploy")
                 conclusion = wf.get("conclusion", "success")
                 run_url = wf.get("html_url", "")
                 run_number = wf.get("run_number", 1)
                 head_branch = wf.get("head_branch", "master")
-                head_commit = wf.get("head_commit", {}) or {}
+                head_commit = core.as_dict(wf.get("head_commit"))
                 commit_msg = head_commit.get("message", "빌드 및 배포")
                 first_line = commit_msg.strip().split("\n")[0]
 
@@ -339,10 +347,61 @@ class NorosiBot(commands.Bot):
             await runner.setup()
             site = web.TCPSite(runner, "0.0.0.0", core.PORT)
             await site.start()
+            self._web_runner = runner
             self._web_started = True
             print(f"✅ norosi 헬스체크 및 GitHub 웹훅 서버 가동 완료 (포트: {core.PORT})", flush=True)
         except Exception as e:
             print(f"ℹ️ 웹 서버 시작 건너뜀 (포트 {core.PORT} 점유 중이거나 불필요 환경): {e}", flush=True)
+
+    async def ensure_fresh_http_session(self):
+        """
+        재연결/재시도 시 discord.py HTTPClient에 닫힌 aiohttp.ClientSession 또는
+        닫힌 TCPConnector가 남아 'RuntimeError: Session is closed'가 발생하는 문제를 원천 차단합니다.
+        """
+        if self.is_closed():
+            try:
+                self.clear()
+            except Exception:
+                pass
+
+        http_client = getattr(self, "http", None)
+        if http_client is None:
+            return
+
+        # 1. 닫힌 connector가 남아있으면 None으로 되돌려 새 ClientSession이 정상 커넥터를 생성하게 함
+        conn = getattr(http_client, "connector", None)
+        if conn is not None and conn is not discord.utils.MISSING:
+            if getattr(conn, "closed", False):
+                try:
+                    http_client.connector = None
+                except Exception:
+                    pass
+
+        # 2. 닫힌 __session이 남아있으면 discord.utils.MISSING으로 초기화해 static_login()이 새 세션을 생성하게 함
+        for attr_name in ("_HTTPClient__session", "_session"):
+            if hasattr(http_client, attr_name):
+                sess = getattr(http_client, attr_name, discord.utils.MISSING)
+                if sess is not None and sess is not discord.utils.MISSING:
+                    if getattr(sess, "closed", False):
+                        try:
+                            setattr(http_client, attr_name, discord.utils.MISSING)
+                        except Exception:
+                            pass
+
+    async def login(self, token: str) -> None:
+        await self.ensure_fresh_http_session()
+        await super().login(token)
+
+    async def add_cog(self, cog: commands.Cog, /, *, override: bool = False, **kwargs) -> None:
+        cog_name = getattr(cog, "__cog_name__", type(cog).__name__)
+        if not override and self.get_cog(cog_name) is not None:
+            print(
+                f"⚠️ [Cog 중복 등록 방지] '{cog_name}' Cog가 이미 등록되어 있어 기존 Cog를 교체합니다. "
+                "(서버의 cogs/*.py 파일이 최신 버전으로 모두 동기화되었는지 확인해 주세요.)",
+                flush=True,
+            )
+            override = True
+        await super().add_cog(cog, override=override, **kwargs)
 
     async def setup_hook(self):
         # 0. VM 터미널 로그 실시간 캡처 활성화
@@ -354,11 +413,33 @@ class NorosiBot(commands.Bot):
         # 글로벌 슬래시 커맨드 에러 핸들러 등록 ("명령어 응답 안함" 3초 타임아웃 차단)
         self.tree.on_error = self.on_app_command_error
 
-        print("🔌 [2/4] Cogs 확장 모듈 등록 중 (gacha, genshin, hsr, music, dday, logger, ai, stats, roles, help, dashboard)...", flush=True)
+        print("🔌 [2/4] Cogs 확장 모듈 등록 중 (gacha, genshin, hsr, fishing, music, dday, logger, ai, stats, roles, help, dashboard)...", flush=True)
+        # 서버 배포 파일 뒤바뀜(예: fishing_core.py에 cogs/fishing.py 덮어쓰기, cogs/gacha.py에 cogs/hsr.py 덮어쓰기) 사전 진단
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            integrity_checks = [
+                ("fishing_core.py", "FISH_BY_HABITAT", "class FishingCog", "cogs/fishing.py가 fishing_core.py로 잘못 저장되었습니다"),
+                (os.path.join("cogs", "gacha.py"), "class GachaCog", "class HSRCog", "cogs/hsr.py가 cogs/gacha.py로 잘못 저장되었습니다"),
+            ]
+            for rel_path, must_have, must_not_have, hint in integrity_checks:
+                full_path = os.path.join(base_dir, rel_path)
+                if os.path.isfile(full_path):
+                    with open(full_path, "r", encoding="utf-8", errors="ignore") as fp:
+                        txt = fp.read()
+                    if (must_not_have and must_not_have in txt) or (must_have and must_have not in txt):
+                        print(
+                            f"🚨 [파일 불일치 감지] '{rel_path}' 내용이 올바르지 않습니다 ({hint}). "
+                            f"최신 '{rel_path}' 원본 파일로 서버 파일을 교체해 주세요!",
+                            flush=True,
+                        )
+        except Exception:
+            pass
+
         ext_list = [
             "cogs.gacha",
             "cogs.genshin",
             "cogs.hsr",
+            "cogs.fishing",
             "cogs.music",
             "cogs.dday",
             "cogs.logger",
@@ -368,24 +449,42 @@ class NorosiBot(commands.Bot):
             "cogs.help",
             "cogs.dashboard",
         ]
+        failed_exts = []
         for ext in ext_list:
             try:
                 if ext in self.extensions:
-                    await self.reload_extension(ext)
+                    try:
+                        await self.reload_extension(ext)
+                    except Exception:
+                        try:
+                            await self.unload_extension(ext)
+                        except Exception:
+                            pass
+                        await self.load_extension(ext)
                 else:
                     await self.load_extension(ext)
+                if ext == "cogs.gacha" and self.get_cog("GachaCog") is None:
+                    print(
+                        "🚨 [파일 동기화 경고] 'cogs.gacha' 로드 후 GachaCog가 등록되지 않았습니다! "
+                        "서버의 cogs/gacha.py 파일이 최신 버전으로 교체되었는지 확인해 주세요.",
+                        flush=True,
+                    )
             except Exception as e:
                 print(f"⚠️ [{ext}] 확장 모듈 로드 예외: {e}", flush=True)
-                raise
+                failed_exts.append((ext, e))
+        if len(failed_exts) == len(ext_list):
+            raise failed_exts[0][1]
 
         # 등록된 반응역할 메시지의 Persistent View 동적 복원 (버튼 상호작용 영구 작동)
         try:
             from cogs.roles import PersistentReactionRoleView
             cached_d = core.get_cached_data()
             restored_cnt = 0
-            for mid_s, cfg in cached_d.get("reaction_roles", {}).items():
+            for mid_s, cfg in core.as_dict(cached_d.get("reaction_roles")).items():
+                if not isinstance(cfg, dict):
+                    continue
                 r_list = cfg.get("roles", [])
-                if r_list and mid_s.isdigit():
+                if r_list and str(mid_s).isdigit():
                     self.add_view(PersistentReactionRoleView(r_list), message_id=int(mid_s))
                     restored_cnt += 1
             if restored_cnt > 0:
@@ -421,7 +520,8 @@ class NorosiBot(commands.Bot):
         target_channel_ids = set()
 
         # 1. 서버별 등록된 터미널 로그 채널 목록 수집
-        t_channels = data.get("settings", {}).get("terminal_log_channels", {})
+        settings_d = core.as_dict(data.get("settings"))
+        t_channels = settings_d.get("terminal_log_channels", {})
         if isinstance(t_channels, dict):
             for cid in t_channels.values():
                 if cid and str(cid).isdigit():
@@ -432,7 +532,7 @@ class NorosiBot(commands.Bot):
                     target_channel_ids.add(int(cid))
 
         # 2. 레거시 단일 설정 채널 ID도 포함
-        legacy_id = data.get("settings", {}).get("terminal_log_channel_id")
+        legacy_id = settings_d.get("terminal_log_channel_id")
         if legacy_id and str(legacy_id).isdigit():
             target_channel_ids.add(int(legacy_id))
 
@@ -787,6 +887,7 @@ class NorosiBot(commands.Bot):
                             await target_btn.callback(interaction)
                         except Exception as cb_err:
                             print(f"⚠️ [음성 플레이어 콜백 예외] {cb_err}", flush=True)
+                            await core.safe_send_response(interaction, f"⚠️ 버튼 처리 중 오류가 발생했습니다: `{cb_err}`", ephemeral=True)
                         if msg:
                             self.attach_view_to_message(view, message_id=msg.id)
                         return
@@ -830,6 +931,7 @@ class NorosiBot(commands.Bot):
                                     await child.callback(interaction)
                                 except Exception as cb_err:
                                     print(f"⚠️ [마스터 대시보드 셀렉트 콜백 예외] {cb_err}", flush=True)
+                                    await core.safe_send_response(interaction, f"⚠️ 메뉴 처리 중 오류가 발생했습니다: `{cb_err}`", ephemeral=True)
                                 if msg:
                                     self.attach_view_to_message(view, message_id=msg.id)
                                 return
@@ -838,6 +940,7 @@ class NorosiBot(commands.Bot):
                             await view._on_refresh_clicked(interaction)
                         except Exception as cb_err:
                             print(f"⚠️ [마스터 대시보드 새로고침 콜백 예외] {cb_err}", flush=True)
+                            await core.safe_send_response(interaction, f"⚠️ 새로고침 중 오류가 발생했습니다: `{cb_err}`", ephemeral=True)
                         if msg:
                             self.attach_view_to_message(view, message_id=msg.id)
                         return
@@ -853,6 +956,7 @@ class NorosiBot(commands.Bot):
                                     await child.callback(interaction)
                                 except Exception as cb_err:
                                     print(f"⚠️ [마스터 대시보드 버튼 콜백 예외] {cb_err}", flush=True)
+                                    await core.safe_send_response(interaction, f"⚠️ 버튼 처리 중 오류가 발생했습니다: `{cb_err}`", ephemeral=True)
                                 if msg:
                                     self.attach_view_to_message(view, message_id=msg.id)
                                 return
@@ -948,6 +1052,7 @@ class NorosiBot(commands.Bot):
                                 await child.callback(interaction)
                             except Exception as cb_err:
                                 print(f"⚠️ [출석체크 콜백 예외] {cb_err}", flush=True)
+                                await core.safe_send_response(interaction, f"⚠️ 버튼 처리 중 오류가 발생했습니다: `{cb_err}`", ephemeral=True)
                             if msg:
                                 self.attach_view_to_message(view, message_id=msg.id)
                             return
@@ -1028,14 +1133,16 @@ class NorosiBot(commands.Bot):
 
     async def update_all_dday_channels(self):
         data = await asyncio.to_thread(core.load_data)
-        ddays = data.get("ddays", {})
+        ddays = core.as_dict(data.get("ddays"))
         if not ddays:
             return
 
-        alert_ch_id = data.get("settings", {}).get("dday_alert_channel_id")
+        alert_ch_id = core.as_dict(data.get("settings")).get("dday_alert_channel_id")
         alert_channel = await self.resolve_channel(alert_ch_id) if alert_ch_id else None
 
         for name, info in ddays.items():
+            if not isinstance(info, dict):
+                continue
             ch_id = info.get("channel_id")
             if not ch_id:
                 continue
@@ -1114,7 +1221,9 @@ class NorosiBot(commands.Bot):
         today = datetime.datetime.now(core.KST).date()
         updated = False
 
-        for name, info in data.get("ddays", {}).items():
+        for name, info in core.as_dict(data.get("ddays")).items():
+            if not isinstance(info, dict):
+                continue
             if info.get("repeat"):
                 date_val = info.get("date")
                 if not date_val:
@@ -1135,8 +1244,8 @@ class NorosiBot(commands.Bot):
                     updated = True
 
         # 자정(00:00 KST) 멤버 생일 자동 축하 및 +500 크리스탈 지급
-        bday_map = data.get("birthdays", {})
-        alert_ch_id = data.get("settings", {}).get("dday_alert_channel_id")
+        bday_map = core.as_dict(data.get("birthdays"))
+        alert_ch_id = core.as_dict(data.get("settings")).get("dday_alert_channel_id")
         alert_ch = await self.resolve_channel(alert_ch_id) if alert_ch_id else None
 
         for u_key, b_info in bday_map.items():
@@ -1164,7 +1273,7 @@ class NorosiBot(commands.Bot):
                     target_ch = None
                     g_id = b_info.get("guild_id")
                     if g_id:
-                        g_settings = data.get("guild_settings", {}).get(str(g_id), {})
+                        g_settings = core.safe_get_dict(data, "guild_settings", str(g_id))
                         g_ch_id = g_settings.get("dday_alert_channel_id")
                         if g_ch_id:
                             target_ch = await self.resolve_channel(g_ch_id)
@@ -1185,11 +1294,12 @@ class NorosiBot(commands.Bot):
 
         if updated:
             fresh_data = await asyncio.to_thread(core.load_data)
-            fresh_data["ddays"] = data["ddays"]
-            fresh_data["birthdays"] = data["birthdays"]
-            for u_k, u_prof in data.get("user_profiles", {}).items():
-                if u_k in fresh_data.get("user_profiles", {}):
-                    fresh_data["user_profiles"][u_k]["crystals"] = u_prof.get("crystals", 0)
+            fresh_data["ddays"] = core.as_dict(data.get("ddays"))
+            fresh_data["birthdays"] = core.as_dict(data.get("birthdays"))
+            fresh_profiles = core.ensure_dict_path(fresh_data, "user_profiles")
+            for u_k, u_prof in core.as_dict(data.get("user_profiles")).items():
+                if isinstance(u_prof, dict) and isinstance(fresh_profiles.get(u_k), dict):
+                    fresh_profiles[u_k]["crystals"] = u_prof.get("crystals", 0)
             await asyncio.to_thread(core.save_data, fresh_data)
 
         await self.update_all_dday_channels()
@@ -1201,8 +1311,8 @@ class NorosiBot(commands.Bot):
     @tasks.loop(time=datetime.time(hour=7, minute=0, tzinfo=core.KST))
     async def morning_music_alert(self):
         data = await asyncio.to_thread(core.load_data)
-        prefs = data.get("music_prefs", core.DEFAULT_CONFIG["music_prefs"])
-        target_ch_id = prefs.get("channel_id") or data.get("settings", {}).get("dday_alert_channel_id")
+        prefs = core.as_dict(data.get("music_prefs")) or core.DEFAULT_CONFIG["music_prefs"]
+        target_ch_id = prefs.get("channel_id") or core.as_dict(data.get("settings")).get("dday_alert_channel_id")
         if not target_ch_id:
             return
 
@@ -1234,15 +1344,19 @@ class NorosiBot(commands.Bot):
         today_str = now.strftime("%Y-%m-%d")
 
         data = await asyncio.to_thread(core.load_data)
-        schedules = data.get("music_schedules", [])
-        reminders = data.get("reminders", [])
+        raw_schedules = data.get("music_schedules")
+        schedules = raw_schedules if isinstance(raw_schedules, list) else []
+        raw_reminders = data.get("reminders")
+        reminders = raw_reminders if isinstance(raw_reminders, list) else []
         if not schedules and not reminders:
             return
 
         updated = False
-        base_prefs = data.get("music_prefs", core.DEFAULT_CONFIG["music_prefs"])
+        base_prefs = core.as_dict(data.get("music_prefs")) or core.DEFAULT_CONFIG["music_prefs"]
 
         for sched in schedules:
+            if not isinstance(sched, dict):
+                continue
             if sched.get("time") == now_hm and sched.get("last_sent") != today_str:
                 ch_id = sched.get("channel_id")
                 channel = await self.resolve_channel(ch_id) if ch_id else None
@@ -1314,8 +1428,12 @@ class NorosiBot(commands.Bot):
 
         if updated:
             fresh_data = await asyncio.to_thread(core.load_data)
-            fresh_data["music_schedules"] = data.get("music_schedules", [])
-            fresh_reminders = [r for r in fresh_data.get("reminders", []) if isinstance(r, dict) and r.get("trigger_ts", 0) > now_ts]
+            fresh_data["music_schedules"] = schedules
+            fresh_raw_reminders = fresh_data.get("reminders")
+            fresh_reminders = [
+                r for r in (fresh_raw_reminders if isinstance(fresh_raw_reminders, list) else [])
+                if isinstance(r, dict) and r.get("trigger_ts", 0) > now_ts
+            ]
             fresh_data["reminders"] = fresh_reminders
             await asyncio.to_thread(core.save_data, fresh_data)
 
@@ -1330,9 +1448,13 @@ class NorosiBot(commands.Bot):
 
         # 1. 나만의 비밀 디데이 & 타임캡슐 개인 DM 발송 체크
         dm_updated = False
-        for u_key, p_info in data.get("user_profiles", {}).items():
-            secret_ddays = p_info.get("secret_ddays", {})
+        for u_key, p_info in core.as_dict(data.get("user_profiles")).items():
+            if not isinstance(p_info, dict):
+                continue
+            secret_ddays = core.as_dict(p_info.get("secret_ddays"))
             for s_name, s_info in secret_ddays.items():
+                if not isinstance(s_info, dict) or not s_info.get("date"):
+                    continue
                 try:
                     diff, _ = core.get_dday_info(s_info["date"])
                 except Exception:
@@ -1359,11 +1481,15 @@ class NorosiBot(commands.Bot):
                         print(f"⚠️ 비밀 디데이 DM 전송 실패 ({u_key}): {e}", flush=True)
 
         # 2. 파트너 공동 D-Day 당일 두 사람에게 DM 발송 체크
-        for pair_key, pair_info in data.get("partners", {}).items():
-            uid_parts = pair_key.split("_")
+        for pair_key, pair_info in core.as_dict(data.get("partners")).items():
+            if not isinstance(pair_info, dict):
+                continue
+            uid_parts = str(pair_key).split("_")
             if len(uid_parts) != 2:
                 continue
-            for p_dday_name, p_dday_info in pair_info.get("ddays", {}).items():
+            for p_dday_name, p_dday_info in core.as_dict(pair_info.get("ddays")).items():
+                if not isinstance(p_dday_info, dict) or not p_dday_info.get("date"):
+                    continue
                 try:
                     diff, _ = core.get_dday_info(p_dday_info["date"])
                 except Exception:
@@ -1392,7 +1518,7 @@ class NorosiBot(commands.Bot):
             await asyncio.to_thread(core.save_data, data)
 
         # 3. 서버 공개 오전 9시 D-Day 요약 알림
-        alert_ch_id = data.get("settings", {}).get("dday_alert_channel_id")
+        alert_ch_id = core.as_dict(data.get("settings")).get("dday_alert_channel_id")
         if not alert_ch_id:
             return
 
@@ -1400,7 +1526,7 @@ class NorosiBot(commands.Bot):
         if not channel:
             return
 
-        ddays = data.get("ddays", {})
+        ddays = core.as_dict(data.get("ddays"))
         if not ddays:
             return
 
@@ -1413,7 +1539,8 @@ class NorosiBot(commands.Bot):
         archived_count = 0
         min_diff = 9999
 
-        for name, info in sorted(ddays.items(), key=lambda x: x[1].get("date", "9999-12-31")):
+        valid_ddays = [(n, inf) for n, inf in ddays.items() if isinstance(inf, dict)]
+        for name, info in sorted(valid_ddays, key=lambda x: x[1].get("date", "9999-12-31")):
             date_str = info.get("date")
             if not date_str:
                 continue
@@ -1482,18 +1609,19 @@ async def set_terminal_log_channel_slash(interaction: discord.Interaction, 채�
     data = await asyncio.to_thread(core.load_data)
 
     g_key = str(interaction.guild_id) if interaction.guild_id else "global"
-    t_channels = data.setdefault("settings", {}).setdefault("terminal_log_channels", {})
+    settings_dict = core.ensure_dict_path(data, "settings")
+    t_channels = core.ensure_dict_path(data, "settings", "terminal_log_channels")
 
     if 채널 is None:
         t_channels.pop(g_key, None)
         if not t_channels:
-            data.setdefault("settings", {})["terminal_log_channel_id"] = None
+            settings_dict["terminal_log_channel_id"] = None
         await asyncio.to_thread(core.save_data, data)
         await interaction.followup.send(f"🛑 **현재 서버({interaction.guild.name if interaction.guild else '글로벌'})의 VM 서버 터미널 로그 채널 전송이 해제되었습니다.**", ephemeral=True)
         print(f"ℹ️ [System] {interaction.user}에 의해 {interaction.guild}의 터미널 로그 채널 전송이 비활성화되었습니다.", flush=True)
     else:
         t_channels[g_key] = 채널.id
-        data.setdefault("settings", {})["terminal_log_channel_id"] = 채널.id
+        settings_dict["terminal_log_channel_id"] = 채널.id
         await asyncio.to_thread(core.save_data, data)
         embed = discord.Embed(
             title="🖥️ VM 서버 터미널 실시간 로그 채널 지정 완료!",
@@ -1521,27 +1649,256 @@ async def set_terminal_log_channel_prefix(ctx: commands.Context, channel: Option
 
     data = await asyncio.to_thread(core.load_data)
     g_key = str(ctx.guild.id) if ctx.guild else "global"
-    t_channels = data.setdefault("settings", {}).setdefault("terminal_log_channels", {})
+    settings_dict = core.ensure_dict_path(data, "settings")
+    t_channels = core.ensure_dict_path(data, "settings", "terminal_log_channels")
 
     if channel is None:
         t_channels.pop(g_key, None)
         if not t_channels:
-            data.setdefault("settings", {})["terminal_log_channel_id"] = None
+            settings_dict["terminal_log_channel_id"] = None
         await asyncio.to_thread(core.save_data, data)
         await ctx.send(f"🛑 **현재 서버({ctx.guild.name if ctx.guild else '글로벌'})의 VM 서버 터미널 로그 채널 기록이 비활성화되었습니다.** (특정 채널에 켜려면 `!터미널로그 #채널` 입력)")
     else:
         t_channels[g_key] = channel.id
-        data.setdefault("settings", {})["terminal_log_channel_id"] = channel.id
+        settings_dict["terminal_log_channel_id"] = channel.id
         await asyncio.to_thread(core.save_data, data)
         await ctx.send(f"🖥️ **VM 서버 터미널 로그 채널 지정 완료:** 이제부터 터미널 출력이 {channel.mention} 채널에 실시간으로 기록됩니다! (총 {len(t_channels)}개 서버 채널 동시 전송)")
         print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{channel.name} (ID: {channel.id}, 서버: {ctx.guild})로 지정되었습니다. (총 {len(t_channels)}개 서버 동시 전송)", flush=True)
 
 
 # ==========================================
+# 🖼️ 봇주 전용 봇 프로필 배너 변경 명령어 (/봇배너, !봇배너)
+# ==========================================
+MAX_BOT_BANNER_BYTES = 10 * 1024 * 1024  # 10MB
+
+
+def _is_valid_banner_image_bytes(raw_bytes: bytes, content_type: str = "", filename: str = "") -> bool:
+    if not raw_bytes:
+        return False
+    ct = (content_type or "").lower()
+    fn = (filename or "").lower()
+    if ct.startswith("image/"):
+        return True
+    if any(fn.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp")):
+        return True
+    # 매직 바이트 검사 (PNG, JPEG, GIF, WEBP)
+    if raw_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        return True
+    if raw_bytes.startswith(b"\xff\xd8\xff"):
+        return True
+    if raw_bytes.startswith((b"GIF87a", b"GIF89a")):
+        return True
+    if raw_bytes.startswith(b"RIFF") and raw_bytes[8:12] == b"WEBP":
+        return True
+    return False
+
+
+async def _download_banner_bytes_from_url(url: str) -> bytes:
+    clean_url = (url or "").strip()
+    if not clean_url.startswith(("http://", "https://")):
+        raise ValueError("이미지 URL은 `http://` 또는 `https://`로 시작해야 합니다.")
+    timeout = aiohttp.ClientTimeout(total=20)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.get(clean_url, allow_redirects=True) as resp:
+            if resp.status != 200:
+                raise ValueError(f"이미지 다운로드 실패 (HTTP {resp.status})")
+            if resp.content_length and resp.content_length > MAX_BOT_BANNER_BYTES:
+                raise ValueError("이미지 용량이 10MB를 초과합니다.")
+            raw_bytes = await resp.content.read(MAX_BOT_BANNER_BYTES + 1)
+            if len(raw_bytes) > MAX_BOT_BANNER_BYTES:
+                raise ValueError("이미지 용량이 10MB를 초과합니다.")
+            ct = resp.headers.get("Content-Type", "")
+            if not _is_valid_banner_image_bytes(raw_bytes, content_type=ct, filename=clean_url.split("?")[0]):
+                raise ValueError("지원되는 이미지 형식(PNG, JPG, GIF, WEBP)이 아닙니다.")
+            return raw_bytes
+
+
+@bot.tree.command(name="봇배너", description="[봇주 전용] 봇의 디스코드 프로필 배너 이미지를 조회, 변경 또는 초기화합니다.")
+@app_commands.describe(
+    이미지="새 배너로 설정할 이미지 파일 (PNG, JPG, GIF, WEBP · 최대 10MB)",
+    이미지url="새 배너로 설정할 이미지 URL (파일 미첨부 시 사용)",
+    초기화="True 선택 시 봇 프로필 배너를 제거합니다."
+)
+@app_commands.default_permissions(administrator=True)
+async def set_bot_banner_slash(
+    interaction: discord.Interaction,
+    이미지: Optional[discord.Attachment] = None,
+    이미지url: Optional[str] = None,
+    초기화: bool = False
+):
+    if not await bot.is_bot_owner_user(interaction.user):
+        await core.safe_send_response(
+            interaction,
+            "❌ 이 명령어는 **봇 소유자(봇주)**만 사용할 수 있습니다.",
+            ephemeral=True
+        )
+        return
+
+    await core.safe_defer(interaction, ephemeral=True)
+
+    if not bot.user:
+        await interaction.followup.send("⚠️ 봇이 아직 디스코드에 연결되지 않았습니다.", ephemeral=True)
+        return
+
+    try:
+        if 초기화:
+            await bot.user.edit(banner=None)
+            embed = discord.Embed(
+                title="🗑️ 봇 프로필 배너 초기화 완료",
+                description="봇의 디스코드 프로필 배너가 깔끔하게 제거되었습니다.",
+                color=discord.Color.orange(),
+                timestamp=datetime.datetime.now(core.KST)
+            )
+            embed.set_footer(text=f"[봇주 전용] 요청자: {interaction.user.display_name}")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            print(f"🖼️ [BotBanner] {interaction.user}에 의해 봇 프로필 배너가 초기화되었습니다.", flush=True)
+            return
+
+        if 이미지 is None and not (이미지url and 이미지url.strip()):
+            try:
+                fetched_user = await bot.fetch_user(bot.user.id)
+                current_banner = fetched_user.banner.url if fetched_user.banner else None
+            except Exception:
+                current_banner = bot.user.banner.url if bot.user.banner else None
+
+            embed = discord.Embed(
+                title="🖼️ 현재 봇 프로필 배너 정보",
+                description=(
+                    (f"✅ **현재 배너가 설정되어 있습니다.**\n[원본 이미지 열기]({current_banner})" if current_banner else "ℹ️ **현재 설정된 봇 배너가 없습니다.**")
+                    + "\n\n**변경 방법 (봇주 전용):**\n"
+                    "• `/봇배너 이미지:<파일첨부>` 또는 `/봇배너 이미지url:<주소>`\n"
+                    "• 배너 제거: `/봇배너 초기화:True`"
+                ),
+                color=discord.Color.from_rgb(0, 204, 221),
+                timestamp=datetime.datetime.now(core.KST)
+            )
+            if current_banner:
+                embed.set_image(url=current_banner)
+            embed.set_footer(text="[봇주 전용] 권장 크기: 680x240px 이상 · PNG/JPG/GIF/WEBP")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        if 이미지 is not None:
+            if 이미지.size and 이미지.size > MAX_BOT_BANNER_BYTES:
+                await interaction.followup.send("❌ 이미지 용량은 최대 `10MB` 이하만 업로드할 수 있습니다.", ephemeral=True)
+                return
+            img_bytes = await 이미지.read()
+            if not _is_valid_banner_image_bytes(img_bytes, content_type=이미지.content_type or "", filename=이미지.filename or ""):
+                await interaction.followup.send("❌ 지원되는 이미지 파일(`PNG`, `JPG`, `GIF`, `WEBP`)을 첨부해 주세요.", ephemeral=True)
+                return
+        else:
+            img_bytes = await _download_banner_bytes_from_url(이미지url or "")
+
+        await bot.user.edit(banner=img_bytes)
+        try:
+            fetched_user = await bot.fetch_user(bot.user.id)
+            new_banner_url = fetched_user.banner.url if fetched_user.banner else None
+        except Exception:
+            new_banner_url = bot.user.banner.url if bot.user.banner else None
+
+        embed = discord.Embed(
+            title="🖼️ 봇 프로필 배너 변경 완료!",
+            description="봇의 디스코드 프로필 배너가 새 이미지로 성공적으로 적용되었습니다! ✨",
+            color=discord.Color.green(),
+            timestamp=datetime.datetime.now(core.KST)
+        )
+        if new_banner_url:
+            embed.set_image(url=new_banner_url)
+        embed.set_footer(text=f"[봇주 전용] 변경자: {interaction.user.display_name}")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        print(f"🖼️ [BotBanner] {interaction.user}에 의해 봇 프로필 배너가 변경되었습니다.", flush=True)
+
+    except ValueError as ve:
+        await interaction.followup.send(f"❌ **입력 오류:** {ve}", ephemeral=True)
+    except discord.Forbidden:
+        await interaction.followup.send("❌ 디스코드 API 권한 부족으로 봇 배너를 변경할 수 없습니다.", ephemeral=True)
+    except discord.HTTPException as he:
+        await interaction.followup.send(f"⚠️ 디스코드 배너 업데이트 실패: `{he}` (이미지 크기·형식·비율을 확인해 주세요.)", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"⚠️ 봇 배너 변경 중 예외 발생: `{e}`", ephemeral=True)
+
+
+@bot.command(name="봇배너", aliases=["배너", "봇배너변경", "botbanner"])
+async def set_bot_banner_prefix(ctx: commands.Context, arg: Optional[str] = None):
+    if not await bot.is_bot_owner_user(ctx.author):
+        await ctx.send("❌ 이 명령어는 **봇 소유자(봇주)**만 사용할 수 있습니다.", delete_after=5)
+        return
+
+    if not bot.user:
+        await ctx.send("⚠️ 봇이 아직 디스코드에 연결되지 않았습니다.", delete_after=5)
+        return
+
+    try:
+        if arg and arg.strip().lower() in ("초기화", "제거", "삭제", "reset", "none", "clear"):
+            await bot.user.edit(banner=None)
+            await ctx.send("🗑️ **봇 프로필 배너가 성공적으로 초기화(제거)되었습니다.**")
+            print(f"🖼️ [BotBanner] {ctx.author}에 의해 봇 프로필 배너가 초기화되었습니다.", flush=True)
+            return
+
+        if ctx.message.attachments:
+            att = ctx.message.attachments[0]
+            if att.size and att.size > MAX_BOT_BANNER_BYTES:
+                await ctx.send("❌ 이미지 용량은 최대 `10MB` 이하만 업로드할 수 있습니다.", delete_after=8)
+                return
+            img_bytes = await att.read()
+            if not _is_valid_banner_image_bytes(img_bytes, content_type=att.content_type or "", filename=att.filename or ""):
+                await ctx.send("❌ 지원되는 이미지 파일(`PNG`, `JPG`, `GIF`, `WEBP`)을 첨부해 주세요.", delete_after=8)
+                return
+        elif arg and arg.strip().startswith(("http://", "https://")):
+            img_bytes = await _download_banner_bytes_from_url(arg.strip())
+        else:
+            try:
+                fetched_user = await bot.fetch_user(bot.user.id)
+                current_banner = fetched_user.banner.url if fetched_user.banner else None
+            except Exception:
+                current_banner = bot.user.banner.url if bot.user.banner else None
+            embed = discord.Embed(
+                title="🖼️ 봇 프로필 배너 안내 (봇주 전용)",
+                description=(
+                    (f"• **현재 배너:** [이미지 보기]({current_banner})\n" if current_banner else "• **현재 배너:** 설정되지 않음\n")
+                    + "• **변경:** 이미지 첨부 후 `!봇배너` 또는 `!봇배너 <이미지URL>`\n"
+                    + "• **제거:** `!봇배너 초기화`"
+                ),
+                color=discord.Color.from_rgb(0, 204, 221)
+            )
+            if current_banner:
+                embed.set_image(url=current_banner)
+            await ctx.send(embed=embed)
+            return
+
+        await bot.user.edit(banner=img_bytes)
+        try:
+            fetched_user = await bot.fetch_user(bot.user.id)
+            new_banner_url = fetched_user.banner.url if fetched_user.banner else None
+        except Exception:
+            new_banner_url = bot.user.banner.url if bot.user.banner else None
+
+        embed = discord.Embed(
+            title="🖼️ 봇 프로필 배너 변경 완료!",
+            description="봇의 디스코드 프로필 배너가 성공적으로 적용되었습니다! ✨",
+            color=discord.Color.green(),
+            timestamp=datetime.datetime.now(core.KST)
+        )
+        if new_banner_url:
+            embed.set_image(url=new_banner_url)
+        await ctx.send(embed=embed)
+        print(f"🖼️ [BotBanner] {ctx.author}에 의해 봇 프로필 배너가 변경되었습니다.", flush=True)
+
+    except ValueError as ve:
+        await ctx.send(f"❌ **입력 오류:** {ve}", delete_after=8)
+    except discord.Forbidden:
+        await ctx.send("❌ 디스코드 API 권한 부족으로 봇 배너를 변경할 수 없습니다.", delete_after=8)
+    except discord.HTTPException as he:
+        await ctx.send(f"⚠️ 디스코드 배너 업데이트 실패: `{he}`", delete_after=10)
+    except Exception as e:
+        await ctx.send(f"⚠️ 봇 배너 변경 중 예외 발생: `{e}`", delete_after=10)
+
+
+# ==========================================
 # 봇 슬래시 명령어 동기화 컨트롤 뷰 (대화형 버튼 UI)
 # ==========================================
 class SyncControlView(core.SafeView):
-    def __init__(self, author: discord.User, guild: Optional[discord.Guild]):
+    def __init__(self, author: Optional[discord.User] = None, guild: Optional[discord.Guild] = None):
         super().__init__(timeout=180)
         self.author = author
         self.guild = guild
@@ -1561,9 +1918,10 @@ class SyncControlView(core.SafeView):
         await core.safe_defer(interaction)
         try:
             g_cnt = 0
-            if self.guild:
-                bot.tree.copy_global_to(guild=self.guild)
-                synced_guild = await bot.tree.sync(guild=self.guild)
+            target_guild = self.guild or interaction.guild
+            if target_guild:
+                bot.tree.copy_global_to(guild=target_guild)
+                synced_guild = await bot.tree.sync(guild=target_guild)
                 g_cnt = len(synced_guild)
 
             synced_global = await bot.tree.sync()
@@ -1571,7 +1929,7 @@ class SyncControlView(core.SafeView):
             embed = discord.Embed(
                 title="⚡ 슬래시 명령어 현재 서버에 0초 즉시 반영 완료!",
                 description=(
-                    f"✅ **현재 서버({self.guild.name if self.guild else '글로벌'})**에 슬래시 명령어 **`{g_cnt}개`**(반응역할·터미널로그 포함)가 0초 만에 즉시 등록되었습니다!\n"
+                    f"✅ **현재 서버({target_guild.name if target_guild else '글로벌'})**에 슬래시 명령어 **`{g_cnt}개`**(반응역할·터미널로그 포함)가 0초 만에 즉시 등록되었습니다!\n"
                     f"👉 글로벌 슬래시 커맨드 총 **`{len(synced_global)}개`**도 전역 등록 완료되었습니다.\n\n"
                     "💡 지금 즉시 채팅창에서 `/`를 누르시면 모든 신규 명령어가 나타납니다!"
                 ),
@@ -1830,23 +2188,114 @@ async def main():
 
     core.TOKEN = active_token
     print(f"🔑 디스코드 게이트웨이 인증 및 연결 시도 중... (토큰 길이: {len(active_token)})", flush=True)
-    while True:
+
+    async def _cleanup_bot_session():
+        # 백그라운드 스케줄러 루프가 재시도 대기 중 닫힌 세션을 참조하지 않도록 안전하게 중단
+        for loop_attr in (
+            "midnight_tasks",
+            "morning_music_alert",
+            "morning_text_alert",
+            "custom_music_schedules_loop",
+            "terminal_log_dispatch_loop",
+        ):
+            loop_obj = getattr(bot, loop_attr, None)
+            if loop_obj is not None:
+                try:
+                    if loop_obj.is_running():
+                        loop_obj.cancel()
+                        task = loop_obj.get_task()
+                        if task is not None and not task.done():
+                            await asyncio.wait([task], timeout=2.0)
+                except Exception:
+                    pass
+
         try:
-            await bot.start(core.TOKEN)
-        except discord.LoginFailure:
-            print("❌ 치명적 오류: 디스코드 토큰이 유효하지 않습니다! (LoginFailure)", flush=True)
-            while True:
-                await asyncio.sleep(30)
-                core._load_env_file()
-                new_token = core.get_token()
-                if new_token and new_token != core.TOKEN:
-                    print("🔄 새로운 토큰이 감지되어 연결을 재시도합니다...", flush=True)
-                    core.TOKEN = new_token
-                    break
-        except Exception as e:
-            print(f"⚠️ 봇 연결 예외 발생 (15초 후 재시도): {e}", flush=True)
-            await asyncio.sleep(15)
+            if not bot.is_closed():
+                await bot.close()
+        except Exception:
+            pass
+
+        http_client = getattr(bot, "http", None)
+        if http_client is not None:
+            try:
+                await http_client.close()
+            except Exception:
+                pass
+            # close() 이후에도 열려 있거나 닫힌 채 남아있는 내부 세션을 확실히 닫고 MISSING으로 초기화
+            for attr_name in ("_HTTPClient__session", "_session"):
+                if hasattr(http_client, attr_name):
+                    sess = getattr(http_client, attr_name, discord.utils.MISSING)
+                    if sess is not None and sess is not discord.utils.MISSING:
+                        try:
+                            if not getattr(sess, "closed", True):
+                                await sess.close()
+                        except Exception:
+                            pass
+                        try:
+                            setattr(http_client, attr_name, discord.utils.MISSING)
+                        except Exception:
+                            pass
+            conn = getattr(http_client, "connector", None)
+            if conn is not None and conn is not discord.utils.MISSING and getattr(conn, "closed", False):
+                try:
+                    http_client.connector = None
+                except Exception:
+                    pass
+
+        for loaded_ext in list(getattr(bot, "extensions", {}).keys()):
+            try:
+                await bot.unload_extension(loaded_ext)
+            except Exception:
+                pass
+
+        try:
+            bot.clear()
+        except Exception:
+            pass
+
+        await bot.ensure_fresh_http_session()
+
+    try:
+        while True:
+            try:
+                await bot.ensure_fresh_http_session()
+                await bot.start(core.TOKEN)
+            except discord.LoginFailure:
+                print("❌ 치명적 오류: 디스코드 토큰이 유효하지 않습니다! (LoginFailure)", flush=True)
+                await _cleanup_bot_session()
+                while True:
+                    await asyncio.sleep(30)
+                    core._load_env_file()
+                    new_token = core.get_token()
+                    if new_token and new_token != core.TOKEN:
+                        print("🔄 새로운 토큰이 감지되어 연결을 재시도합니다...", flush=True)
+                        core.TOKEN = new_token
+                        break
+            except asyncio.CancelledError:
+                await _cleanup_bot_session()
+                raise
+            except Exception as e:
+                print(f"⚠️ 봇 연결 예외 발생 (15초 후 재시도): {e}", flush=True)
+                traceback.print_exc()
+                await _cleanup_bot_session()
+                await asyncio.sleep(15)
+            else:
+                # 정상 종료 시 세션 정리 후 루프 탈출
+                await _cleanup_bot_session()
+                break
+    finally:
+        await _cleanup_bot_session()
+        if getattr(bot, "_web_runner", None) is not None:
+            try:
+                await bot._web_runner.cleanup()
+            except Exception:
+                pass
+            bot._web_runner = None
+            bot._web_started = False
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
