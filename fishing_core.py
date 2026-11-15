@@ -14,6 +14,7 @@ import math
 import os
 import random
 import threading
+import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -30,6 +31,35 @@ except Exception:
 # 스레드 안전 상태 락 (동시 포획/판매/수확 RMW 경합 방지)
 # ==========================================
 _FISHING_LOCK = threading.RLock()
+
+# ==========================================
+# 낚시 출조(낚기) 4초 쿨타임 트래커 (유저별)
+# ==========================================
+FISHING_CAST_COOLDOWN_SECONDS: float = 4.0
+FISHING_CAST_COOLDOWN: Dict[int, float] = {}
+
+
+def check_and_update_fishing_cooldown(user_id: int | str) -> Tuple[bool, float]:
+    """낚시 출조(낚기) 쿨타임(4초) 확인 및 갱신. (허용 여부, 남은 초) 반환."""
+    uid = int(user_id)
+    with _FISHING_LOCK:
+        now = time.time()
+        last = FISHING_CAST_COOLDOWN.get(uid, 0.0)
+        elapsed = now - last
+        if elapsed < FISHING_CAST_COOLDOWN_SECONDS:
+            rem = max(0.1, round(FISHING_CAST_COOLDOWN_SECONDS - elapsed, 1))
+            return False, rem
+        FISHING_CAST_COOLDOWN[uid] = now
+        return True, 0.0
+
+
+def clear_fishing_cooldown(user_id: Optional[int | str] = None) -> None:
+    """낚시 출조(낚기) 쿨타임 초기화 (user_id 미지정 시 전체 초기화)."""
+    with _FISHING_LOCK:
+        if user_id is None:
+            FISHING_CAST_COOLDOWN.clear()
+        else:
+            FISHING_CAST_COOLDOWN.pop(int(user_id), None)
 
 # ==========================================
 # 서식지 & 환경 상수
