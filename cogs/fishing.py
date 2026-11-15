@@ -450,7 +450,7 @@ class FishingCastView(core.SafeView):
             ),
             inline=False,
         )
-        embed.set_footer(text="💡 [🪝 찌 던지기] 클릭 ➔ 입질 신호가 오면 초록색 [🎣 지금 당기기!]를 누르세요! (모바일 지연 보정 +1.25초 적용)")
+        embed.set_footer(text="💡 [🪝 찌 던지기] 클릭(쿨타임 4초) ➔ 입질 신호가 오면 초록색 [🎣 지금 당기기!]를 누르세요! (모바일 지연 보정 +1.25초 적용)")
         return embed
 
     def build_catch_embed(self, res: Dict[str, Any]) -> discord.Embed:
@@ -557,6 +557,15 @@ class FishingCastView(core.SafeView):
 
     @discord.ui.button(label="🪝 찌 던지기", style=discord.ButtonStyle.primary, row=2)
     async def btn_cast(self, interaction: discord.Interaction, button: discord.ui.Button):
+        allowed, rem_sec = fishing_core.check_and_update_fishing_cooldown(interaction.user.id)
+        if not allowed:
+            await core.safe_send_response(
+                interaction,
+                f"⏳ **낚시 출조(낚기) 쿨타임입니다!** `{rem_sec:.1f}초` 후에 다시 찌를 던져주세요.",
+                ephemeral=True,
+            )
+            return
+
         await core.safe_defer(interaction)
         target_msg = interaction.message or self.message
         self.message = target_msg
