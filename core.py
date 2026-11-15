@@ -3969,7 +3969,11 @@ DEFAULT_CONFIG = {
     "life_users": {},
     "guild_farms": {},
     "ticket_configs": {},
-    "tickets": {}
+    "tickets": {},
+    "sticky_messages": {},
+    "link_preview_configs": {},
+    "raid_defense_configs": {},
+    "relay_novels": {}
 }
 
 
@@ -4695,6 +4699,39 @@ def normalize_data(data):
             t_obj["members"] = [int(m) for m in coerce_list_like(t_obj.get("members")) if str(m).isdigit()]
     data["tickets"] = t_map
 
+    data["sticky_messages"] = _normalize_guild_user_map(data.get("sticky_messages"))
+
+    clean_lpc = {}
+    for g_key, l_cfg in coerce_dict_like(data.get("link_preview_configs")).items():
+        if isinstance(l_cfg, dict):
+            l_cfg["ignored_channels"] = [int(c) for c in coerce_list_like(l_cfg.get("ignored_channels")) if str(c).isdigit()]
+            clean_lpc[str(g_key)] = l_cfg
+    data["link_preview_configs"] = clean_lpc
+
+    clean_rdc = {}
+    for g_key, r_cfg in coerce_dict_like(data.get("raid_defense_configs")).items():
+        if isinstance(r_cfg, dict):
+            r_cfg["blocked_log"] = [b for b in coerce_list_like(r_cfg.get("blocked_log")) if isinstance(b, dict)]
+            clean_rdc[str(g_key)] = r_cfg
+    data["raid_defense_configs"] = clean_rdc
+
+    clean_relays = {}
+    for g_key, rn_cfg in coerce_dict_like(data.get("relay_novels")).items():
+        if isinstance(rn_cfg, dict):
+            act = coerce_dict_like(rn_cfg.get("active_channels"))
+            clean_act = {}
+            for ck, st in act.items():
+                if isinstance(st, dict):
+                    st["turns"] = [t for t in coerce_list_like(st.get("turns")) if isinstance(t, dict)]
+                    clean_act[str(ck)] = st
+            rn_cfg["active_channels"] = clean_act
+            comp = [c for c in coerce_list_like(rn_cfg.get("completed")) if isinstance(c, dict)]
+            for c_obj in comp:
+                c_obj["turns"] = [t for t in coerce_list_like(c_obj.get("turns")) if isinstance(t, dict)]
+            rn_cfg["completed"] = comp
+            clean_relays[str(g_key)] = rn_cfg
+    data["relay_novels"] = clean_relays
+
     raw_meta = coerce_dict_like(data.get("_meta"))
     meta_sections = {str(k): str(v) for k, v in coerce_dict_like(raw_meta.get("sections")).items() if v}
     meta_entries = {}
@@ -4740,6 +4777,9 @@ _TRACKED_ENTRY_MAPS = (
     "server_stats",
     "guild_farms",
     "ticket_configs",
+    "link_preview_configs",
+    "raid_defense_configs",
+    "relay_novels",
 )
 _TRACKED_GUILD_USER_MAPS = (
     "gacha_users",
@@ -4750,6 +4790,7 @@ _TRACKED_GUILD_USER_MAPS = (
     "ai_usage",
     "life_users",
     "tickets",
+    "sticky_messages",
 )
 
 
@@ -5256,7 +5297,7 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
         ):
             merged["lottery_state"] = copy.deepcopy(l_lot)
 
-    for map_key in ("guild_farms", "ticket_configs"):
+    for map_key in ("guild_farms", "ticket_configs", "link_preview_configs", "raid_defense_configs", "relay_novels"):
         l_sec_ts, r_sec_ts = _pick_section_ts(map_key)
         rem_map = ensure_dict_path(merged, map_key)
         for ek, lv in as_dict(local_norm.get(map_key)).items():
@@ -5269,7 +5310,7 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
             elif l_ets and (not r_ets or l_ets >= r_ets):
                 rem_map[ek] = copy.deepcopy(lv)
 
-    for gu_key in ("life_users", "tickets"):
+    for gu_key in ("life_users", "tickets", "sticky_messages"):
         for g_key, local_g_map in as_dict(local_norm.get(gu_key)).items():
             if g_key not in merged[gu_key] or not isinstance(merged[gu_key].get(g_key), dict):
                 merged[gu_key][g_key] = copy.deepcopy(local_g_map)

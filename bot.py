@@ -444,6 +444,7 @@ class NorosiBot(commands.Bot):
             "cogs.economy",
             "cogs.life",
             "cogs.tickets",
+            "cogs.community",
             "cogs.music",
             "cogs.dday",
             "cogs.logger",
@@ -504,6 +505,16 @@ class NorosiBot(commands.Bot):
             print("🎫 1:1 티켓 영구 View (패널/제어) 등록 완료", flush=True)
         except Exception as e:
             print(f"ℹ️ 1:1 티켓 영구 View 등록 건너뜀: {e}", flush=True)
+
+        # 커뮤니티(링크 닫기 · 레이드 비상제어 · 릴레이 소설) 영구 View 등록
+        try:
+            from cogs.community import LinkCleanupView, RaidAlertControlView, RelayNovelView
+            self.add_view(LinkCleanupView())
+            self.add_view(RaidAlertControlView())
+            self.add_view(RelayNovelView())
+            print("🛡️ 커뮤니티 영구 View (링크/비상방어/릴레이소설) 등록 완료", flush=True)
+        except Exception as e:
+            print(f"ℹ️ 커뮤니티 영구 View 등록 건너뜀: {e}", flush=True)
 
         print("📚 [3/4] 프로세카 · 원신 · 스타레일 한국어 DB 백그라운드 캐시 워밍 시작...", flush=True)
         asyncio.create_task(asyncio.to_thread(core.load_proseka_kr_db))

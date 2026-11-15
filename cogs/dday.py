@@ -3131,7 +3131,22 @@ class BirthdayRegisterModal(core.SafeModal, title="🎂 내 생일 등록 및 �
         }
         await asyncio.to_thread(core.save_data, data)
         self.board_view.data = data
-        await interaction.edit_original_response(embed=self.board_view.build_embed(), view=self.board_view)
+        self.board_view.user = interaction.user
+        try:
+            await interaction.edit_original_response(embed=self.board_view.build_embed(), view=self.board_view)
+        except Exception:
+            if interaction.message:
+                try:
+                    await interaction.message.edit(embed=self.board_view.build_embed(), view=self.board_view)
+                except Exception:
+                    pass
+        try:
+            await interaction.followup.send(
+                f"✅ **{interaction.user.display_name}** ({interaction.user.mention}) 님의 생일(`{month:02d}월 {day:02d}일`)이 등록되었습니다!",
+                ephemeral=True,
+            )
+        except Exception:
+            pass
 
 
 class BirthdayBoardView(core.SafeView):
@@ -3163,13 +3178,14 @@ class BirthdayBoardView(core.SafeView):
         for u_key, info in b_map.items():
             if not isinstance(info, dict) or "month" not in info or "day" not in info:
                 continue
-            if self.guild and not self.guild.get_member(int(u_key)):
+            if self.guild and int(u_key) != self.user.id and not self.guild.get_member(int(u_key)):
                 continue
             rem_days = self._days_until_birthday(info["month"], info["day"], today)
             entries.append((rem_days, info))
 
         entries.sort(key=lambda x: x[0])
 
+        who_display = f"{self.user.mention} (`{self.user.display_name}`)"
         my_bday = b_map.get(str(self.user.id))
         if my_bday:
             my_rem = self._days_until_birthday(my_bday["month"], my_bday["day"], today)
@@ -3191,7 +3207,7 @@ class BirthdayBoardView(core.SafeView):
         embed = discord.Embed(
             title=f"🎂 [{g_name}] 멤버 생일 D-Day 전광판 & 자동 축하 보드",
             description=(
-                f"👤 **내 등록 생일:** {my_status}\n"
+                f"👤 **등록자 · 내 생일 ({who_display}):** {my_status}\n"
                 f"🎁 **생일 당일 혜택:** 자정(00:00 KST) 자동 축하 메시지 & 보너스 **`+500 💎 크리스탈`** 즉시 지급!\n"
                 "───────────────────────────────────────\n"
                 f"### 🎈 다가오는 생일 멤버 목록 (가까운 순)\n{list_str}"
@@ -3212,14 +3228,25 @@ class BirthdayBoardView(core.SafeView):
         data = await asyncio.to_thread(core.load_data)
         u_key = str(interaction.user.id)
         b_map = core.ensure_dict_path(data, "birthdays")
+        self.user = interaction.user
         if u_key in b_map:
             del b_map[u_key]
             await asyncio.to_thread(core.save_data, data)
             self.data = data
-            await interaction.edit_original_response(embed=self.build_embed(), view=self)
-            await interaction.followup.send("🗑️ 내 생일 정보가 삭제되었습니다.", ephemeral=True)
+            if interaction.message:
+                try:
+                    await interaction.message.edit(embed=self.build_embed(), view=self)
+                except Exception:
+                    pass
+            await interaction.followup.send(
+                f"🗑️ **{interaction.user.display_name}** ({interaction.user.mention}) 님의 생일 정보가 삭제되었습니다.",
+                ephemeral=True,
+            )
         else:
-            await interaction.followup.send("ℹ️ 등록된 내 생일 정보가 없습니다.", ephemeral=True)
+            await interaction.followup.send(
+                f"ℹ️ **{interaction.user.display_name}**님의 등록된 생일 정보가 없습니다.",
+                ephemeral=True,
+            )
 
 
 # ==========================================
