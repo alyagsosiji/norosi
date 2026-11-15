@@ -1118,25 +1118,6 @@ class LoggerCog(commands.Cog):
     ):
         await self._execute_github_webhook(interaction, 채널=채널, 역할멘션=역할멘션, 연동해제=연동해제, 동작=동작)
 
-    @app_commands.command(
-        name="깃허브알림",
-        description="현재 채널 또는 지정한 채널에 GitHub 푸시 및 Actions 배포 알림을 즉시 연동합니다."
-    )
-    @app_commands.describe(
-        채널="(선택) 알림을 수신할 채널 (미입력 시 현재 채널로 즉시 연동)",
-        역할멘션="(선택) 배포 알림 시 멘션할 역할 (예: @공지, @개발자 등)",
-        연동해제="(선택) True 선택 시 이 서버의 GitHub 알림 연동을 해제합니다."
-    )
-    async def github_notify_cmd(
-        self,
-        interaction: discord.Interaction,
-        채널: Optional[discord.TextChannel] = None,
-        역할멘션: Optional[discord.Role] = None,
-        연동해제: bool = False,
-        동작: Optional[str] = None
-    ):
-        await self._execute_github_webhook(interaction, 채널=채널, 역할멘션=역할멘션, 연동해제=연동해제, 동작=동작)
-
     # ==========================================
     # 1. 🔊 Voice (음성 채널 입장/퇴장/이동)
     # ==========================================

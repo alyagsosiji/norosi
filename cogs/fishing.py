@@ -2433,8 +2433,13 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
         view.message = msg
 
-    @app_commands.command(name="랭킹", description="🏆 서버 최대 길이(cm) · 최대 무게(kg) · 어종 도감 수집왕 순위표")
-    @app_commands.describe(기준="초기 순위표 기준", 장소="장소별 필터")
+    @app_commands.command(name="랭킹", description="🏆 서버 내 물고기 최대 길이(cm)·무게(kg)·도감 수집왕 순위 및 랭커 상세 정보 조회")
+    @app_commands.describe(
+        기준="초기 순위표 기준 (최대 길이 / 최대 무게 / 도감 수집왕)",
+        장소="서식지 필터 (전체 / 호수 / 강 / 바다)",
+        어종검색="특정 물고기 이름 검색 (선택)",
+        랭커="특정 멤버의 낚시 랭커 기록 바로 보기 (선택)",
+    )
     @app_commands.choices(
         기준=[
             app_commands.Choice(name="📏 최대 길이(cm)", value="length"),
@@ -2448,16 +2453,30 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
             app_commands.Choice(name="⚓ 바다", value="sea"),
         ],
     )
+    @app_commands.autocomplete(어종검색=fishing_core.fish_species_autocomplete)
     async def fishing_ranking_cmd(
         self,
         interaction: discord.Interaction,
         기준: Optional[app_commands.Choice[str]] = None,
         장소: Optional[app_commands.Choice[str]] = None,
+        어종검색: Optional[str] = None,
+        랭커: Optional[discord.Member] = None,
     ):
         await core.safe_defer(interaction)
         mode = 기준.value if 기준 else "length"
         hab = 장소.value if 장소 else "all"
-        view = FishingRankingView(interaction.user, guild_id=interaction.guild_id or 0, mode=mode, habitat_filter=hab)
+        q_val = 어종검색 or ""
+        if q_val in fishing_core.FISH_BY_ID:
+            q_val = fishing_core.FISH_BY_ID[q_val]["name"]
+        ranker_id = str(랭커.id) if 랭커 else None
+        view = FishingRankingView(
+            interaction.user,
+            guild_id=interaction.guild_id or 0,
+            mode=mode,
+            habitat_filter=hab,
+            search_query=q_val,
+            selected_ranker_id=ranker_id,
+        )
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         view.message = msg
 
@@ -2562,60 +2581,10 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
 
 
 class FishingStandaloneCog(commands.Cog):
-    """최상위 /낚시랭킹 단독 슬래시 명령어 & 접두사 별칭 Cog"""
+    """!낚시랭킹 · !대물랭킹 접두사 단축 명령어 Cog (/낚시 랭킹과 슬래시 중복 방지)"""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-
-    @app_commands.command(
-        name="낚시랭킹",
-        description="🏆 서버 내 물고기 크기(cm)·무게(kg) 대물 순위표 및 낚시 랭커 상세 정보 조회",
-    )
-    @app_commands.describe(
-        기준="정렬 기준 (최대 길이 / 최대 무게 / 도감 수집왕)",
-        장소="서식지 필터 (전체 / 호수 / 강 / 바다)",
-        어종검색="특정 물고기 이름 검색",
-        랭커="특정 멤버의 낚시 랭커 기록 바로 보기",
-    )
-    @app_commands.choices(
-        기준=[
-            app_commands.Choice(name="📏 최대 길이(cm)", value="length"),
-            app_commands.Choice(name="⚖️ 최대 무게(kg)", value="weight"),
-            app_commands.Choice(name="📖 도감 수집왕", value="dex"),
-        ],
-        장소=[
-            app_commands.Choice(name="전체 장소", value="all"),
-            app_commands.Choice(name="🏞️ 호수", value="lake"),
-            app_commands.Choice(name="🌊 강", value="river"),
-            app_commands.Choice(name="⚓ 바다", value="sea"),
-        ],
-    )
-    @app_commands.autocomplete(어종검색=fishing_core.fish_species_autocomplete)
-    async def top_fishing_ranking_cmd(
-        self,
-        interaction: discord.Interaction,
-        기준: Optional[app_commands.Choice[str]] = None,
-        장소: Optional[app_commands.Choice[str]] = None,
-        어종검색: Optional[str] = None,
-        랭커: Optional[discord.Member] = None,
-    ):
-        await core.safe_defer(interaction)
-        mode = 기준.value if 기준 else "length"
-        hab = 장소.value if 장소 else "all"
-        q_val = 어종검색 or ""
-        if q_val in fishing_core.FISH_BY_ID:
-            q_val = fishing_core.FISH_BY_ID[q_val]["name"]
-        ranker_id = str(랭커.id) if 랭커 else None
-        view = FishingRankingView(
-            interaction.user,
-            guild_id=interaction.guild_id or 0,
-            mode=mode,
-            habitat_filter=hab,
-            search_query=q_val,
-            selected_ranker_id=ranker_id,
-        )
-        msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
-        view.message = msg
 
     @commands.command(name="낚시랭킹", aliases=["fishingrank", "대물랭킹"])
     async def prefix_fishing_ranking(self, ctx: commands.Context, 장소: Optional[str] = None):

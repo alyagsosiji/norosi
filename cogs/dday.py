@@ -331,7 +331,7 @@ class CommandRemoteSelect(discord.ui.Select):
             discord.SelectOption(label="🌠 /원신기원 (10회)", value="genshin_10", description="원신 10회 기원 (캐릭터·신의 주조 무기·성유물 시각별 로테이션)"),
             discord.SelectOption(label="🚆 /스타레일워프 (10회)", value="hsr_10", description="붕괴: 스타레일 10회 워프 (캐릭터·광추·유물 시각별 로테이션)"),
             discord.SelectOption(label="🎣 /낚시 출조 (호수·강·바다)", value="fishing_cast", description="글로벌 실제 어종 13,444종 낚시·세부 수역 탐사·수족관·최대어 랭킹"),
-            discord.SelectOption(label="🏆 /낚시랭킹 (대물 보드)", value="fishing_rank", description="서버 내 물고기 최대 크기(cm)·무게(kg) 순위 & 랭커 정보"),
+            discord.SelectOption(label="🏆 /낚시 랭킹 (대물 보드)", value="fishing_rank", description="서버 내 물고기 최대 크기(cm)·무게(kg) 순위 & 랭커 정보"),
             discord.SelectOption(label="📅 /미래시", value="forecast", description="프로세카 한섭 이벤트 미래시 달력 & 일섭 비교 상세 타임라인"),
             discord.SelectOption(label="🎶 /이벤트", value="event_info", description="한섭/일섭 실시간 이벤트 및 가챠 배너 정보"),
             discord.SelectOption(label="🎒 /내캐릭터", value="my_chars", description="뽑은 캐릭터 보관함 & 잠금(🔒) 관리"),

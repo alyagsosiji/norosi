@@ -1,5 +1,5 @@
 """
-cogs/help.py - norosi bot help: 전체 79개 슬래시 명령어(99종 기능) 통합 도움말 & 가독성 최적화 가이드
+cogs/help.py - norosi bot help: 전체 80개 슬래시 명령어(110종 세부 기능 · 10대 카테고리 · 23종 !단축 명령어) 통합 도움말 & 가독성 최적화 가이드
 """
 
 import math
@@ -15,7 +15,7 @@ PRIVACY_URL = "https://app.notion.com/p/40f0518d06038048b0c6ea1052ce23e7?source=
 SUPPORT_SERVER_URL = "https://discord.gg/6utpaS7s52"
 
 # ==========================================
-# 전체 79개 슬래시 명령어 (99종 기능) 완벽 카탈로그 (9대 카테고리 분류)
+# 전체 80개 슬래시 명령어 (110종 기능) 완벽 카탈로그 (10대 카테고리 분류)
 # ==========================================
 COMMAND_CATALOG: List[Dict[str, Any]] = [
     # 1. 🎮 출석 & 카드/가챠 (21종)
@@ -50,16 +50,16 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "cards",
         "cat_label": "🎮 출석 & 카드/가챠",
         "name": "/프로세카뽑기",
-        "desc": "프로세카 한섭 뽑기 (🌟일반·🎊페스·🎂생일 / 5×2 결과판 / 리세마라 연습 / 일일 운명 다시 뽑기 / 생일 무료 단차)",
-        "params": "횟수: [1회/10회] 배너: [일반/페스/생일] 연출: [표시/스킵] 모드: [일반/연습/운명/생일무료]",
-        "example": "/프로세카뽑기 횟수:10회 뽑기 배너:🎊 컬러풀 페스티벌 (★4 2배)",
+        "desc": "프로세카 4대 배너(🌟일반·🎊컬러풀 페스·🎂생일 한정·👗3D 의상 픽업) & ⏰KST 시간대별 세카이 유닛·속성 자동 픽업 로테이션 (5×2 결과판 / 연습 / 운명 / 생일무료)",
+        "params": "횟수: [1회/10회] 배너: [일반/페스/생일/3D의상] 연출: [표시/스킵] 모드: [일반/연습/운명/생일무료]",
+        "example": "/프로세카뽑기 횟수:10회 뽑기 배너:👗 3D 의상 & 악세서리 픽업 가챠",
         "source": "cogs/gacha.py",
     },
     {
         "category": "cards",
         "cat_label": "🎮 출석 & 카드/가챠",
         "name": "/내캐릭터",
-        "desc": "내가 뽑은 카드 보관함 페이지당 10장 목록 조회 및 검색, 일러스트(각성 전·후), ✦MR, 🔒잠금, 중복 변환 관리",
+        "desc": "보유 카드 보관함 조회, 유닛별·캐릭터별 드롭다운 필터, 정렬(강화순/성급순/보유수순/최근획득순), 일러스트(각성 전·후), ✦MR, 🔒잠금, 중복 변환 관리",
         "params": "유저: [@유저(선택)] 검색어: [캐릭터명(선택)]",
         "example": "/내캐릭터 검색어:카나데",
         "source": "cogs/gacha.py",
@@ -185,9 +185,9 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "cards",
         "cat_label": "🎮 출석 & 카드/가챠",
         "name": "/프로세카확률목록",
-        "desc": "한국 서버 배너별(🌟일반·🎊페스·🎂생일) 상세 확률 및 전체 카드 명단 조회",
-        "params": "배너: [일반/페스/생일(선택)]",
-        "example": "/프로세카확률목록 배너:🎊 컬러풀 페스티벌 (★4 2배)",
+        "desc": "한국 서버 4대 배너(🌟일반·🎊페스·🎂생일·👗3D의상) 및 KST 시간대별 세카이 유닛·속성 로테이션 상세 확률표 조회",
+        "params": "배너: [일반/페스/생일/3D의상(선택)]",
+        "example": "/프로세카확률목록 배너:👗 3D 의상 & 악세서리 픽업 가챠",
         "source": "cogs/gacha.py",
     },
     {
@@ -209,12 +209,12 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "source": "cogs/gacha.py",
     },
 
-    # 2. 🌠 원신 기원 & 성유물 & 도감 & 파티 (/원신 그룹 커맨드)
+    # 2. 🌠 원신 기원 & 성유물 & 도감 & 파티 (/원신 그룹 커맨드 12종)
     {
         "category": "genshin",
         "cat_label": "🌠 원신 (기원·성유물·상점)",
         "name": "/원신 기원",
-        "desc": "원신 5대 배너(캐릭터①·②/신의주조 무기/상시/성유물 비경) 기원! KST 시각별 원소·무기·성유물 확률업 & 3.5초 연출",
+        "desc": "원신 5대 배너(캐릭터①·②/신의주조 무기/상시/성유물 비경) 기원! KST 시각별 원소·무기·성유물 확률업 & 유성 연출 (텍스트 `!원신기원` 지원)",
         "params": "배너: [캐릭터①/캐릭터②/신의주조/상시/성유물비경] 횟수: [10회/1회] 연습모드: [선택] 연출스킵: [선택]",
         "example": "/원신 기원 배너:🌠 캐릭터 이벤트 기원 ① 횟수:10회 기원",
         "source": "cogs/genshin.py",
@@ -223,7 +223,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "genshin",
         "cat_label": "🌠 원신 (기원·성유물·상점)",
         "name": "/원신 성유물",
-        "desc": "축복의 비경 성유물 파밍 · +20강화 · 치명타 CV/RV 점수 · 신비한 봉헌(환성) · 축성의 엘릭서(주옵+부옵2개 지정 제작)",
+        "desc": "축복의 비경 성유물 파밍 · +20강화 · 치명타 CV/RV 점수 · 신비한 봉헌(환성) · 축성의 엘릭서(주옵+부옵2개 지정 제작, 텍스트 `!원신성유물` 지원)",
         "params": "집중세트: [성유물 세트 자동완성(선택)]",
         "example": "/원신 성유물",
         "source": "cogs/genshin.py",
@@ -250,7 +250,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "genshin",
         "cat_label": "🌠 원신 (기원·성유물·상점)",
         "name": "/원신 도감",
-        "desc": "실시간 원신 한국어 DB 기반 전체 캐릭터·무기·성유물 도감 수집률 및 미보유 목록 열람",
+        "desc": "실시간 원신 한국어 DB 기반 전체 캐릭터·무기·성유물 도감 수집률 및 미보유 목록 열람 (텍스트 `!원신도감` 지원)",
         "params": "탭: [보유/미보유/전체]",
         "example": "/원신 도감",
         "source": "cogs/genshin.py",
@@ -319,12 +319,12 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "source": "cogs/genshin.py",
     },
 
-    # 3. 🚄 붕괴: 스타레일 워프 & 유물 터널 & 아카이브 (/스타레일 그룹 커맨드)
+    # 3. 🚄 붕괴: 스타레일 워프 & 유물 터널 & 아카이브 (/스타레일 그룹 커맨드 12종)
     {
         "category": "hsr",
         "cat_label": "🚄 스타레일 (워프·유물·편대)",
         "name": "/스타레일 워프",
-        "desc": "스타레일 5대 배너(캐릭터①·②/빛의자취 광추/상시/침식된 터널 유물) 워프! KST 시각별 속성·운명의길·유물 확률업",
+        "desc": "스타레일 5대 배너(캐릭터①·②/빛의자취 광추/상시/침식된 터널 유물) 워프! KST 시각별 속성·운명의길·유물 확률업 (텍스트 `!스타레일워프` 지원)",
         "params": "배너: [캐릭터①/②/광추/상시/유물터널] 횟수: [10회/1회] 연습모드: [선택] 연출스킵: [선택]",
         "example": "/스타레일 워프 배너:🚆 캐릭터 이벤트 워프 ① 횟수:10회 워프",
         "source": "cogs/hsr.py",
@@ -333,7 +333,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "hsr",
         "cat_label": "🚄 스타레일 (워프·유물·편대)",
         "name": "/스타레일 유물",
-        "desc": "침식된 터널·차원 장신구 유물 파밍 · +15강화 · 유효옵 점수(SS~C) · 만능 합성기 & 자가 조형 레진(주옵 지정)",
+        "desc": "침식된 터널·차원 장신구 유물 파밍 · +15강화 · 유효옵 점수(SS~C) · 만능 합성기 & 자가 조형 레진(주옵 지정) (텍스트 `!스타레일유물` 지원)",
         "params": "집중세트: [유물 세트 자동완성(선택)]",
         "example": "/스타레일 유물",
         "source": "cogs/hsr.py",
@@ -360,7 +360,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "hsr",
         "cat_label": "🚄 스타레일 (워프·유물·편대)",
         "name": "/스타레일 도감",
-        "desc": "실시간 스타레일 한국어 DB(9운명의 길·7속성·유물세트) 아카이브 수집률 및 보유/미보유 확인",
+        "desc": "실시간 스타레일 한국어 DB(9운명의 길·7속성·유물세트) 아카이브 수집률 및 보유/미보유 확인 (텍스트 `!스타레일도감` 지원)",
         "params": "탭: [보유/미보유/전체]",
         "example": "/스타레일 도감",
         "source": "cogs/hsr.py",
@@ -429,7 +429,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "source": "cogs/hsr.py",
     },
 
-    # 2. 🎲 미니게임 & 생활 유틸리티 (4종 - NEW!)
+    # 4. 🎲 미니게임 & 파티 모집 (5종)
     {
         "category": "games",
         "cat_label": "🎲 미니게임 & 유틸",
@@ -476,12 +476,12 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "source": "cogs/stats.py",
     },
 
-    # 2-5. 🎣 통합 낚시 시스템 (/낚시 그룹 커맨드 9종)
+    # 5. 🎣 통합 낚시 시스템 (/낚시 그룹 커맨드 9종)
     {
         "category": "fishing",
         "cat_label": "🎣 통합 낚시 (호수·강·바다)",
         "name": "/낚시 출조",
-        "desc": "🏞️호수·🌊강·⚓바다 13,444+종 글로벌 공개 어종 DB + 13개 세부 수역 집중 탐사 입질 미니게임 & 포획 인증서 카드(cm·kg·희귀도)",
+        "desc": "🏞️호수·🌊강·⚓바다 13,444+종 글로벌 공개 어종 DB + 13개 세부 수역 집중 탐사 입질 미니게임 & 포획 인증서 카드(cm·kg·희귀도, 텍스트 `!낚시` 지원)",
         "params": "장소: [호수/강/바다] 미끼: [떡밥/지렁이/크릴/루어/야광/황금] 빠른모드: [예/아니오]",
         "example": "/낚시 출조 장소:바다 미끼:메탈 지그 루어",
         "source": "cogs/fishing.py",
@@ -526,18 +526,9 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "fishing",
         "cat_label": "🎣 통합 낚시 (호수·강·바다)",
         "name": "/낚시 랭킹",
-        "desc": "서버 내 최대 길이(cm) · 최대 무게(kg) · 도감 수집왕 순위표 & 랭커 상세 정보 조회",
-        "params": "기준: [최대길이/최대무게/도감] 장소: [전체/호수/강/바다]",
-        "example": "/낚시 랭킹 기준:최대길이",
-        "source": "cogs/fishing.py",
-    },
-    {
-        "category": "fishing",
-        "cat_label": "🎣 통합 낚시 (호수·강·바다)",
-        "name": "/낚시랭킹",
-        "desc": "서버 내 물고기 최대 크기(cm)·무게(kg) 대물 순위 보드, 어종 검색 및 낚시 랭커 상세 정보 바로 조회",
+        "desc": "서버 내 물고기 최대 길이(cm) · 최대 무게(kg) · 도감 수집왕 순위 보드, 어종 검색 및 랭커 상세 정보 조회 (텍스트 `!낚시랭킹` · `!대물랭킹` 지원)",
         "params": "기준: [최대길이/최대무게/도감] 장소: [전체/호수/강/바다] 어종검색: [선택] 랭커: [@유저]",
-        "example": "/낚시랭킹 기준:최대 길이(cm) 장소:바다",
+        "example": "/낚시 랭킹 기준:최대 길이(cm) 장소:바다",
         "source": "cogs/fishing.py",
     },
     {
@@ -568,7 +559,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "source": "cogs/fishing.py",
     },
 
-    # 3. 📊 서버/유저 통계 & 상태 (3종)
+    # 6. 📊 서버/유저 통계 & 상태 (4종)
     {
         "category": "stats",
         "cat_label": "📊 서버/유저 통계",
@@ -606,7 +597,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "source": "cogs/stats.py",
     },
 
-    # 4. 📅 D-Day & 생일 & 라이프 (14종)
+    # 7. 📅 D-Day & 생일 & 라이프 (15종)
     {
         "category": "dday",
         "cat_label": "📅 D-Day & 생일 & 라이프",
@@ -710,9 +701,9 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "dday",
         "cat_label": "📅 D-Day & 생일 & 라이프",
         "name": "/미래시",
-        "desc": "프로세카 한국 서버의 다가오는 이벤트 미래시 일정과 상세 타임라인 카드 확인",
-        "params": "년도: [2026] 월: [1~12월]",
-        "example": "/미래시 년도:2026 월:11",
+        "desc": "프로세카 한국 서버의 2026~2027년 다가오는 이벤트 미래시 일정(실제 한섭 진행도 반영 보정·한정/페스/콜라보/월드링크 필터)과 ★4 픽업 타임라인 확인",
+        "params": "년도: [2026/2027] 월: [1~12월]",
+        "example": "/미래시 년도:2026 월:4",
         "source": "cogs/gacha.py",
     },
     {
@@ -882,21 +873,21 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "source": "cogs/music.py",
     },
 
-    # 7. ⚙️ 봇 관리 & 감사 로그 (7종)
+    # 10. ⚙️ 봇 관리 & 감사 로그 & 마스터 대시보드 (17종)
     {
         "category": "admin",
         "cat_label": "⚙️ 봇 관리 & 마스터 대시보드",
         "name": "/대시보드",
-        "desc": "norosi 봇의 모든 7대 카테고리 기능(가챠, 일정, 음악, 역할, 게임, 통계)을 탭으로 넘나드는 올인원 마스터 대시보드",
-        "params": "탭: [홈/가챠/일정/음악/역할/게임/통계(선택)]",
-        "example": "/대시보드",
+        "desc": "norosi 봇의 9대 탭(홈·프로세카·원신·스타레일·일정·음악·역할·게임·통계)을 넘나드는 올인원 마스터 대시보드 (텍스트 `!대시보드` 지원)",
+        "params": "탭: [홈/프로세카/원신/스타레일/일정/음악/역할/게임/통계(선택)]",
+        "example": "/대시보드 탭:🌠 [원신] 기원·보관함·페이몬상점",
         "source": "cogs/dashboard.py",
     },
     {
         "category": "admin",
         "cat_label": "⚙️ 봇 관리 & 마스터 대시보드",
         "name": "/메뉴",
-        "desc": "명령어 타이핑 없이 버튼 하나로 모든 봇 기능을 1초 만에 실행하는 슈퍼 대시보드 리모컨",
+        "desc": "명령어 타이핑 없이 버튼 하나로 모든 봇 기능을 1초 만에 실행하는 슈퍼 대시보드 리모컨 (텍스트 `!메뉴` · `!리모컨` 지원)",
         "params": "없음",
         "example": "/메뉴",
         "source": "cogs/dashboard.py",
@@ -957,12 +948,12 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
     },
     {
         "category": "admin",
-        "cat_label": "⚙️ 봇 관리 & 배포 알림",
-        "name": "/깃허브알림",
-        "desc": "GitHub 커밋 푸시 및 배포 완료 알림 채널을 원클릭으로 간편하게 지정하거나 해제 (/깃허브연동 단축 명령어)",
-        "params": "채널: [#채널(선택, 미입력 시 현재 채널)] 역할멘션: [@역할(선택)] 연동해제: [True/False(선택)]",
-        "example": "/깃허브알림 채널:#공지-업데이트",
-        "source": "cogs/logger.py",
+        "cat_label": "⚙️ 봇 관리 & 프로필",
+        "name": "/봇배너",
+        "desc": "[봇주 전용] 봇의 디스코드 프로필 배너 이미지를 조회, 변경 또는 초기화 (텍스트 `!봇배너` · `!배너` 지원)",
+        "params": "이미지: [파일첨부(선택)] 이미지url: [URL(선택)] 초기화: [True/False(선택)]",
+        "example": "/봇배너 이미지url:https://...",
+        "source": "bot.py",
     },
     {
         "category": "admin",
@@ -977,7 +968,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "admin",
         "cat_label": "⚙️ 봇 관리 & 역할",
         "name": "/반응역할",
-        "desc": "[서버 관리자 전용] 이모지 반응 역할 제작, 기존 메시지 연결, 현황 조회 및 삭제 종합 스튜디오",
+        "desc": "[서버 관리자 전용] 이모지 반응 역할 제작, 기존 메시지 연결, 현황 조회 및 삭제 종합 스튜디오 (텍스트 `!반응역할` · `!역할스튜디오` 지원)",
         "params": "없음 (스튜디오 패널 자동 실행)",
         "example": "/반응역할",
         "source": "cogs/roles.py",
@@ -1013,7 +1004,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "admin",
         "cat_label": "⚙️ 봇 관리 & 역할",
         "name": "/역할버튼제작",
-        "desc": "[서버 관리자 전용] 팝업 모달창에서 제목, 본문, 버튼 이름과 이모지를 직접 작성하여 역할 버튼 패널 발행",
+        "desc": "[서버 관리자 전용] 팝업 모달창에서 제목, 본문, 버튼 이름과 이모지를 직접 작성하여 역할 버튼 패널 발행 (텍스트 `!역할버튼` 지원)",
         "params": "채널: [#채널(선택)]",
         "example": "/역할버튼제작 채널:#주민등록",
         "source": "cogs/roles.py",
@@ -1031,34 +1022,34 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "admin",
         "cat_label": "⚙️ 봇 관리 & 안내",
         "name": "/도움말",
-        "desc": "전체 79개 슬래시 명령어(/원신·/스타레일 포함 99종 기능)의 카테고리별 상세 가이드 및 대화형 페이지별 열람",
+        "desc": "전체 80개 슬래시 명령어(110종 기능) 및 23종 `!` 단축 명령어의 카테고리별 상세 가이드 (텍스트 `!도움말` · `!help` 지원)",
         "params": "category: [카테고리(선택)] search: [검색어(선택)]",
-        "example": "/도움말 category:genshin search:기원",
+        "example": "/도움말 category:genshin search:성유물",
         "source": "cogs/help.py",
     },
 ]
 
 CATEGORY_META = [
-    ("cards", "🎮 출석 & 프로세카 카드/가챠 (21종 · 5페이지)", "출석체크, 배너별 프로세카 뽑기, 마스터랭크, 세카이라이브, 3D 의상·어나더컬러 등"),
-    ("genshin", "🌠 원신 기원 & 도감 & 상점 (11종 · 3페이지)", "/원신 기원(90/80천장·포착된 광휘), 운명의 궤도, 페이몬의 상점, 4인 원소 공명 파티 등"),
-    ("hsr", "🚄 스타레일 워프 & 아카이브 & 상점 (11종 · 3페이지)", "/스타레일 워프(광추 75/25·300회 선택), 별빛/헤르타 상점, 4인 편대 시너지 등"),
-    ("fishing", "🎣 통합 낚시 — 호수·강·바다 13,444종 (10종 · 2페이지)", "/낚시 출조(세부 수역·cm/kg·날씨), /낚시랭킹, 도감 필터, 개인 수족관, 장비 상점 등"),
-    ("dday", "📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", "멤버 생일 전광판, 공용/비밀 D-Day, 파트너, 하드코어스터디, 뽀모도로 집중모드 등"),
-    ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", "올인원 /대시보드, /메뉴, /깃허브연동, /터미널로그채널, 반응역할, 공지발송 등"),
-    ("games", "🎲 미니게임 & 파티 모집 (5종 · 1페이지)", "파티원 모집, 끝말잇기(두음법칙), 러시안룰렛, 초정밀 실시간 날씨, 스마트 알림예약"),
-    ("stats", "📊 서버/유저 통계 & 건의 (4종 · 1페이지)", "멤버 상세 유저정보, 실시간 서버통계 보드, 호스트 봇상태, 익명/공개 건의"),
+    ("cards", "🎮 출석 & 프로세카 카드/가챠 (21종 · 5페이지)", "출석체크, 배너별 프로세카 뽑기, 내캐릭터(필터·정렬·일괄선택), 마스터랭크, 세카이라이브, 3D 의상·마이세카이 등"),
+    ("genshin", "🌠 원신 기원 & 성유물 & 상점 (12종 · 3페이지)", "/원신 기원(90/80천장·포착된 광휘), /원신 성유물(비경·강화·축성의 서리), 운명의 궤도, 페이몬 상점, 4인 원소 공명 파티 등"),
+    ("hsr", "🚄 스타레일 워프 & 유물 & 상점 (12종 · 3페이지)", "/스타레일 워프(광추 75/25), /스타레일 유물(침식된 터널·자가 조형 레진), 상시 300회 선택, 별빛/헤르타 상점, 4인 편대 등"),
+    ("fishing", "🎣 통합 낚시 — 호수·강·바다 13,444종 (9종 · 2페이지)", "/낚시 출조(13개 세부 수역·cm/kg·날씨), /낚시 랭킹(!낚시랭킹), 도감 필터, 개인 수족관, 6티어 장비 상점, 일일 퀘스트 등"),
+    ("dday", "📅 D-Day & 생일 & 미래시 & 라이프 (15종 · 3페이지)", "한섭 프로세카 /미래시(2026~2027), 실시간 /이벤트, 멤버 생일 전광판, 공용/비밀 D-Day, 파트너, 하드코어스터디 등"),
+    ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", "올인원 /대시보드, /메뉴, /깃허브연동, /봇배너, /터미널로그채널, 반응역할 스튜디오, 공지발송 등"),
+    ("games", "🎲 미니게임 & 파티 모집 (5종 · 1페이지)", "전 게임 파티원 /모집(모달 지원), 끝말잇기(두음법칙), 러시안룰렛, 초정밀 실시간 날씨, 스마트 알림예약"),
+    ("stats", "📊 서버/유저 통계 & 건의 (4종 · 1페이지)", "멤버 상세 유저정보, 실시간 서버통계 보드, 호스트 봇상태, 익명/공개 건의함"),
     ("music", "🎵 음악 & 플레이리스트 (13종 · 3페이지)", "나만의 음악 플레이리스트 제작·공유(유튜브/스포티파이/사클), 음성 순차재생, 배속(0.5x~2.0x), 헤드셋제어, 오디오테스트 등"),
-    ("ai", "💬 AI 세카이 대화 (2종 · 1페이지)", "구글 Gemini AI 기반 프로세카 캐릭터 대화 및 맞춤 페르소나"),
+    ("ai", "💬 AI 세카이 대화 (2종 · 1페이지)", "구글 Gemini AI 기반 프로세카 캐릭터 1:1 대화 및 맞춤 페르소나 설정"),
 ]
 
 CATEGORY_DROPDOWN_OPTIONS = [
-    ("all", "🌟 전체 명령어 한눈에 보기 (109종 요약판)", "10대 카테고리 요약 보드 (다음 버튼으로 상세 가이드 열람)", "🌐"),
-    ("cards", "🎮 출석 & 프로세카 가챠 (21종 · 5페이지)", "/프로세카뽑기, /마스터랭크, /라이브, /의상, /마이세카이 등", "🎮"),
-    ("genshin", "🌠 원신 기원·도감·상점 (11종 · 3페이지)", "/원신 기원, /원신 운명의궤도, /원신 상점, /원신 파티편성 등", "🌠"),
-    ("hsr", "🚄 스타레일 워프·상점·편대 (11종 · 3페이지)", "/스타레일 워프, /스타레일 상시300선택, /스타레일 상점, /스타레일 파티편성 등", "🚄"),
-    ("fishing", "🎣 통합 낚시 (10종 · 호수·강·바다 13,444종)", "/낚시 출조, /낚시랭킹, /낚시 도감, /낚시 수족관, /낚시 상점 등", "🎣"),
-    ("dday", "📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", "/디데이추가, /하드코어스터디, /생일등록, /파트너, /집중모드 등", "📅"),
-    ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", "/대시보드, /메뉴, /깃허브연동, /터미널로그채널, /반응역할 등", "⚙️"),
+    ("all", "🌟 전체 명령어 한눈에 보기 (110종 요약판)", "10대 카테고리 요약 보드 (다음 버튼으로 상세 가이드 열람)", "🌐"),
+    ("cards", "🎮 출석 & 프로세카 가챠 (21종 · 5페이지)", "/프로세카뽑기, /내캐릭터, /마스터랭크, /라이브, /마이세카이 등", "🎮"),
+    ("genshin", "🌠 원신 기원·성유물·상점 (12종 · 3페이지)", "/원신 기원, /원신 성유물, /원신 운명의궤도, /원신 상점, /원신 파티편성 등", "🌠"),
+    ("hsr", "🚄 스타레일 워프·유물·편대 (12종 · 3페이지)", "/스타레일 워프, /스타레일 유물, /스타레일 상시300선택, /스타레일 상점 등", "🚄"),
+    ("fishing", "🎣 통합 낚시 (9종 · 호수·강·바다 13,444종)", "/낚시 출조, /낚시 랭킹, /낚시 도감, /낚시 수족관, /낚시 상점 등", "🎣"),
+    ("dday", "📅 D-Day & 생일 & 미래시 (15종 · 3페이지)", "/미래시, /이벤트, /디데이추가, /하드코어스터디, /생일등록, /파트너 등", "📅"),
+    ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", "/대시보드, /메뉴, /깃허브연동, /봇배너, /터미널로그채널, /반응역할 등", "⚙️"),
     ("games", "🎲 미니게임 & 파티 모집 (5종 · 1페이지)", "/모집, /끝말잇기, /러시안룰렛, /날씨, /알림예약", "🎲"),
     ("stats", "📊 서버/유저 통계 & 건의 (4종 · 1페이지)", "/서버통계, /유저정보, /건의, /봇상태", "📊"),
     ("music", "🎵 음악 & 플레이리스트 (13종 · 3페이지)", "/플레이리스트, /플리재생, /배속, /헤드셋, /플리곡추가 등", "🎵"),
@@ -1069,7 +1060,7 @@ CATEGORY_DROPDOWN_OPTIONS = [
 def build_help_embed(category: str = "all", search_kw: str = "", page: int = 0) -> discord.Embed:
     """
     가독성을 극대화한 norosi bot help 임베드 빌더.
-    - category=='all' & page==0 & 검색어 없음: 전체 79개 슬래시 명령어(99종 기능)를 9대 카테고리별로 한눈에 볼 수 있는 요약 대시보드 제공
+    - category=='all' & page==0 & 검색어 없음: 전체 80개 슬래시 명령어(110종 기능)를 10대 카테고리별로 한눈에 볼 수 있는 요약 대시보드 제공
     - 특정 카테고리 선택 또는 페이지 이동 시: 페이지당 5개씩 깔끔하고 가독성 높은 카드 레이아웃 제공
     """
     total_cmds = len(COMMAND_CATALOG)
@@ -1084,8 +1075,9 @@ def build_help_embed(category: str = "all", search_kw: str = "", page: int = 0) 
         desc_lines = [
             header_links,
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            f"✨ **norosi**는 총 **`{total_cmds}종`**의 기능(79개 슬래시 명령어)을 제공하는 올인원 멀티가챠 & 커뮤니티 봇입니다.",
+            f"✨ **norosi**는 총 **`{total_cmds}종`**의 세부 기능(**80개 슬래시 명령어 + 23종 `!` 단축어**)을 제공하는 올인원 멀티가챠 & 커뮤니티 봇입니다.",
             "💡 명령어를 직접 치기 번거로울 땐 **`/메뉴`** 또는 **`/대시보드`** 버튼 리모컨으로 모든 기능을 원클릭 조작할 수 있습니다!",
+            "⚡ **빠른 `!` 단축어:** `!대시보드`, `!메뉴`, `!원신기원`, `!원신성유물`, `!스타레일워프`, `!스타레일유물`, `!낚시`, `!낚시랭킹`, `!플리재생`, `!플리추가`, `!배속`, `!도움말`",
             "👇 **아래 카테고리 드롭다운**을 선택하거나 **`다음 ▶` 버튼**으로 1페이지부터 상세 가이드를 열람하세요."
         ]
         embed = discord.Embed(
@@ -1104,7 +1096,7 @@ def build_help_embed(category: str = "all", search_kw: str = "", page: int = 0) 
                 inline=False
             )
 
-        embed.set_footer(text=f"전체 79개 슬래시 명령어 ({total_cmds}종 기능) 요약판  •  [다음 ▶]으로 상세 보기  •  /메뉴 로 원클릭 실행")
+        embed.set_footer(text=f"전체 80개 슬래시 명령어 ({total_cmds}종 기능) 요약판  •  [다음 ▶]으로 상세 보기  •  /메뉴 로 원클릭 실행")
         return embed
 
     # 2. 카테고리별 또는 검색어 필터링 상세 카드 보기
@@ -1126,7 +1118,7 @@ def build_help_embed(category: str = "all", search_kw: str = "", page: int = 0) 
                 f"{header_links}\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"⚠️ **`{search_kw}`** 키워드와 일치하는 명령어를 찾지 못했습니다.\n\n"
-                "💡 **추천 검색어:** `원신`, `스타레일`, `프로세카뽑기`, `운명의궤도`, `상시300`, `마이세카이`, `출석`, `모집`, `음악`, `파트너`\n"
+                "💡 **추천 검색어:** `원신`, `성유물`, `스타레일`, `유물`, `낚시`, `프로세카뽑기`, `마스터랭크`, `미래시`, `출석`, `모집`, `플레이리스트`\n"
                 "👉 아래 드롭다운에서 **'전체 명령어 한눈에 보기'**를 선택해 전체 목록을 둘러보세요!"
             ),
             color=discord.Color.orange(),
@@ -1176,7 +1168,7 @@ def build_help_embed(category: str = "all", search_kw: str = "", page: int = 0) 
 
 
 class HelpCategorySelect(discord.ui.Select):
-    """9대 카테고리 선택 드롭다운 (현재 선택 상태 default 반영 및 페이지 안내)"""
+    """10대 카테고리 선택 드롭다운 (현재 선택 상태 default 반영 및 페이지 안내)"""
     def __init__(self, parent_view: "HelpCategoryView"):
         self.parent_view = parent_view
         super().__init__(
@@ -1184,7 +1176,8 @@ class HelpCategorySelect(discord.ui.Select):
             min_values=1,
             max_values=1,
             options=self._build_options(parent_view.category),
-            row=0
+            row=0,
+            custom_id="norosi:HelpCategorySelect:select"
         )
 
     def _build_options(self, current_cat: str):
@@ -1200,20 +1193,26 @@ class HelpCategorySelect(discord.ui.Select):
         return opts
 
     def refresh_options(self):
-        self.options = self._build_options(self.parent_view.category)
+        v = getattr(self, "parent_view", None) or getattr(self, "view", None)
+        cur_cat = getattr(v, "category", "all") if v else "all"
+        self.options = self._build_options(cur_cat)
 
     async def callback(self, interaction: discord.Interaction):
-        self.parent_view.category = self.values[0]
-        self.parent_view.search_kw = ""
-        self.parent_view.page = 0
+        v = getattr(self, "parent_view", None) or getattr(self, "view", None)
+        if v is None:
+            await core.safe_send_response(interaction, "⌛ 도움말 세션이 만료되었습니다. `/도움말`을 다시 실행해 주세요.", ephemeral=True)
+            return
+        v.category = self.values[0]
+        v.search_kw = ""
+        v.page = 0
         self.refresh_options()
-        self.parent_view.update_buttons()
-        embed = build_help_embed(self.parent_view.category, self.parent_view.search_kw, self.parent_view.page)
-        await interaction.response.edit_message(embed=embed, view=self.parent_view)
+        v.update_buttons()
+        embed = v.build_embed()
+        await interaction.response.edit_message(embed=embed, view=v)
 
 
 class HelpCategoryView(core.SafeView):
-    """페이지네이션(◀/▶) 및 카테고리 빠른 전환, 올인원 메뉴 바로가기를 지원하는 도움말 뷰"""
+    """페이지네이션(◀/▶) 및 카테고리 빠른 전환, 올인원 대시보드/메뉴 바로가기를 지원하는 도움말 뷰"""
     def __init__(self, bot_instance=None, category: str = "all", search_kw: str = "", author=None):
         super().__init__(timeout=300)
         self.bot_instance = bot_instance
@@ -1224,6 +1223,9 @@ class HelpCategoryView(core.SafeView):
         self.category_select = HelpCategorySelect(self)
         self.add_item(self.category_select)
         self.update_buttons()
+
+    def build_embed(self) -> discord.Embed:
+        return build_help_embed(self.category, self.search_kw, self.page)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if self.author and interaction.user.id != self.author.id:
@@ -1241,7 +1243,10 @@ class HelpCategoryView(core.SafeView):
             filtered = [c for c in filtered if c["category"] == self.category]
         if self.search_kw.strip():
             kw = self.search_kw.strip().lower()
-            filtered = [c for c in filtered if kw in c["name"].lower() or kw in c["desc"].lower() or kw in c["example"].lower()]
+            filtered = [
+                c for c in filtered
+                if kw in c["name"].lower() or kw in c["desc"].lower() or kw in c["example"].lower() or kw in c["cat_label"].lower()
+            ]
         return filtered
 
     def _total_pages(self) -> int:
@@ -1276,7 +1281,7 @@ class HelpCategoryView(core.SafeView):
     async def prev_page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.page = max(0, self.page - 1)
         self.update_buttons()
-        embed = build_help_embed(self.category, self.search_kw, self.page)
+        embed = self.build_embed()
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(label="📄 1 / 1", style=discord.ButtonStyle.secondary, disabled=True, row=1)
@@ -1288,7 +1293,7 @@ class HelpCategoryView(core.SafeView):
         max_p = self._max_page()
         self.page = min(max_p, self.page + 1)
         self.update_buttons()
-        embed = build_help_embed(self.category, self.search_kw, self.page)
+        embed = self.build_embed()
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(label="🏠 전체 요약", style=discord.ButtonStyle.primary, row=1)
@@ -1298,39 +1303,64 @@ class HelpCategoryView(core.SafeView):
         self.page = 0
         self.category_select.refresh_options()
         self.update_buttons()
-        embed = build_help_embed("all", "", 0)
+        embed = self.build_embed()
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="🧭 올인원 메뉴 열기", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="🧭 올인원 대시보드 열기", style=discord.ButtonStyle.success, row=1)
     async def open_quick_menu_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
         bot_ref = self.bot_instance or interaction.client
         data = await core.asyncio.to_thread(core.load_data)
-        dday_cog = bot_ref.get_cog("DDayCog")
+        try:
+            from cogs.dashboard import MasterDashboardView
+            tab_map = {
+                "cards": "gacha",
+                "genshin": "genshin",
+                "hsr": "hsr",
+                "dday": "life",
+                "music": "music",
+                "admin": "admin",
+                "games": "game",
+                "stats": "stats",
+            }
+            init_tab = tab_map.get(self.category, "home")
+            view = MasterDashboardView(
+                bot=bot_ref,
+                user=interaction.user,
+                guild=interaction.guild,
+                data=data,
+                initial_tab=init_tab
+            )
+            msg = await interaction.followup.send(embed=view.build_current_embed(), view=view, ephemeral=True, wait=True)
+            view.message = msg
+            return
+        except Exception:
+            pass
+        dday_cog = bot_ref.get_cog("DDayCog") if bot_ref else None
         if dday_cog:
             from cogs.dday import QuickMenuHubView
             view = QuickMenuHubView(bot_ref, interaction.user, interaction.guild, data)
             await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
         else:
-            await interaction.followup.send("💡 채팅창에 `/메뉴`를 입력하시면 올인원 리모컨을 즉시 열 수 있습니다!", ephemeral=True)
+            await interaction.followup.send("💡 채팅창에 `/메뉴` 또는 `/대시보드`를 입력하시면 올인원 리모컨을 즉시 열 수 있습니다!", ephemeral=True)
 
 
 class HelpCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="도움말", description="norosi bot help - 전체 슬래시 명령어(108종 기능) 한눈에 보기 및 카테고리별 상세 가이드")
+    @app_commands.command(name="도움말", description="norosi bot help - 전체 80개 슬래시 명령어(110종 기능) 한눈에 보기 및 카테고리별 상세 가이드")
     @app_commands.describe(
         category="안내받을 카테고리 (all/cards/genshin/hsr/fishing/dday/admin/games/stats/music/ai)",
-        search="검색할 명령어 이름 또는 키워드 (예: 낚시, 원신, 스타레일, 프로세카뽑기, 운명의궤도, 플레이리스트)"
+        search="검색할 명령어 이름 또는 키워드 (예: 낚시, 원신, 성유물, 스타레일, 유물, 프로세카뽑기, 미래시, 플레이리스트)"
     )
     @app_commands.choices(category=[
-        app_commands.Choice(name="🌟 전체 명령어 한눈에 보기 (108종 요약판)", value="all"),
+        app_commands.Choice(name="🌟 전체 명령어 한눈에 보기 (110종 요약판)", value="all"),
         app_commands.Choice(name="🎮 출석 & 프로세카 가챠 (21종 · 5페이지)", value="cards"),
-        app_commands.Choice(name="🌠 원신 기원 & 도감 & 상점 (11종 · 3페이지)", value="genshin"),
-        app_commands.Choice(name="🚄 스타레일 워프 & 아카이브 & 상점 (11종 · 3페이지)", value="hsr"),
-        app_commands.Choice(name="🎣 통합 낚시 (10종 · 호수·강·바다 13,444종)", value="fishing"),
-        app_commands.Choice(name="📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", value="dday"),
+        app_commands.Choice(name="🌠 원신 기원 & 성유물 & 상점 (12종 · 3페이지)", value="genshin"),
+        app_commands.Choice(name="🚄 스타레일 워프 & 유물 & 상점 (12종 · 3페이지)", value="hsr"),
+        app_commands.Choice(name="🎣 통합 낚시 (9종 · 호수·강·바다 13,444종)", value="fishing"),
+        app_commands.Choice(name="📅 D-Day & 생일 & 미래시 (15종 · 3페이지)", value="dday"),
         app_commands.Choice(name="⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", value="admin"),
         app_commands.Choice(name="🎲 미니게임 & 파티 모집 (5종 · 1페이지)", value="games"),
         app_commands.Choice(name="📊 서버/유저 통계 & 건의 (4종 · 1페이지)", value="stats"),
@@ -1351,7 +1381,7 @@ class HelpCog(commands.Cog):
 
     @commands.command(name="도움말", aliases=["help", "도움", "명령어"])
     async def prefix_help(self, ctx: commands.Context, *, 검색: Optional[str] = ""):
-        """채팅창에 !도움말 또는 !help 입력 시 즉시 99종 기능 올인원 가이드 및 카테고리 대시보드 호출"""
+        """채팅창에 !도움말 또는 !help 입력 시 즉시 110종 기능 올인원 가이드 및 카테고리 대시보드 호출"""
         embed = build_help_embed(category="all", search_kw=검색 or "", page=0)
         view = HelpCategoryView(bot_instance=self.bot, category="all", search_kw=검색 or "", author=ctx.author)
         await ctx.send(embed=embed, view=view)
@@ -1359,3 +1389,4 @@ class HelpCog(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(HelpCog(bot))
+
