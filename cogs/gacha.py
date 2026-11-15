@@ -412,8 +412,14 @@ class DuplicateConvertConfirmView(core.SafeView):
 
         # 열려 있는 /내캐릭터 보관함 뷰가 있다면 실시간으로 수량을 1장으로 갱신하고 원본 메시지 업데이트
         if self.parent_inventory_view:
-            for c in self.parent_inventory_view.cards:
+            target_pool = getattr(self.parent_inventory_view, "all_cards", None) or self.parent_inventory_view.cards
+            seen_ids = set()
+            for c in target_pool:
+                seen_ids.add(id(c))
                 if not c.get("locked", False) and c.get("count", 1) > 1:
+                    c["count"] = 1
+            for c in self.parent_inventory_view.cards:
+                if id(c) not in seen_ids and not c.get("locked", False) and c.get("count", 1) > 1:
                     c["count"] = 1
             if self.parent_inventory_message:
                 try:
@@ -1510,6 +1516,10 @@ class CardIllustToggleView(core.SafeView):
 
         self.card["locked"] = new_locked
         if self.parent_inventory_view:
+            target_pool = getattr(self.parent_inventory_view, "all_cards", None) or self.parent_inventory_view.cards
+            for c in target_pool:
+                if str(c.get("id")) == str(self.card.get("id")):
+                    c["locked"] = new_locked
             for c in self.parent_inventory_view.cards:
                 if str(c.get("id")) == str(self.card.get("id")):
                     c["locked"] = new_locked
@@ -2021,25 +2031,38 @@ class ProsekaRatePaginationView(core.SafeView):
 
 
 class MyInventoryView(core.SafeView):
-    """내 캐릭터 보관함 (검색어 필터 + 정렬 + 잠금 표시 + 중복 카드 크리스탈 변환 + 일러스트 & 각성 전환)"""
-    def __init__(self, user: discord.User | None = None, card_list: list | None = None, items_per_page=10, search_keyword: str = None, guild_id: int = 0):
+    """내 캐릭터 보관함 (유닛/캐릭터별 필터 + 검색어 필터 + 정렬 + 잠금 표시 + 중복 카드 크리스탈 변환 + 일러스트 & 각성 전환)"""
+    def __init__(
+        self,
+        user: discord.User | None = None,
+        card_list: list | None = None,
+        items_per_page=10,
+        search_keyword: str = None,
+        guild_id: int = 0,
+        initial_unit: str | None = None,
+        initial_char_id: int | None = None,
+    ):
         super().__init__(timeout=600)
         self.user = user
         self.guild_id = guild_id
-        if card_list:
-            self.cards = list(card_list)
+        if card_list is not None:
+            self.all_cards = [c for c in card_list if isinstance(c, dict)]
         elif self.user:
             d = core.get_cached_data()
             u_cards = core.safe_get_dict(d, "gacha_users", str(self.guild_id or 0), str(self.user.id), "cards")
-            self.cards = [c for c in u_cards.values() if isinstance(c, dict)]
+            self.all_cards = [c for c in u_cards.values() if isinstance(c, dict)]
         else:
-            self.cards = []
+            self.all_cards = []
+        self.cards: list = []
         self.items_per_page = items_per_page
         self.search_keyword = search_keyword
         self.current_page = 0
+        self.sort_mode = "obtained_desc"
         self.sort_mode_label = "획득일 최신순"
-        self.apply_sort("obtained_desc")
-        self.update_illust_select()
+        self.selected_unit = initial_unit if (initial_unit in core.UNIT_ORDER) else "ALL"
+        self.selected_char_id = int(initial_char_id) if initial_char_id is not None else None
+        self.has_more_chars_notice = False
+        self.apply_filters_and_sort()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         await super().interaction_check(interaction)
@@ -2052,12 +2075,144 @@ class MyInventoryView(core.SafeView):
             return False
         if not self.user:
             self.user = interaction.user
-            if not self.cards:
+            if not self.all_cards:
                 d = core.get_cached_data()
                 u_cards = core.safe_get_dict(d, "gacha_users", str(self.guild_id or 0), str(self.user.id), "cards")
-                self.cards = [c for c in u_cards.values() if isinstance(c, dict)]
-                self.apply_sort("obtained_desc")
+                self.all_cards = [c for c in u_cards.values() if isinstance(c, dict)]
+                self.apply_filters_and_sort()
         return True
+
+    @staticmethod
+    def _resolve_card_char_id(card: dict) -> int | None:
+        cid = card.get("char_id")
+        if cid is not None:
+            try:
+                return int(cid)
+            except Exception:
+                pass
+        cname = card.get("char_name", "")
+        for map_cid, info in core.CHARACTER_MAP.items():
+            if info.get("name") == cname:
+                return map_cid
+        return None
+
+    @classmethod
+    def _card_matches_unit(cls, card: dict, unit_name: str) -> bool:
+        if unit_name == "ALL":
+            return True
+        if card.get("unit") == unit_name or card.get("support_unit") == unit_name:
+            return True
+        cid = cls._resolve_card_char_id(card)
+        if cid in core.CHARACTER_MAP and core.CHARACTER_MAP[cid].get("unit") == unit_name:
+            return True
+        return False
+
+    def apply_filters_and_sort(self, mode: str | None = None):
+        if mode is not None:
+            self.sort_mode = mode
+        filtered = list(self.all_cards)
+        if self.selected_unit != "ALL":
+            filtered = [c for c in filtered if self._card_matches_unit(c, self.selected_unit)]
+        if self.selected_char_id is not None:
+            filtered = [c for c in filtered if self._resolve_card_char_id(c) == self.selected_char_id]
+        self.cards = filtered
+        self.apply_sort(self.sort_mode)
+        if self.current_page > self.max_page:
+            self.current_page = self.max_page
+        self.update_filter_selects()
+        self.update_illust_select()
+
+    def update_filter_selects(self):
+        # Row 3: 유닛별 필터
+        unit_emojis = {
+            "Leo/need": "🎸",
+            "MORE MORE JUMP!": "🍀",
+            "Vivid BAD SQUAD": "🎧",
+            "원더랜즈×쇼타임": "🎪",
+            "25시, 나이트 코드에서.": "🌃",
+            "버츄얼 싱어": "🎤",
+        }
+        total_unique_all = len(self.all_cards)
+        total_pulls_all = sum(c.get("count", 1) for c in self.all_cards)
+        unit_opts = [
+            discord.SelectOption(
+                label=f"🌐 전체 유닛 보기 ({total_unique_all}종 / {total_pulls_all}장)"[:100],
+                value="ALL",
+                description="모든 유닛의 보유 카드를 한 번에 표시합니다",
+                default=(self.selected_unit == "ALL"),
+            )
+        ]
+        for u_name in core.UNIT_ORDER:
+            u_cards = [c for c in self.all_cards if self._card_matches_unit(c, u_name)]
+            u_pulls = sum(c.get("count", 1) for c in u_cards)
+            u_emoji = unit_emojis.get(u_name, "🏷️")
+            unit_opts.append(
+                discord.SelectOption(
+                    label=f"{u_emoji} {u_name} ({len(u_cards)}종)"[:100],
+                    value=u_name,
+                    description=f"총 {u_pulls:,}장 보유 · {u_name} 소속 캐릭터만 보기"[:100],
+                    default=(self.selected_unit == u_name),
+                )
+            )
+        self.unit_select.options = unit_opts[:25]
+
+        # Row 4: 캐릭터별 필터
+        base_pool = (
+            self.all_cards
+            if self.selected_unit == "ALL"
+            else [c for c in self.all_cards if self._card_matches_unit(c, self.selected_unit)]
+        )
+        char_counts: dict[int, tuple[int, int]] = {}
+        for c in base_pool:
+            cid = self._resolve_card_char_id(c)
+            if cid is None:
+                continue
+            prev_u, prev_p = char_counts.get(cid, (0, 0))
+            char_counts[cid] = (prev_u + 1, prev_p + int(c.get("count", 1)))
+
+        base_pulls = sum(c.get("count", 1) for c in base_pool)
+        if self.selected_unit == "ALL":
+            all_char_label = f"🌐 전체 캐릭터 보기 ({len(base_pool)}종 / {base_pulls}장)"
+            candidate_cids = sorted(cid for cid in char_counts.keys() if cid in core.CHARACTER_MAP)
+            if self.selected_char_id is not None and self.selected_char_id in core.CHARACTER_MAP and self.selected_char_id not in candidate_cids:
+                candidate_cids.append(self.selected_char_id)
+                candidate_cids.sort()
+        else:
+            all_char_label = f"🌐 {self.selected_unit} 전체 캐릭터 ({len(base_pool)}종)"
+            unit_member_cids = [cid for cid, info in core.CHARACTER_MAP.items() if info.get("unit") == self.selected_unit]
+            extra_cids = [cid for cid in sorted(char_counts.keys()) if cid in core.CHARACTER_MAP and cid not in unit_member_cids]
+            candidate_cids = unit_member_cids + extra_cids
+
+        char_opts = [
+            discord.SelectOption(
+                label=all_char_label[:100],
+                value="ALL",
+                description="선택된 범위의 모든 캐릭터 카드를 표시합니다",
+                default=(self.selected_char_id is None),
+            )
+        ]
+
+        self.has_more_chars_notice = False
+        if len(candidate_cids) > 24:
+            self.has_more_chars_notice = True
+            display_cids = candidate_cids[:24]
+            if self.selected_char_id is not None and self.selected_char_id in candidate_cids and self.selected_char_id not in display_cids:
+                display_cids = display_cids[:-1] + [self.selected_char_id]
+        else:
+            display_cids = candidate_cids
+
+        for cid in display_cids:
+            c_info = core.CHARACTER_MAP.get(cid, {"name": f"캐릭터 #{cid}", "unit": "-"})
+            u_cnt, p_cnt = char_counts.get(cid, (0, 0))
+            char_opts.append(
+                discord.SelectOption(
+                    label=f"👤 {c_info['name']} ({u_cnt}종 / {p_cnt}장)"[:100],
+                    value=str(cid),
+                    description=f"{c_info['unit']} · {c_info['name']} 카드만 모아보기"[:100],
+                    default=(self.selected_char_id == cid),
+                )
+            )
+        self.char_select.options = char_opts[:25]
 
     @property
     def max_page(self):
@@ -2097,6 +2252,7 @@ class MyInventoryView(core.SafeView):
             self.illust_select.disabled = False
 
     def apply_sort(self, mode: str):
+        self.sort_mode = mode
         if mode == "obtained_desc":
             self.cards.sort(key=lambda x: x.get("last_obtained_at", ""), reverse=True)
             self.sort_mode_label = "획득일 최신순"
@@ -2127,6 +2283,7 @@ class MyInventoryView(core.SafeView):
             self.sort_mode_label = "🔒 잠금 카드 우선"
 
     def build_embed(self):
+        self.update_filter_selects()
         self.update_illust_select()
         total_unique = len(self.cards)
         total_pulls = sum(c.get("count", 1) for c in self.cards)
@@ -2135,20 +2292,42 @@ class MyInventoryView(core.SafeView):
         start_idx = self.current_page * self.items_per_page
         page_items = self.get_current_page_items()
 
+        unit_label = "전체 유닛" if self.selected_unit == "ALL" else self.selected_unit
+        char_label = (
+            core.CHARACTER_MAP.get(self.selected_char_id, {}).get("name", f"캐릭터 #{self.selected_char_id}")
+            if self.selected_char_id is not None
+            else "전체 캐릭터"
+        )
+        is_filtered = (self.selected_unit != "ALL" or self.selected_char_id is not None)
+        all_scope_note = f" *(전체 `{len(self.all_cards):,}종` 중)*" if is_filtered else ""
+
         search_line = f"• **검색어 필터:** `{self.search_keyword}`\n" if self.search_keyword else ""
+        filter_line = f"• **유닛 / 캐릭터 필터:** `{unit_label}` · `{char_label}`\n"
+        tip_line = (
+            "\n> 💡 *25명 이상 보유 시 하단 유닛 필터를 먼저 선택하면 MEIKO·KAITO 포함 모든 캐릭터를 바로 선택할 수 있습니다.*"
+            if self.has_more_chars_notice
+            else ""
+        )
         embed = discord.Embed(
             title=f"🎒 {self.user.display_name}님의 프로세카 캐릭터 보관함",
             description=(
                 f"{search_line}"
-                f"• **보유 종류:** `{total_unique:,}종` (총 누적: `{total_pulls:,}장` · 🔒잠금: `{locked_cnt}종` · 💎변환가능 중복: `{dup_cnt}장`)\n"
+                f"{filter_line}"
+                f"• **보유 종류:** `{total_unique:,}종`{all_scope_note} (총 누적: `{total_pulls:,}장` · 🔒잠금: `{locked_cnt}종` · 💎변환가능 중복: `{dup_cnt}장`)\n"
                 f"• **현재 정렬 기준:** `{self.sort_mode_label}`"
+                f"{tip_line}"
             ),
             color=discord.Color.gold(),
             timestamp=datetime.datetime.now(core.KST)
         )
 
         if not page_items:
-            empty_msg = f"`{self.search_keyword}` 검색 조건에 맞는 보유 카드가 없습니다." if self.search_keyword else "`/프로세카뽑기` 명령어로 캐릭터를 뽑아보세요!"
+            if self.selected_char_id is not None or self.selected_unit != "ALL":
+                empty_msg = f"`{unit_label}` · `{char_label}` 조건에 해당하는 보유 카드가 없습니다. 하단 드롭다운에서 다른 캐릭터나 전체 보기를 선택해 보세요!"
+            elif self.search_keyword:
+                empty_msg = f"`{self.search_keyword}` 검색 조건에 맞는 보유 카드가 없습니다."
+            else:
+                empty_msg = "`/프로세카뽑기` 명령어로 캐릭터를 뽑아보세요!"
             embed.add_field(name="조회된 카드가 없습니다", value=empty_msg, inline=False)
         else:
             lines = []
@@ -2174,7 +2353,7 @@ class MyInventoryView(core.SafeView):
                 max_chars=950
             )
 
-        embed.set_footer(text="하단에서 카드를 선택해 일러스트 감상·각성 전환·잠금(🔒)을 설정하거나, 💎 버튼으로 중복 카드를 크리스탈로 변환하세요.")
+        embed.set_footer(text="하단 드롭다운으로 유닛·캐릭터별 필터링 및 일러스트·각성·잠금(🔒) 관리가 가능합니다.")
         return embed
 
     @discord.ui.button(label="⏪ -5", style=discord.ButtonStyle.secondary, row=0)
@@ -2267,6 +2446,38 @@ class MyInventoryView(core.SafeView):
         else:
             embed.set_image(url=core.get_proseka_card_image_url(selected_card, init_mode))
             await interaction.followup.send(embed=embed, view=toggle_view)
+
+    @discord.ui.select(
+        placeholder="🏷️ 유닛별 보기 필터 (전체 유닛 / 6개 유닛 선택)...",
+        row=3,
+        options=[discord.SelectOption(label="🌐 전체 유닛 보기", value="ALL")]
+    )
+    async def unit_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        chosen_unit = select.values[0]
+        self.selected_unit = chosen_unit
+        if self.selected_char_id is not None and chosen_unit != "ALL":
+            char_unit = core.CHARACTER_MAP.get(self.selected_char_id, {}).get("unit")
+            has_match = any(
+                self._card_matches_unit(c, chosen_unit) and self._resolve_card_char_id(c) == self.selected_char_id
+                for c in self.all_cards
+            )
+            if char_unit != chosen_unit and not has_match:
+                self.selected_char_id = None
+        self.current_page = 0
+        self.apply_filters_and_sort()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.select(
+        placeholder="👤 캐릭터별 보기 선택 (원하는 캐릭터 카드만 모아보기)...",
+        row=4,
+        options=[discord.SelectOption(label="🌐 전체 캐릭터 보기", value="ALL")]
+    )
+    async def char_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        chosen = select.values[0]
+        self.selected_char_id = None if chosen == "ALL" else int(chosen)
+        self.current_page = 0
+        self.apply_filters_and_sort()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
 
 class CardPokedexView(core.SafeView):
@@ -3608,12 +3819,14 @@ class GachaCog(commands.Cog):
         view = ProsekaRatePaginationView(prob_cards, pickup_cfg, items_per_page=5, banner_type=banner_key)
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
-    @app_commands.command(name="내캐릭터", description="내가 뽑은 프로세카 캐릭터를 검색/정렬하고 일러스트(각성 전·후), 잠금(🔒), 중복 변환을 관리합니다.")
+    @app_commands.command(name="내캐릭터", description="내가 뽑은 프로세카 캐릭터를 캐릭터별·유닛별로 확인하고 일러스트, 잠금(🔒), 중복 변환을 관리합니다.")
     @app_commands.describe(
         유저="(선택) 다른 유저의 캐릭터 보관함을 구경할 수 있습니다.",
-        검색어="(선택) 캐릭터 이름, 카드명, 유닛, 한정 여부 등으로 보유 카드를 검색합니다 (예: 카나데, 한정)"
+        캐릭터="(선택) 특정 캐릭터의 보유 카드만 바로 필터링하여 봅니다 (예: 요이사키 카나데, 하츠네 미쿠)",
+        검색어="(선택) 캐릭터 이름, 카드명, 유닛, 한정 여부 등으로 보유 카드를 검색합니다 (예: 한정, 버츄얼)"
     )
-    async def my_characters_cmd(self, interaction: discord.Interaction, 유저: discord.User = None, 검색어: str = None):
+    @app_commands.autocomplete(캐릭터=core.oshi_char_autocomplete)
+    async def my_characters_cmd(self, interaction: discord.Interaction, 유저: discord.User = None, 캐릭터: str = None, 검색어: str = None):
         await core.safe_defer(interaction)
         target_user = 유저 or interaction.user
         data = await asyncio.to_thread(core.load_data)
@@ -3637,7 +3850,27 @@ class GachaCog(commands.Cog):
                 or kw_lower in c.get("rarity_label", "").lower()
             ]
 
-        view = MyInventoryView(target_user, card_list, items_per_page=10, search_keyword=clean_kw, guild_id=interaction.guild_id or 0)
+        initial_char_id = None
+        if 캐릭터 and 캐릭터.strip() and 캐릭터.strip() != "NONE":
+            c_q = 캐릭터.strip().lower()
+            initial_char_id = next(
+                (cid for cid, info in core.CHARACTER_MAP.items() if info["name"].lower() == c_q),
+                None,
+            )
+            if initial_char_id is None:
+                initial_char_id = next(
+                    (cid for cid, info in core.CHARACTER_MAP.items() if c_q in info["name"].lower()),
+                    None,
+                )
+
+        view = MyInventoryView(
+            target_user,
+            card_list,
+            items_per_page=10,
+            search_keyword=clean_kw,
+            guild_id=interaction.guild_id or 0,
+            initial_char_id=initial_char_id,
+        )
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
     @app_commands.command(name="카드도감", description="캐릭터별 수집률(%)과 아직 획득하지 못한 미보유 카드를 별도 탭으로 확인하는 전체 카드 도감을 엽니다.")
