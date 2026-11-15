@@ -5,6 +5,7 @@ norosi Bot - 올인원 마스터 대시보드 (All-in-One Master Dashboard) Cog
 """
 
 import asyncio
+import copy
 import datetime
 import random
 from typing import Optional
@@ -14,8 +15,10 @@ from discord import app_commands
 from discord.ext import commands
 
 import core
+import economy_core
 import genshin_core
 import hsr_core
+import life_core
 from cogs import dday, gacha, genshin, hsr, music, roles, stats, logger
 
 
@@ -66,21 +69,25 @@ class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 등록"
         if start_dt > target_dt:
             start_val = min(core.get_today_str(), target_val)
 
-        await core.safe_defer(interaction, ephemeral=True)
-        data = await asyncio.to_thread(core.load_data)
+        await core.safe_defer(interaction, ephemeral=True, thinking=True)
         name_val = self.d_name.value.strip()
         emoji_val = (self.d_emoji.value.strip() or "🌠")
 
-        existing = data.setdefault("ddays", {}).get(name_val, {})
-        data["ddays"][name_val] = {
-            "date": target_val,
-            "repeat": existing.get("repeat", False),
-            "start_date": start_val,
-            "emoji": emoji_val,
-            "channel_id": existing.get("channel_id"),
-            "category_id": existing.get("category_id")
-        }
-        await asyncio.to_thread(core.save_data, data)
+        def _save_dday():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                existing = data.setdefault("ddays", {}).get(name_val, {})
+                data["ddays"][name_val] = {
+                    "date": target_val,
+                    "repeat": existing.get("repeat", False),
+                    "start_date": start_val,
+                    "emoji": emoji_val,
+                    "channel_id": existing.get("channel_id"),
+                    "category_id": existing.get("category_id")
+                }
+                core.save_data(data)
+
+        await asyncio.to_thread(_save_dday)
 
         if hasattr(self.dashboard_view.bot, "update_all_dday_channels"):
             try:
@@ -313,7 +320,8 @@ class MasterDashboardView(core.SafeView):
         return None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         if self.bot is None:
             self.bot = interaction.client
         if self.guild is None:
@@ -869,8 +877,8 @@ class MasterDashboardView(core.SafeView):
                 f"• **⏰ 시각 연동 ({gi_t['hour_str']} · {gi_t['phase_name']}):** `{gi_t['buff_summary']}`\n"
                 f"• **🌠 현재 천장 스택:**\n"
                 f"  - 캐릭터 `{u_data.get('pity_char', 0)}/90` ({'🔒확정' if u_data.get('guaranteed_char') else '🎲반천장'} · 광휘 `{u_data.get('loss_streak', 0)}`)\n"
-                f"  - 무기 `{u_data.get('pity_weapon', 0)}/80` (🧭 궤도: `{ft_txt}`) · 성유물 비경 `{u_data.get('pity_artifact', 0)}/5`\n"
-                f"• **💎 보유 재화:** ✨ 스타라이트 `{u_data.get('starglitter', 0):,}` · 💠 스타더스트 `{u_data.get('stardust', 0):,}` · 🏺 정수 `{u_data.get('sanctifying_essence', 0):,}` · 🧪 엘릭서 `{u_data.get('sanctifying_elixir', 0)}`\n"
+                f"  - 무기 `{u_data.get('pity_weapon', 0)}/80` (🧭 궤도: `{ft_txt}`) · 성유물 비경 `{u_data.get('pity_artifact', 0)}/10`\n"
+                f"• **💎 보유 재화:** ✨ 스타라이트 `{u_data.get('starglitter', 0):,}` · 💠 스타더스트 `{u_data.get('stardust', 0):,}` · 🏺 정수 `{u_data.get('artifact_essence', u_data.get('sanctifying_essence', 0)):,}` · 🧪 엘릭서 `{u_data.get('sanctifying_elixir', 0)}`\n"
                 f"• **🎒 보유 컬렉션:** 캐릭터·무기 `{len(items)}종` (★5 `{r5_cnt}` · ★4 `{r4_cnt}`) · 성유물 `{art_cnt}개` · 누적 `{u_data.get('total_pulls', 0):,}회`\n"
                 f"• **⚔️ 편성 파티 ({len(party_objs)}/4):** 전투력 `{party_ana['total_power']:,}` (원소 공명 `{len(party_ana['resonances'])}개`)\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -916,7 +924,7 @@ class MasterDashboardView(core.SafeView):
                 f"• **⏰ 시각 연동 ({hsr_t['hour_str']} · {hsr_t['phase_name']}):** `{hsr_t['buff_summary']}`\n"
                 f"• **🚄 현재 천장 스택:**\n"
                 f"  - 캐릭터 `{u_data.get('pity_char', 0)}/90` ({'🔒확정' if u_data.get('guaranteed_char') else '🎲50/50'}) · 광추 `{u_data.get('pity_lc', 0)}/80` ({'🔒확정' if u_data.get('guaranteed_lc') else '🎲75/25'})\n"
-                f"  - 터널 유물 `{u_data.get('pity_relic', 0)}/5` · 상시 `{u_data.get('pity_standard', 0)}/90` · 🎁 300회: {sel_status}\n"
+                f"  - 터널 유물 `{u_data.get('pity_relic', 0)}/10` · 상시 `{u_data.get('pity_standard', 0)}/90` · 🎁 300회: {sel_status}\n"
                 f"• **💎 보유 재화:** 🌟 별빛 `{u_data.get('starlight', 0):,}` · 🫧 잔재 `{u_data.get('embers', 0):,}` · 🧪 채권 `{u_data.get('herta_bond', 0):,}` · 🧩 유물잔해 `{u_data.get('relic_remains', 0):,}` · 🧪 레진 `{u_data.get('self_modeling_resin', 0)}`\n"
                 f"• **🎒 보유 아카이브:** 캐릭터·광추 `{len(items)}종` (★5 `{r5_cnt}` · ★4 `{r4_cnt}`) · 유물 `{rel_cnt}개` · 누적 `{u_data.get('total_pulls', 0):,}회`\n"
                 f"• **🚄 개척 편대 ({len(party_objs)}/4):** 전투력 `{party_ana['total_power']:,}` (시너지 `{len(party_ana['synergies'])}개`)\n"
@@ -1112,7 +1120,8 @@ class MasterDashboardView(core.SafeView):
             self.data = await asyncio.to_thread(core.load_data)
             self.refresh_components()
             try:
-                await interaction.message.edit(embed=self.build_current_embed(), view=self)
+                if interaction.message:
+                    await interaction.message.edit(embed=self.build_current_embed(), view=self)
             except Exception:
                 pass
             if file:
@@ -1150,7 +1159,7 @@ class MasterDashboardView(core.SafeView):
 
     async def _on_dup_convert_clicked(self, interaction: discord.Interaction):
         try:
-            await core.safe_defer(interaction, ephemeral=True)
+            await core.safe_defer(interaction, ephemeral=True, thinking=True)
             guild_id = interaction.guild_id or 0
             res = await asyncio.to_thread(core.execute_duplicate_card_conversion, guild_id, interaction.user.id)
             if res["converted_count"] == 0:
@@ -1159,7 +1168,8 @@ class MasterDashboardView(core.SafeView):
 
             self.data = await asyncio.to_thread(core.load_data)
             try:
-                await interaction.message.edit(embed=self.build_current_embed(), view=self)
+                if interaction.message:
+                    await interaction.message.edit(embed=self.build_current_embed(), view=self)
             except Exception:
                 pass
 
@@ -1214,8 +1224,9 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction)
             guild_id = interaction.guild_id or 0
+            data = await asyncio.to_thread(core.load_data)
             view = gacha.MasterRankView(interaction.user, guild_id=guild_id)
-            embed = await asyncio.to_thread(view.build_embed)
+            embed = view.build_embed(data)
             await interaction.followup.send(embed=embed, view=view)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 마스터 랭크 로드 중 오류: {e}", ephemeral=True)
@@ -1224,8 +1235,9 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction)
             guild_id = interaction.guild_id or 0
+            data = await asyncio.to_thread(core.load_data)
             view = gacha.SekaiLiveView(interaction.user, guild_id=guild_id)
-            embed = await asyncio.to_thread(view.build_embed)
+            embed = view.build_embed(data)
             await interaction.followup.send(embed=embed, view=view)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 세카이 라이브 로드 중 오류: {e}", ephemeral=True)
@@ -1234,8 +1246,9 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction)
             guild_id = interaction.guild_id or 0
+            data = await asyncio.to_thread(core.load_data)
             view = gacha.CharacterCostumeWardrobeView(interaction.user, guild_id=guild_id)
-            embed = await asyncio.to_thread(view.build_embed)
+            embed = view.build_embed(data)
             await interaction.followup.send(embed=embed, view=view)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 3D 의상실 로드 중 오류: {e}", ephemeral=True)
@@ -1391,10 +1404,14 @@ class MasterDashboardView(core.SafeView):
     async def _on_todo_clicked(self, interaction: discord.Interaction):
         try:
             await core.safe_defer(interaction)
-            data = await asyncio.to_thread(core.load_data)
-            profile = core.ensure_user_profile(data, interaction.user.id, interaction.user.display_name)
-            core.ensure_user_todo_today(profile)
-            await asyncio.to_thread(core.save_data, data)
+            def _prepare_todo():
+                with core._DATA_LOCK:
+                    d = core.load_data()
+                    prof = core.ensure_user_profile(d, interaction.user.id, interaction.user.display_name)
+                    core.ensure_user_todo_today(prof)
+                    core.save_data(d)
+                    return copy.deepcopy(prof)
+            profile = await asyncio.to_thread(_prepare_todo)
             view = dday.TodoTrackerView(interaction.user, profile)
             await interaction.followup.send(embed=view.build_embed(), view=view)
         except Exception as e:
@@ -1510,9 +1527,9 @@ class MasterDashboardView(core.SafeView):
     async def _on_forecast_clicked(self, interaction: discord.Interaction):
         try:
             await core.safe_defer(interaction)
-            await asyncio.to_thread(core.get_event_forecast_list, False)
             now = datetime.datetime.now(core.KST)
-            view = gacha.EventForecastView(interaction.user, now.year, now.month, guild_id=interaction.guild_id or 0)
+            await asyncio.to_thread(core.build_monthly_event_forecast_calendar, now.year, now.month)
+            view = gacha.EventForecastView(interaction.user, now.year, now.month)
             await interaction.followup.send(embed=view.build_embed(), view=view)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 미래시 조회 중 오류: {e}", ephemeral=True)
@@ -1531,7 +1548,7 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
-            prefs = data.get("music_prefs", core.DEFAULT_CONFIG["music_prefs"])
+            prefs = core.get_guild_music_prefs(data, interaction.guild_id or 0)
             track_info, err = await core.get_recommended_music(prefs)
             if err or not track_info:
                 await interaction.followup.send(f"❌ **음악 선곡 실패:** {err or '추천 곡을 찾을 수 없습니다.'}", ephemeral=True)
@@ -1726,7 +1743,11 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction)
             from cogs.economy import TitleStudioView
-            v = await asyncio.to_thread(TitleStudioView, interaction.user, interaction.guild_id or 0)
+            gid = interaction.guild_id or 0
+            stats = await asyncio.to_thread(
+                economy_core.get_title_shop_state, gid, interaction.user.id, interaction.user.display_name
+            )
+            v = TitleStudioView(interaction.user, gid, stats=stats)
             msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
             v.message = msg
         except Exception as e:
@@ -1736,7 +1757,8 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction)
             from cogs.economy import LotteryStudioView
-            v = await asyncio.to_thread(LotteryStudioView, interaction.user, interaction.guild)
+            ov = await asyncio.to_thread(economy_core.get_lottery_overview, interaction.user.id)
+            v = LotteryStudioView(interaction.user, interaction.guild, overview=ov)
             msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
             v.message = msg
         except Exception as e:
@@ -1746,7 +1768,9 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction)
             from cogs.economy import EconomyLeaderboardView
-            v = await asyncio.to_thread(EconomyLeaderboardView, interaction.user, interaction.guild_id or 0, "net_worth")
+            gid = interaction.guild_id or 0
+            lb = await asyncio.to_thread(economy_core.get_economy_leaderboard, gid)
+            v = EconomyLeaderboardView(interaction.user, gid, "net_worth", lb=lb)
             msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
             v.message = msg
         except Exception as e:
@@ -1756,7 +1780,11 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction)
             from cogs.life import FarmView
-            v = await asyncio.to_thread(FarmView, interaction.user, interaction.guild_id or 0)
+            gid = interaction.guild_id or 0
+            ov = await asyncio.to_thread(
+                life_core.get_life_overview, gid, interaction.user.id, interaction.user.display_name
+            )
+            v = FarmView(interaction.user, gid, overview=ov)
             msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
             v.message = msg
         except Exception as e:
@@ -1766,7 +1794,11 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction)
             from cogs.life import CommunityFarmView
-            v = await asyncio.to_thread(CommunityFarmView, interaction.user, interaction.guild)
+            gid = interaction.guild_id or 0
+            ov = await asyncio.to_thread(
+                life_core.get_life_overview, gid, interaction.user.id, interaction.user.display_name
+            )
+            v = CommunityFarmView(interaction.user, interaction.guild, overview=ov)
             msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
             v.message = msg
         except Exception as e:
@@ -1776,7 +1808,11 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction)
             from cogs.life import PetCareView
-            v = await asyncio.to_thread(PetCareView, interaction.user, interaction.guild_id or 0)
+            gid = interaction.guild_id or 0
+            ov = await asyncio.to_thread(
+                life_core.get_life_overview, gid, interaction.user.id, interaction.user.display_name
+            )
+            v = PetCareView(interaction.user, gid, overview=ov)
             msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
             v.message = msg
         except Exception as e:
@@ -1786,7 +1822,11 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction)
             from cogs.life import CookingView
-            v = await asyncio.to_thread(CookingView, interaction.user, interaction.guild_id or 0)
+            gid = interaction.guild_id or 0
+            ov = await asyncio.to_thread(
+                life_core.get_life_overview, gid, interaction.user.id, interaction.user.display_name
+            )
+            v = CookingView(interaction.user, gid, overview=ov)
             msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
             v.message = msg
         except Exception as e:

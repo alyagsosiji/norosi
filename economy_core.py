@@ -200,13 +200,11 @@ def collect_user_unified_stats(
     gen_user = core.safe_get_dict(data, "genshin_users", g_key, u_key)
     gen_pulls = _safe_int(gen_user.get("total_pulls"), 0)
     gen_items = core.as_dict(gen_user.get("items"))
-    gen_5star = sum(1 for it in gen_items.values() if isinstance(it, dict) and _safe_int(it.get("rarity"), 0) >= 5)
-    gen_arts = core.as_dict(gen_user.get("artifacts"))
+    gen_5star = sum(1 for it in gen_items.values() if isinstance(it, dict) and _safe_int(it.get("rarity", it.get("rank")), 0) >= 5)
+    gen_arts = [a for a in core.coerce_list_like(gen_user.get("artifacts")) if isinstance(a, dict)]
     gen_best_art = None
     best_art_tuple = (-1.0, -1.0, "-")
-    for art in gen_arts.values():
-        if not isinstance(art, dict):
-            continue
+    for art in gen_arts:
         cv, rv, grade = genshin_core.compute_genshin_artifact_score(art)
         if (rv, cv) > (best_art_tuple[1], best_art_tuple[0]):
             best_art_tuple = (cv, rv, grade)
@@ -221,13 +219,11 @@ def collect_user_unified_stats(
     hsr_user = core.safe_get_dict(data, "hsr_users", g_key, u_key)
     hsr_pulls = _safe_int(hsr_user.get("total_pulls"), 0)
     hsr_items = core.as_dict(hsr_user.get("items"))
-    hsr_5star = sum(1 for it in hsr_items.values() if isinstance(it, dict) and _safe_int(it.get("rarity"), 0) >= 5)
-    hsr_rels = core.as_dict(hsr_user.get("relics"))
+    hsr_5star = sum(1 for it in hsr_items.values() if isinstance(it, dict) and _safe_int(it.get("rarity", it.get("rank")), 0) >= 5)
+    hsr_rels = [r for r in core.coerce_list_like(hsr_user.get("relics")) if isinstance(r, dict)]
     hsr_best_rel = None
     best_rel_tuple = (-1.0, -1.0, "-")
-    for rel in hsr_rels.values():
-        if not isinstance(rel, dict):
-            continue
+    for rel in hsr_rels:
         cv, rv, grade = hsr_core.compute_hsr_relic_score(rel)
         if (rv, cv) > (best_rel_tuple[1], best_rel_tuple[0]):
             best_rel_tuple = (cv, rv, grade)

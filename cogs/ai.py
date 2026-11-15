@@ -68,16 +68,22 @@ class AiPersonaModal(core.SafeModal, title="💬 나만의 맞춤 AI 페르소�
             self.prompt_input.default = current_prompt
 
     async def on_submit(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction, ephemeral=True)
-        data = await asyncio.to_thread(core.load_data)
-        u_key = str(interaction.user.id)
-        user_ai = core.ensure_dict_path(data, "user_ai_config", u_key)
-        user_ai["custom_prompt"] = self.prompt_input.value.strip()
-        await asyncio.to_thread(core.save_data, data)
+        await core.safe_defer(interaction, ephemeral=True, thinking=True)
+        prompt_val = self.prompt_input.value.strip()
+
+        def _save_persona():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                u_key = str(interaction.user.id)
+                user_ai = core.ensure_dict_path(data, "user_ai_config", u_key)
+                user_ai["custom_prompt"] = prompt_val
+                core.save_data(data)
+
+        await asyncio.to_thread(_save_persona)
 
         embed = discord.Embed(
             title="✨ 나만의 맞춤 AI 페르소나 저장 완료",
-            description=f"**설정된 프롬프트:**\n```\n{self.prompt_input.value.strip()}\n```\n이제 `/인공지능대화`나 봇 멘션(@노로시) 시 설정한 프롬프트대로 대답합니다!",
+            description=f"**설정된 프롬프트:**\n```\n{prompt_val}\n```\n이제 `/인공지능대화`나 봇 멘션(@노로시) 시 설정한 프롬프트대로 대답합니다!",
             color=discord.Color.from_rgb(0, 204, 221)
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -89,41 +95,43 @@ class AiCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    def _check_rate_limit(self, user_id: int, data: dict):
+    def _check_and_reserve_rate_limit(self, user_id: int) -> tuple[bool, str, int, dict]:
         u_key = str(user_id)
         today_str = datetime.datetime.now(core.KST).strftime("%Y-%m-%d")
-        usage_root = core.ensure_dict_path(data, "ai_usage")
-        raw_usage = usage_root.get(u_key)
-        if not isinstance(raw_usage, dict):
-            raw_usage = {
-                "last_time": 0,
-                "daily_count": 0,
-                "date_str": today_str
-            }
-            usage_root[u_key] = raw_usage
-        usage = raw_usage
+        with core._DATA_LOCK:
+            data = core.load_data()
+            usage_root = core.ensure_dict_path(data, "ai_usage")
+            raw_usage = usage_root.get(u_key)
+            if not isinstance(raw_usage, dict):
+                raw_usage = {
+                    "last_time": 0,
+                    "daily_count": 0,
+                    "date_str": today_str
+                }
+                usage_root[u_key] = raw_usage
+            usage = raw_usage
 
-        if usage.get("date_str") != today_str:
-            usage["daily_count"] = 0
-            usage["date_str"] = today_str
+            if usage.get("date_str") != today_str:
+                usage["daily_count"] = 0
+                usage["date_str"] = today_str
 
-        now = time.time()
-        time_diff = now - usage.get("last_time", 0)
-        if time_diff < 15:
-            wait_sec = int(15 - time_diff) + 1
-            return False, f"⏱️ 연속 대화 쿨타임 중입니다. **{wait_sec}초** 후에 다시 대화해 주세요! (15초 쿨타임)", usage
+            now = time.time()
+            time_diff = now - usage.get("last_time", 0)
+            if time_diff < 15:
+                wait_sec = int(15 - time_diff) + 1
+                user_cfg = dict(core.safe_get_dict(data, "user_ai_config", u_key))
+                return False, f"⏱️ 연속 대화 쿨타임 중입니다. **{wait_sec}초** 후에 다시 대화해 주세요! (15초 쿨타임)", int(usage.get("daily_count", 0)), user_cfg
 
-        if usage.get("daily_count", 0) >= 15:
-            return False, "⚠️ 오늘 허용된 일일 AI 대화 횟수(**15회**)를 모두 사용하셨습니다! 내일(00:00 KST) 초기화됩니다.", usage
+            if usage.get("daily_count", 0) >= 15:
+                user_cfg = dict(core.safe_get_dict(data, "user_ai_config", u_key))
+                return False, "⚠️ 오늘 허용된 일일 AI 대화 횟수(**15회**)를 모두 사용하셨습니다! 내일(00:00 KST) 초기화됩니다.", int(usage.get("daily_count", 0)), user_cfg
 
-        return True, "", usage
-
-    async def _update_rate_limit(self, usage: dict, data: dict, user_id: int):
-        u_key = str(user_id)
-        usage["last_time"] = time.time()
-        usage["daily_count"] = usage.get("daily_count", 0) + 1
-        core.ensure_dict_path(data, "ai_usage")[u_key] = usage
-        await asyncio.to_thread(core.save_data, data)
+            usage["last_time"] = now
+            usage["daily_count"] = int(usage.get("daily_count", 0)) + 1
+            usage_root[u_key] = usage
+            user_cfg = dict(core.safe_get_dict(data, "user_ai_config", u_key))
+            core.save_data(data)
+            return True, "", int(usage["daily_count"]), user_cfg
 
     @app_commands.command(name="인공지능대화", description="[제미나이 AI] 프로세카 캐릭터(카나데, 미쿠 등)의 말투로 실시간 대화를 나눠보세요.")
     @app_commands.describe(
@@ -146,15 +154,11 @@ class AiCog(commands.Cog):
         캐릭터: app_commands.Choice[str] = None
     ):
         await core.safe_defer(interaction, ephemeral=False)
-        data = await asyncio.to_thread(core.load_data)
-
-        ok, err_msg, usage = self._check_rate_limit(interaction.user.id, data)
+        ok, err_msg, daily_count, user_cfg = await asyncio.to_thread(self._check_and_reserve_rate_limit, interaction.user.id)
         if not ok:
             await interaction.followup.send(err_msg, ephemeral=True)
             return
 
-        u_key = str(interaction.user.id)
-        user_cfg = core.safe_get_dict(data, "user_ai_config", u_key)
         char_key = 캐릭터.value if 캐릭터 else user_cfg.get("default_char", "kanade")
         custom_prompt = user_cfg.get("custom_prompt", "")
 
@@ -163,13 +167,10 @@ class AiCog(commands.Cog):
         if custom_prompt and not 캐릭터:
             sys_prompt = f"너는 프로세카 캐릭터야. 다음 유저의 프롬프트와 어조를 따라 대답해줘:\n{custom_prompt}"
 
-        # 쿨타임 및 일일 한도 선반영 (API 응답 대기 중 동시 다발적 쿨타임 우회 방지)
-        await self._update_rate_limit(usage, data, interaction.user.id)
-
         # Request reply via internal helper or simulation text
         reply = await self._call_gemini_api(sys_prompt, 메시지, char_key=char_key)
 
-        rem = max(0, 15 - usage["daily_count"])
+        rem = max(0, 15 - daily_count)
 
         embed = discord.Embed(
             title=f"{char_info['emoji']} {char_info['name']}와의 세카이 대화",
@@ -203,10 +204,15 @@ class AiCog(commands.Cog):
         u_key = str(interaction.user.id)
         if 기본캐릭터:
             await core.safe_defer(interaction, ephemeral=True)
-            data = await asyncio.to_thread(core.load_data)
-            user_cfg = core.ensure_dict_path(data, "user_ai_config", u_key)
-            user_cfg["default_char"] = 기본캐릭터.value
-            await asyncio.to_thread(core.save_data, data)
+
+            def _save_char():
+                with core._DATA_LOCK:
+                    data = core.load_data()
+                    user_cfg = core.ensure_dict_path(data, "user_ai_config", u_key)
+                    user_cfg["default_char"] = 기본캐릭터.value
+                    core.save_data(data)
+
+            await asyncio.to_thread(_save_char)
             c_info = AI_PERSONAS.get(기본캐릭터.value, AI_PERSONAS["kanade"])
             embed = discord.Embed(
                 title="✅ 기본 대화 캐릭터 설정 완료",
@@ -219,9 +225,11 @@ class AiCog(commands.Cog):
             )
             await core.safe_send_response(interaction, embed=embed, ephemeral=True)
         else:
-            data = await asyncio.to_thread(core.load_data)
-            user_cfg = core.ensure_dict_path(data, "user_ai_config", u_key)
-            cur_p = user_cfg.get("custom_prompt", "")
+            def _read_prompt():
+                data = core.load_data()
+                return core.safe_get_dict(data, "user_ai_config", u_key).get("custom_prompt", "")
+
+            cur_p = await asyncio.to_thread(_read_prompt)
             modal = AiPersonaModal(cur_p)
             await interaction.response.send_modal(modal)
 
@@ -237,15 +245,12 @@ class AiCog(commands.Cog):
             if not clean_content:
                 clean_content = "안녕!"
 
-            data = await asyncio.to_thread(core.load_data)
-            ok, err_msg, usage = self._check_rate_limit(message.author.id, data)
+            ok, err_msg, daily_count, user_cfg = await asyncio.to_thread(self._check_and_reserve_rate_limit, message.author.id)
             if not ok:
                 try: await message.reply(err_msg, mention_author=False)
                 except Exception: pass
                 return
 
-            u_key = str(message.author.id)
-            user_cfg = core.safe_get_dict(data, "user_ai_config", u_key)
             char_key = user_cfg.get("default_char", "kanade")
             custom_prompt = user_cfg.get("custom_prompt", "")
 
@@ -255,9 +260,8 @@ class AiCog(commands.Cog):
                 sys_prompt = f"너는 프로세카 캐릭터야. 다음 유저의 프롬프트와 어조를 따라 대답해줘:\n{custom_prompt}"
 
             reply = await self._call_gemini_api(sys_prompt, clean_content, char_key=char_key)
-            await self._update_rate_limit(usage, data, message.author.id)
 
-            rem = max(0, 15 - usage["daily_count"])
+            rem = max(0, 15 - daily_count)
             embed = discord.Embed(
                 title=f"{char_info['emoji']} {char_info['name']}",
                 description=reply,
@@ -316,18 +320,14 @@ class AiContinueChatModal(core.SafeModal, title="💬 세카이 AI 이어서 대
         self.title = f"💬 {char_info['emoji']} {char_info['name']}에게 답장하기"[:45]
 
     async def on_submit(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        ok, err_msg, usage = self.ai_cog._check_rate_limit(interaction.user.id, data)
+        await core.safe_defer(interaction, thinking=True)
+        ok, err_msg, daily_count, user_cfg = await asyncio.to_thread(
+            self.ai_cog._check_and_reserve_rate_limit, interaction.user.id
+        )
         if not ok:
             await interaction.followup.send(err_msg, ephemeral=True)
             return
 
-        # 쿨타임 및 일일 한도 선반영 (API 응답 대기 중 동시 다발적 쿨타임 우회 방지)
-        await self.ai_cog._update_rate_limit(usage, data, interaction.user.id)
-
-        u_key = str(interaction.user.id)
-        user_cfg = core.safe_get_dict(data, "user_ai_config", u_key)
         custom_prompt = user_cfg.get("custom_prompt", "")
 
         char_info = AI_PERSONAS.get(self.char_key, AI_PERSONAS["kanade"])
@@ -342,7 +342,7 @@ class AiContinueChatModal(core.SafeModal, title="💬 세카이 AI 이어서 대
         user_text = self.message_input.value.strip()
         reply = await self.ai_cog._call_gemini_api(sys_prompt, user_text, char_key=self.char_key)
 
-        rem = max(0, 15 - usage["daily_count"])
+        rem = max(0, 15 - daily_count)
         embed = discord.Embed(
             title=f"{char_info['emoji']} {char_info['name']}와의 세카이 대화",
             description=f"💬 **Q:** {user_text}\n\n✨ **A:** {reply}",
@@ -373,15 +373,23 @@ class AiPersonaSelect(discord.ui.Select):
         super().__init__(placeholder="🎭 대화할 기본 캐릭터를 선택하세요...", min_values=1, max_values=1, options=options)
 
     async def callback(self, interaction: discord.Interaction):
+        if self.user and interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, content="❌ 본인만 캐릭터 설정을 변경할 수 있습니다.", ephemeral=True)
+            return
+
         chosen_key = self.values[0]
         if self.parent_reply_view:
             self.parent_reply_view.char_key = chosen_key
 
-        data = await asyncio.to_thread(core.load_data)
-        u_key = str(self.user.id)
-        user_cfg = core.ensure_dict_path(data, "user_ai_config", u_key)
-        user_cfg["default_char"] = chosen_key
-        await asyncio.to_thread(core.save_data, data)
+        def _save_selected_char():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                u_key = str(self.user.id)
+                user_cfg = core.ensure_dict_path(data, "user_ai_config", u_key)
+                user_cfg["default_char"] = chosen_key
+                core.save_data(data)
+
+        await asyncio.to_thread(_save_selected_char)
 
         c_info = AI_PERSONAS.get(chosen_key, AI_PERSONAS["kanade"])
         embed = discord.Embed(

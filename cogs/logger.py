@@ -1,6 +1,7 @@
 import os
 import io
 import re
+import copy
 import asyncio
 import datetime
 import urllib.request
@@ -139,19 +140,23 @@ class ServerLogCategorySelect(discord.ui.Select):
             return
 
         await core.safe_defer(interaction, ephemeral=True)
-        data = await core.asyncio.to_thread(core.load_data)
-        g_key = str(interaction.guild_id)
-        logs_root = core.ensure_dict_path(data, "server_logs")
-        if not isinstance(logs_root.get(g_key), dict):
-            logs_root[g_key] = {"channel_id": None, "enabled": False}
-        guild_cfg = logs_root[g_key]
-        ev_map = core.ensure_dict_path(guild_cfg, "events")
-
         selected_set = set(self.values)
-        for key, _, _ in LOG_CATEGORY_META:
-            ev_map[key] = (key in selected_set)
 
-        await core.asyncio.to_thread(core.save_data, data)
+        def _update_categories() -> dict:
+            with core._DATA_LOCK:
+                data = core.load_data()
+                g_key = str(interaction.guild_id)
+                logs_root = core.ensure_dict_path(data, "server_logs")
+                if not isinstance(logs_root.get(g_key), dict):
+                    logs_root[g_key] = {"channel_id": None, "enabled": False}
+                guild_cfg = logs_root[g_key]
+                ev_map = core.ensure_dict_path(guild_cfg, "events")
+                for key, _, _ in LOG_CATEGORY_META:
+                    ev_map[key] = (key in selected_set)
+                core.save_data(data)
+                return copy.deepcopy(guild_cfg)
+
+        guild_cfg = await asyncio.to_thread(_update_categories)
         self.parent_view.guild_cfg = guild_cfg
         self.parent_view.refresh_select_options()
         await interaction.edit_original_response(embed=self.parent_view.build_embed(), view=self.parent_view)
@@ -213,32 +218,42 @@ class ServerLogConfigModal(core.SafeModal, title="⚙️ 서버 7대 카테고�
 
     async def on_submit(self, interaction: discord.Interaction):
         await core.safe_defer(interaction, ephemeral=True)
-        data = await core.asyncio.to_thread(core.load_data)
-        g_key = str(interaction.guild_id)
-        logs_root = core.ensure_dict_path(data, "server_logs")
-        if not isinstance(logs_root.get(g_key), dict):
-            logs_root[g_key] = {"channel_id": None, "enabled": False}
-        guild_cfg = logs_root[g_key]
-
-        core.ensure_dict_path(guild_cfg, "events")
-        guild_cfg["events"]["mod_admin"] = self._parse_bool(self.mod_admin_input.value)
-        guild_cfg["events"]["messages"] = self._parse_bool(self.messages_input.value)
-        guild_cfg["events"]["members"] = self._parse_bool(self.members_input.value)
-        guild_cfg["events"]["voice"] = self._parse_bool(self.voice_input.value)
-
+        mod_val = self._parse_bool(self.mod_admin_input.value)
+        msg_val = self._parse_bool(self.messages_input.value)
+        mem_val = self._parse_bool(self.members_input.value)
+        voice_val = self._parse_bool(self.voice_input.value)
         infra_raw = (self.infra_input.value or "").strip()
         parts = [p.strip() for p in re.split(r"[/,\s]+", infra_raw) if p.strip()]
         if len(parts) >= 3:
-            guild_cfg["events"]["channels"] = self._parse_bool(parts[0])
-            guild_cfg["events"]["roles"] = self._parse_bool(parts[1])
-            guild_cfg["events"]["server"] = self._parse_bool(parts[2])
+            chan_val = self._parse_bool(parts[0])
+            role_val = self._parse_bool(parts[1])
+            srv_val = self._parse_bool(parts[2])
         else:
             all_infra = self._parse_bool(infra_raw)
-            guild_cfg["events"]["channels"] = all_infra
-            guild_cfg["events"]["roles"] = all_infra
-            guild_cfg["events"]["server"] = all_infra
+            chan_val = all_infra
+            role_val = all_infra
+            srv_val = all_infra
 
-        await core.asyncio.to_thread(core.save_data, data)
+        def _save_modal_cfg() -> dict:
+            with core._DATA_LOCK:
+                data = core.load_data()
+                g_key = str(interaction.guild_id)
+                logs_root = core.ensure_dict_path(data, "server_logs")
+                if not isinstance(logs_root.get(g_key), dict):
+                    logs_root[g_key] = {"channel_id": None, "enabled": False}
+                guild_cfg = logs_root[g_key]
+                ev_map = core.ensure_dict_path(guild_cfg, "events")
+                ev_map["mod_admin"] = mod_val
+                ev_map["messages"] = msg_val
+                ev_map["members"] = mem_val
+                ev_map["voice"] = voice_val
+                ev_map["channels"] = chan_val
+                ev_map["roles"] = role_val
+                ev_map["server"] = srv_val
+                core.save_data(data)
+                return copy.deepcopy(guild_cfg)
+
+        guild_cfg = await asyncio.to_thread(_save_modal_cfg)
         self.parent_view.guild_cfg = guild_cfg
         self.parent_view.refresh_select_options()
         await interaction.edit_original_response(embed=self.parent_view.build_embed(), view=self.parent_view)
@@ -313,16 +328,21 @@ class ServerLogHubView(core.SafeView):
             return
 
         await core.safe_defer(interaction, ephemeral=True)
-        data = await core.asyncio.to_thread(core.load_data)
-        g_key = str(interaction.guild_id)
-        logs_root = core.ensure_dict_path(data, "server_logs")
-        if not isinstance(logs_root.get(g_key), dict):
-            logs_root[g_key] = {"channel_id": None, "enabled": False}
-        guild_cfg = logs_root[g_key]
-        guild_cfg["channel_id"] = interaction.channel_id
-        guild_cfg["enabled"] = True
-        await core.asyncio.to_thread(core.save_data, data)
 
+        def _set_channel() -> dict:
+            with core._DATA_LOCK:
+                data = core.load_data()
+                g_key = str(interaction.guild_id)
+                logs_root = core.ensure_dict_path(data, "server_logs")
+                if not isinstance(logs_root.get(g_key), dict):
+                    logs_root[g_key] = {"channel_id": None, "enabled": False}
+                guild_cfg = logs_root[g_key]
+                guild_cfg["channel_id"] = interaction.channel_id
+                guild_cfg["enabled"] = True
+                core.save_data(data)
+                return copy.deepcopy(guild_cfg)
+
+        guild_cfg = await asyncio.to_thread(_set_channel)
         self.guild_cfg = guild_cfg
         self.refresh_select_options()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
@@ -342,15 +362,20 @@ class ServerLogHubView(core.SafeView):
             return
 
         await core.safe_defer(interaction, ephemeral=True)
-        data = await core.asyncio.to_thread(core.load_data)
-        g_key = str(interaction.guild_id)
-        logs_root = core.ensure_dict_path(data, "server_logs")
-        if not isinstance(logs_root.get(g_key), dict):
-            logs_root[g_key] = {"channel_id": None, "enabled": False}
-        guild_cfg = logs_root[g_key]
-        guild_cfg["enabled"] = False
-        await core.asyncio.to_thread(core.save_data, data)
 
+        def _disable_logs() -> dict:
+            with core._DATA_LOCK:
+                data = core.load_data()
+                g_key = str(interaction.guild_id)
+                logs_root = core.ensure_dict_path(data, "server_logs")
+                if not isinstance(logs_root.get(g_key), dict):
+                    logs_root[g_key] = {"channel_id": None, "enabled": False}
+                guild_cfg = logs_root[g_key]
+                guild_cfg["enabled"] = False
+                core.save_data(data)
+                return copy.deepcopy(guild_cfg)
+
+        guild_cfg = await asyncio.to_thread(_disable_logs)
         self.guild_cfg = guild_cfg
         self.refresh_select_options()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)

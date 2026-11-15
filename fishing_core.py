@@ -13,7 +13,6 @@ import json
 import math
 import os
 import random
-import threading
 import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
@@ -30,7 +29,7 @@ except Exception:
 # ==========================================
 # 스레드 안전 상태 락 (동시 포획/판매/수확 RMW 경합 방지)
 # ==========================================
-_FISHING_LOCK = threading.RLock()
+_FISHING_LOCK = core._DATA_LOCK
 
 # ==========================================
 # 낚시 출조(낚기) 4초 쿨타임 트래커 (유저별)
@@ -407,6 +406,33 @@ BAITS: Dict[str, Dict[str, Any]] = {
         "desc": "★4 전설 & ★5 신화 대물 전용 비기 미끼 (5개 2,400🪙 / 희귀 ×3.20)",
     },
 }
+
+DEFAULT_BAG_CAPACITY: int = 180
+BAG_CAPACITY_TIERS: List[int] = [180, 300, 500, 1000, 2000]
+BAG_UPGRADE_STEPS: Dict[int, Dict[str, Any]] = {
+    180: {"next_cap": 300, "price": 35000, "tier_name": "고급 대용량 어망 가방", "emoji": "🎒"},
+    300: {"next_cap": 500, "price": 95000, "tier_name": "원양 탐사 대용량 백팩", "emoji": "🧳"},
+    500: {"next_cap": 1000, "price": 260000, "tier_name": "심해 어선 특수 냉장 수조함", "emoji": "🚢"},
+    1000: {"next_cap": 2000, "price": 650000, "tier_name": "초대형 만선 크루즈 어창", "emoji": "🐳"},
+}
+
+
+def get_bag_capacity(u: Optional[Dict[str, Any]]) -> int:
+    if not isinstance(u, dict):
+        return DEFAULT_BAG_CAPACITY
+    raw_cap = _safe_int(u.get("bag_capacity"), DEFAULT_BAG_CAPACITY)
+    if raw_cap in BAG_CAPACITY_TIERS:
+        return raw_cap
+    valid = [t for t in BAG_CAPACITY_TIERS if t <= raw_cap]
+    return max(valid) if valid else DEFAULT_BAG_CAPACITY
+
+
+def get_next_bag_upgrade(u: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    cur = get_bag_capacity(u)
+    step = BAG_UPGRADE_STEPS.get(cur)
+    if not step:
+        return None
+    return {"cur_cap": cur, **step}
 
 
 # ==========================================
@@ -955,6 +981,7 @@ def ensure_fishing_user(data: dict, guild_id: int | str, user_id: int | str, use
         if isinstance(x, dict) and x.get("uid") and x.get("name")
     ]
     u["tank_slots"] = max(4, min(20, _safe_int(u.get("tank_slots"), 4)))
+    u["bag_capacity"] = get_bag_capacity(u)
     if not u.get("last_tank_collect"):
         u["last_tank_collect"] = datetime.datetime.now(core.KST).isoformat()
 
@@ -1051,6 +1078,10 @@ def get_tank_pending_gold(u: Dict[str, Any], now: Optional[datetime.datetime] = 
 def get_user_fishing_summary(guild_id: int | str, user_id: int | str, user_name: str = "") -> Dict[str, Any]:
     with _FISHING_LOCK:
         data = core.load_data()
+        g_key = str(guild_id or 0)
+        u_key = str(user_id)
+        before_u = copy.deepcopy(core.safe_get_dict(data, "fishing_users", g_key, u_key))
+        before_prof = copy.deepcopy(core.safe_get_dict(data, "user_profiles", u_key))
         u = ensure_fishing_user(data, guild_id, user_id, user_name)
         prof = core.ensure_user_profile(data, user_id, user_name)
         env = get_current_fishing_env()
@@ -1063,7 +1094,8 @@ def get_user_fishing_summary(guild_id: int | str, user_id: int | str, user_name:
             life_buffs = life_core.get_active_life_buffs(guild_id, user_id, data=data)
         except Exception:
             life_buffs = {}
-        core.save_data(data)
+        if u != before_u or prof != before_prof:
+            core.save_data(data)
         return {
             "user": copy.deepcopy(u),
             "crystals": max(0, _safe_int(prof.get("crystals"), 0)),
@@ -1072,6 +1104,7 @@ def get_user_fishing_summary(guild_id: int | str, user_id: int | str, user_name:
             "reel": REELS[u["reel_id"]],
             "net": NETS.get(u.get("net_id")),
             "bait": BAITS[u["selected_bait"]],
+            "bag_capacity": get_bag_capacity(u),
             "tank_pending": pending_tank,
             "tank_hourly": hourly_tank,
             "rem_exp": rem_exp,
@@ -1169,7 +1202,7 @@ def _roll_species_weighted(
     )
     use_zone_focus = bool(zone_filter and zone_filter != "all" and zone_filter in CANONICAL_ZONES.get(habitat, []))
 
-    # 1단계: 어종 수가 13,444종으로 늘어나도 성급별 확률 분포가 붕괴되지 않도록 목표 성급 확률을 먼저 결정
+    # 1단계: 어종 수가 36,700종으로 늘어나도 성급별 확률 분포가 붕괴되지 않도록 목표 성급 확률을 먼저 결정
     avail_rarities = [r for r in range(1, 6) if FISH_BY_HABITAT_RARITY.get((habitat, r))]
     if not avail_rarities:
         avail_rarities = [1]
@@ -1499,8 +1532,9 @@ def finalize_fish_catch(
                 "gain_exp": item_exp,
             })
 
-        # 가방 상한 180마리 초과 시 가장 오래된 미잠금 저등급부터 자동 판매 보전
-        while len(bag) > 180:
+        # 가방 상한 초과 시 가장 오래된 미잠금 저등급부터 자동 판매 보전
+        bag_cap = get_bag_capacity(u)
+        while len(bag) > bag_cap:
             pop_idx = None
             for idx, old_item in enumerate(bag):
                 if (
@@ -1617,7 +1651,12 @@ def sell_fish_by_uid(guild_id: int | str, user_id: int | str, uid: str) -> Tuple
         return False, "⚠️ 이미 판매되었거나 가방에 없는 개체입니다.", 0
 
 
-def sell_fishes_by_uids(guild_id: int | str, user_id: int | str, uids: List[str]) -> Tuple[bool, str, int, int, List[str]]:
+def sell_fishes_by_uids(
+    guild_id: int | str,
+    user_id: int | str,
+    uids: List[str],
+    skip_locked: bool = False,
+) -> Tuple[bool, str, int, int, List[str]]:
     target_set = {str(x) for x in (uids or []) if x}
     if not target_set:
         return False, "ℹ️ 판매할 물고기가 없습니다.", 0, 0, []
@@ -1628,13 +1667,27 @@ def sell_fishes_by_uids(guild_id: int | str, user_id: int | str, uids: List[str]
         kept = []
         sold_cnt = 0
         sold_gold = 0
+        skipped_locked_uids: List[str] = []
         for item in bag:
-            if isinstance(item, dict) and str(item.get("uid") or "") in target_set:
-                sold_cnt += 1
-                sold_gold += _safe_int(item.get("gold"), 15)
+            uid_s = str(item.get("uid") or "") if isinstance(item, dict) else ""
+            if isinstance(item, dict) and uid_s in target_set:
+                if skip_locked and item.get("locked", False):
+                    kept.append(item)
+                    skipped_locked_uids.append(uid_s)
+                else:
+                    sold_cnt += 1
+                    sold_gold += _safe_int(item.get("gold"), 15)
             else:
                 kept.append(item)
         if sold_cnt == 0:
+            if skipped_locked_uids:
+                return (
+                    False,
+                    f"🔒 선택한 물고기 **`{len(skipped_locked_uids)}마리`**가 모두 잠금 보호 상태입니다! 먼저 **`[🔓 선택 잠금해제]`**로 잠금을 풀어주세요.",
+                    0,
+                    0,
+                    skipped_locked_uids,
+                )
             return False, "⚠️ 이미 판매되었거나 가방에 없는 개체들입니다.", 0, 0, []
         u["bag"] = kept
         u["gold"] += sold_gold
@@ -1644,12 +1697,21 @@ def sell_fishes_by_uids(guild_id: int | str, user_id: int | str, uids: List[str]
                 q_tgt = max(1, _safe_int(q.get("target"), 1))
                 q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + sold_gold)
         core.save_data(data)
+        if skipped_locked_uids:
+            msg = (
+                f"💰 선택한 미잠금 물고기 **`{sold_cnt}마리`**를 판매해 **`+{sold_gold:,}🪙`**을 획득했습니다! "
+                f"(보유: `{u['gold']:,}🪙` · 🔒 잠금 `{len(skipped_locked_uids)}마리` 제외)"
+            )
+        elif skip_locked:
+            msg = f"💰 선택한 물고기 **`{sold_cnt}마리`**를 일괄 판매해 **`+{sold_gold:,}🪙`**을 획득했습니다! (보유: `{u['gold']:,}🪙`)"
+        else:
+            msg = f"💰 방금 잡은 물고기 **`{sold_cnt}마리`**를 일괄 판매해 **`+{sold_gold:,}🪙`**을 획득했습니다! (보유: `{u['gold']:,}🪙`)"
         return (
             True,
-            f"💰 방금 잡은 물고기 **`{sold_cnt}마리`**를 일괄 판매해 **`+{sold_gold:,}🪙`**을 획득했습니다! (보유: `{u['gold']:,}🪙`)",
+            msg,
             sold_cnt,
             sold_gold,
-            [],
+            skipped_locked_uids,
         )
 
 
@@ -1700,6 +1762,38 @@ def toggle_fish_lock(guild_id: int | str, user_id: int | str, uid: str) -> Tuple
                 core.save_data(data)
                 return True, f"{state_txt}: **{item.get('name', '물고기')}** (`{item.get('length_cm', 0)}cm`)"
         return False, "⚠️ 해당 물고기를 가방에서 찾지 못했습니다."
+
+
+def set_fishes_lock_state(
+    guild_id: int | str,
+    user_id: int | str,
+    uids: List[str],
+    locked: bool,
+) -> Tuple[bool, str, int]:
+    target_set = {str(x) for x in (uids or []) if x}
+    if not target_set:
+        return False, "ℹ️ 먼저 가방에서 물고기를 선택해 주세요.", 0
+    with _FISHING_LOCK:
+        data = core.load_data()
+        u = ensure_fishing_user(data, guild_id, user_id)
+        bag = u.get("bag", [])
+        matched = 0
+        changed = 0
+        for item in bag:
+            if not isinstance(item, dict) or str(item.get("uid") or "") not in target_set:
+                continue
+            matched += 1
+            if bool(item.get("locked", False)) != bool(locked):
+                item["locked"] = bool(locked)
+                changed += 1
+        if matched == 0:
+            return False, "⚠️ 선택한 물고기를 가방에서 찾지 못했습니다.", 0
+        if changed == 0:
+            state_lbl = "이미 모두 🔒 잠금 상태" if locked else "이미 모두 🔓 잠금 해제 상태"
+            return False, f"ℹ️ 선택한 `{matched}마리`는 {state_lbl}입니다.", 0
+        core.save_data(data)
+        action_txt = "🔒 선택 잠금 완료" if locked else "🔓 선택 잠금 해제 완료"
+        return True, f"{action_txt}: **`{changed}마리`** (총 `{matched}마리` 선택 중 변경)", changed
 
 
 def release_fish_by_uid(guild_id: int | str, user_id: int | str, uid: str) -> Tuple[bool, str]:
@@ -1943,6 +2037,28 @@ def purchase_shop_item(guild_id: int | str, user_id: int | str, category: str, i
             u["tank_slots"] = cur_slots + 2
             core.save_data(data)
             return True, f"🐠 수족관 전시 슬롯이 **`{cur_slots} → {u['tank_slots']}칸`**으로 확장되었습니다! (`-{cost:,}🪙`)"
+
+        if category == "bag_expand":
+            nxt = get_next_bag_upgrade(u)
+            if not nxt:
+                return False, f"🏆 이미 낚시 가방이 최대 용량(`{BAG_CAPACITY_TIERS[-1]:,}칸`)까지 확장되었습니다!"
+            cur_cap = int(nxt["cur_cap"])
+            next_cap = int(nxt["next_cap"])
+            cost = int(nxt["price"])
+            if item_id not in ("expand", str(next_cap)):
+                if str(item_id).isdigit() and int(item_id) <= cur_cap:
+                    return False, f"✅ 이미 `{cur_cap:,}칸` 이상으로 확장되어 있습니다! 다음 단계는 **`{next_cap:,}칸 ({cost:,}🪙)`**입니다."
+                req_str = f"{int(item_id):,}칸" if str(item_id).isdigit() else str(item_id)
+                return False, f"⚠️ 가방 확장은 단계별 순차 업그레이드만 가능합니다! 현재 `{cur_cap:,}칸` → 다음 단계 **`{next_cap:,}칸 ({cost:,}🪙)`**을 먼저 구매해 주세요. (선택: {req_str})"
+            if gold < cost:
+                return False, f"❌ 가방 확장 골드가 부족합니다! (`{cur_cap:,}→{next_cap:,}칸` 필요: `{cost:,}🪙` / 보유: `{gold:,}🪙`)"
+            u["gold"] -= cost
+            u["bag_capacity"] = next_cap
+            core.save_data(data)
+            return True, (
+                f"{nxt['emoji']} **{nxt['tier_name']}** 구매 완료! "
+                f"낚시 가방 한도가 **`{cur_cap:,} → {next_cap:,}마리`**로 확장되었습니다! (`-{cost:,}🪙` · 잔액 `{u['gold']:,}🪙`)"
+            )
 
         return False, "❌ 알 수 없는 상점 상품 분류입니다."
 
@@ -2224,7 +2340,6 @@ def build_catch_card_bytes(catch_res: Dict[str, Any], user_name: str) -> Optiona
 
         font_title = core._get_grid_font(34, bold=True)
         font_hdr = core._get_grid_font(22, bold=True)
-        font_big = core._get_grid_font(38, bold=True)
         font_med = core._get_grid_font(20, bold=False)
         font_sm = core._get_grid_font(16, bold=False)
 

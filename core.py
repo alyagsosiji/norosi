@@ -12,8 +12,8 @@ import datetime
 import calendar
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from collections import OrderedDict, defaultdict, deque
-from typing import Optional, List, Dict, Any, Union
+from collections import OrderedDict
+from typing import Optional, Union
 import inspect
 import urllib.request
 import urllib.parse
@@ -348,13 +348,20 @@ def get_now_datetime_str():
     return datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
 
 
-async def safe_defer(interaction: discord.Interaction, ephemeral: bool = False):
+async def safe_defer(interaction: discord.Interaction, ephemeral: bool = False, thinking: Optional[bool] = None):
     """
     디스코드 응답 지연(defer) 중복 호출 예외(InteractionResponded, 40060) 및 3초 타임아웃을 안전하게 방어하는 헬퍼.
     """
     if interaction and getattr(interaction, "response", None) and not interaction.response.is_done():
         try:
-            await interaction.response.defer(ephemeral=ephemeral)
+            kwargs = {"ephemeral": ephemeral}
+            itype = getattr(interaction, "type", None)
+            modal_type = getattr(getattr(discord, "InteractionType", None), "modal_submit", None)
+            if thinking is not None:
+                kwargs["thinking"] = bool(thinking)
+            elif modal_type is not None and itype == modal_type:
+                kwargs["thinking"] = getattr(interaction, "message", None) is None
+            await interaction.response.defer(**kwargs)
         except (discord.InteractionResponded, discord.HTTPException) as e:
             if isinstance(e, discord.HTTPException) and getattr(e, "code", None) != 40060:
                 print(f"⚠️ [safe_defer HTTP 예외] {e}", flush=True)
@@ -619,6 +626,8 @@ def reconstruct_safe_view(view_cls_or_name: Union[type[SafeView], str], interact
                 kwargs[name] = interaction.channel.id if interaction.channel else 0
             elif name in ("owner_id", "user_id", "target_id"):
                 kwargs[name] = interaction.user.id if interaction.user else 0
+            elif name in ("author_id",):
+                kwargs[name] = orig_user.id if orig_user else (interaction.user.id if interaction.user else 0)
             elif name in ("data",):
                 kwargs[name] = _data()
             elif name in ("ai_cog",):
@@ -637,7 +646,7 @@ def reconstruct_safe_view(view_cls_or_name: Union[type[SafeView], str], interact
                 kwargs[name] = safe_get_dict(_data(), "server_logs", gid_s)
             elif name in (
                 "card_list", "items", "options", "all_prob_cards", "stats_list", "first_set", "initial_drawn",
-                "liked_music", "matches", "entries", "schedules", "music_list", "inactive_list",
+                "liked_music", "matches", "entries", "schedules", "music_list", "inactive_list", "novels",
             ):
                 kwargs[name] = []
             elif name in (
@@ -1020,8 +1029,6 @@ def hydrate_proseka_kr_cache_from_disk() -> bool:
 
 def load_proseka_kr_db(force_refresh: bool = False):
     """프로세카 한국 서버(KR) 마스터 DB에서 전체 카드 및 캐릭터 대사(gachaPhrase, systemLive2ds)를 로드"""
-    global PROSEKA_KR_CARDS, PROSEKA_KR_QUOTES
-
     # 1. 로컬 캐시 파일이 존재하면 먼저 로드하여 메모리 폭증(OOM Killer) 방지
     if not force_refresh and hydrate_proseka_kr_cache_from_disk():
         try:
@@ -1195,7 +1202,6 @@ def hydrate_proseka_costumes_cache_from_disk() -> bool:
 
 def load_proseka_costumes_db(force_refresh: bool = False):
     """프로세카 한국 서버 3D 의상 마스터 데이터 로드 및 캐시"""
-    global PROSEKA_KR_COSTUMES
     if not force_refresh and hydrate_proseka_costumes_cache_from_disk():
         try:
             mtime = os.path.getmtime(PROSEKA_COSTUMES_CACHE_FILE)
@@ -3973,7 +3979,8 @@ DEFAULT_CONFIG = {
     "sticky_messages": {},
     "link_preview_configs": {},
     "raid_defense_configs": {},
-    "relay_novels": {}
+    "relay_novels": {},
+    "github_webhook_configs": {},
 }
 
 
@@ -4378,6 +4385,20 @@ def ensure_dict_path(root: dict, *keys) -> dict:
     return cur
 
 
+def get_guild_music_prefs(data: dict, guild_id: int | str = 0) -> dict:
+    """서버별 음악 추천 설정(guild_music_prefs)을 우선 조회하고 없으면 전역(music_prefs) 및 기본값으로 폴백합니다."""
+    d = as_dict(data)
+    g_key = str(guild_id or 0)
+    base = copy.deepcopy(DEFAULT_CONFIG["music_prefs"])
+    global_mp = as_dict(d.get("music_prefs"))
+    if global_mp:
+        base.update(global_mp)
+    guild_mp = safe_get_dict(d, "guild_music_prefs", g_key) if g_key != "0" else {}
+    if guild_mp:
+        base.update(guild_mp)
+    return base
+
+
 def _normalize_guild_user_map(raw_root) -> dict:
     root = coerce_dict_like(raw_root)
     cleaned: dict[str, dict] = {}
@@ -4502,22 +4523,18 @@ def normalize_data(data):
                 if not isinstance(u_info.get("history"), list):
                     u_info["history"] = [x for x in coerce_list_like(u_info.get("history")) if isinstance(x, dict)]
                 if u_root_key == "genshin_users":
-                    if not isinstance(u_info.get("artifacts"), dict):
-                        u_info["artifacts"] = coerce_dict_like(u_info.get("artifacts"))
-                    for a_obj in u_info["artifacts"].values():
-                        if isinstance(a_obj, dict):
-                            a_obj.setdefault("locked", False)
+                    u_info["artifacts"] = [x for x in coerce_list_like(u_info.get("artifacts")) if isinstance(x, dict)]
+                    for a_obj in u_info["artifacts"]:
+                        a_obj.setdefault("locked", False)
                     if not isinstance(u_info.get("artifact_sets_seen"), list):
                         u_info["artifact_sets_seen"] = coerce_list_like(u_info.get("artifact_sets_seen"))
                     u_info.setdefault("artifact_essence", 0)
                     u_info.setdefault("sanctifying_elixir", 2)
                     u_info.setdefault("artifact_pulls", 0)
                 else:
-                    if not isinstance(u_info.get("relics"), dict):
-                        u_info["relics"] = coerce_dict_like(u_info.get("relics"))
-                    for r_obj in u_info["relics"].values():
-                        if isinstance(r_obj, dict):
-                            r_obj.setdefault("locked", False)
+                    u_info["relics"] = [x for x in coerce_list_like(u_info.get("relics")) if isinstance(x, dict)]
+                    for r_obj in u_info["relics"]:
+                        r_obj.setdefault("locked", False)
                     if not isinstance(u_info.get("relic_sets_seen"), list):
                         u_info["relic_sets_seen"] = coerce_list_like(u_info.get("relic_sets_seen"))
                     u_info.setdefault("relic_remains", 0)
@@ -4595,6 +4612,7 @@ def normalize_data(data):
     data["guild_attendance"] = _normalize_guild_user_map(data.get("guild_attendance"))
     data["guild_settings"] = {str(k): v for k, v in coerce_dict_like(data.get("guild_settings")).items() if isinstance(v, dict)}
     data["guild_music_prefs"] = {str(k): v for k, v in coerce_dict_like(data.get("guild_music_prefs")).items() if isinstance(v, dict)}
+    data["github_webhook_configs"] = {str(k): v for k, v in coerce_dict_like(data.get("github_webhook_configs")).items() if isinstance(v, dict)}
 
     raw_logs = coerce_dict_like(data.get("server_logs"))
     clean_logs = {}
@@ -4780,6 +4798,7 @@ _TRACKED_ENTRY_MAPS = (
     "link_preview_configs",
     "raid_defense_configs",
     "relay_novels",
+    "github_webhook_configs",
 )
 _TRACKED_GUILD_USER_MAPS = (
     "gacha_users",
@@ -4971,8 +4990,8 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
             elif s_v is not None and not merged_settings.get(s_k):
                 merged_settings[s_k] = copy.deepcopy(s_v)
 
-    # 3. 서버별 설정/음악설정, AI 개인설정, 프로세카 연동계정 (guild_settings, guild_music_prefs, user_ai_config, proseka_accounts)
-    for map_key in ("guild_settings", "guild_music_prefs", "user_ai_config", "proseka_accounts"):
+    # 3. 서버별 설정/음악설정, AI 개인설정, 프로세카 연동계정, GitHub 웹훅 (guild_settings, guild_music_prefs, user_ai_config, proseka_accounts, github_webhook_configs)
+    for map_key in ("guild_settings", "guild_music_prefs", "user_ai_config", "proseka_accounts", "github_webhook_configs"):
         l_sec_ts, r_sec_ts = _pick_section_ts(map_key)
         rem_map = ensure_dict_path(merged, map_key)
         loc_map = as_dict(local_norm.get(map_key))
@@ -5329,6 +5348,91 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                     elif l_ts and not r_ts and (not r_root_ts or l_ts >= r_root_ts):
                         rem_g[u_key] = copy.deepcopy(lv)
 
+    # 14. 서버 통계(server_stats), 건의함(suggestions), 프로세카 명예의 전당(gacha_hall_of_fame)
+    l_ss_sec, r_ss_sec = _pick_section_ts("server_stats")
+    rem_ss = ensure_dict_path(merged, "server_stats")
+    for g_key, l_st in as_dict(local_norm.get("server_stats")).items():
+        if not isinstance(l_st, dict):
+            continue
+        r_st = rem_ss.get(g_key)
+        l_ts = _ent_ts(local_norm, "server_stats", g_key) or l_ss_sec
+        r_ts = _ent_ts(merged, "server_stats", g_key) or r_ss_sec
+        if not isinstance(r_st, dict):
+            rem_ss[g_key] = copy.deepcopy(l_st)
+        elif l_ts and r_ts and l_ts != r_ts:
+            if l_ts > r_ts:
+                rem_ss[g_key] = copy.deepcopy(l_st)
+        elif l_ts and not r_ts and (not r_root_ts or l_ts >= r_root_ts):
+            rem_ss[g_key] = copy.deepcopy(l_st)
+        else:
+            l_score = (int(l_st.get("total_msgs", 0) or 0), int(l_st.get("weekly_msgs", 0) or 0), len(as_dict(l_st.get("active_users"))))
+            r_score = (int(r_st.get("total_msgs", 0) or 0), int(r_st.get("weekly_msgs", 0) or 0), len(as_dict(r_st.get("active_users"))))
+            if l_score > r_score:
+                rem_ss[g_key] = copy.deepcopy(l_st)
+
+    l_sug_ts, r_sug_ts = _pick_section_ts("suggestions")
+    l_sugs = local_norm.get("suggestions") if isinstance(local_norm.get("suggestions"), list) else []
+    r_sugs = merged.get("suggestions") if isinstance(merged.get("suggestions"), list) else []
+    if l_sug_ts and r_sug_ts and l_sug_ts > r_sug_ts:
+        merged["suggestions"] = copy.deepcopy(l_sugs)
+    elif l_sug_ts and not r_sug_ts and (not r_root_ts or l_sug_ts >= r_root_ts):
+        merged["suggestions"] = copy.deepcopy(l_sugs)
+    else:
+        seen_sug_keys = {
+            str(s.get("id") or f"{s.get('user_id')}|{s.get('timestamp')}|{str(s.get('content', ''))[:30]}")
+            for s in r_sugs if isinstance(s, dict)
+        }
+        for s_item in l_sugs:
+            if not isinstance(s_item, dict):
+                continue
+            s_key = str(s_item.get("id") or f"{s_item.get('user_id')}|{s_item.get('timestamp')}|{str(s_item.get('content', ''))[:30]}")
+            if s_key not in seen_sug_keys:
+                r_sugs.append(copy.deepcopy(s_item))
+                seen_sug_keys.add(s_key)
+        merged["suggestions"] = r_sugs
+
+    l_gh_sec, r_gh_sec = _pick_section_ts("gacha_hall_of_fame")
+    rem_gh_map = ensure_dict_path(merged, "gacha_hall_of_fame")
+    for g_key, l_hof in as_dict(local_norm.get("gacha_hall_of_fame")).items():
+        if not isinstance(l_hof, dict):
+            continue
+        r_hof = rem_gh_map.get(g_key)
+        l_ts = _ent_ts(local_norm, "gacha_hall_of_fame", g_key) or l_gh_sec
+        r_ts = _ent_ts(merged, "gacha_hall_of_fame", g_key) or r_gh_sec
+        if not isinstance(r_hof, dict):
+            rem_gh_map[g_key] = copy.deepcopy(l_hof)
+        elif l_ts and r_ts and l_ts != r_ts:
+            if l_ts > r_ts:
+                rem_gh_map[g_key] = copy.deepcopy(l_hof)
+        elif l_ts and not r_ts and (not r_root_ts or l_ts >= r_root_ts):
+            rem_gh_map[g_key] = copy.deepcopy(l_hof)
+        else:
+            r_best = ensure_dict_path(r_hof, "user_best_10pull")
+            for u_key, l_b in as_dict(l_hof.get("user_best_10pull")).items():
+                if not isinstance(l_b, dict):
+                    continue
+                cur_b = r_best.get(u_key)
+                l_sc = (int(l_b.get("high_count", 0) or 0), int(l_b.get("pickup_count", 0) or 0), int(l_b.get("star4_count", 0) or 0))
+                r_sc = (int(cur_b.get("high_count", 0) or 0), int(cur_b.get("pickup_count", 0) or 0), int(cur_b.get("star4_count", 0) or 0)) if isinstance(cur_b, dict) else (-1, -1, -1)
+                if l_sc > r_sc:
+                    r_best[u_key] = copy.deepcopy(l_b)
+            for log_k in ("recent_pickup_logs", "recent_high_logs"):
+                l_logs = l_hof.get(log_k) if isinstance(l_hof.get(log_k), list) else []
+                r_logs = r_hof.get(log_k) if isinstance(r_hof.get(log_k), list) else []
+                seen_log = {
+                    (str(x.get("uid")), str(x.get("card_id")), str(x.get("obtained_at")))
+                    for x in r_logs if isinstance(x, dict)
+                }
+                for x in l_logs:
+                    if not isinstance(x, dict):
+                        continue
+                    k_t = (str(x.get("uid")), str(x.get("card_id")), str(x.get("obtained_at")))
+                    if k_t not in seen_log:
+                        r_logs.append(copy.deepcopy(x))
+                        seen_log.add(k_t)
+                r_logs.sort(key=lambda it: str(it.get("obtained_at") or ""), reverse=True)
+                r_hof[log_k] = r_logs[:20]
+
     # 병합된 _meta 타임스탬프는 양쪽 중 최신 값 보존
     merged_meta = ensure_dict_path(merged, "_meta")
     merged_meta["last_saved_at"] = max(l_root_ts, r_root_ts) or None
@@ -5351,7 +5455,6 @@ def get_cached_data() -> dict:
     네트워크 I/O 없이 인메모리 캐시에서 즉시 데이터 사본을 반환합니다.
     디스코드 3초 제한이 있는 슬래시 명령어 자동완성(Autocomplete)에서 사용됩니다.
     """
-    global _DATA_CACHE
     with _DATA_LOCK:
         if _DATA_CACHE is not None:
             return copy.deepcopy(_DATA_CACHE)

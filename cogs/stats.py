@@ -231,7 +231,8 @@ class ServerStatsDashboardView(core.SafeView):
         self._update_button_styles()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 대시보드를 연 당사자만 조작할 수 있습니다.", ephemeral=True)
             return False
@@ -374,9 +375,10 @@ class RecruitLobbyView(core.SafeView):
         self.room_code = room_code
         self.departure_time = departure_time
         self.memo = memo
-        self.members: List[discord.Member] = [host]
+        self.members: List[discord.Member] = [host] if host else []
         self.status = "recruiting"
         self.message: Optional[discord.Message] = None
+        self._lock = asyncio.Lock()
         self._sync_buttons()
 
     def _sync_buttons(self):
@@ -475,96 +477,106 @@ class RecruitLobbyView(core.SafeView):
             timestamp=now_kst
         )
 
+        host_name = self.host.display_name if self.host else "방장"
+        host_avatar = self.host.display_avatar.url if (self.host and hasattr(self.host, "display_avatar")) else None
         embed.set_author(
-            name=f"{self.host.display_name} 님의 파티 모집",
-            icon_url=self.host.display_avatar.url if hasattr(self.host, "display_avatar") else None
+            name=f"{host_name} 님의 파티 모집",
+            icon_url=host_avatar
         )
 
-        host_guild = getattr(self.host, "guild", None)
+        host_guild = getattr(self.host, "guild", None) if self.host else None
         if host_guild and getattr(host_guild, "icon", None):
             embed.set_thumbnail(url=host_guild.icon.url)
 
         embed.set_footer(
-            text=f"norosi Party Matcher  ·  모집장: {self.host.display_name}",
-            icon_url=self.host.display_avatar.url if hasattr(self.host, "display_avatar") else None
+            text=f"norosi Party Matcher  ·  모집장: {host_name}",
+            icon_url=host_avatar
         )
         return embed
 
     @discord.ui.button(label="🖐️ 파티 참가", style=discord.ButtonStyle.success, row=0)
     async def join_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.status in ("departed", "cancelled"):
-            await core.safe_send_response(interaction, content="❌ 이미 종료되거나 취소된 모집입니다.", ephemeral=True)
-            return
+        async with self._lock:
+            if not self.host:
+                self.host = interaction.user
+            if self.status in ("departed", "cancelled"):
+                await core.safe_send_response(interaction, content="❌ 이미 종료되거나 취소된 모집입니다.", ephemeral=True)
+                return
 
-        if any(m.id == interaction.user.id for m in self.members):
-            await core.safe_send_response(interaction, content="❌ 이미 파티에 참가 중입니다!", ephemeral=True)
-            return
+            if any(m.id == interaction.user.id for m in self.members):
+                await core.safe_send_response(interaction, content="❌ 이미 파티에 참가 중입니다!", ephemeral=True)
+                return
 
-        if len(self.members) >= self.capacity:
-            await core.safe_send_response(interaction, content="❌ 이미 파티 정원이 가득 찼습니다!", ephemeral=True)
-            return
+            if len(self.members) >= self.capacity:
+                await core.safe_send_response(interaction, content="❌ 이미 파티 정원이 가득 찼습니다!", ephemeral=True)
+                return
 
-        self.members.append(interaction.user)
-        is_full = (len(self.members) >= self.capacity)
-        if is_full:
-            self.status = "ready"
+            self.members.append(interaction.user)
+            is_full = (len(self.members) >= self.capacity)
+            if is_full:
+                self.status = "ready"
 
-        self._sync_buttons()
-        embed = self.build_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+            self._sync_buttons()
+            embed = self.build_embed()
+            await interaction.response.edit_message(embed=embed, view=self)
 
-        if is_full:
-            mention_str = " ".join(m.mention for m in self.members)
-            pings_msg = (
-                f"🎉 **[{self.game}] 파티 모집 완료!** {mention_str}\n"
-                f"👉 총 `{self.capacity}명`의 파티원이 모두 모였습니다! 게임에 입장하여 즐겨주세요!"
-            )
-            if self.room_code:
-                pings_msg += f"\n🔑 **방 번호:** `{self.room_code}`"
-            await interaction.followup.send(pings_msg)
+            if is_full:
+                mention_str = " ".join(m.mention for m in self.members)
+                pings_msg = (
+                    f"🎉 **[{self.game}] 파티 모집 완료!** {mention_str}\n"
+                    f"👉 총 `{self.capacity}명`의 파티원이 모두 모였습니다! 게임에 입장하여 즐겨주세요!"
+                )
+                if self.room_code:
+                    pings_msg += f"\n🔑 **방 번호:** `{self.room_code}`"
+                await interaction.followup.send(pings_msg)
 
     @discord.ui.button(label="🚀 지금 출발", style=discord.ButtonStyle.primary, row=0)
     async def depart_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.host.id:
-            await core.safe_send_response(interaction, content="❌ 방장만 출발시킬 수 있습니다.", ephemeral=True)
-            return
+        async with self._lock:
+            if self.status in ("departed", "cancelled"):
+                await core.safe_send_response(interaction, content="❌ 이미 종료되거나 취소된 모집입니다.", ephemeral=True)
+                return
+            if self.host and interaction.user.id != self.host.id:
+                await core.safe_send_response(interaction, content="❌ 방장만 출발시킬 수 있습니다.", ephemeral=True)
+                return
 
-        self.status = "departed"
-        self._sync_buttons()
+            self.status = "departed"
+            self._sync_buttons()
 
-        embed = self.build_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+            embed = self.build_embed()
+            await interaction.response.edit_message(embed=embed, view=self)
 
-        mention_str = " ".join(m.mention for m in self.members)
-        depart_msg = (
-            f"🚀 **[{self.game}] 파티가 출발했습니다!** {mention_str}\n"
-            f"👉 목표: `{self.goal}` · 모두 즐거운 플레이 되세요!"
-        )
-        if self.room_code:
-            depart_msg += f"\n🔑 **방 번호:** `{self.room_code}`"
-        await interaction.followup.send(depart_msg)
+            mention_str = " ".join(m.mention for m in self.members)
+            depart_msg = (
+                f"🚀 **[{self.game}] 파티가 출발했습니다!** {mention_str}\n"
+                f"👉 목표: `{self.goal}` · 모두 즐거운 플레이 되세요!"
+            )
+            if self.room_code:
+                depart_msg += f"\n🔑 **방 번호:** `{self.room_code}`"
+            await interaction.followup.send(depart_msg)
 
     @discord.ui.button(label="🏃 나가기", style=discord.ButtonStyle.secondary, row=1)
     async def leave_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.status in ("departed", "cancelled"):
-            await core.safe_send_response(interaction, content="❌ 이미 종료되거나 취소된 모집입니다.", ephemeral=True)
-            return
+        async with self._lock:
+            if self.status in ("departed", "cancelled"):
+                await core.safe_send_response(interaction, content="❌ 이미 종료되거나 취소된 모집입니다.", ephemeral=True)
+                return
 
-        if interaction.user.id == self.host.id:
-            await core.safe_send_response(interaction, content="❌ 방장은 파티를 나갈 수 없습니다. 모집을 중단하려면 `[모집 취소]`를 눌러주세요.", ephemeral=True)
-            return
+            if self.host and interaction.user.id == self.host.id:
+                await core.safe_send_response(interaction, content="❌ 방장은 파티를 나갈 수 없습니다. 모집을 중단하려면 `[모집 취소]`를 눌러주세요.", ephemeral=True)
+                return
 
-        if not any(m.id == interaction.user.id for m in self.members):
-            await core.safe_send_response(interaction, content="❌ 현재 파티에 참가하고 있지 않습니다.", ephemeral=True)
-            return
+            if not any(m.id == interaction.user.id for m in self.members):
+                await core.safe_send_response(interaction, content="❌ 현재 파티에 참가하고 있지 않습니다.", ephemeral=True)
+                return
 
-        self.members = [m for m in self.members if m.id != interaction.user.id]
-        if self.status == "ready":
-            self.status = "recruiting"
+            self.members = [m for m in self.members if m.id != interaction.user.id]
+            if self.status == "ready":
+                self.status = "recruiting"
 
-        self._sync_buttons()
-        embed = self.build_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+            self._sync_buttons()
+            embed = self.build_embed()
+            await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(label="✏️ 모집 수정", style=discord.ButtonStyle.secondary, row=1)
     async def edit_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -573,7 +585,7 @@ class RecruitLobbyView(core.SafeView):
             return
 
         is_admin = interaction.user.guild_permissions.administrator if interaction.guild else False
-        if interaction.user.id != self.host.id and not is_admin:
+        if self.host and interaction.user.id != self.host.id and not is_admin:
             await core.safe_send_response(interaction, content="❌ 방장 또는 서버 관리자만 모집 정보를 수정할 수 있습니다.", ephemeral=True)
             return
 
@@ -581,16 +593,20 @@ class RecruitLobbyView(core.SafeView):
 
     @discord.ui.button(label="✖️ 모집 취소", style=discord.ButtonStyle.danger, row=1)
     async def cancel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        is_admin = interaction.user.guild_permissions.administrator if interaction.guild else False
-        if interaction.user.id != self.host.id and not is_admin:
-            await core.safe_send_response(interaction, content="❌ 방장 또는 서버 관리자만 취소할 수 있습니다.", ephemeral=True)
-            return
+        async with self._lock:
+            if self.status in ("departed", "cancelled"):
+                await core.safe_send_response(interaction, content="❌ 이미 종료되거나 취소된 모집입니다.", ephemeral=True)
+                return
+            is_admin = interaction.user.guild_permissions.administrator if interaction.guild else False
+            if self.host and interaction.user.id != self.host.id and not is_admin:
+                await core.safe_send_response(interaction, content="❌ 방장 또는 서버 관리자만 취소할 수 있습니다.", ephemeral=True)
+                return
 
-        self.status = "cancelled"
-        self._sync_buttons()
+            self.status = "cancelled"
+            self._sync_buttons()
 
-        embed = self.build_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+            embed = self.build_embed()
+            await interaction.response.edit_message(embed=embed, view=self)
 
 
 # ==========================================
@@ -667,6 +683,67 @@ class StatsCog(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        self._msg_buffer: dict[tuple[str, str], dict] = {}
+        self._msg_save_counter = 0
+        self._stats_flush_lock = asyncio.Lock()
+
+    async def _flush_msg_stats(self):
+        if not self._msg_buffer:
+            return
+        async with self._stats_flush_lock:
+            if not self._msg_buffer:
+                return
+            pending = self._msg_buffer
+            self._msg_buffer = {}
+            self._msg_save_counter = 0
+
+            def _apply_stats() -> None:
+                with core._DATA_LOCK:
+                    data = core.load_data()
+                    s_stats = core.ensure_dict_path(data, "server_stats")
+                    for (g_key, today_str), bucket in pending.items():
+                        if not isinstance(s_stats.get(g_key), dict):
+                            s_stats[g_key] = {
+                                "today_date": today_str,
+                                "today_msgs": 0,
+                                "weekly_msgs": 0,
+                                "total_msgs": 0,
+                                "channel_msgs": {},
+                                "hourly_msgs": {},
+                                "active_users": {}
+                            }
+                        g_stat = s_stats[g_key]
+
+                        # 자정이 지난 경우 오늘 일간 카운트 갱신 (일간 채널 점유율 100% 초과 방지)
+                        if g_stat.get("today_date") != today_str:
+                            g_stat["today_date"] = today_str
+                            g_stat["today_msgs"] = 0
+                            g_stat["channel_msgs"] = {}
+                            g_stat["hourly_msgs"] = {}
+
+                        cnt = bucket["count"]
+                        g_stat["today_msgs"] = g_stat.get("today_msgs", 0) + cnt
+                        g_stat["weekly_msgs"] = g_stat.get("weekly_msgs", 0) + cnt
+                        g_stat["total_msgs"] = g_stat.get("total_msgs", 0) + cnt
+
+                        ch_map = core.ensure_dict_path(g_stat, "channel_msgs")
+                        for ch_id, ch_info in bucket["channels"].items():
+                            if not isinstance(ch_map.get(ch_id), dict):
+                                ch_map[ch_id] = {"name": ch_info[0], "count": 0}
+                            ch_entry = ch_map[ch_id]
+                            ch_entry["name"] = ch_info[0]
+                            ch_entry["count"] = ch_entry.get("count", 0) + ch_info[1]
+
+                        h_map = core.ensure_dict_path(g_stat, "hourly_msgs")
+                        for h_str, h_cnt in bucket["hours"].items():
+                            h_map[h_str] = h_map.get(h_str, 0) + h_cnt
+
+                        u_map = core.ensure_dict_path(g_stat, "active_users")
+                        for u_id, u_cnt in bucket["users"].items():
+                            u_map[u_id] = u_map.get(u_id, 0) + u_cnt
+                    core.save_data(data)
+
+            await asyncio.to_thread(_apply_stats)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -681,50 +758,27 @@ class StatsCog(commands.Cog):
         today_str = now_kst.strftime("%Y-%m-%d")
         hour_str = str(now_kst.hour)
 
-        data = await asyncio.to_thread(core.load_data)
-        s_stats = core.ensure_dict_path(data, "server_stats")
-        if not isinstance(s_stats.get(g_key), dict):
-            s_stats[g_key] = {
-                "today_date": today_str,
-                "today_msgs": 0,
-                "weekly_msgs": 0,
-                "total_msgs": 0,
-                "channel_msgs": {},
-                "hourly_msgs": {},
-                "active_users": {}
-            }
-        g_stat = s_stats[g_key]
+        key = (g_key, today_str)
+        bucket = self._msg_buffer.get(key)
+        if bucket is None:
+            bucket = {"count": 0, "channels": {}, "hours": {}, "users": {}}
+            self._msg_buffer[key] = bucket
 
-        # 자정이 지난 경우 오늘 일간 카운트 갱신 (일간 채널 점유율 100% 초과 방지)
-        if g_stat.get("today_date") != today_str:
-            g_stat["today_date"] = today_str
-            g_stat["today_msgs"] = 0
-            g_stat["channel_msgs"] = {}
-            g_stat["hourly_msgs"] = {}
-
-        g_stat["today_msgs"] = g_stat.get("today_msgs", 0) + 1
-        g_stat["weekly_msgs"] = g_stat.get("weekly_msgs", 0) + 1
-        g_stat["total_msgs"] = g_stat.get("total_msgs", 0) + 1
-
-        ch_map = core.ensure_dict_path(g_stat, "channel_msgs")
-        if not isinstance(ch_map.get(ch_id), dict):
-            ch_map[ch_id] = {"name": ch_name, "count": 0}
-        ch_entry = ch_map[ch_id]
-        ch_entry["name"] = ch_name
-        ch_entry["count"] = ch_entry.get("count", 0) + 1
-
-        h_map = core.ensure_dict_path(g_stat, "hourly_msgs")
-        h_map[hour_str] = h_map.get(hour_str, 0) + 1
-
+        bucket["count"] += 1
+        ch_entry = bucket["channels"].get(ch_id)
+        if ch_entry is None:
+            bucket["channels"][ch_id] = [ch_name, 1]
+        else:
+            ch_entry[0] = ch_name
+            ch_entry[1] += 1
+        bucket["hours"][hour_str] = bucket["hours"].get(hour_str, 0) + 1
         u_id = str(message.author.id)
-        u_map = core.ensure_dict_path(g_stat, "active_users")
-        u_map[u_id] = u_map.get(u_id, 0) + 1
+        bucket["users"][u_id] = bucket["users"].get(u_id, 0) + 1
 
-        # 채팅마다 동기식 I/O를 배제하고 25메시지마다 배치 저장하여 디스크/네트워크 병목 방지
-        self._msg_save_counter = getattr(self, "_msg_save_counter", 0) + 1
+        # 채팅마다 동기식 I/O를 배제하고 25메시지마다 원자적 배치 저장하여 병목 및 덮어쓰기 방지
+        self._msg_save_counter += 1
         if self._msg_save_counter >= 25:
-            self._msg_save_counter = 0
-            await asyncio.to_thread(core.save_data, data)
+            await self._flush_msg_stats()
 
     @app_commands.command(name="서버통계", description="서버의 실제 일일/주간 채팅량, 채널별 점유율, 음성 실시간 현황, 출석율을 분석한 대시보드를 출력합니다.")
     @app_commands.describe(
@@ -748,6 +802,7 @@ class StatsCog(commands.Cog):
         상세보기: app_commands.Choice[str] = None
     ):
         await core.safe_defer(interaction, ephemeral=False)
+        await self._flush_msg_stats()
         data = await asyncio.to_thread(core.load_data)
 
         tf = 기간.value if 기간 else "daily"

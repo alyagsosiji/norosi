@@ -490,7 +490,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "fishing",
         "cat_label": "🎣 통합 낚시 (호수·강·바다)",
         "name": "/낚시 출조",
-        "desc": "🏞️호수·🌊강·⚓바다 13,444+종 글로벌 공개 어종 DB + 13개 세부 수역 집중 탐사 입질 미니게임 · 그물 다중 포획(2~10마리) & 포획 인증서 카드(텍스트 `!낚시` 지원)",
+        "desc": "🏞️호수·🌊강·⚓바다 36,700+종 글로벌 공개 어종 DB + 13개 세부 수역 집중 탐사 입질 미니게임 · 그물 다중 포획(2~10마리) & 포획 인증서 카드(텍스트 `!낚시` 지원)",
         "params": "장소: [호수/강/바다] 미끼: [떡밥/지렁이/크릴/루어/야광/황금] 빠른모드: [예/아니오]",
         "example": "/낚시 출조 장소:바다 미끼:메탈 지그 루어",
         "source": "cogs/fishing.py",
@@ -499,7 +499,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "fishing",
         "cat_label": "🎣 통합 낚시 (호수·강·바다)",
         "name": "/낚시 가방",
-        "desc": "잡은 물고기 보관함(길이·무게·가치) 필터 조회, 🔒 잠금 보호, 개별/일괄 판매 및 수족관 이동",
+        "desc": "잡은 물고기 보관함(기본 180칸→최대 2,000칸) 필터 조회, 다중 선택 🔒 잠금/해제·일괄 판매 및 수족관 이동",
         "params": "장소: [전체/호수/강/바다] 성급: [전체/★1~★5]",
         "example": "/낚시 가방 장소:바다 성급:★4",
         "source": "cogs/fishing.py",
@@ -508,7 +508,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "fishing",
         "cat_label": "🎣 통합 낚시 (호수·강·바다)",
         "name": "/낚시 도감",
-        "desc": "호수·강·바다별 13,444+종 글로벌 어종 수집률(%), 성급·세부 수역 필터, 개인 최고 cm/kg 및 랭킹형 자동완성 조회",
+        "desc": "호수·강·바다별 36,700+종 글로벌 어종 수집률(%), 성급·세부 수역 필터, 개인 최고 cm/kg 및 랭킹형 자동완성 조회",
         "params": "탭: [호수/강/바다/미보유] 어종검색: [자동완성 물고기명]",
         "example": "/낚시 도감 어종검색:태평양 참다랑어",
         "source": "cogs/fishing.py",
@@ -526,9 +526,9 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "fishing",
         "cat_label": "🎣 통합 낚시 (호수·강·바다)",
         "name": "/낚시 상점",
-        "desc": "낚싯대 6티어(포세이돈 로드), 릴 5티어(크로노스 릴), 그물 5티어(1회 2~10마리 포획), 특급 미끼, 수족관 슬롯 확장권 구매",
-        "params": "분류: [낚싯대/릴/그물/미끼/수족관확장]",
-        "example": "/낚시 상점 분류:그물",
+        "desc": "낚싯대 6티어(포세이돈 로드), 릴 5티어(크로노스 릴), 그물 5티어(1회 2~10마리 포획), 특급 미끼, 수족관·가방 확장권(180→2,000칸) 구매",
+        "params": "분류: [낚싯대/릴/그물/미끼/수족관확장/가방확장]",
+        "example": "/낚시 상점 분류:가방확장",
         "source": "cogs/fishing.py",
     },
     {
@@ -1237,7 +1237,7 @@ CATEGORY_META = [
     ("cards", "🎮 출석 & 프로세카 카드/가챠 (21종 · 5페이지)", "출석체크, 배너별 프로세카 뽑기, 내캐릭터(필터·정렬·일괄선택), 마스터랭크, 세카이라이브, 3D 의상·마이세카이 등"),
     ("genshin", "🌠 원신 기원 & 성유물 & 상점 (12종 · 3페이지)", "/원신 기원(90/80천장·포착된 광휘), /원신 성유물(비경·강화·축성의 서리), 운명의 궤도, 페이몬 상점, 4인 원소 공명 파티 등"),
     ("hsr", "🚄 스타레일 워프 & 유물 & 상점 (12종 · 3페이지)", "/스타레일 워프(광추 75/25), /스타레일 유물(침식된 터널·자가 조형 레진), 상시 300회 선택, 별빛/헤르타 상점, 4인 편대 등"),
-    ("fishing", "🎣 통합 낚시 — 호수·강·바다 13,444종 (9종 · 2페이지)", "/낚시 출조(13개 세부 수역·그물·cm/kg·날씨), /낚시 랭킹(!낚시랭킹), 도감 필터, 개인 수족관, 6티어 장비 상점, 일일 퀘스트 등"),
+    ("fishing", "🎣 통합 낚시 — 호수·강·바다 36,700종 (9종 · 2페이지)", "/낚시 출조(13개 세부 수역·그물·cm/kg·날씨), /낚시 랭킹(!낚시랭킹), 다중선택 가방·도감 필터, 개인 수족관, 가방·장비 상점 등"),
     ("economy", "💳 통합 경제 & 프로필 카드 & 복권 (6종 · 2페이지)", "통합 PNG `/프로필카드`(!프로필카드), 칭호·배지 상점, 크리스탈 송금(세금 5%), 주간 로또 `/경제 복권`(!복권), 통합 랭킹"),
     ("life", "🌾 생활 컨텐츠 — 농장 & 펫 & 요리 (6종 · 2페이지)", "개인 농장·길드 공동 농장(!농장·!공동농장), 6종 펫 육성(!펫), 도감 해금 물고기 생선 요리·버프(!요리·!버프)"),
     ("tickets", "🎫 1:1 문의 티켓 시스템 (6종 · 2페이지)", "관리자 `/티켓 설정` · `/티켓 패널생성`, 비공개 채널/스레드 생성, 담당자 접수·멤버 초대, 닫기 시 `.txt` 대화록 아카이브"),
@@ -1254,7 +1254,7 @@ CATEGORY_DROPDOWN_OPTIONS = [
     ("cards", "🎮 출석 & 프로세카 가챠 (21종 · 5페이지)", "/프로세카뽑기, /내캐릭터, /마스터랭크, /라이브, /마이세카이 등", "🎮"),
     ("genshin", "🌠 원신 기원·성유물·상점 (12종 · 3페이지)", "/원신 기원, /원신 성유물, /원신 운명의궤도, /원신 상점, /원신 파티편성 등", "🌠"),
     ("hsr", "🚄 스타레일 워프·유물·편대 (12종 · 3페이지)", "/스타레일 워프, /스타레일 유물, /스타레일 상시300선택, /스타레일 상점 등", "🚄"),
-    ("fishing", "🎣 통합 낚시 (9종 · 호수·강·바다 13,444종)", "/낚시 출조, /낚시 랭킹, /낚시 도감, /낚시 수족관, /낚시 상점 등", "🎣"),
+    ("fishing", "🎣 통합 낚시 (9종 · 호수·강·바다 36,700종)", "/낚시 출조, /낚시 가방, /낚시 도감, /낚시 수족관, /낚시 상점 등", "🎣"),
     ("economy", "💳 통합 경제 & 프로필카드 & 복권 (6종 · 2페이지)", "/프로필카드, /경제 칭호, /경제 송금, /경제 복권, /경제 랭킹", "💳"),
     ("life", "🌾 생활 컨텐츠 — 농장·펫·요리 (6종 · 2페이지)", "/생활 농장, /생활 공동농장, /생활 펫, /생활 요리, /생활 버프", "🌾"),
     ("tickets", "🎫 1:1 문의 티켓 시스템 (6종 · 2페이지)", "/티켓 설정, /티켓 패널생성, /티켓 닫기, /티켓 멤버추가, /티켓 목록", "🎫"),
@@ -1438,6 +1438,8 @@ class HelpCategoryView(core.SafeView):
         return build_help_embed(self.category, self.search_kw, self.page)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
         if self.author and interaction.user.id != self.author.id:
             await core.safe_send_response(
                 interaction,
@@ -1527,6 +1529,7 @@ class HelpCategoryView(core.SafeView):
                 "cards": "gacha",
                 "genshin": "genshin",
                 "hsr": "hsr",
+                "fishing": "economy",
                 "economy": "economy",
                 "life": "economy",
                 "dday": "life",
@@ -1535,6 +1538,7 @@ class HelpCategoryView(core.SafeView):
                 "tickets": "admin",
                 "games": "game",
                 "stats": "stats",
+                "ai": "home",
             }
             init_tab = tab_map.get(self.category, "home")
             view = MasterDashboardView(
@@ -1572,7 +1576,7 @@ class HelpCog(commands.Cog):
         app_commands.Choice(name="🎮 출석 & 프로세카 가챠 (21종 · 5페이지)", value="cards"),
         app_commands.Choice(name="🌠 원신 기원 & 성유물 & 상점 (12종 · 3페이지)", value="genshin"),
         app_commands.Choice(name="🚄 스타레일 워프 & 유물 & 상점 (12종 · 3페이지)", value="hsr"),
-        app_commands.Choice(name="🎣 통합 낚시 (9종 · 호수·강·바다 13,444종)", value="fishing"),
+        app_commands.Choice(name="🎣 통합 낚시 (9종 · 호수·강·바다 36,700종)", value="fishing"),
         app_commands.Choice(name="💳 통합 경제 & 프로필카드 & 복권 (6종 · 2페이지)", value="economy"),
         app_commands.Choice(name="🌾 생활 컨텐츠 — 농장·펫·요리 (6종 · 2페이지)", value="life"),
         app_commands.Choice(name="🎫 1:1 문의 티켓 시스템 (6종 · 2페이지)", value="tickets"),

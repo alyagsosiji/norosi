@@ -20,7 +20,13 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT_DIR)
+sys.path.insert(0, SCRIPTS_DIR)
+
+import fish_ko_data as fkd
+
+TARGET_TOTAL = 36700
 
 # ==========================================
 # 표준 지역별 세부 구역 (Sub-Zone / Region) 매트릭스
@@ -441,11 +447,12 @@ def map_existing_canonical_zone(habitat: str, sub_zone: str, sp_name: str) -> st
 
 
 def load_existing_preserved() -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
-    """원본 140종 + 기존 fish_species_db.json의 (학명 -> sp_* ID) 매핑 로드 (기존 도감/랭킹 ID 100% 보존)"""
+    """기존 fish_species_db.json의 전 어종(원본 140종 + 기존 sp_* 어종)과 ID 매핑을 100% 보존"""
     orig: List[Dict[str, Any]] = []
     sci_to_sp_id: Dict[str, str] = {}
     db_path = os.path.join(ROOT_DIR, "fish_species_db.json")
     source_rows: List[Dict[str, Any]] = []
+    seen_ids: set = set()
     if os.path.isfile(db_path):
         try:
             with open(db_path, "r", encoding="utf-8") as f:
@@ -454,10 +461,12 @@ def load_existing_preserved() -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
                 for sp in loaded:
                     if not isinstance(sp, dict):
                         continue
-                    fid = str(sp.get("id", ""))
-                    if not fid.startswith("sp_"):
-                        source_rows.append(sp)
-                    else:
+                    fid = str(sp.get("id", "")).strip()
+                    if not fid or fid in seen_ids or not sp.get("name"):
+                        continue
+                    seen_ids.add(fid)
+                    source_rows.append(sp)
+                    if fid.startswith("sp_"):
                         sci_l = str(sp.get("scientific_name", "")).lower().split(" (")[0].strip()
                         if sci_l and sci_l not in sci_to_sp_id:
                             sci_to_sp_id[sci_l] = fid
@@ -813,13 +822,143 @@ def enrich_from_wikidata(species: Dict[str, Dict[str, Any]]) -> None:
     )
 
 
+def _load_cache_bundle(cache_dir: str) -> Tuple[
+    Dict[int, str],
+    Dict[str, Dict[str, Any]],
+    Dict[str, Dict[str, str]],
+    Dict[str, Dict[str, Any]],
+    Dict[str, str],
+]:
+    """Load pre-collected iNaturalist/Wikidata/GTX datasets from FISH_BUILD_CACHE_DIR."""
+    fam_map: Dict[int, str] = {}
+    fam_info_map: Dict[str, Dict[str, Any]] = {}
+    fams_path = os.path.join(cache_dir, "inat_all_families_raw.json")
+    with open(fams_path, "r", encoding="utf-8") as f:
+        for r in json.load(f):
+            tid = r.get("id")
+            name = (r.get("name") or "").strip()
+            if tid and name:
+                fam_map[int(tid)] = name
+                fam_info_map[name] = {
+                    "ko": (r.get("preferred_common_name") or "").strip(),
+                    "en": (r.get("english_common_name") or "").strip(),
+                    "ancestors": [int(x) for x in (r.get("ancestor_ids") or [])],
+                }
+
+    genera_map: Dict[str, Dict[str, str]] = {}
+    gen_path = os.path.join(cache_dir, "inat_all_genera_raw.json")
+    if os.path.isfile(gen_path):
+        with open(gen_path, "r", encoding="utf-8") as f:
+            for g in json.load(f):
+                gname = (g.get("name") or "").strip()
+                if gname:
+                    genera_map[gname] = {
+                        "ko": (g.get("preferred_common_name") or "").strip(),
+                        "en": (g.get("english_common_name") or "").strip(),
+                    }
+
+    species: Dict[str, Dict[str, Any]] = {}
+    fish_path = os.path.join(cache_dir, "inat_all_fish_raw.json")
+    with open(fish_path, "r", encoding="utf-8") as f:
+        for r in json.load(f):
+            sci = (r.get("name") or "").strip()
+            parts = sci.split()
+            if len(parts) < 2 or len(parts) > 3 or "×" in sci or r.get("extinct"):
+                continue
+            raw_ko = r.get("preferred_common_name") or ""
+            ko = sanitize_kr_name(raw_ko) if has_hangul(raw_ko) else None
+            en_clean = sanitize_en_name(r.get("english_common_name") or "", sci)
+            if sci not in species:
+                species[sci] = {
+                    "sci": sci,
+                    "ko": ko,
+                    "en": en_clean,
+                    "obs": int(r.get("observations_count") or 0),
+                    "ancestors": [int(x) for x in (r.get("ancestor_ids") or [])],
+                    "wiki": (r.get("wikipedia_url") or "").strip(),
+                    "len": None,
+                    "mass": None,
+                    "wd_desc": "",
+                    "family_sci": "",
+                }
+            else:
+                rec = species[sci]
+                rec["obs"] = max(rec["obs"], int(r.get("observations_count") or 0))
+                if not rec["ko"] and ko:
+                    rec["ko"] = ko
+                if not rec["en"] and en_clean:
+                    rec["en"] = en_clean
+
+    wd_path = os.path.join(cache_dir, "wikidata_species_cache.json")
+    if os.path.isfile(wd_path):
+        with open(wd_path, "r", encoding="utf-8") as f:
+            wd_data = json.load(f)
+        if isinstance(wd_data, dict):
+            for sci, w in wd_data.items():
+                if not isinstance(w, dict) or sci not in species:
+                    continue
+                rec = species[sci]
+                ko_val = w.get("ko") or w.get("koWikiTitle") or ""
+                if ko_val and has_hangul(ko_val):
+                    clean_ko = sanitize_kr_name(ko_val)
+                    if clean_ko and clean_ko.lower() != sci.lower() and not rec.get("ko"):
+                        rec["ko"] = clean_ko
+                en_val = sanitize_en_name(w.get("en") or "", sci)
+                if en_val and not rec.get("en"):
+                    rec["en"] = en_val
+                d_val = (w.get("koDesc") or "").strip()
+                if d_val and has_hangul(d_val) and not rec.get("wd_desc"):
+                    rec["wd_desc"] = d_val
+                if rec.get("len") is None and w.get("len") is not None:
+                    try:
+                        raw_l = float(w["len"])
+                        cm_val = raw_l * 100.0 if 0.02 <= raw_l <= 14.0 else (raw_l if 14.0 < raw_l <= 1200.0 else None)
+                        if cm_val and 2.0 <= cm_val <= 1200.0:
+                            rec["len"] = round(cm_val, 1)
+                    except Exception:
+                        pass
+
+    gtx_cache: Dict[str, str] = {}
+    gtx_path = os.path.join(cache_dir, "gtx_en_ko_cache.json")
+    if os.path.isfile(gtx_path):
+        with open(gtx_path, "r", encoding="utf-8") as f:
+            loaded_gtx = json.load(f)
+        if isinstance(loaded_gtx, dict):
+            gtx_cache = {str(k): str(v) for k, v in loaded_gtx.items()}
+
+    return fam_map, fam_info_map, genera_map, species, gtx_cache
+
+
+def repair_existing_latin_family_descs(
+    orig_list: List[Dict[str, Any]],
+    fam_info_map: Dict[str, Dict[str, Any]],
+    gtx_cache: Dict[str, str],
+) -> int:
+    """Repair [Latin과] prefixes on existing species descriptions while preserving IDs/names/stats."""
+    repaired = 0
+    for sp in orig_list:
+        desc = sp.get("desc", "")
+        m = re.match(r"^\[([A-Za-z][^\]\s]*)과\]", desc)
+        if not m:
+            continue
+        fam_sci = m.group(1)
+        anc = fam_info_map.get(fam_sci, {}).get("ancestors", [])
+        bio = fkd.resolve_family_bio(fam_sci, anc, fam_info_map, FAMILY_BIOLOGY, gtx_cache)
+        fam_kr = bio[9]
+        sp["desc"] = f"[{fam_kr}]" + desc[m.end():]
+        repaired += 1
+    return repaired
+
+
 def classify_fish_entry(
     raw: Dict[str, Any],
     fam_map: Dict[int, str],
+    fam_info_map: Optional[Dict[str, Dict[str, Any]]] = None,
+    gtx_cache: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     sci = raw["sci"]
     disp_name = raw["display_name"]
-    name_ko = raw.get("ko") or ""
+    name_ko = raw.get("ko") or disp_name
     ancestors = raw.get("ancestors", [])
 
     family_sci = raw.get("family_sci", "")
@@ -829,54 +968,11 @@ def classify_fish_entry(
             break
 
     genus = sci.split()[0]
-    bio = GENUS_BIOLOGY.get(genus) or FAMILY_BIOLOGY.get(family_sci)
-
-    if bio:
-        hab, zone, cm_range, (wa, wb), base_rar, atime, pweather, pbait, emoji, fam_kr = bio
-        min_def, max_def = cm_range
-    else:
-        text_probe = f"{name_ko} {raw.get('wd_desc', '')} {raw.get('en', '')}".lower()
-        if (name_ko and any(k in name_ko for k in RIVER_KEYWORDS)) or any(
-            w in text_probe for w in ("river", "stream", "creek", "brook", "darter", "loach", "trout", "salmon", "tetra", "catfish", "characin", "barbel", "minnow", "shiner", "chub", "dace", "민물", "하천", "계곡")
-        ):
-            hab = "river"
-            zone = "중류 자갈 여울"
-            fam_kr = f"{family_sci or '담수'}과"
-            min_def, max_def = (9.0, 32.0)
-            wa, wb = (0.012, 3.02)
-            base_rar = 2
-            atime, pweather, pbait, emoji = ("day", "clear", "worm", "🐟")
-        elif (name_ko and any(k in name_ko for k in LAKE_KEYWORDS)) or any(
-            w in text_probe for w in ("lake", "pond", "cichlid", "carp", "crucian", "bass", "sunfish", "pike", "killifish", "tilapia", "gourami", "betta", "whitefish", "cisco", "호수", "저수지")
-        ):
-            hab = "lake"
-            zone = "수초 연안"
-            fam_kr = f"{family_sci or '호수'}과"
-            min_def, max_def = (10.0, 38.0)
-            wa, wb = (0.015, 3.02)
-            base_rar = 2
-            atime, pweather, pbait, emoji = ("day", "clear", "dough", "🐟")
-        else:
-            hab = "sea"
-            if any(w in text_probe for w in ("deep", "lantern", "angler", "grenadier", "abyss", "viperfish", "hatchetfish", "cusk", "심해")):
-                zone = "심해·해구"
-                base_rar = 3
-                atime, pweather, pbait, emoji = ("night", "fog", "glow", "💠")
-            elif any(w in text_probe for w in ("coral", "reef", "butterfly", "damsel", "wrasse", "parrot", "tang", "clown", "angelfish", "snapper", "grouper", "anthias", "산호", "열대")):
-                zone = "산호초·열대 해역"
-                base_rar = 2
-                atime, pweather, pbait, emoji = ("day", "clear", "shrimp", "🐠")
-            elif any(w in text_probe for w in ("tuna", "marlin", "pelagic", "oceanic", "shark", "barracuda", "trevally", "jack", "mackerel", "상어", "원양")) and "철갑상어" not in name_ko and "돌상어" not in name_ko:
-                zone = "원양·회유 해역"
-                base_rar = 3
-                atime, pweather, pbait, emoji = ("day", "clear", "lure", "🦈")
-            else:
-                zone = "연안 갯바위·내만"
-                base_rar = 1
-                atime, pweather, pbait, emoji = ("all", "clear", "shrimp", "🐟")
-            fam_kr = f"{family_sci or '해양'}과"
-            min_def, max_def = (16.0, 52.0)
-            wa, wb = (0.015, 3.01)
+    bio = GENUS_BIOLOGY.get(genus) or fkd.resolve_family_bio(
+        family_sci, ancestors, fam_info_map or {}, FAMILY_BIOLOGY, gtx_cache
+    )
+    hab, zone, cm_range, (wa, wb), base_rar, atime, pweather, pbait, emoji, fam_kr = bio
+    min_def, max_def = cm_range
 
     # 세부 키워드 미세 보정 (담수 철갑상어·담수가오리·돌상어는 바다로 재분류하지 않음)
     is_freshwater_exception = (
@@ -893,8 +989,7 @@ def classify_fish_entry(
         if hab == "sea":
             zone = "산호초·열대 해역"
             emoji = "🐠"
-    elif "lake" in en_l and hab == "river" and genus not in ("Onchorhynchus",):
-        # e.g. Lake Chub, Lake Whitefish
+    elif "lake" in en_l and hab == "river" and genus not in ("Oncorhynchus", "Onchorhynchus"):
         if any(w in en_l for w in ("whitefish", "cisco", "charr", "trout", "burbot", "sculpin")):
             hab, zone = "lake", "깊은 심수층"
     elif (not is_freshwater_exception) and ("상어" in name_ko or "가오리" in name_ko or "새치" in name_ko):
@@ -974,62 +1069,104 @@ def classify_fish_entry(
     }
 
 
+def _disambiguate_hangul_name(base_name: str, sci: str, hab: str, existing_names: set) -> Optional[str]:
+    if base_name not in existing_names:
+        return base_name
+    parts = sci.split()
+    epithet = parts[-1] if len(parts) > 1 else parts[0]
+    epi_kr, _ = fkd.parse_latin_epithet_ko(epithet)
+    epi_han = fkd.latin_to_hangul(epithet)
+    hab_tag = {"lake": "호수", "river": "강", "sea": "바다"}.get(hab, "어류")
+
+    candidates = [
+        f"{base_name} ({epi_kr})",
+        f"{base_name} ({epi_han})",
+        f"{base_name} ({hab_tag} {epi_han})",
+    ]
+    for c in candidates:
+        c = re.sub(r"[A-Za-z]+", "", c).strip()
+        if c and c not in existing_names:
+            return c
+    genus_han = fkd.latin_to_hangul(parts[0])
+    alt = f"{base_name} ({genus_han} {epi_han})".strip()
+    if alt not in existing_names:
+        return alt
+    return None
+
+
 def main():
     orig_list, prev_sci_to_id = load_existing_preserved()
-    print(f"📌 기존 원본 보존 어종: {len(orig_list)}종 · 기존 sp_* ID 매핑: {len(prev_sci_to_id):,}건 로드 완료", flush=True)
+    print(f"📌 기존 보존 어종: {len(orig_list):,}종 · 기존 sp_* ID 매핑: {len(prev_sci_to_id):,}건 로드 완료", flush=True)
+
+    cache_dir = (os.environ.get("FISH_BUILD_CACHE_DIR") or "").strip()
+    if cache_dir and os.path.isdir(cache_dir):
+        print(f"📦 캐시 디렉토리 사용: {cache_dir}", flush=True)
+        fam_map, fam_info_map, genera_map, raw_species, gtx_cache = _load_cache_bundle(cache_dir)
+    else:
+        fam_map = fetch_all_fish_families()
+        fam_info_map = {}
+        genera_map = {}
+        raw_species = collect_inat_species()
+        collect_wikidata_family_species(fam_map, raw_species)
+        enrich_from_wikidata(raw_species)
+        gtx_cache = {}
+
+    repaired_cnt = repair_existing_latin_family_descs(orig_list, fam_info_map, gtx_cache)
+    print(f"🧬 과(Family) 매핑 {len(fam_map):,}개 · 기존 설명 라틴과 한글 정제 {repaired_cnt:,}건 완료", flush=True)
 
     existing_ids = {sp["id"] for sp in orig_list}
     existing_scis = {sp["scientific_name"].lower().split(" (")[0].strip() for sp in orig_list}
     existing_names = {sp["name"].strip() for sp in orig_list}
 
-    fam_map = fetch_all_fish_families()
-    print(f"🧬 어류 과(Family) 매핑 테이블 {len(fam_map):,}개 구축 완료", flush=True)
+    need_count = max(0, TARGET_TOTAL - len(orig_list))
 
-    raw_species = collect_inat_species()
-    collect_wikidata_family_species(fam_map, raw_species)
-    enrich_from_wikidata(raw_species)
-
-    # 정렬: (1) 한글 공식명 보유 여부 우선, (2) 관측 빈도(obs) 높은 순 -> 인기/검증된 실측 종 최우선 포함
-    candidates = [
-        v for v in raw_species.values()
-        if (v.get("ko") and has_hangul(v["ko"])) or v.get("en")
-    ]
-    candidates.sort(key=lambda x: (0 if (x.get("ko") and has_hangul(x["ko"])) else 1, -x.get("obs", 0)))
+    # Tier priority: 0=Official KO, 1=English common name -> Korean, 2=Binomial -> Korean
+    ranked: List[Tuple[int, int, int, str, Dict[str, Any]]] = []
+    for raw in raw_species.values():
+        sci = raw["sci"]
+        sci_l = sci.lower().strip()
+        if sci_l in existing_scis:
+            continue
+        parts = sci.split()
+        has_ko = bool(raw.get("ko") and has_hangul(raw["ko"]))
+        tier = 0 if has_ko else (1 if raw.get("en") else 2)
+        ranked.append((0 if len(parts) == 2 else 1, tier, -int(raw.get("obs", 0)), sci, raw))
+    ranked.sort(key=lambda item: (item[0], item[1], item[2], item[3]))
 
     new_entries: List[Dict[str, Any]] = []
-    for raw in candidates:
-        sci_l = raw["sci"].lower().strip()
+    for _, _, _, sci, raw in ranked:
+        if len(new_entries) >= need_count:
+            break
+        sci_l = sci.lower().strip()
         if sci_l in existing_scis:
             continue
 
-        ko_name = sanitize_kr_name(raw.get("ko") or "")
-        en_name = sanitize_en_name(raw.get("en") or "", raw["sci"])
-
-        if ko_name and has_hangul(ko_name) and 2 <= len(ko_name) <= 36:
-            disp_name = ko_name
-        elif en_name and 3 <= len(en_name) <= 44:
-            disp_name = en_name
-        else:
+        ancestors = raw.get("ancestors", [])
+        family_sci = raw.get("family_sci", "")
+        for aid in reversed(ancestors):
+            if aid in fam_map:
+                family_sci = fam_map[aid]
+                break
+        genus = sci.split()[0]
+        bio = GENUS_BIOLOGY.get(genus) or fkd.resolve_family_bio(
+            family_sci, ancestors, fam_info_map, FAMILY_BIOLOGY, gtx_cache
+        )
+        disp_name, _ = fkd.build_korean_species_name(raw, bio[9], genera_map, gtx_cache)
+        disp_name = _disambiguate_hangul_name(disp_name, sci, bio[0], existing_names)
+        if not disp_name or not has_hangul(disp_name) or re.search(r"[A-Za-z]", disp_name):
             continue
-
-        # 동일 이름 충돌 시 학명 종소명 표기로 1:1 어종 구분
-        if disp_name in existing_names:
-            epithet = raw["sci"].split()[-1]
-            disp_name = f"{disp_name} ({epithet})"
-            if disp_name in existing_names:
-                continue
 
         raw_copy = dict(raw)
         raw_copy["display_name"] = disp_name
-        raw_copy["ko"] = ko_name if has_hangul(ko_name) else ""
-        entry = classify_fish_entry(raw_copy, fam_map)
+        raw_copy["ko"] = disp_name
+        entry = classify_fish_entry(raw_copy, fam_map, fam_info_map, gtx_cache)
 
         prev_id = prev_sci_to_id.get(sci_l)
         if prev_id and prev_id not in existing_ids:
             entry["id"] = prev_id
             existing_ids.add(prev_id)
         else:
-            entry["id"] = make_species_id(raw["sci"], existing_ids)
+            entry["id"] = make_species_id(sci, existing_ids)
 
         existing_scis.add(sci_l)
         existing_names.add(disp_name)
@@ -1042,9 +1179,15 @@ def main():
 
     out_paths = [
         os.path.join(ROOT_DIR, "fish_species_db.json"),
+        os.path.join(SCRIPTS_DIR, "fish_species_db.json"),
+    ]
+    for opt_path in (
         os.path.join(ROOT_DIR, "public", "data", "fish_species_db.json"),
         os.path.join(ROOT_DIR, "public", "bot_files", "fish_species_db.json"),
-    ]
+    ):
+        if os.path.isfile(opt_path):
+            out_paths.append(opt_path)
+
     payload = json.dumps(all_species, ensure_ascii=False, separators=(",", ":"))
     for p in out_paths:
         os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -1059,10 +1202,12 @@ def main():
         for z in CANONICAL_ZONES[h]
     }
     ko_cnt = sum(1 for x in all_species if has_hangul(x["name"]))
+    ascii_names = sum(1 for x in all_species if re.search(r"[A-Za-z]", x["name"]))
+    latin_fam_descs = sum(1 for x in all_species if re.match(r"^\[[A-Za-z][^\]\s]*과\]", x.get("desc", "")))
     file_kb = os.path.getsize(out_paths[0]) / 1024.0
     print("=" * 66)
     print(f"🎉 최종 어종 데이터베이스 생성 완료: 총 {len(all_species):,}종 ({file_kb:.1f} KB)")
-    print(f"   • 한글명 어종: {ko_cnt:,}종 · 영명/글로벌 어종: {len(all_species) - ko_cnt:,}종")
+    print(f"   • 한글명 어종: {ko_cnt:,}종 · 영문자 포함 이름: {ascii_names:,}종 · [라틴과] 설명: {latin_fam_descs:,}종")
     print(f"   • 서식지별: 호수 {by_h['lake']:,}종 · 강 {by_h['river']:,}종 · 바다 {by_h['sea']:,}종")
     print(f"   • 성급별: ★1({by_r[1]:,}) · ★2({by_r[2]:,}) · ★3({by_r[3]:,}) · ★4({by_r[4]:,}) · ★5({by_r[5]:,})")
     for h in ("lake", "river", "sea"):
@@ -1073,3 +1218,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

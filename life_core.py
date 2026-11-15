@@ -7,13 +7,12 @@ from __future__ import annotations
 
 import copy
 import random
-import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import core
 
-_LIFE_LOCK = threading.RLock()
+_LIFE_LOCK = core._DATA_LOCK
 
 
 def _safe_int(val: Any, default: int = 0) -> int:
@@ -707,6 +706,13 @@ def consume_attendance_life_bonus(data: dict, guild_id: int | str, user_id: int 
 def get_life_overview(guild_id: int | str, user_id: int | str, user_name: str = "") -> Dict[str, Any]:
     with _LIFE_LOCK:
         data = core.load_data()
+        g_key = str(guild_id or 0)
+        u_key = str(user_id)
+        before_state = (
+            copy.deepcopy(core.safe_get_dict(data, "life_users", g_key, u_key)),
+            copy.deepcopy(core.safe_get_dict(data, "guild_farms", g_key)),
+            copy.deepcopy(core.safe_get_dict(data, "user_profiles", u_key)),
+        )
         lu = ensure_life_user(data, guild_id, user_id, user_name)
         gf = ensure_guild_farm(data, guild_id)
         prof = core.ensure_user_profile(data, user_id, user_name)
@@ -715,11 +721,12 @@ def get_life_overview(guild_id: int | str, user_id: int | str, user_name: str = 
         buffs = get_active_life_buffs(guild_id, user_id, data=data)
 
         # 가방 내 요리 가능(미잠금 ★1~★2) 물고기 집계
-        bag = core.coerce_list_like(core.safe_get_dict(data, "fishing_users", str(guild_id or 0), str(user_id)).get("bag"))
+        bag = core.coerce_list_like(core.safe_get_dict(data, "fishing_users", g_key, u_key).get("bag"))
         cookable_r1 = sum(1 for it in bag if isinstance(it, dict) and not it.get("locked", False) and _safe_int(it.get("rarity"), 1) == 1)
         cookable_r2 = sum(1 for it in bag if isinstance(it, dict) and not it.get("locked", False) and _safe_int(it.get("rarity"), 1) == 2)
 
-        core.save_data(data)
+        if (lu, gf, prof) != before_state:
+            core.save_data(data)
         return {
             "user": copy.deepcopy(lu),
             "guild_farm": copy.deepcopy(gf),

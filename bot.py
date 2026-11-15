@@ -12,7 +12,7 @@ import aiohttp
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, Dict
 from collections import OrderedDict
 from aiohttp import web
 import core
@@ -786,6 +786,8 @@ class NorosiBot(commands.Bot):
                                     view.current_tab = "hsr"
                                 elif "프로세카" in e_title or "가챠" in e_title:
                                     view.current_tab = "gacha"
+                                elif "통합 경제" in e_title or "생활 라이프" in e_title or "경제" in e_title:
+                                    view.current_tab = "economy"
                                 elif "라이프" in e_title or "D-Day" in e_title:
                                     view.current_tab = "life"
                                 elif "음악" in e_title or "플레이리스트" in e_title:
@@ -855,13 +857,11 @@ class NorosiBot(commands.Bot):
                 embed_text = f"{e_title_only} {emb.description or ''}"
 
             clicked_label = ""
-            clicked_emoji = ""
             component_type = interaction.data.get("component_type", 2)
             for row in getattr(msg, "components", []):
                 for child in getattr(row, "children", []):
                     if child.custom_id == custom_id:
                         clicked_label = getattr(child, "label", "") or ""
-                        clicked_emoji = getattr(child, "emoji", "") or ""
                         break
 
             # 3-1. 음성채널 자동재생 대시보드 (리모컨)
@@ -933,6 +933,8 @@ class NorosiBot(commands.Bot):
                         view.current_tab = "hsr"
                     elif "프로세카" in e_title_only or "가챠" in e_title_only:
                         view.current_tab = "gacha"
+                    elif "통합 경제" in e_title_only or "생활 라이프" in e_title_only or "경제" in e_title_only:
+                        view.current_tab = "economy"
                     elif "라이프" in e_title_only or "D-Day" in e_title_only:
                         view.current_tab = "life"
                     elif "음악" in e_title_only or "플레이리스트" in e_title_only:
@@ -1383,27 +1385,43 @@ class NorosiBot(commands.Bot):
     @tasks.loop(time=datetime.time(hour=7, minute=0, tzinfo=core.KST))
     async def morning_music_alert(self):
         data = await asyncio.to_thread(core.load_data)
-        prefs = core.as_dict(data.get("music_prefs")) or core.DEFAULT_CONFIG["music_prefs"]
-        target_ch_id = prefs.get("channel_id") or core.as_dict(data.get("settings")).get("dday_alert_channel_id")
-        if not target_ch_id:
-            return
+        guild_mps = core.as_dict(data.get("guild_music_prefs"))
+        targets = []
+        seen_channels = set()
+        for g_key, g_mp in guild_mps.items():
+            if not isinstance(g_mp, dict):
+                continue
+            ch_id = g_mp.get("channel_id")
+            if ch_id and ch_id not in seen_channels:
+                targets.append((core.get_guild_music_prefs(data, g_key), ch_id))
+                seen_channels.add(ch_id)
 
-        channel = await self.resolve_channel(target_ch_id)
-        if not channel:
-            return
+        global_mp = core.get_guild_music_prefs(data, 0)
+        fallback_ch_id = global_mp.get("channel_id") or core.as_dict(data.get("settings")).get("dday_alert_channel_id")
+        if fallback_ch_id and fallback_ch_id not in seen_channels:
+            targets.append((None, fallback_ch_id))
+            seen_channels.add(fallback_ch_id)
 
-        track_info, error = await core.get_recommended_music(prefs)
-        if error or not track_info:
+        for prefs, target_ch_id in targets:
+            channel = await self.resolve_channel(target_ch_id)
+            if not channel:
+                continue
+            if prefs is None:
+                ch_gid = getattr(getattr(channel, "guild", None), "id", 0) or 0
+                prefs = core.get_guild_music_prefs(data, ch_gid)
+
+            track_info, error = await core.get_recommended_music(prefs)
+            if error or not track_info:
+                try:
+                    await channel.send(f"🎧 **오늘의 음악 추천 실패:** {error}")
+                except Exception:
+                    pass
+                continue
+            embed, view = self.build_music_embed_and_view(track_info, prefs, is_morning=True)
             try:
-                await channel.send(f"🎧 **오늘의 음악 추천 실패:** {error}")
+                await channel.send("☀️ **좋은 아침입니다! 오늘의 추천 곡을 확인해 보세요.**", embed=embed, view=view)
             except Exception:
                 pass
-            return
-        embed, view = self.build_music_embed_and_view(track_info, prefs, is_morning=True)
-        try:
-            await channel.send("☀️ **좋은 아침입니다! 오늘의 추천 곡을 확인해 보세요.**", embed=embed, view=view)
-        except Exception:
-            pass
 
     @morning_music_alert.before_loop
     async def before_morning_music_alert(self):
@@ -1425,7 +1443,6 @@ class NorosiBot(commands.Bot):
 
         sent_sched_keys: set[str] = set()
         fired_rem_ids: set[str] = set()
-        base_prefs = core.as_dict(data.get("music_prefs")) or core.DEFAULT_CONFIG["music_prefs"]
 
         def _sched_key(s: dict) -> str:
             return str(s.get("id") or f"{s.get('time')}|{s.get('channel_id')}|{s.get('name')}")
@@ -1437,7 +1454,8 @@ class NorosiBot(commands.Bot):
                 ch_id = sched.get("channel_id")
                 channel = await self.resolve_channel(ch_id) if ch_id else None
                 if channel:
-                    custom_prefs = copy.deepcopy(base_prefs)
+                    sched_gid = sched.get("guild_id") or getattr(getattr(channel, "guild", None), "id", 0) or 0
+                    custom_prefs = copy.deepcopy(core.get_guild_music_prefs(data, sched_gid))
                     if sched.get("genre"):
                         custom_prefs["genre"] = sched["genre"]
                         custom_prefs["playlist_url"] = None
@@ -1709,29 +1727,36 @@ async def set_terminal_log_channel_slash(interaction: discord.Interaction, 채�
         return
 
     await core.safe_defer(interaction, ephemeral=True)
-    data = await asyncio.to_thread(core.load_data)
-
     g_key = str(interaction.guild_id) if interaction.guild_id else "global"
-    settings_dict = core.ensure_dict_path(data, "settings")
-    t_channels = core.ensure_dict_path(data, "settings", "terminal_log_channels")
+    ch_id = 채널.id if 채널 is not None else None
+
+    def _update_terminal_ch() -> int:
+        with core._DATA_LOCK:
+            data = core.load_data()
+            settings_dict = core.ensure_dict_path(data, "settings")
+            t_channels = core.ensure_dict_path(data, "settings", "terminal_log_channels")
+            if ch_id is None:
+                t_channels.pop(g_key, None)
+                if not t_channels:
+                    settings_dict["terminal_log_channel_id"] = None
+            else:
+                t_channels[g_key] = ch_id
+                settings_dict["terminal_log_channel_id"] = ch_id
+            core.save_data(data)
+            return len(t_channels)
+
+    total_linked = await asyncio.to_thread(_update_terminal_ch)
 
     if 채널 is None:
-        t_channels.pop(g_key, None)
-        if not t_channels:
-            settings_dict["terminal_log_channel_id"] = None
-        await asyncio.to_thread(core.save_data, data)
         await interaction.followup.send(f"🛑 **현재 서버({interaction.guild.name if interaction.guild else '글로벌'})의 VM 서버 터미널 로그 채널 전송이 해제되었습니다.**", ephemeral=True)
         print(f"ℹ️ [System] {interaction.user}에 의해 {interaction.guild}의 터미널 로그 채널 전송이 비활성화되었습니다.", flush=True)
     else:
-        t_channels[g_key] = 채널.id
-        settings_dict["terminal_log_channel_id"] = 채널.id
-        await asyncio.to_thread(core.save_data, data)
         embed = discord.Embed(
             title="🖥️ VM 서버 터미널 실시간 로그 채널 지정 완료!",
             description=(
                 f"이제부터 VM 서버 터미널(`stdout` / `stderr` / `logging`)로 출력되는 모든 로그가 {채널.mention} 채널에도 실시간으로 기록됩니다.\n\n"
                 f"• **현재 채널:** {채널.mention} (`#{채널.name}`)\n"
-                f"• **전체 연동 서버:** 총 {len(t_channels)}개 서버 채널에 실시간 동시 전송 중\n"
+                f"• **전체 연동 서버:** 총 {total_linked}개 서버 채널에 실시간 동시 전송 중\n"
                 "• **전송 주기:** `3초` 단위 버퍼링 묶음 전송 (도배 및 Rate Limit 완벽 방어)\n"
                 "• **해제 방법:** `/터미널로그채널` 명령어를 채널 옵션 없이 실행"
             ),
@@ -1739,7 +1764,7 @@ async def set_terminal_log_channel_slash(interaction: discord.Interaction, 채�
             timestamp=datetime.datetime.now(core.KST)
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
-        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{채널.name} (ID: {채널.id}, 서버: {interaction.guild})로 지정되었습니다. (총 {len(t_channels)}개 서버 동시 전송)", flush=True)
+        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{채널.name} (ID: {채널.id}, 서버: {interaction.guild})로 지정되었습니다. (총 {total_linked}개 서버 동시 전송)", flush=True)
 
 
 @bot.command(name="터미널로그", aliases=["터미널로그채널", "서버터미널", "vm로그", "콘솔로그"])
@@ -1750,23 +1775,31 @@ async def set_terminal_log_channel_prefix(ctx: commands.Context, channel: Option
         await ctx.send("❌ 이 명령어는 **봇 소유자** 또는 **서버 관리자**만 사용할 수 있습니다.", delete_after=5)
         return
 
-    data = await asyncio.to_thread(core.load_data)
     g_key = str(ctx.guild.id) if ctx.guild else "global"
-    settings_dict = core.ensure_dict_path(data, "settings")
-    t_channels = core.ensure_dict_path(data, "settings", "terminal_log_channels")
+    ch_id = channel.id if channel is not None else None
+
+    def _update_terminal_ch_prefix() -> int:
+        with core._DATA_LOCK:
+            data = core.load_data()
+            settings_dict = core.ensure_dict_path(data, "settings")
+            t_channels = core.ensure_dict_path(data, "settings", "terminal_log_channels")
+            if ch_id is None:
+                t_channels.pop(g_key, None)
+                if not t_channels:
+                    settings_dict["terminal_log_channel_id"] = None
+            else:
+                t_channels[g_key] = ch_id
+                settings_dict["terminal_log_channel_id"] = ch_id
+            core.save_data(data)
+            return len(t_channels)
+
+    total_linked = await asyncio.to_thread(_update_terminal_ch_prefix)
 
     if channel is None:
-        t_channels.pop(g_key, None)
-        if not t_channels:
-            settings_dict["terminal_log_channel_id"] = None
-        await asyncio.to_thread(core.save_data, data)
         await ctx.send(f"🛑 **현재 서버({ctx.guild.name if ctx.guild else '글로벌'})의 VM 서버 터미널 로그 채널 기록이 비활성화되었습니다.** (특정 채널에 켜려면 `!터미널로그 #채널` 입력)")
     else:
-        t_channels[g_key] = channel.id
-        settings_dict["terminal_log_channel_id"] = channel.id
-        await asyncio.to_thread(core.save_data, data)
-        await ctx.send(f"🖥️ **VM 서버 터미널 로그 채널 지정 완료:** 이제부터 터미널 출력이 {channel.mention} 채널에 실시간으로 기록됩니다! (총 {len(t_channels)}개 서버 채널 동시 전송)")
-        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{channel.name} (ID: {channel.id}, 서버: {ctx.guild})로 지정되었습니다. (총 {len(t_channels)}개 서버 동시 전송)", flush=True)
+        await ctx.send(f"🖥️ **VM 서버 터미널 로그 채널 지정 완료:** 이제부터 터미널 출력이 {channel.mention} 채널에 실시간으로 기록됩니다! (총 {total_linked}개 서버 채널 동시 전송)")
+        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{channel.name} (ID: {channel.id}, 서버: {ctx.guild})로 지정되었습니다. (총 {total_linked}개 서버 동시 전송)", flush=True)
 
 
 # ==========================================

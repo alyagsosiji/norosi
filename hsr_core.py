@@ -19,7 +19,6 @@ import re
 import threading
 import time
 from collections import OrderedDict
-from typing import Optional
 
 from PIL import Image, ImageDraw
 import requests
@@ -1110,7 +1109,7 @@ def get_hsr_time_schedule(now_dt: datetime.datetime | None = None) -> dict:
     path_rot = [
         ("Warrior", "⚔️ 파멸", "Elation", "🎭 환락"),
         ("Mage", "🎓 지식", "Memory", "🕊️ 기억"),
-        ("Rogue", "🏹 수렵", "Pirest", "🌿 풍요"),
+        ("Rogue", "🏹 수렵", "Priest", "🌿 풍요"),
         ("Warlock", "🕸️ 공허", "Knight", "🛡️ 보존"),
         ("Shaman", "🎵 화합", "Memory", "🕊️ 기억"),
         ("Elation", "🎭 환락", "Warrior", "⚔️ 파멸"),
@@ -1611,7 +1610,11 @@ def _generate_hsr_relic_piece(
     is_planar = bool(relic_set.get("is_planar"))
     valid_slots = [s for s in HSR_RELIC_SLOTS if bool(s["is_planar"]) == is_planar]
     if forced_slot_code:
-        slot_info = next((s for s in valid_slots if s["code"] == forced_slot_code), None) or rng.choice(valid_slots)
+        f_norm = str(forced_slot_code).strip().upper()
+        slot_info = next(
+            (s for s in valid_slots if str(s.get("code", "")).upper() == f_norm or str(s.get("key", "")).upper() == f_norm),
+            None,
+        ) or rng.choice(valid_slots)
     else:
         slot_info = rng.choice(valid_slots)
 
@@ -2037,89 +2040,90 @@ def execute_hsr_warp(guild_id: int, user_id: int, banner_key: str = "char1", cou
     std_5_chars, std_4_chars, std_5_lcs, warp_3_lcs, std_4_lcs = _build_hsr_pools()
     sched = get_hsr_time_schedule()
 
-    data = core.load_data()
-    eff_pickup = resolve_effective_hsr_pickup(data.get("hsr_pickup"))
-    u_data = ensure_hsr_user(data, guild_id, user_id)
+    with core._DATA_LOCK:
+        data = core.load_data()
+        eff_pickup = resolve_effective_hsr_pickup(data.get("hsr_pickup"))
+        u_data = ensure_hsr_user(data, guild_id, user_id)
 
-    rng = random.SystemRandom()
-    if practice:
-        sim_state = copy.deepcopy(u_data)
-        owned_items = u_data.get("items", {})
+        rng = random.SystemRandom()
+        if practice:
+            sim_state = copy.deepcopy(u_data)
+            owned_items = u_data.get("items", {})
+            drawn = []
+            for _ in range(count):
+                it = _roll_single_hsr(sim_state, banner_key, eff_pickup, std_5_chars, std_4_chars, std_5_lcs, warp_3_lcs, std_4_lcs, rng, sched=sched)
+                prev = owned_items.get(it["item_key"])
+                it["is_new"] = prev is None
+                if it["kind"] == "char":
+                    it["new_eidolon"] = min(6, int(prev.get("eidolon", 0)) + 1) if prev else 0
+                elif it["kind"] == "lc":
+                    it["new_super"] = min(5, int(prev.get("superimposition", 1)) + 1) if prev else 1
+                it["gained_starlight"] = 0
+                it["gained_embers"] = 0
+                drawn.append(it)
+            return {
+                "drawn": drawn,
+                "banner_key": banner_key,
+                "eff_pickup": eff_pickup,
+                "total_starlight": 0,
+                "total_embers": 0,
+                "gained_bonds": 0,
+                "user_state": sim_state,
+                "practice": True,
+                "schedule": sched,
+            }
+
+        now_iso = datetime.datetime.now(core.KST).isoformat()
         drawn = []
+        tot_sl = 0
+        tot_em = 0
         for _ in range(count):
-            it = _roll_single_hsr(sim_state, banner_key, eff_pickup, std_5_chars, std_4_chars, std_5_lcs, warp_3_lcs, std_4_lcs, rng, sched=sched)
-            prev = owned_items.get(it["item_key"])
-            it["is_new"] = prev is None
-            if it["kind"] == "char":
-                it["new_eidolon"] = min(6, int(prev.get("eidolon", 0)) + 1) if prev else 0
-            elif it["kind"] == "lc":
-                it["new_super"] = min(5, int(prev.get("superimposition", 1)) + 1) if prev else 1
-            it["gained_starlight"] = 0
-            it["gained_embers"] = 0
+            it = _roll_single_hsr(u_data, banner_key, eff_pickup, std_5_chars, std_4_chars, std_5_lcs, warp_3_lcs, std_4_lcs, rng, sched=sched)
+            gs, ge = _apply_hsr_item_to_account(u_data, it, now_iso)
+            tot_sl += gs
+            tot_em += ge
             drawn.append(it)
+
+        u_data["total_pulls"] = int(u_data.get("total_pulls", 0)) + count
+        if banner_key == "standard":
+            u_data["standard_total_pulls"] = int(u_data.get("standard_total_pulls", 0)) + count
+
+        # 10연차당 헤르타 채권 +1 지급 (은하 시뮬레이션 보너스)
+        prog = int(u_data.get("herta_progress", 0)) + count
+        gained_bonds = prog // 10
+        u_data["herta_progress"] = prog % 10
+        if gained_bonds > 0:
+            u_data["herta_bond"] = int(u_data.get("herta_bond", 0)) + gained_bonds
+
+        hist = u_data.setdefault("history", [])
+        b_short = HSR_BANNER_CONFIGS[banner_key]["short_name"]
+        for it in drawn:
+            if it["rank"] >= 4:
+                hist.insert(0, {
+                    "name": it["name"] if it["kind"] != "relic" else f"{it['name']} ({it.get('slot_name', '유물')}·{it.get('main_stat', '')})",
+                    "kind": it["kind"],
+                    "rank": it["rank"],
+                    "is_pickup": bool(it.get("is_pickup")),
+                    "pity": it.get("pity_used"),
+                    "banner": b_short,
+                    "at": now_iso,
+                })
+        del hist[50:]
+
+        _record_hsr_hof(data, guild_id, user_id, drawn, banner_key, now_iso)
+        core.save_data(data)
+
         return {
             "drawn": drawn,
             "banner_key": banner_key,
             "eff_pickup": eff_pickup,
-            "total_starlight": 0,
-            "total_embers": 0,
-            "gained_bonds": 0,
-            "user_state": sim_state,
-            "practice": True,
+            "total_starlight": tot_sl,
+            "total_embers": tot_em,
+            "gained_bonds": gained_bonds,
+            "user_state": u_data,
+            "practice": False,
             "schedule": sched,
         }
-
-    now_iso = datetime.datetime.now(core.KST).isoformat()
-    drawn = []
-    tot_sl = 0
-    tot_em = 0
-    for _ in range(count):
-        it = _roll_single_hsr(u_data, banner_key, eff_pickup, std_5_chars, std_4_chars, std_5_lcs, warp_3_lcs, std_4_lcs, rng, sched=sched)
-        gs, ge = _apply_hsr_item_to_account(u_data, it, now_iso)
-        tot_sl += gs
-        tot_em += ge
-        drawn.append(it)
-
-    u_data["total_pulls"] = int(u_data.get("total_pulls", 0)) + count
-    if banner_key == "standard":
-        u_data["standard_total_pulls"] = int(u_data.get("standard_total_pulls", 0)) + count
-
-    # 10연차당 헤르타 채권 +1 지급 (은하 시뮬레이션 보너스)
-    prog = int(u_data.get("herta_progress", 0)) + count
-    gained_bonds = prog // 10
-    u_data["herta_progress"] = prog % 10
-    if gained_bonds > 0:
-        u_data["herta_bond"] = int(u_data.get("herta_bond", 0)) + gained_bonds
-
-    hist = u_data.setdefault("history", [])
-    b_short = HSR_BANNER_CONFIGS[banner_key]["short_name"]
-    for it in drawn:
-        if it["rank"] >= 4:
-            hist.insert(0, {
-                "name": it["name"] if it["kind"] != "relic" else f"{it['name']} ({it.get('slot_name', '유물')}·{it.get('main_stat', '')})",
-                "kind": it["kind"],
-                "rank": it["rank"],
-                "is_pickup": bool(it.get("is_pickup")),
-                "pity": it.get("pity_used"),
-                "banner": b_short,
-                "at": now_iso,
-            })
-    del hist[50:]
-
-    _record_hsr_hof(data, guild_id, user_id, drawn, banner_key, now_iso)
-    core.save_data(data)
-
-    return {
-        "drawn": drawn,
-        "banner_key": banner_key,
-        "eff_pickup": eff_pickup,
-        "total_starlight": tot_sl,
-        "total_embers": tot_em,
-        "gained_bonds": gained_bonds,
-        "user_state": u_data,
-        "practice": False,
-        "schedule": sched,
-    }
 
 
 def _record_hsr_hof(data: dict, guild_id: int, user_id: int, drawn: list[dict], banner_key: str, now_iso: str):
@@ -2170,183 +2174,188 @@ def _record_hsr_hof(data: dict, guild_id: int, user_id: int, drawn: list[dict], 
 # ==========================================
 def set_hsr_relic_target(guild_id: int, user_id: int, relic_id: str | None) -> tuple[bool, str, dict]:
     load_hsr_kr_db()
-    data = core.load_data()
-    u_data = ensure_hsr_user(data, guild_id, user_id)
-    if not relic_id or relic_id == "auto":
-        u_data["target_relic_set"] = None
+    with core._DATA_LOCK:
+        data = core.load_data()
+        u_data = ensure_hsr_user(data, guild_id, user_id)
+        if not relic_id or relic_id == "auto":
+            u_data["target_relic_set"] = None
+            core.save_data(data)
+            return True, "🕳️ 침식된 터널 집중 세트가 **시간대별 자동 추천 세트**로 설정되었습니다.", u_data
+        r_obj = get_hsr_relic_by_id(relic_id)
+        if not r_obj:
+            return False, "선택한 유물 세트를 찾을 수 없습니다.", u_data
+        u_data["target_relic_set"] = r_obj["id"]
         core.save_data(data)
-        return True, "🕳️ 침식된 터널 집중 세트가 **시간대별 자동 추천 세트**로 설정되었습니다.", u_data
-    r_obj = get_hsr_relic_by_id(relic_id)
-    if not r_obj:
-        return False, "선택한 유물 세트를 찾을 수 없습니다.", u_data
-    u_data["target_relic_set"] = r_obj["id"]
-    core.save_data(data)
-    return True, f"🎯 침식된 터널 집중 파밍 세트가 **`{r_obj['name']}`** ({r_obj['relic_type']})로 지정되었습니다! (★5 획득 시 75% 확률로 해당 세트 드랍)", u_data
+        return True, f"🎯 침식된 터널 집중 파밍 세트가 **`{r_obj['name']}`** ({r_obj['relic_type']})로 지정되었습니다! (★5 획득 시 75% 확률로 해당 세트 드랍)", u_data
 
 
 def enhance_hsr_relic(guild_id: int, user_id: int, relic_uid: str, to_max: bool = False) -> tuple[bool, str, dict | None]:
     """보유 중인 ★5 유물을 +3 단계씩(또는 to_max=True 시 최대 +15까지) 강화하며, 부옵션 추가/상승을 적용합니다."""
-    data = core.load_data()
-    u_data = ensure_hsr_user(data, guild_id, user_id)
-    relic_list = u_data.get("relics", [])
-    target = next((r for r in relic_list if r.get("uid") == relic_uid), None)
-    if not target:
-        return False, "해당 유물을 찾을 수 없습니다.", None
-    start_lv = int(target.get("level", 0))
-    if start_lv >= 15:
-        return False, f"**{target['name']} ({target.get('slot_name', '')})** 유물은 이미 최고 단계(`+15`)입니다!", target
+    with core._DATA_LOCK:
+        data = core.load_data()
+        u_data = ensure_hsr_user(data, guild_id, user_id)
+        relic_list = u_data.get("relics", [])
+        target = next((r for r in relic_list if r.get("uid") == relic_uid), None)
+        if not target:
+            return False, "해당 유물을 찾을 수 없습니다.", None
+        start_lv = int(target.get("level", 0))
+        if start_lv >= 15:
+            return False, f"**{target['name']} ({target.get('slot_name', '')})** 유물은 이미 최고 단계(`+15`)입니다!", target
 
-    cost_remains = 10
-    if int(u_data.get("relic_remains", 0)) < cost_remains:
-        return False, f"유물 잔해가 부족합니다! (필요: `{cost_remains}개` / 보유: `{u_data.get('relic_remains', 0)}개` · 유물 토벌 또는 분해로 획득)", target
+        cost_remains = 10
+        if int(u_data.get("relic_remains", 0)) < cost_remains:
+            return False, f"유물 잔해가 부족합니다! (필요: `{cost_remains}개` / 보유: `{u_data.get('relic_remains', 0)}개` · 유물 토벌 또는 분해로 획득)", target
 
-    rng = random.SystemRandom()
-    subs = target.setdefault("substats", [])
-    main_stat = target.get("main_stat", "")
-    rank = int(target.get("rank", 5))
-    m_pair = HSR_RELIC_MAIN_VALUES.get((rank, main_stat)) or HSR_RELIC_MAIN_VALUES.get(main_stat)
+        rng = random.SystemRandom()
+        subs = target.setdefault("substats", [])
+        main_stat = target.get("main_stat", "")
+        rank = int(target.get("rank", 5))
+        m_pair = HSR_RELIC_MAIN_VALUES.get((rank, main_stat)) or HSR_RELIC_MAIN_VALUES.get(main_stat)
 
-    steps = 0
-    total_spent = 0
-    roll_msgs = []
-    cur_lv = start_lv
+        steps = 0
+        total_spent = 0
+        roll_msgs = []
+        cur_lv = start_lv
 
-    while cur_lv < 15 and int(u_data.get("relic_remains", 0)) >= cost_remains:
-        u_data["relic_remains"] = int(u_data.get("relic_remains", 0)) - cost_remains
-        total_spent += cost_remains
-        steps += 1
-        new_lv = min(15, cur_lv + 3)
-        target["level"] = new_lv
-        cur_lv = new_lv
+        while cur_lv < 15 and int(u_data.get("relic_remains", 0)) >= cost_remains:
+            u_data["relic_remains"] = int(u_data.get("relic_remains", 0)) - cost_remains
+            total_spent += cost_remains
+            steps += 1
+            new_lv = min(15, cur_lv + 3)
+            target["level"] = new_lv
+            cur_lv = new_lv
 
-        if isinstance(m_pair, tuple) and len(m_pair) == 2:
-            v_start, v_max = m_pair
-            if new_lv >= 15:
-                target["main_value"] = v_max
+            if isinstance(m_pair, tuple) and len(m_pair) == 2:
+                v_start, v_max = m_pair
+                if new_lv >= 15:
+                    target["main_value"] = v_max
+                else:
+                    try:
+                        is_pct = "%" in str(v_max)
+                        s_num = float(str(v_start).replace("+", "").replace(",", "").replace("%", ""))
+                        m_num = float(str(v_max).replace("+", "").replace(",", "").replace("%", ""))
+                        interp = s_num + (m_num - s_num) * (new_lv / 15.0)
+                        target["main_value"] = f"+{interp:.1f}%" if is_pct else f"+{int(round(interp)):,}"
+                    except Exception:
+                        pass
+
+            existing_names = {s["name"] for s in subs}
+            if len(subs) < 4:
+                cands = [s for s in HSR_RELIC_SUBSTATS if s[0] != main_stat and s[0] not in existing_names]
+                if cands:
+                    s_name, tiers, unit = rng.choice(cands)
+                    val = round(rng.choice(tiers), 1 if unit == "%" else 0)
+                    subs.append({"name": s_name, "value": val, "unit": unit, "rolls": 1})
+                    roll_msgs.append(f"🆕 4번째 부옵션 **`{s_name} +{val}{unit}`** 개방!")
+                else:
+                    roll_msgs.append("부옵션 개방 완료!")
             else:
-                try:
-                    is_pct = "%" in str(v_max)
-                    s_num = float(str(v_start).replace("+", "").replace(",", "").replace("%", ""))
-                    m_num = float(str(v_max).replace("+", "").replace(",", "").replace("%", ""))
-                    interp = s_num + (m_num - s_num) * (new_lv / 15.0)
-                    target["main_value"] = f"+{interp:.1f}%" if is_pct else f"+{int(round(interp)):,}"
-                except Exception:
-                    pass
+                chosen = rng.choice(subs)
+                s_def = next((s for s in HSR_RELIC_SUBSTATS if s[0] == chosen["name"]), None)
+                tiers = s_def[1] if s_def else [3.0, 3.4, 3.8]
+                unit = chosen.get("unit", "%")
+                inc = round(rng.choice(tiers), 1 if unit == "%" else 0)
+                old_v = chosen["value"]
+                chosen["value"] = round(old_v + inc, 1 if unit == "%" else 0) if unit == "%" else int(old_v + inc)
+                chosen["rolls"] = int(chosen.get("rolls", 1)) + 1
+                roll_msgs.append(f"✨ **`{chosen['name']}`** (`+{old_v}{unit}` ➔ **`+{chosen['value']}{unit}`**)")
 
-        existing_names = {s["name"] for s in subs}
-        if len(subs) < 4:
-            cands = [s for s in HSR_RELIC_SUBSTATS if s[0] != main_stat and s[0] not in existing_names]
-            if cands:
-                s_name, tiers, unit = rng.choice(cands)
-                val = round(rng.choice(tiers), 1 if unit == "%" else 0)
-                subs.append({"name": s_name, "value": val, "unit": unit, "rolls": 1})
-                roll_msgs.append(f"🆕 4번째 부옵션 **`{s_name} +{val}{unit}`** 개방!")
-            else:
-                roll_msgs.append("부옵션 개방 완료!")
-        else:
-            chosen = rng.choice(subs)
-            s_def = next((s for s in HSR_RELIC_SUBSTATS if s[0] == chosen["name"]), None)
-            tiers = s_def[1] if s_def else [3.0, 3.4, 3.8]
-            unit = chosen.get("unit", "%")
-            inc = round(rng.choice(tiers), 1 if unit == "%" else 0)
-            old_v = chosen["value"]
-            chosen["value"] = round(old_v + inc, 1 if unit == "%" else 0) if unit == "%" else int(old_v + inc)
-            chosen["rolls"] = int(chosen.get("rolls", 1)) + 1
-            roll_msgs.append(f"✨ **`{chosen['name']}`** (`+{old_v}{unit}` ➔ **`+{chosen['value']}{unit}`**)")
+            if not to_max:
+                break
 
-        if not to_max:
-            break
+        cv, rv, grade = compute_hsr_relic_score(target)
+        target["cv"] = cv
+        target["rv"] = rv
+        target["score"] = rv
+        target["grade"] = grade
+        if grade in ("SSS", "SS"):
+            target["locked"] = True
 
-    cv, rv, grade = compute_hsr_relic_score(target)
-    target["cv"] = cv
-    target["rv"] = rv
-    target["score"] = rv
-    target["grade"] = grade
-    if grade in ("SSS", "SS"):
-        target["locked"] = True
-
-    summary_roll = roll_msgs[-1] if len(roll_msgs) == 1 else f"✨ `{steps}단계` 연속 강화 완료 (마지막: {roll_msgs[-1]})"
-    core.save_data(data)
-    return True, f"🔨 **{target['name']} ({target.get('slot_name', '')})** `+{start_lv}` ➔ **`+{cur_lv}`** 강화 성공! (`-{total_spent} 유물 잔해`)\n└ {summary_roll} · 현재 등급 **`{grade}`** (CV `{cv}` / RV `{rv}`)", target
+        summary_roll = roll_msgs[-1] if len(roll_msgs) == 1 else f"✨ `{steps}단계` 연속 강화 완료 (마지막: {roll_msgs[-1]})"
+        core.save_data(data)
+        return True, f"🔨 **{target['name']} ({target.get('slot_name', '')})** `+{start_lv}` ➔ **`+{cur_lv}`** 강화 성공! (`-{total_spent} 유물 잔해`)\n└ {summary_roll} · 현재 등급 **`{grade}`** (CV `{cv}` / RV `{rv}`)", target
 
 
 def toggle_hsr_relic_lock(guild_id: int, user_id: int, relic_uid: str) -> tuple[bool, bool, dict | None]:
-    data = core.load_data()
-    u_data = ensure_hsr_user(data, guild_id, user_id)
-    target = next((r for r in u_data.get("relics", []) if r.get("uid") == relic_uid), None)
-    if not target:
-        return False, False, None
-    target["locked"] = not bool(target.get("locked", False))
-    core.save_data(data)
-    return True, target["locked"], target
+    with core._DATA_LOCK:
+        data = core.load_data()
+        u_data = ensure_hsr_user(data, guild_id, user_id)
+        target = next((r for r in u_data.get("relics", []) if r.get("uid") == relic_uid), None)
+        if not target:
+            return False, False, None
+        target["locked"] = not bool(target.get("locked", False))
+        core.save_data(data)
+        return True, target["locked"], target
 
 
 def salvage_hsr_relics(guild_id: int, user_id: int, max_grade: str = "A") -> tuple[bool, str, dict]:
     """잠금되지 않은 ★4 또는 B/A등급 +0강 유물을 일괄 분해하여 유물 잔해와 자가 변형 레진을 획득합니다."""
-    data = core.load_data()
-    u_data = ensure_hsr_user(data, guild_id, user_id)
-    relic_list = u_data.get("relics", [])
-    kept = []
-    salvaged_cnt = 0
-    for r in relic_list:
-        if r.get("locked") or int(r.get("level", 0)) != 0:
-            kept.append(r)
-            continue
-        if max_grade == "4star":
-            if int(r.get("rank", 5)) <= 4:
-                salvaged_cnt += 1
-            else:
+    with core._DATA_LOCK:
+        data = core.load_data()
+        u_data = ensure_hsr_user(data, guild_id, user_id)
+        relic_list = u_data.get("relics", [])
+        kept = []
+        salvaged_cnt = 0
+        for r in relic_list:
+            if r.get("locked") or int(r.get("level", 0)) != 0:
                 kept.append(r)
-        elif max_grade in ("B", "5star_low"):
-            if r.get("grade", "B") in ("B",):
-                salvaged_cnt += 1
+                continue
+            if max_grade == "4star":
+                if int(r.get("rank", 5)) <= 4:
+                    salvaged_cnt += 1
+                else:
+                    kept.append(r)
+            elif max_grade in ("B", "5star_low"):
+                if r.get("grade", "B") in ("B",):
+                    salvaged_cnt += 1
+                else:
+                    kept.append(r)
             else:
-                kept.append(r)
-        else:
-            if r.get("grade", "B") in ("A", "B"):
-                salvaged_cnt += 1
-            else:
-                kept.append(r)
+                if r.get("grade", "B") in ("A", "B"):
+                    salvaged_cnt += 1
+                else:
+                    kept.append(r)
 
-    if salvaged_cnt == 0:
-        empty_msg = (
-            "분해할 수 있는 미잠금 ★4 유물이 없습니다. (워프 획득 ★4 유물은 자동으로 잔해 `+15`로 환원됩니다)"
-            if max_grade == "4star"
-            else "분해할 수 있는 미잠금 +0강 B이하 등급 유물이 없습니다."
-        )
-        return False, empty_msg, u_data
+        if salvaged_cnt == 0:
+            empty_msg = (
+                "분해할 수 있는 미잠금 ★4 유물이 없습니다. (워프 획득 ★4 유물은 자동으로 잔해 `+15`로 환원됩니다)"
+                if max_grade == "4star"
+                else "분해할 수 있는 미잠금 +0강 B이하 등급 유물이 없습니다."
+            )
+            return False, empty_msg, u_data
 
-    gained_remains = salvaged_cnt * 20
-    gained_resin = salvaged_cnt // 10
-    u_data["relics"] = kept
-    u_data["relic_remains"] = int(u_data.get("relic_remains", 0)) + gained_remains
-    if gained_resin > 0:
-        u_data["self_modeling_resin"] = int(u_data.get("self_modeling_resin", 0)) + gained_resin
-    core.save_data(data)
+        gained_remains = salvaged_cnt * 20
+        gained_resin = salvaged_cnt // 10
+        u_data["relics"] = kept
+        u_data["relic_remains"] = int(u_data.get("relic_remains", 0)) + gained_remains
+        if gained_resin > 0:
+            u_data["self_modeling_resin"] = int(u_data.get("self_modeling_resin", 0)) + gained_resin
+        core.save_data(data)
 
-    resin_txt = f" · 🧪 **자가 변형 레진 +{gained_resin}개**" if gained_resin > 0 else ""
-    return True, f"♻️ 미잠금 유물 **{salvaged_cnt}개** 분해 완료! ➔ 🧩 **유물 잔해 +{gained_remains}개**{resin_txt} (보유 잔해: `{u_data['relic_remains']}개`)", u_data
+        resin_txt = f" · 🧪 **자가 변형 레진 +{gained_resin}개**" if gained_resin > 0 else ""
+        return True, f"♻️ 미잠금 유물 **{salvaged_cnt}개** 분해 완료! ➔ 🧩 **유물 잔해 +{gained_remains}개**{resin_txt} (보유 잔해: `{u_data['relic_remains']}개`)", u_data
 
 
 def craft_hsr_relic_synthesizer(guild_id: int, user_id: int, set_id: str, slot_code: str | None = None) -> tuple[bool, str, dict | None]:
     """만능 합성기: 유물 잔해 100개를 소모하여 원하는 세트의 ★5 유물을 즉시 합성합니다."""
     load_hsr_kr_db()
-    data = core.load_data()
-    u_data = ensure_hsr_user(data, guild_id, user_id)
-    if int(u_data.get("relic_remains", 0)) < 100:
-        return False, f"🧩 **유물 잔해**가 부족합니다! (필요: `100개` / 보유: `{u_data.get('relic_remains', 0)}개`)", None
-    r_set = get_hsr_relic_by_id(set_id) or (get_hsr_relics()[0] if get_hsr_relics() else None)
-    if not r_set:
-        return False, "선택한 유물 세트를 찾을 수 없습니다.", None
+    with core._DATA_LOCK:
+        data = core.load_data()
+        u_data = ensure_hsr_user(data, guild_id, user_id)
+        if int(u_data.get("relic_remains", 0)) < 100:
+            return False, f"🧩 **유물 잔해**가 부족합니다! (필요: `100개` / 보유: `{u_data.get('relic_remains', 0)}개`)", None
+        r_set = get_hsr_relic_by_id(set_id) or (get_hsr_relics()[0] if get_hsr_relics() else None)
+        if not r_set:
+            return False, "선택한 유물 세트를 찾을 수 없습니다.", None
 
-    u_data["relic_remains"] = int(u_data.get("relic_remains", 0)) - 100
-    rng = random.SystemRandom()
-    sched = get_hsr_time_schedule()
-    piece = _generate_hsr_relic_piece(r_set, 5, rng, sched=sched, forced_slot_code=slot_code)
-    now_iso = datetime.datetime.now(core.KST).isoformat()
-    _apply_hsr_item_to_account(u_data, piece, now_iso)
-    core.save_data(data)
-    return True, f"⚗️ **만능 합성기 연성 완료!** `★★★★★ {piece['name']}` ({piece['slot_emoji']}{piece['slot_name']} · 주옵 `{piece['main_stat']}` · 등급 `{piece['grade']}`) 획득!", piece
+        u_data["relic_remains"] = int(u_data.get("relic_remains", 0)) - 100
+        rng = random.SystemRandom()
+        sched = get_hsr_time_schedule()
+        piece = _generate_hsr_relic_piece(r_set, 5, rng, sched=sched, forced_slot_code=slot_code)
+        now_iso = datetime.datetime.now(core.KST).isoformat()
+        _apply_hsr_item_to_account(u_data, piece, now_iso)
+        core.save_data(data)
+        return True, f"⚗️ **만능 합성기 연성 완료!** `★★★★★ {piece['name']}` ({piece['slot_emoji']}{piece['slot_name']} · 주옵 `{piece['main_stat']}` · 등급 `{piece['grade']}`) 획득!", piece
 
 
 def craft_hsr_relic_resin(
@@ -2358,78 +2367,81 @@ def craft_hsr_relic_resin(
 ) -> tuple[bool, str, dict | None]:
     """자가 변형 레진 1개 + 유물 잔해 100개로 세트·부위·주옵션 및 치명/속도 부옵션을 확정 주조합니다."""
     load_hsr_kr_db()
-    data = core.load_data()
-    u_data = ensure_hsr_user(data, guild_id, user_id)
-    if int(u_data.get("self_modeling_resin", 0)) < 1:
-        return False, f"🧪 **자가 변형 레진**이 부족합니다! (필요: `1개` / 보유: `{u_data.get('self_modeling_resin', 0)}개` · 유물 10개 분해 시 1개 획득)", None
-    if int(u_data.get("relic_remains", 0)) < 100:
-        return False, f"🧩 **유물 잔해**가 부족합니다! (필요: `100개` / 보유: `{u_data.get('relic_remains', 0)}개`)", None
+    with core._DATA_LOCK:
+        data = core.load_data()
+        u_data = ensure_hsr_user(data, guild_id, user_id)
+        if int(u_data.get("self_modeling_resin", 0)) < 1:
+            return False, f"🧪 **자가 변형 레진**이 부족합니다! (필요: `1개` / 보유: `{u_data.get('self_modeling_resin', 0)}개` · 유물 10개 분해 시 1개 획득)", None
+        if int(u_data.get("relic_remains", 0)) < 100:
+            return False, f"🧩 **유물 잔해**가 부족합니다! (필요: `100개` / 보유: `{u_data.get('relic_remains', 0)}개`)", None
 
-    r_set = get_hsr_relic_by_id(set_id) or (get_hsr_relics()[0] if get_hsr_relics() else None)
-    if not r_set:
-        return False, "선택한 유물 세트를 찾을 수 없습니다.", None
+        r_set = get_hsr_relic_by_id(set_id) or (get_hsr_relics()[0] if get_hsr_relics() else None)
+        if not r_set:
+            return False, "선택한 유물 세트를 찾을 수 없습니다.", None
 
-    u_data["self_modeling_resin"] = int(u_data.get("self_modeling_resin", 0)) - 1
-    u_data["relic_remains"] = int(u_data.get("relic_remains", 0)) - 100
+        u_data["self_modeling_resin"] = int(u_data.get("self_modeling_resin", 0)) - 1
+        u_data["relic_remains"] = int(u_data.get("relic_remains", 0)) - 100
 
-    rng = random.SystemRandom()
-    sched = get_hsr_time_schedule()
-    piece = _generate_hsr_relic_piece(r_set, 5, rng, sched=sched, forced_slot_code=slot_code, forced_main_stat=main_stat)
+        rng = random.SystemRandom()
+        sched = get_hsr_time_schedule()
+        piece = _generate_hsr_relic_piece(r_set, 5, rng, sched=sched, forced_slot_code=slot_code, forced_main_stat=main_stat)
 
-    subs = piece.get("substats") or []
-    sub_names = {s["name"] for s in subs}
-    for pref in ("치명타 확률", "치명타 피해", "속도"):
-        if pref != piece["main_stat"] and pref not in sub_names and len(subs) < 4:
-            s_def = next((x for x in HSR_RELIC_SUBSTATS if x[0] == pref), None)
-            if s_def:
-                subs.append({"name": pref, "value": s_def[1][-1], "unit": s_def[2], "rolls": 1})
-                sub_names.add(pref)
+        subs = piece.get("substats") or []
+        sub_names = {s["name"] for s in subs}
+        for pref in ("치명타 확률", "치명타 피해", "속도"):
+            if pref != piece["main_stat"] and pref not in sub_names and len(subs) < 4:
+                s_def = next((x for x in HSR_RELIC_SUBSTATS if x[0] == pref), None)
+                if s_def:
+                    subs.append({"name": pref, "value": s_def[1][-1], "unit": s_def[2], "rolls": 1})
+                    sub_names.add(pref)
 
-    cv, rv, grade = compute_hsr_relic_score(piece)
-    piece["cv"] = cv
-    piece["rv"] = rv
-    piece["grade"] = grade
-    piece["locked"] = True
+        cv, rv, grade = compute_hsr_relic_score(piece)
+        piece["cv"] = cv
+        piece["rv"] = rv
+        piece["grade"] = grade
+        piece["locked"] = True
 
-    now_iso = datetime.datetime.now(core.KST).isoformat()
-    _apply_hsr_item_to_account(u_data, piece, now_iso)
-    core.save_data(data)
-    return True, f"🧪 **자가 변형 레진 맞춤 주조 완료!** `★★★★★ {piece['name']}` ({piece['slot_emoji']}{piece['slot_name']} · 주옵 **`{piece['main_stat']}`** · 등급 **`{piece['grade']}`**)", piece
+        now_iso = datetime.datetime.now(core.KST).isoformat()
+        _apply_hsr_item_to_account(u_data, piece, now_iso)
+        core.save_data(data)
+        return True, f"🧪 **자가 변형 레진 맞춤 주조 완료!** `★★★★★ {piece['name']}` ({piece['slot_emoji']}{piece['slot_name']} · 주옵 **`{piece['main_stat']}`** · 등급 **`{piece['grade']}`**)", piece
 
 
 def toggle_hsr_item_lock(guild_id: int, user_id: int, item_key: str) -> tuple[bool, bool, dict | None]:
-    data = core.load_data()
-    u_data = ensure_hsr_user(data, guild_id, user_id)
-    target = u_data.get("items", {}).get(item_key)
-    if not target:
-        return False, False, None
-    new_val = not bool(target.get("locked", False))
-    target["locked"] = new_val
-    core.save_data(data)
-    return True, new_val, target
+    with core._DATA_LOCK:
+        data = core.load_data()
+        u_data = ensure_hsr_user(data, guild_id, user_id)
+        target = u_data.get("items", {}).get(item_key)
+        if not target:
+            return False, False, None
+        new_val = not bool(target.get("locked", False))
+        target["locked"] = new_val
+        core.save_data(data)
+        return True, new_val, target
 
 
 def claim_hsr_standard_300(guild_id: int, user_id: int, char_id: str) -> tuple[bool, str, dict]:
     """뭇별의 워프(상시 워프) 누적 300회 달성 보상: 상시 5성 캐릭터 7명 중 1명 확정 초대"""
     load_hsr_kr_db()
-    data = core.load_data()
-    u_data = ensure_hsr_user(data, guild_id, user_id)
-    std_pulls = int(u_data.get("standard_total_pulls", 0))
-    if std_pulls < 300:
-        return False, f"상시 워프 누적 횟수가 부족합니다! (`{std_pulls}/300회` · `{300 - std_pulls}회` 더 필요)", u_data
-    if u_data.get("standard_300_claimed"):
-        return False, "이미 상시 워프 300회 5성 선택 권리를 사용하셨습니다!", u_data
-    if char_id not in HSR_STD_5_CHARS:
-        return False, "상시 5성 캐릭터(히메코/웰트/브로냐/게파드/클라라/연경/백로)만 선택할 수 있습니다.", u_data
-    c_obj = HSR_ALL_ITEMS.get(f"char:{char_id}")
-    if not c_obj:
-        return False, "선택한 캐릭터 정보를 찾을 수 없습니다.", u_data
+    with core._DATA_LOCK:
+        data = core.load_data()
+        u_data = ensure_hsr_user(data, guild_id, user_id)
+        std_pulls = int(u_data.get("standard_total_pulls", 0))
+        if std_pulls < 300:
+            return False, f"상시 워프 누적 횟수가 부족합니다! (`{std_pulls}/300회` · `{300 - std_pulls}회` 더 필요)", u_data
+        if u_data.get("standard_300_claimed"):
+            return False, "이미 상시 워프 300회 5성 선택 권리를 사용하셨습니다!", u_data
+        if char_id not in HSR_STD_5_CHARS:
+            return False, "상시 5성 캐릭터(히메코/웰트/브로냐/게파드/클라라/연경/백로)만 선택할 수 있습니다.", u_data
+        c_obj = HSR_ALL_ITEMS.get(f"char:{char_id}")
+        if not c_obj:
+            return False, "선택한 캐릭터 정보를 찾을 수 없습니다.", u_data
 
-    now_iso = datetime.datetime.now(core.KST).isoformat()
-    u_data["standard_300_claimed"] = True
-    _apply_hsr_item_to_account(u_data, dict(c_obj), now_iso)
-    core.save_data(data)
-    return True, f"🎊 **상시 300회 특별 초대 완료!** `★★★★★ {c_obj['name']}` ({c_obj['element_emoji']}{c_obj['path_name']})님이 은하열차에 합류했습니다!", u_data
+        now_iso = datetime.datetime.now(core.KST).isoformat()
+        u_data["standard_300_claimed"] = True
+        _apply_hsr_item_to_account(u_data, dict(c_obj), now_iso)
+        core.save_data(data)
+        return True, f"🎊 **상시 300회 특별 초대 완료!** `★★★★★ {c_obj['name']}` ({c_obj['element_emoji']}{c_obj['path_name']})님이 은하열차에 합류했습니다!", u_data
 
 
 def get_hsr_shop_catalog() -> dict:
@@ -2462,158 +2474,160 @@ def get_hsr_shop_catalog() -> dict:
 def purchase_hsr_shop_item(guild_id: int, user_id: int, offer_id: str) -> tuple[bool, str, dict]:
     """별빛 / 불멸의 잔재 / 헤르타 채권 상점 구매"""
     load_hsr_kr_db()
-    data = core.load_data()
-    u_data = ensure_hsr_user(data, guild_id, user_id)
     cat = get_hsr_shop_catalog()
-    m_key = cat["month_key"]
-    monthly = u_data.setdefault("shop_monthly", {})
-    if monthly.get("month_key") != m_key:
-        monthly.clear()
-        monthly["month_key"] = m_key
-        monthly["embers_special_pass"] = 0
-        monthly["embers_standard_pass"] = 0
-        monthly["chars_bought"] = []
+    with core._DATA_LOCK:
+        data = core.load_data()
+        u_data = ensure_hsr_user(data, guild_id, user_id)
+        m_key = cat["month_key"]
+        monthly = u_data.setdefault("shop_monthly", {})
+        if monthly.get("month_key") != m_key:
+            monthly.clear()
+            monthly["month_key"] = m_key
+            monthly["embers_special_pass"] = 0
+            monthly["embers_standard_pass"] = 0
+            monthly["chars_bought"] = []
 
-    now_iso = datetime.datetime.now(core.KST).isoformat()
+        now_iso = datetime.datetime.now(core.KST).isoformat()
 
-    if offer_id.startswith("buy_char:"):
-        cid = offer_id.split(":", 1)[1]
-        c_obj = next((c for c in cat["chars"] if c["id"] == cid), None)
-        if not c_obj:
-            return False, "이번 달 별빛 교환 캐릭터가 아닙니다.", u_data
-        bought = monthly.setdefault("chars_bought", [])
-        if cid in bought:
-            return False, f"이번 달 **{c_obj['name']}** 교환 한도(월 1회)를 이미 사용했습니다.", u_data
-        if u_data["starlight"] < 140:
-            return False, f"꺼지지 않는 별빛이 부족합니다! (필요: `140` / 보유: `{u_data['starlight']}`)", u_data
-        u_data["starlight"] -= 140
-        bought.append(cid)
-        _apply_hsr_item_to_account(u_data, dict(c_obj), now_iso)
-        core.save_data(data)
-        return True, f"✨ **★★★★ {c_obj['name']}** 영입 완료! (`-140 꺼지지 않는 별빛`)", u_data
+        if offer_id.startswith("buy_char:"):
+            cid = offer_id.split(":", 1)[1]
+            c_obj = next((c for c in cat["chars"] if c["id"] == cid), None)
+            if not c_obj:
+                return False, "이번 달 별빛 교환 캐릭터가 아닙니다.", u_data
+            bought = monthly.setdefault("chars_bought", [])
+            if cid in bought:
+                return False, f"이번 달 **{c_obj['name']}** 교환 한도(월 1회)를 이미 사용했습니다.", u_data
+            if u_data["starlight"] < 140:
+                return False, f"꺼지지 않는 별빛이 부족합니다! (필요: `140` / 보유: `{u_data['starlight']}`)", u_data
+            u_data["starlight"] -= 140
+            bought.append(cid)
+            _apply_hsr_item_to_account(u_data, dict(c_obj), now_iso)
+            core.save_data(data)
+            return True, f"✨ **★★★★ {c_obj['name']}** 영입 완료! (`-140 꺼지지 않는 별빛`)", u_data
 
-    if offer_id.startswith("buy_5lc:"):
-        lid = offer_id.split(":", 1)[1]
-        l_obj = next((l for l in cat["std_5_lcs"] if l["id"] == lid), None)
-        if not l_obj:
-            return False, "별빛 상점 상시 5성 광추가 아닙니다.", u_data
-        if u_data["starlight"] < 600:
-            return False, f"꺼지지 않는 별빛이 부족합니다! (필요: `600` / 보유: `{u_data['starlight']}`)", u_data
-        u_data["starlight"] -= 600
-        _apply_hsr_item_to_account(u_data, dict(l_obj), now_iso)
-        core.save_data(data)
-        return True, f"🪩 **★★★★★ {l_obj['name']}** 광추 교환 완료! (`-600 꺼지지 않는 별빛`)", u_data
+        if offer_id.startswith("buy_5lc:"):
+            lid = offer_id.split(":", 1)[1]
+            l_obj = next((l for l in cat["std_5_lcs"] if l["id"] == lid), None)
+            if not l_obj:
+                return False, "별빛 상점 상시 5성 광추가 아닙니다.", u_data
+            if u_data["starlight"] < 600:
+                return False, f"꺼지지 않는 별빛이 부족합니다! (필요: `600` / 보유: `{u_data['starlight']}`)", u_data
+            u_data["starlight"] -= 600
+            _apply_hsr_item_to_account(u_data, dict(l_obj), now_iso)
+            core.save_data(data)
+            return True, f"🪩 **★★★★★ {l_obj['name']}** 광추 교환 완료! (`-600 꺼지지 않는 별빛`)", u_data
 
-    if offer_id.startswith("herta_lc:"):
-        lid = offer_id.split(":", 1)[1]
-        l_obj = next((l for l in cat["herta_lcs"] if l["id"] == lid), None)
-        if not l_obj:
-            return False, "헤르타 상점 5성 광추가 아닙니다.", u_data
-        if u_data["herta_bond"] < 8:
-            return False, f"헤르타 채권이 부족합니다! (필요: `8` / 보유: `{u_data['herta_bond']}`)", u_data
-        u_data["herta_bond"] -= 8
-        _apply_hsr_item_to_account(u_data, dict(l_obj), now_iso)
-        core.save_data(data)
-        return True, f"🧪 **헤르타 상점 ★★★★★ {l_obj['name']}** 교환 완료! (`-8 헤르타 채권`)", u_data
+        if offer_id.startswith("herta_lc:"):
+            lid = offer_id.split(":", 1)[1]
+            l_obj = next((l for l in cat["herta_lcs"] if l["id"] == lid), None)
+            if not l_obj:
+                return False, "헤르타 상점 5성 광추가 아닙니다.", u_data
+            if u_data["herta_bond"] < 8:
+                return False, f"헤르타 채권이 부족합니다! (필요: `8` / 보유: `{u_data['herta_bond']}`)", u_data
+            u_data["herta_bond"] -= 8
+            _apply_hsr_item_to_account(u_data, dict(l_obj), now_iso)
+            core.save_data(data)
+            return True, f"🧪 **헤르타 상점 ★★★★★ {l_obj['name']}** 교환 완료! (`-8 헤르타 채권`)", u_data
 
-    if offer_id == "herta_superimposer":
-        owned_herta = [
-            it for it in u_data.get("items", {}).values()
-            if it.get("kind") == "lc" and str(it.get("id", "")).startswith(HSR_HERTA_LC_PREFIX) and int(it.get("superimposition", 1)) < 5
-        ]
-        if not owned_herta:
-            return False, "중첩 가능한 S5 미만 헤르타 5성 광추를 보유하고 있지 않습니다.", u_data
-        if u_data["herta_bond"] < 2:
-            return False, f"헤르타 채권이 부족합니다! (필요: `2` / 보유: `{u_data['herta_bond']}`)", u_data
-        owned_herta.sort(key=lambda x: int(x.get("superimposition", 1)))
-        target = owned_herta[0]
-        u_data["herta_bond"] -= 2
-        old_s = int(target.get("superimposition", 1))
-        target["superimposition"] = min(5, old_s + 1)
-        core.save_data(data)
-        return True, f"🔧 **중첩기(특제)** 적용! `{target['name']}` 중첩 **`S{old_s} ➔ S{target['superimposition']}`** (`-2 헤르타 채권`)", u_data
+        if offer_id == "herta_superimposer":
+            owned_herta = [
+                it for it in u_data.get("items", {}).values()
+                if it.get("kind") == "lc" and str(it.get("id", "")).startswith(HSR_HERTA_LC_PREFIX) and int(it.get("superimposition", 1)) < 5
+            ]
+            if not owned_herta:
+                return False, "중첩 가능한 S5 미만 헤르타 5성 광추를 보유하고 있지 않습니다.", u_data
+            if u_data["herta_bond"] < 2:
+                return False, f"헤르타 채권이 부족합니다! (필요: `2` / 보유: `{u_data['herta_bond']}`)", u_data
+            owned_herta.sort(key=lambda x: int(x.get("superimposition", 1)))
+            target = owned_herta[0]
+            u_data["herta_bond"] -= 2
+            old_s = int(target.get("superimposition", 1))
+            target["superimposition"] = min(5, old_s + 1)
+            core.save_data(data)
+            return True, f"🔧 **중첩기(특제)** 적용! `{target['name']}` 중첩 **`S{old_s} ➔ S{target['superimposition']}`** (`-2 헤르타 채권`)", u_data
 
-    if offer_id.startswith("manifest_lc:"):
-        lid = offer_id.split(":", 1)[1]
-        l_obj = next((l for l in cat["special_4_lcs"] if l["id"] == lid), None)
-        if not l_obj:
-            return False, "잔재/광추 박물 교환 대상이 아닙니다.", u_data
-        if u_data["embers"] < 160:
-            return False, f"불멸의 잔재가 부족합니다! (필요: `160` / 보유: `{u_data['embers']}`)", u_data
-        u_data["embers"] -= 160
-        _apply_hsr_item_to_account(u_data, dict(l_obj), now_iso)
-        core.save_data(data)
-        return True, f"🪩 **★★★★ {l_obj['name']}** 교환 완료! (`-160 불멸의 잔재`)", u_data
+        if offer_id.startswith("manifest_lc:"):
+            lid = offer_id.split(":", 1)[1]
+            l_obj = next((l for l in cat["special_4_lcs"] if l["id"] == lid), None)
+            if not l_obj:
+                return False, "잔재/광추 박물 교환 대상이 아닙니다.", u_data
+            if u_data["embers"] < 160:
+                return False, f"불멸의 잔재가 부족합니다! (필요: `160` / 보유: `{u_data['embers']}`)", u_data
+            u_data["embers"] -= 160
+            _apply_hsr_item_to_account(u_data, dict(l_obj), now_iso)
+            core.save_data(data)
+            return True, f"🪩 **★★★★ {l_obj['name']}** 교환 완료! (`-160 불멸의 잔재`)", u_data
 
-    if offer_id == "sl_special_pass":
-        if u_data["starlight"] < 20:
-            return False, f"꺼지지 않는 별빛이 부족합니다! (필요: `20` / 보유: `{u_data['starlight']}`)", u_data
-        u_data["starlight"] -= 20
-        u_data["special_pass"] = int(u_data.get("special_pass", 0)) + 1
-        core.save_data(data)
-        return True, "🎫 **별의 궤도 전용티켓 ×1** 교환 완료! (`-20 별빛`)", u_data
+        if offer_id == "sl_special_pass":
+            if u_data["starlight"] < 20:
+                return False, f"꺼지지 않는 별빛이 부족합니다! (필요: `20` / 보유: `{u_data['starlight']}`)", u_data
+            u_data["starlight"] -= 20
+            u_data["special_pass"] = int(u_data.get("special_pass", 0)) + 1
+            core.save_data(data)
+            return True, "🎫 **별의 궤도 전용티켓 ×1** 교환 완료! (`-20 별빛`)", u_data
 
-    if offer_id == "sl_standard_pass":
-        if u_data["starlight"] < 20:
-            return False, f"꺼지지 않는 별빛이 부족합니다! (필요: `20` / 보유: `{u_data['starlight']}`)", u_data
-        u_data["starlight"] -= 20
-        u_data["standard_pass"] = int(u_data.get("standard_pass", 0)) + 1
-        core.save_data(data)
-        return True, "🎟️ **별의 궤도 티켓 ×1** 교환 완료! (`-20 별빛`)", u_data
+        if offer_id == "sl_standard_pass":
+            if u_data["starlight"] < 20:
+                return False, f"꺼지지 않는 별빛이 부족합니다! (필요: `20` / 보유: `{u_data['starlight']}`)", u_data
+            u_data["starlight"] -= 20
+            u_data["standard_pass"] = int(u_data.get("standard_pass", 0)) + 1
+            core.save_data(data)
+            return True, "🎟️ **별의 궤도 티켓 ×1** 교환 완료! (`-20 별빛`)", u_data
 
-    if offer_id == "embers_special_pass":
-        used = int(monthly.get("embers_special_pass", 0))
-        if used >= 5:
-            return False, "이달의 불멸의 잔재 전용티켓 교환 한도(5/5회)를 모두 사용했습니다.", u_data
-        if u_data["embers"] < 90:
-            return False, f"불멸의 잔재가 부족합니다! (필요: `90` / 보유: `{u_data['embers']}`)", u_data
-        u_data["embers"] -= 90
-        monthly["embers_special_pass"] = used + 1
-        u_data["special_pass"] = int(u_data.get("special_pass", 0)) + 1
-        core.save_data(data)
-        return True, f"🎫 **별의 궤도 전용티켓 ×1** 교환 완료! (`-90 불멸의 잔재` · 이달 `{used + 1}/5회`)", u_data
+        if offer_id == "embers_special_pass":
+            used = int(monthly.get("embers_special_pass", 0))
+            if used >= 5:
+                return False, "이달의 불멸의 잔재 전용티켓 교환 한도(5/5회)를 모두 사용했습니다.", u_data
+            if u_data["embers"] < 90:
+                return False, f"불멸의 잔재가 부족합니다! (필요: `90` / 보유: `{u_data['embers']}`)", u_data
+            u_data["embers"] -= 90
+            monthly["embers_special_pass"] = used + 1
+            u_data["special_pass"] = int(u_data.get("special_pass", 0)) + 1
+            core.save_data(data)
+            return True, f"🎫 **별의 궤도 전용티켓 ×1** 교환 완료! (`-90 불멸의 잔재` · 이달 `{used + 1}/5회`)", u_data
 
-    if offer_id == "embers_standard_pass":
-        used = int(monthly.get("embers_standard_pass", 0))
-        if used >= 5:
-            return False, "이달의 불멸의 잔재 상시 티켓 교환 한도(5/5회)를 모두 사용했습니다.", u_data
-        if u_data["embers"] < 90:
-            return False, f"불멸의 잔재가 부족합니다! (필요: `90` / 보유: `{u_data['embers']}`)", u_data
-        u_data["embers"] -= 90
-        monthly["embers_standard_pass"] = used + 1
-        u_data["standard_pass"] = int(u_data.get("standard_pass", 0)) + 1
-        core.save_data(data)
-        return True, f"🎟️ **별의 궤도 티켓 ×1** 교환 완료! (`-90 불멸의 잔재` · 이달 `{used + 1}/5회`)", u_data
+        if offer_id == "embers_standard_pass":
+            used = int(monthly.get("embers_standard_pass", 0))
+            if used >= 5:
+                return False, "이달의 불멸의 잔재 상시 티켓 교환 한도(5/5회)를 모두 사용했습니다.", u_data
+            if u_data["embers"] < 90:
+                return False, f"불멸의 잔재가 부족합니다! (필요: `90` / 보유: `{u_data['embers']}`)", u_data
+            u_data["embers"] -= 90
+            monthly["embers_standard_pass"] = used + 1
+            u_data["standard_pass"] = int(u_data.get("standard_pass", 0)) + 1
+            core.save_data(data)
+            return True, f"🎟️ **별의 궤도 티켓 ×1** 교환 완료! (`-90 불멸의 잔재` · 이달 `{used + 1}/5회`)", u_data
 
-    if offer_id == "embers_traveler_guide":
-        if u_data["embers"] < 60:
-            return False, f"불멸의 잔재가 부족합니다! (필요: `60` / 보유: `{u_data['embers']}`)", u_data
-        u_data["embers"] -= 60
-        u_data["traveler_guide"] = int(u_data.get("traveler_guide", 0)) + 5
-        core.save_data(data)
-        return True, f"📘 **여행 가이드 ×5** 구매 완료! (보유: `{u_data['traveler_guide']}권`)", u_data
+        if offer_id == "embers_traveler_guide":
+            if u_data["embers"] < 60:
+                return False, f"불멸의 잔재가 부족합니다! (필요: `60` / 보유: `{u_data['embers']}`)", u_data
+            u_data["embers"] -= 60
+            u_data["traveler_guide"] = int(u_data.get("traveler_guide", 0)) + 5
+            core.save_data(data)
+            return True, f"📘 **여행 가이드 ×5** 구매 완료! (보유: `{u_data['traveler_guide']}권`)", u_data
 
-    return False, "알 수 없는 상점 상품입니다.", u_data
+        return False, "알 수 없는 상점 상품입니다.", u_data
 
 
 def levelup_hsr_char(guild_id: int, user_id: int, item_key: str) -> tuple[bool, str, dict]:
     """여행 가이드 ×2권을 소모해 보유 캐릭터 레벨을 Lv.1 -> Lv.80까지 육성합니다."""
-    data = core.load_data()
-    u_data = ensure_hsr_user(data, guild_id, user_id)
-    c = u_data.get("items", {}).get(item_key)
-    if not c or c.get("kind") != "char":
-        return False, "보유 중인 캐릭터를 찾을 수 없습니다.", u_data
-    cur_lv = int(c.get("level", 1))
-    if cur_lv >= 80:
-        return False, f"**{c['name']}** 캐릭터는 이미 최고 레벨(`Lv.80`)입니다!", u_data
-    guides = int(u_data.get("traveler_guide", 0))
-    if guides < 2:
-        return False, f"📘 **여행 가이드**가 부족합니다! (`/스타레일 상점`에서 불멸의 잔재 60으로 5권 구매 · 보유 `{guides}권`)", u_data
-    u_data["traveler_guide"] = guides - 2
-    new_lv = min(80, cur_lv + 10)
-    c["level"] = new_lv
-    core.save_data(data)
-    return True, f"⬆️ **{c['name']}** 승급·육성 완료! `Lv.{cur_lv}` ➔ **`Lv.{new_lv}`** (`-2 여행 가이드`)", u_data
+    with core._DATA_LOCK:
+        data = core.load_data()
+        u_data = ensure_hsr_user(data, guild_id, user_id)
+        c = u_data.get("items", {}).get(item_key)
+        if not c or c.get("kind") != "char":
+            return False, "보유 중인 캐릭터를 찾을 수 없습니다.", u_data
+        cur_lv = int(c.get("level", 1))
+        if cur_lv >= 80:
+            return False, f"**{c['name']}** 캐릭터는 이미 최고 레벨(`Lv.80`)입니다!", u_data
+        guides = int(u_data.get("traveler_guide", 0))
+        if guides < 2:
+            return False, f"📘 **여행 가이드**가 부족합니다! (`/스타레일 상점`에서 불멸의 잔재 60으로 5권 구매 · 보유 `{guides}권`)", u_data
+        u_data["traveler_guide"] = guides - 2
+        new_lv = min(80, cur_lv + 10)
+        c["level"] = new_lv
+        core.save_data(data)
+        return True, f"⬆️ **{c['name']}** 승급·육성 완료! `Lv.{cur_lv}` ➔ **`Lv.{new_lv}`** (`-2 여행 가이드`)", u_data
 
 
 def compute_hsr_char_power(char_obj: dict) -> int:
@@ -2758,6 +2772,7 @@ def apply_hsr_pickup_preset(preset_key: str) -> tuple[bool, str, dict]:
             return False, "알 수 없는 프리셋입니다.", resolve_effective_hsr_pickup(data.get("hsr_pickup"))
 
         cfg = {
+            "mode": "preset",
             "char1": preset.get("char1"),
             "char2": preset.get("char2"),
             "char_4_ids": list(preset.get("char_4_ids") or []),

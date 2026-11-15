@@ -188,16 +188,19 @@ class TitleShopSelect(discord.ui.Select):
 
 
 class TitleStudioView(core.SafeView):
-    def __init__(self, user: Optional[discord.abc.User] = None, guild_id: int = 0):
+    def __init__(self, user: Optional[discord.abc.User] = None, guild_id: int = 0, stats: Optional[Dict[str, Any]] = None):
         super().__init__(timeout=300)
         self.user = user
         self.guild_id = int(guild_id or 0)
         self.status_msg = ""
-        self.stats: Dict[str, Any] = economy_core.get_title_shop_state(
-            self.guild_id,
-            user.id if user else 0,
-            user.display_name if user else "유저",
-        )
+        if stats is not None:
+            self.stats: Dict[str, Any] = stats
+        else:
+            self.stats = economy_core.get_title_shop_state(
+                self.guild_id,
+                user.id if user else 0,
+                user.display_name if user else "유저",
+            )
         self._rebuild()
 
     async def refresh(self):
@@ -268,7 +271,7 @@ class LotteryPickModal(core.SafeModal, title="🎟️ 로또 번호 직접 선�
                 return
             picks.append(int(t))
 
-        await core.safe_defer(interaction, ephemeral=True)
+        await core.safe_defer(interaction, ephemeral=True, thinking=True)
         ok, msg, _ = await asyncio.to_thread(
             economy_core.buy_lottery_tickets,
             interaction.user.id,
@@ -288,14 +291,14 @@ class LotteryPickModal(core.SafeModal, title="🎟️ 로또 번호 직접 선�
 
 
 class LotteryStudioView(core.SafeView):
-    def __init__(self, user: Optional[discord.abc.User] = None, guild: Optional[discord.Guild] = None):
+    def __init__(self, user: Optional[discord.abc.User] = None, guild: Optional[discord.Guild] = None, overview: Optional[Dict[str, Any]] = None):
         super().__init__(timeout=300)
         self.user = user
         self.guild = guild
         self.guild_id = guild.id if guild else 0
         self.status_msg = ""
         uid = user.id if user else 0
-        self.overview: Dict[str, Any] = economy_core.get_lottery_overview(uid)
+        self.overview: Dict[str, Any] = overview if overview is not None else economy_core.get_lottery_overview(uid)
 
     async def refresh(self):
         uid = self.user.id if self.user else 0
@@ -351,6 +354,8 @@ class LotteryStudioView(core.SafeView):
         return embed
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
@@ -429,12 +434,12 @@ class LotteryStudioView(core.SafeView):
 # 3. 통합 자산 랭킹 뷰
 # ==========================================
 class EconomyLeaderboardView(core.SafeView):
-    def __init__(self, user: Optional[discord.abc.User] = None, guild_id: int = 0, mode: str = "net_worth"):
+    def __init__(self, user: Optional[discord.abc.User] = None, guild_id: int = 0, mode: str = "net_worth", lb: Optional[Dict[str, Any]] = None):
         super().__init__(timeout=300)
         self.user = user
         self.guild_id = int(guild_id or 0)
         self.mode = mode
-        self.lb = economy_core.get_economy_leaderboard(self.guild_id)
+        self.lb = lb if lb is not None else economy_core.get_economy_leaderboard(self.guild_id)
 
     def build_embed(self) -> discord.Embed:
         medals = ["🥇", "🥈", "🥉"]
@@ -509,7 +514,8 @@ class ProfileCardStandaloneCog(commands.Cog):
 
     @commands.command(name="복권", aliases=["로또", "lottery"])
     async def prefix_lottery(self, ctx: commands.Context):
-        view = LotteryStudioView(ctx.author, ctx.guild)
+        overview = await asyncio.to_thread(economy_core.get_lottery_overview, ctx.author.id)
+        view = LotteryStudioView(ctx.author, ctx.guild, overview=overview)
         msg = await ctx.send(embed=view.build_embed(), view=view)
         view.message = msg
 
@@ -558,21 +564,30 @@ class EconomyGroupCog(commands.GroupCog, name="경제", description="💳 통합
     @app_commands.command(name="칭호", description="🏷️ 칭호 상점 및 업적 자동 해금 배지 쇼케이스를 엽니다.")
     async def eco_titles(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
-        view = await asyncio.to_thread(TitleStudioView, interaction.user, interaction.guild_id or 0)
+        stats = await asyncio.to_thread(
+            economy_core.get_title_shop_state,
+            interaction.guild_id or 0,
+            interaction.user.id,
+            interaction.user.display_name,
+        )
+        view = TitleStudioView(interaction.user, interaction.guild_id or 0, stats=stats)
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         view.message = msg
 
     @app_commands.command(name="복권", description="🎟️ 매주 일요일 21:00 추첨 주간 로또 복권 구매 및 상금 풀 확인")
     async def eco_lottery(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
-        view = await asyncio.to_thread(LotteryStudioView, interaction.user, interaction.guild)
+        overview = await asyncio.to_thread(economy_core.get_lottery_overview, interaction.user.id)
+        view = LotteryStudioView(interaction.user, interaction.guild, overview=overview)
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         view.message = msg
 
     @app_commands.command(name="랭킹", description="🏦 서버 크리스탈 · 낚시 골드 · 통합 순자산 랭킹을 확인합니다.")
     async def eco_ranking(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
-        view = await asyncio.to_thread(EconomyLeaderboardView, interaction.user, interaction.guild_id or 0, "net_worth")
+        guild_id = interaction.guild_id or 0
+        lb = await asyncio.to_thread(economy_core.get_economy_leaderboard, guild_id)
+        view = EconomyLeaderboardView(interaction.user, guild_id, "net_worth", lb=lb)
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         view.message = msg
 

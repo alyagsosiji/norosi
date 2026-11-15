@@ -430,7 +430,7 @@ class TicketCreateModal(core.SafeModal, title="📩 1:1 비공개 문의 티켓 
             await core.safe_send_response(interaction, "❌ 서버 채널에서만 티켓을 열 수 있습니다.", ephemeral=True)
             return
 
-        await core.safe_defer(interaction, ephemeral=True)
+        await core.safe_defer(interaction, ephemeral=True, thinking=True)
         allowed, err_msg, cfg = await asyncio.to_thread(
             ticket_core.can_open_ticket, guild.id, interaction.user.id
         )
@@ -570,7 +570,7 @@ class TicketMemberModal(core.SafeModal, title="👥 티켓에 멤버 초대"):
             await core.safe_send_response(interaction, f"❌ 서버에서 유저 ID `{target_id}`를 찾을 수 없습니다.", ephemeral=True)
             return
 
-        await core.safe_defer(interaction, ephemeral=True)
+        await core.safe_defer(interaction, ephemeral=True, thinking=True)
         ok, msg = await asyncio.to_thread(ticket_core.add_ticket_member, guild.id, channel.id, member.id)
         if not ok:
             await interaction.followup.send(msg, ephemeral=True)
@@ -744,6 +744,8 @@ class TicketConfigRoleView(core.SafeView):
         self.author_id = int(author_id or 0)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
         if self.author_id and interaction.user.id != self.author_id:
             await core.safe_send_response(interaction, "❌ `/티켓 설정`을 호출한 관리자만 조작할 수 있습니다.", ephemeral=True)
             return False

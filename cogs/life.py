@@ -118,12 +118,12 @@ class FarmPlantSelect(discord.ui.Select):
 
 
 class FarmView(core.SafeView):
-    def __init__(self, user: Optional[discord.abc.User] = None, guild_id: int = 0):
+    def __init__(self, user: Optional[discord.abc.User] = None, guild_id: int = 0, overview: Optional[Dict[str, Any]] = None):
         super().__init__(timeout=300)
         self.user = user
         self.guild_id = int(guild_id or 0)
         self.status_msg = ""
-        self.overview: Dict[str, Any] = life_core.get_life_overview(
+        self.overview: Dict[str, Any] = overview if overview is not None else life_core.get_life_overview(
             self.guild_id, user.id if user else 0, user.display_name if user else "주민"
         )
         self._rebuild()
@@ -154,6 +154,8 @@ class FarmView(core.SafeView):
             self.add_item(btn)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction, f"❌ 이 농장은 **{self.user.display_name}**님의 농장입니다. `/생활 농장`으로 열어주세요!", ephemeral=True
@@ -259,13 +261,18 @@ class FarmView(core.SafeView):
 # 2. 서버 공동 농장 View
 # ==========================================
 class CommunityFarmView(core.SafeView):
-    def __init__(self, user: Optional[discord.abc.User] = None, guild: Optional[discord.Guild] = None):
+    def __init__(
+        self,
+        user: Optional[discord.abc.User] = None,
+        guild: Optional[discord.Guild] = None,
+        overview: Optional[Dict[str, Any]] = None,
+    ):
         super().__init__(timeout=300)
         self.user = user
         self.guild = guild
         self.guild_id = guild.id if guild else 0
         self.status_msg = ""
-        self.overview: Dict[str, Any] = life_core.get_life_overview(
+        self.overview: Dict[str, Any] = overview if overview is not None else life_core.get_life_overview(
             self.guild_id, user.id if user else 0, user.display_name if user else "주민"
         )
 
@@ -416,12 +423,17 @@ class PetSelect(discord.ui.Select):
 
 
 class PetCareView(core.SafeView):
-    def __init__(self, user: Optional[discord.abc.User] = None, guild_id: int = 0):
+    def __init__(
+        self,
+        user: Optional[discord.abc.User] = None,
+        guild_id: int = 0,
+        overview: Optional[Dict[str, Any]] = None,
+    ):
         super().__init__(timeout=300)
         self.user = user
         self.guild_id = int(guild_id or 0)
         self.status_msg = ""
-        self.overview: Dict[str, Any] = life_core.get_life_overview(
+        self.overview: Dict[str, Any] = overview if overview is not None else life_core.get_life_overview(
             self.guild_id, user.id if user else 0, user.display_name if user else "주민"
         )
         self._rebuild()
@@ -450,6 +462,8 @@ class PetCareView(core.SafeView):
             self.add_item(b)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인 펫만 관리할 수 있습니다. `/생활 펫`으로 열어주세요!", ephemeral=True)
             return False
@@ -618,12 +632,17 @@ class EatDishSelect(discord.ui.Select):
 
 
 class CookingView(core.SafeView):
-    def __init__(self, user: Optional[discord.abc.User] = None, guild_id: int = 0):
+    def __init__(
+        self,
+        user: Optional[discord.abc.User] = None,
+        guild_id: int = 0,
+        overview: Optional[Dict[str, Any]] = None,
+    ):
         super().__init__(timeout=300)
         self.user = user
         self.guild_id = int(guild_id or 0)
         self.status_msg = ""
-        self.overview: Dict[str, Any] = life_core.get_life_overview(
+        self.overview: Dict[str, Any] = overview if overview is not None else life_core.get_life_overview(
             self.guild_id, user.id if user else 0, user.display_name if user else "주민"
         )
         self._rebuild()
@@ -644,6 +663,8 @@ class CookingView(core.SafeView):
         self.add_item(btn_ref)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인 주방만 이용할 수 있습니다. `/생활 요리`로 열어주세요!", ephemeral=True)
             return False
@@ -698,12 +719,17 @@ class CookingView(core.SafeView):
 # 5. 생활 통합 대시보드 View
 # ==========================================
 class LifeDashboardView(core.SafeView):
-    def __init__(self, user: Optional[discord.abc.User] = None, guild: Optional[discord.Guild] = None):
+    def __init__(
+        self,
+        user: Optional[discord.abc.User] = None,
+        guild: Optional[discord.Guild] = None,
+        overview: Optional[Dict[str, Any]] = None,
+    ):
         super().__init__(timeout=300)
         self.user = user
         self.guild = guild
         self.guild_id = guild.id if guild else 0
-        self.overview: Dict[str, Any] = life_core.get_life_overview(
+        self.overview: Dict[str, Any] = overview if overview is not None else life_core.get_life_overview(
             self.guild_id, user.id if user else 0, user.display_name if user else "주민"
         )
 
@@ -741,28 +767,41 @@ class LifeDashboardView(core.SafeView):
     @discord.ui.button(label="🌾 개인 농장", style=discord.ButtonStyle.success, row=0)
     async def btn_farm(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
-        v = await asyncio.to_thread(FarmView, interaction.user, self.guild_id)
+        ov = await asyncio.to_thread(
+            life_core.get_life_overview, self.guild_id, interaction.user.id, interaction.user.display_name
+        )
+        v = FarmView(interaction.user, self.guild_id, overview=ov)
         msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
         v.message = msg
 
     @discord.ui.button(label="🤝 서버 공동농장", style=discord.ButtonStyle.primary, row=0)
     async def btn_gfarm(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
-        v = await asyncio.to_thread(CommunityFarmView, interaction.user, interaction.guild)
+        gid = interaction.guild.id if interaction.guild else self.guild_id
+        ov = await asyncio.to_thread(
+            life_core.get_life_overview, gid, interaction.user.id, interaction.user.display_name
+        )
+        v = CommunityFarmView(interaction.user, interaction.guild, overview=ov)
         msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
         v.message = msg
 
     @discord.ui.button(label="🐾 펫 키우기", style=discord.ButtonStyle.primary, row=0)
     async def btn_pet(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
-        v = await asyncio.to_thread(PetCareView, interaction.user, self.guild_id)
+        ov = await asyncio.to_thread(
+            life_core.get_life_overview, self.guild_id, interaction.user.id, interaction.user.display_name
+        )
+        v = PetCareView(interaction.user, self.guild_id, overview=ov)
         msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
         v.message = msg
 
     @discord.ui.button(label="🍳 생선 요리 & 버프", style=discord.ButtonStyle.secondary, row=0)
     async def btn_cook(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
-        v = await asyncio.to_thread(CookingView, interaction.user, self.guild_id)
+        ov = await asyncio.to_thread(
+            life_core.get_life_overview, self.guild_id, interaction.user.id, interaction.user.display_name
+        )
+        v = CookingView(interaction.user, self.guild_id, overview=ov)
         msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
         v.message = msg
 
@@ -777,35 +816,53 @@ class LifeGroupCog(commands.GroupCog, name="생활", description="🌾 개인 �
     @app_commands.command(name="대시보드", description="🌿 농장 · 공동농장 · 펫 · 요리 통합 생활 현황판을 엽니다.")
     async def life_dashboard(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
-        view = await asyncio.to_thread(LifeDashboardView, interaction.user, interaction.guild)
+        ov = await asyncio.to_thread(
+            life_core.get_life_overview, interaction.guild_id or 0, interaction.user.id, interaction.user.display_name
+        )
+        view = LifeDashboardView(interaction.user, interaction.guild, overview=ov)
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         view.message = msg
 
     @app_commands.command(name="농장", description="🌾 나만의 개인 밭에 씨앗을 심고 물주기·비료·수확·판매를 진행합니다.")
     async def life_farm(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
-        view = await asyncio.to_thread(FarmView, interaction.user, interaction.guild_id or 0)
+        gid = interaction.guild_id or 0
+        ov = await asyncio.to_thread(
+            life_core.get_life_overview, gid, interaction.user.id, interaction.user.display_name
+        )
+        view = FarmView(interaction.user, gid, overview=ov)
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         view.message = msg
 
     @app_commands.command(name="공동농장", description="🤝 서버 전체 유저와 함께 가꾸는 서버 공동 농장(Lv.1~10 · 일일 배당 · 공용 버프)을 엽니다.")
     async def life_guild_farm(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
-        view = await asyncio.to_thread(CommunityFarmView, interaction.user, interaction.guild)
+        ov = await asyncio.to_thread(
+            life_core.get_life_overview, interaction.guild_id or 0, interaction.user.id, interaction.user.display_name
+        )
+        view = CommunityFarmView(interaction.user, interaction.guild, overview=ov)
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         view.message = msg
 
     @app_commands.command(name="펫", description="🐾 6종의 귀여운 펫을 입양·육성하고 낚시 및 출석체크 패시브 버프를 받습니다.")
     async def life_pet(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
-        view = await asyncio.to_thread(PetCareView, interaction.user, interaction.guild_id or 0)
+        gid = interaction.guild_id or 0
+        ov = await asyncio.to_thread(
+            life_core.get_life_overview, gid, interaction.user.id, interaction.user.display_name
+        )
+        view = PetCareView(interaction.user, gid, overview=ov)
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         view.message = msg
 
     @app_commands.command(name="요리", description="🍳 미잠금 ★1~2 물고기와 농작물로 요리를 만들어 낚시/출석 버프를 얻습니다.")
     async def life_cook(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
-        view = await asyncio.to_thread(CookingView, interaction.user, interaction.guild_id or 0)
+        gid = interaction.guild_id or 0
+        ov = await asyncio.to_thread(
+            life_core.get_life_overview, gid, interaction.user.id, interaction.user.display_name
+        )
+        view = CookingView(interaction.user, gid, overview=ov)
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         view.message = msg
 
@@ -839,25 +896,33 @@ class LifeStandaloneCog(commands.Cog):
 
     @commands.command(name="농장", aliases=["farm"])
     async def prefix_farm(self, ctx: commands.Context):
-        v = await asyncio.to_thread(FarmView, ctx.author, ctx.guild.id if ctx.guild else 0)
+        gid = ctx.guild.id if ctx.guild else 0
+        ov = await asyncio.to_thread(life_core.get_life_overview, gid, ctx.author.id, ctx.author.display_name)
+        v = FarmView(ctx.author, gid, overview=ov)
         msg = await ctx.send(embed=v.build_embed(), view=v)
         v.message = msg
 
     @commands.command(name="공동농장", aliases=["길드농장", "communityfarm"])
     async def prefix_community_farm(self, ctx: commands.Context):
-        v = await asyncio.to_thread(CommunityFarmView, ctx.author, ctx.guild)
+        gid = ctx.guild.id if ctx.guild else 0
+        ov = await asyncio.to_thread(life_core.get_life_overview, gid, ctx.author.id, ctx.author.display_name)
+        v = CommunityFarmView(ctx.author, ctx.guild, overview=ov)
         msg = await ctx.send(embed=v.build_embed(), view=v)
         v.message = msg
 
     @commands.command(name="펫", aliases=["pet"])
     async def prefix_pet(self, ctx: commands.Context):
-        v = await asyncio.to_thread(PetCareView, ctx.author, ctx.guild.id if ctx.guild else 0)
+        gid = ctx.guild.id if ctx.guild else 0
+        ov = await asyncio.to_thread(life_core.get_life_overview, gid, ctx.author.id, ctx.author.display_name)
+        v = PetCareView(ctx.author, gid, overview=ov)
         msg = await ctx.send(embed=v.build_embed(), view=v)
         v.message = msg
 
     @commands.command(name="요리", aliases=["cook", "버프"])
     async def prefix_cook(self, ctx: commands.Context):
-        v = await asyncio.to_thread(CookingView, ctx.author, ctx.guild.id if ctx.guild else 0)
+        gid = ctx.guild.id if ctx.guild else 0
+        ov = await asyncio.to_thread(life_core.get_life_overview, gid, ctx.author.id, ctx.author.display_name)
+        v = CookingView(ctx.author, gid, overview=ov)
         msg = await ctx.send(embed=v.build_embed(), view=v)
         v.message = msg
 

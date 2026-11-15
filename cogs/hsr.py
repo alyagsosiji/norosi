@@ -147,7 +147,7 @@ def _build_hsr_result_embed(result: dict, user: discord.abc.User | None) -> tupl
     elif banner_key == "relic":
         rel_cnt = len(u_state.get("relics") or [])
         pity_line = (
-            f"• **터널 천장 스택:** `{u_state.get('pity_relic', 0)}/5` (매 5회 ★5 확정) · "
+            f"• **터널 천장 스택:** `{u_state.get('pity_relic', 0)}/10` (10회 내 ★5 확정) · "
             f"보유 유물 `{rel_cnt}/250` · 🧩 유물 잔해 `{u_state.get('relic_remains', 0):,}` · 🧪 레진 `{u_state.get('self_modeling_resin', 0)}`"
         )
     else:
@@ -1140,10 +1140,17 @@ class HSRPartyView(core.SafeView):
         if not await self._guard(interaction):
             return
         gid = self.guild_id or interaction.guild_id or 0
-        data = core.load_data()
-        u_data = hsr_core.ensure_hsr_user(data, gid, interaction.user.id)
-        u_data["party"] = list(interaction.data["values"])[:4]
-        core.save_data(data)
+        self.guild_id = gid
+        picked = list(interaction.data["values"])[:4]
+
+        def _save():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                u_data = hsr_core.ensure_hsr_user(data, gid, interaction.user.id)
+                u_data["party"] = picked
+                core.save_data(data)
+
+        await asyncio.to_thread(_save)
         self._build()
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
@@ -1151,23 +1158,29 @@ class HSRPartyView(core.SafeView):
         if not await self._guard(interaction):
             return
         gid = self.guild_id or interaction.guild_id or 0
-        data = core.load_data()
-        u_data = hsr_core.ensure_hsr_user(data, gid, interaction.user.id)
-        chars = [v for v in u_data.get("items", {}).values() if isinstance(v, dict) and v.get("kind") == "char"]
-        chars.sort(key=lambda c: -hsr_core.compute_hsr_char_power(c))
-        # 역할(딜러+서폿+생존) 우선 배치
-        chosen = []
-        for tag in ("dps", "sup", "sus"):
-            cand = next((c for c in chars if (c.get("role_tag") == tag) and c["item_key"] not in chosen), None)
-            if cand:
-                chosen.append(cand["item_key"])
-        for c in chars:
-            if len(chosen) >= 4:
-                break
-            if c["item_key"] not in chosen:
-                chosen.append(c["item_key"])
-        u_data["party"] = chosen[:4]
-        core.save_data(data)
+        self.guild_id = gid
+
+        def _save():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                u_data = hsr_core.ensure_hsr_user(data, gid, interaction.user.id)
+                chars = [v for v in u_data.get("items", {}).values() if isinstance(v, dict) and v.get("kind") == "char"]
+                chars.sort(key=lambda c: -hsr_core.compute_hsr_char_power(c))
+                # 역할(딜러+서폿+생존) 우선 배치
+                chosen = []
+                for tag in ("dps", "sup", "sus"):
+                    cand = next((c for c in chars if (c.get("role_tag") == tag) and c["item_key"] not in chosen), None)
+                    if cand:
+                        chosen.append(cand["item_key"])
+                for c in chars:
+                    if len(chosen) >= 4:
+                        break
+                    if c["item_key"] not in chosen:
+                        chosen.append(c["item_key"])
+                u_data["party"] = chosen[:4]
+                core.save_data(data)
+
+        await asyncio.to_thread(_save)
         self._build()
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
@@ -1175,10 +1188,16 @@ class HSRPartyView(core.SafeView):
         if not await self._guard(interaction):
             return
         gid = self.guild_id or interaction.guild_id or 0
-        data = core.load_data()
-        u_data = hsr_core.ensure_hsr_user(data, gid, interaction.user.id)
-        u_data["party"] = []
-        core.save_data(data)
+        self.guild_id = gid
+
+        def _save():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                u_data = hsr_core.ensure_hsr_user(data, gid, interaction.user.id)
+                u_data["party"] = []
+                core.save_data(data)
+
+        await asyncio.to_thread(_save)
         self._build()
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
@@ -1345,7 +1364,7 @@ class HSRRateView(core.SafeView):
         elif self.banner_key == "relic":
             rot_names = ", ".join(s["name"] for s in sched.get("featured_relic_sets", [])) or "전 세트"
             body = (
-                f"• **5성 유물 드롭 확률:** 기본 `35%` · **매 5회마다 ★5 유물 100% 확정!**\n"
+                f"• **5성 유물 드롭 확률:** 기본 `16.0%` (`7스택` 소프트 +24% · **최대 10회 내 ★5 유물 100% 확정!**)\n"
                 f"• **시각 연동 로테이션 ({sched['hour_str']}):** `{rot_names}` 드롭 확률 가중!\n"
                 f"• **집중 파밍 지정:** `/스타레일 유물`에서 원하는 세트를 지정하면 **55% 확률**로 해당 세트가 드롭됩니다.\n"
                 f"• **부옵션·강화:** 최대 `+15강` (3/6/9/12/15강마다 부옵션 추가·상승) · 유효옵 점수(`SS~C`) 자동 채점!\n"
@@ -1661,7 +1680,7 @@ class HSRRelicView(core.SafeView):
             title=f"🕳️ {owner_n}님의 침식된 터널 · 차원 유물 보관함",
             description=(
                 f"{notice_txt}"
-                f"• **보유 유물:** `{len(relics)}/250개` · **터널 스택:** `{u_data.get('pity_relic', 0)}/5`\n"
+                f"• **보유 유물:** `{len(relics)}/250개` · **터널 스택:** `{u_data.get('pity_relic', 0)}/10`\n"
                 f"• **보유 재화:** 🧩 유물 잔해 `{u_data.get('relic_remains', 0):,}개` · 🧪 자가 조형 레진 `{u_data.get('self_modeling_resin', 0)}개`\n"
                 f"• **현재 파밍 타겟:** {target_str}\n\n"
                 f"{sel_block}"
@@ -1779,11 +1798,16 @@ class HSRGuildResetConfirmView(core.SafeView):
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.caller and interaction.user.id != self.caller.id:
             return await core.safe_send_response(interaction, "❌ 요청한 관리자만 확정할 수 있습니다.", ephemeral=True)
-        data = core.load_data()
         g_key = str(self.guild_id or interaction.guild_id or 0)
-        data.get("hsr_users", {}).pop(g_key, None)
-        data.get("hsr_hall_of_fame", {}).pop(g_key, None)
-        core.save_data(data)
+
+        def _reset():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                data.get("hsr_users", {}).pop(g_key, None)
+                data.get("hsr_hall_of_fame", {}).pop(g_key, None)
+                core.save_data(data)
+
+        await asyncio.to_thread(_reset)
         await interaction.response.edit_message(content="🧹 이 서버의 모든 스타레일 워프 데이터가 깔끔하게 초기화되었습니다.", embed=None, view=None)
 
     @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
@@ -1915,11 +1939,17 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
             for k in chosen:
                 if k not in dedup:
                     dedup.append(k)
-            data = core.load_data()
-            u_data = hsr_core.ensure_hsr_user(data, interaction.guild_id or 0, interaction.user.id)
-            u_items = u_data.get("items", {})
-            u_data["party"] = [k for k in dedup if k in u_items and u_items[k].get("kind") == "char"][:4]
-            core.save_data(data)
+            gid = interaction.guild_id or 0
+
+            def _save_party():
+                with core._DATA_LOCK:
+                    data = core.load_data()
+                    u_data = hsr_core.ensure_hsr_user(data, gid, interaction.user.id)
+                    u_items = u_data.get("items", {})
+                    u_data["party"] = [k for k in dedup if k in u_items and u_items[k].get("kind") == "char"][:4]
+                    core.save_data(data)
+
+            await asyncio.to_thread(_save_party)
         v = HSRPartyView(interaction.guild_id or 0, interaction.user)
         await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
 
@@ -1936,19 +1966,26 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
         if (대표캐릭터 or 상태문구 is not None) and target.id != interaction.user.id:
             return await core.safe_send_response(interaction, "❌ 대표 캐릭터와 상태 문구는 본인 프로필에서만 수정 가능합니다.", ephemeral=True)
 
-        data = core.load_data()
-        u_data = hsr_core.ensure_hsr_user(data, interaction.guild_id or 0, target.id)
-        if target.id == interaction.user.id:
-            changed = False
-            u_items = u_data.get("items", {})
-            if 대표캐릭터 and 대표캐릭터 in u_items and u_items[대표캐릭터].get("kind") == "char":
-                u_data["profile_char"] = 대표캐릭터
-                changed = True
-            if 상태문구 is not None:
-                u_data["profile_note"] = 상태문구.strip()[:80]
-                changed = True
-            if changed:
-                core.save_data(data)
+        gid = interaction.guild_id or 0
+
+        def _load_and_maybe_save():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                u_data = hsr_core.ensure_hsr_user(data, gid, target.id)
+                if target.id == interaction.user.id:
+                    changed = False
+                    u_items = u_data.get("items", {})
+                    if 대표캐릭터 and 대표캐릭터 in u_items and u_items[대표캐릭터].get("kind") == "char":
+                        u_data["profile_char"] = 대표캐릭터
+                        changed = True
+                    if 상태문구 is not None:
+                        u_data["profile_note"] = 상태문구.strip()[:80]
+                        changed = True
+                    if changed:
+                        core.save_data(data)
+                return dict(u_data)
+
+        u_data = await asyncio.to_thread(_load_and_maybe_save)
 
         items = u_data.get("items", {})
         chars = [v for v in items.values() if v.get("kind") == "char"]
@@ -1972,7 +2009,7 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
                 f"💬 *\"{note_str}\"*\n\n"
                 f"• **대표 캐릭터:** {rep_str}\n"
                 f"• **워프 통계:** 누적 `{u_data.get('total_pulls', 0):,}회` · 고유 수집 `{len(items)}종` · 보유 유물 `{rel_cnt}개` · 상시 `{u_data.get('standard_total_pulls', 0)}/300`\n"
-                f"• **현재 천장:** 캐릭터 `{u_data.get('pity_char', 0)}/90` ({'확정' if u_data.get('guaranteed_char') else '반천'}) · 광추 `{u_data.get('pity_lc', 0)}/80` · 터널 `{u_data.get('pity_relic', 0)}/5`\n"
+                f"• **현재 천장:** 캐릭터 `{u_data.get('pity_char', 0)}/90` ({'확정' if u_data.get('guaranteed_char') else '반천'}) · 광추 `{u_data.get('pity_lc', 0)}/80` · 터널 `{u_data.get('pity_relic', 0)}/10`\n"
                 f"• **재화:** 🌟 별빛 `{u_data.get('starlight', 0):,}` · 🫧 잔재 `{u_data.get('embers', 0):,}` · 🧪 채권 `{u_data.get('herta_bond', 0):,}` · 🧩 유물잔해 `{u_data.get('relic_remains', 0):,}`\n"
                 f"• **주력 동료:** {top3}\n"
                 f"• **편대 전투력:** `{party_ana['total_power']:,}` (시너지 {len(party_ana['synergies'])}개 · `+{party_ana['bonus_pct']}%`)"

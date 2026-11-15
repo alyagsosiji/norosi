@@ -1114,32 +1114,53 @@ class GenshinPartyView(core.SafeView):
         if not await self._guard(interaction):
             return
         picked = list(interaction.data["values"])[:4]
-        data = core.load_data()
-        u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
-        u_data["party"] = picked
-        core.save_data(data)
+        gid = self.guild_id or interaction.guild_id or 0
+        self.guild_id = gid
+
+        def _save():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                u_data = genshin_core.ensure_genshin_user(data, gid, interaction.user.id)
+                u_data["party"] = picked
+                core.save_data(data)
+
+        await asyncio.to_thread(_save)
         self._build()
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
     async def _on_auto(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
-        data = core.load_data()
-        u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
-        chars = [v for v in u_data.get("items", {}).values() if isinstance(v, dict) and v.get("kind") == "char"]
-        chars.sort(key=lambda c: -genshin_core.compute_genshin_char_power(c))
-        u_data["party"] = [c["item_key"] for c in chars[:4]]
-        core.save_data(data)
+        gid = self.guild_id or interaction.guild_id or 0
+        self.guild_id = gid
+
+        def _save():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                u_data = genshin_core.ensure_genshin_user(data, gid, interaction.user.id)
+                chars = [v for v in u_data.get("items", {}).values() if isinstance(v, dict) and v.get("kind") == "char"]
+                chars.sort(key=lambda c: -genshin_core.compute_genshin_char_power(c))
+                u_data["party"] = [c["item_key"] for c in chars[:4]]
+                core.save_data(data)
+
+        await asyncio.to_thread(_save)
         self._build()
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
     async def _on_clear(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
-        data = core.load_data()
-        u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
-        u_data["party"] = []
-        core.save_data(data)
+        gid = self.guild_id or interaction.guild_id or 0
+        self.guild_id = gid
+
+        def _save():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                u_data = genshin_core.ensure_genshin_user(data, gid, interaction.user.id)
+                u_data["party"] = []
+                core.save_data(data)
+
+        await asyncio.to_thread(_save)
         self._build()
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
@@ -1308,7 +1329,7 @@ class GenshinRateView(core.SafeView):
             art_name = f_art["name"] if f_art else "전체 5성 성유물 세트"
             body = (
                 f"• **오늘·현재 시각 집중 비경 세트:** 🏛️ **`{art_name}`** (명정 지정 시 **65%** 집중 드롭!)\n"
-                f"• **성유물 비경 확률:** ★★★★★ `16.0%` (단, **10회마다 최소 1개 이상 ★★★★★ 100% 확정!**)\n"
+                f"• **성유물 비경 확률:** ★★★★★ `12.0%` (`7스택` 소프트 +22% · **최대 10회마다 ★★★★★ 100% 확정!**)\n"
                 f"• **부위/주옵션/부옵션:** 꽃·깃털·시계·성배·왕관 5부위 및 실제 주옵션·부옵션 4줄 자동 부여\n"
                 f"• **강화 & 연성 시스템 (`/원신 성유물`):**\n"
                 f"  - `+4 ➔ +20` 5단계 부옵션 강화 및 **CV(치명타 점수) · SS~B 등급** 자동 판정\n"
@@ -1686,11 +1707,16 @@ class GenshinGuildResetConfirmView(core.SafeView):
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.caller and interaction.user.id != self.caller.id:
             return await core.safe_send_response(interaction, "❌ 요청한 관리자만 확정할 수 있습니다.", ephemeral=True)
-        data = core.load_data()
         g_key = str(self.guild_id or interaction.guild_id or 0)
-        data.get("genshin_users", {}).pop(g_key, None)
-        data.get("genshin_hall_of_fame", {}).pop(g_key, None)
-        core.save_data(data)
+
+        def _reset():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                data.get("genshin_users", {}).pop(g_key, None)
+                data.get("genshin_hall_of_fame", {}).pop(g_key, None)
+                core.save_data(data)
+
+        await asyncio.to_thread(_reset)
         await interaction.response.edit_message(content="🧹 이 서버의 모든 원신 기원 데이터가 깔끔하게 초기화되었습니다.", embed=None, view=None)
 
     @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
@@ -1818,12 +1844,18 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
             for k in chosen:
                 if k not in dedup:
                     dedup.append(k)
-            data = core.load_data()
-            u_data = genshin_core.ensure_genshin_user(data, interaction.guild_id or 0, interaction.user.id)
-            u_items = u_data.get("items", {})
-            valid = [k for k in dedup if k in u_items and u_items[k].get("kind") == "char"][:4]
-            u_data["party"] = valid
-            core.save_data(data)
+            gid = interaction.guild_id or 0
+
+            def _save_party():
+                with core._DATA_LOCK:
+                    data = core.load_data()
+                    u_data = genshin_core.ensure_genshin_user(data, gid, interaction.user.id)
+                    u_items = u_data.get("items", {})
+                    valid = [k for k in dedup if k in u_items and u_items[k].get("kind") == "char"][:4]
+                    u_data["party"] = valid
+                    core.save_data(data)
+
+            await asyncio.to_thread(_save_party)
         v = GenshinPartyView(interaction.guild_id or 0, interaction.user)
         await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
 
@@ -1840,19 +1872,26 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
         if (대표캐릭터 or 상태문구 is not None) and target.id != interaction.user.id:
             return await core.safe_send_response(interaction, "❌ 대표 캐릭터와 상태 문구는 본인 프로필에서만 수정 가능합니다.", ephemeral=True)
 
-        data = core.load_data()
-        u_data = genshin_core.ensure_genshin_user(data, interaction.guild_id or 0, target.id)
-        if target.id == interaction.user.id:
-            changed = False
-            u_items = u_data.get("items", {})
-            if 대표캐릭터 and 대표캐릭터 in u_items and u_items[대표캐릭터].get("kind") == "char":
-                u_data["profile_char"] = 대표캐릭터
-                changed = True
-            if 상태문구 is not None:
-                u_data["profile_note"] = 상태문구.strip()[:80]
-                changed = True
-            if changed:
-                core.save_data(data)
+        gid = interaction.guild_id or 0
+
+        def _load_and_maybe_save():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                u_data = genshin_core.ensure_genshin_user(data, gid, target.id)
+                if target.id == interaction.user.id:
+                    changed = False
+                    u_items = u_data.get("items", {})
+                    if 대표캐릭터 and 대표캐릭터 in u_items and u_items[대표캐릭터].get("kind") == "char":
+                        u_data["profile_char"] = 대표캐릭터
+                        changed = True
+                    if 상태문구 is not None:
+                        u_data["profile_note"] = 상태문구.strip()[:80]
+                        changed = True
+                    if changed:
+                        core.save_data(data)
+                return dict(u_data)
+
+        u_data = await asyncio.to_thread(_load_and_maybe_save)
 
         items = u_data.get("items", {})
         chars = [v for v in items.values() if v.get("kind") == "char"]

@@ -182,30 +182,34 @@ class StickyConfigModal(core.SafeModal, title="📌 자동 고정 메시지 설�
             await core.safe_send_response(interaction, "❌ 메시지 관리 또는 관리자 권한이 필요합니다.", ephemeral=True)
             return
 
-        await core.safe_defer(interaction, ephemeral=True)
-        data = await asyncio.to_thread(core.load_data)
-        prev = community_core.get_sticky_config(data, interaction.guild.id, self.channel.id)
-        if prev and prev.get("last_message_id"):
+        await core.safe_defer(interaction, ephemeral=True, thinking=True)
+        guild_id = interaction.guild.id
+        channel_id = self.channel.id
+        title_val = self.title_input.value
+        content_val = self.content_input.value
+
+        def _get_prev_id():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                prev = community_core.get_sticky_config(d, guild_id, channel_id)
+                return prev.get("last_message_id") if prev else None
+
+        prev_msg_id = await asyncio.to_thread(_get_prev_id)
+        if prev_msg_id:
             try:
-                old_msg = await self.channel.fetch_message(int(prev["last_message_id"]))
+                old_msg = await self.channel.fetch_message(int(prev_msg_id))
                 await old_msg.delete()
             except Exception:
                 pass
 
-        cfg = community_core.set_sticky_config(
-            data,
-            interaction.guild.id,
-            self.channel.id,
-            self.title_input.value,
-            self.content_input.value,
-            color=self.color,
-            interval=self.interval,
-            updated_by=interaction.user.id,
-        )
+        preview_cfg = {
+            "title": (title_val or "📌 채널 안내").strip()[:120],
+            "content": (content_val or "").strip()[:1800],
+            "color": self.color if self.color in community_core.STICKY_COLOR_MAP else "gold",
+            "interval": max(1, min(30, int(self.interval or 1))),
+        }
         try:
-            posted = await self.channel.send(embed=_build_sticky_embed(cfg))
-            cfg["last_message_id"] = posted.id
-            cfg["last_posted_ts"] = time.time()
+            posted = await self.channel.send(embed=_build_sticky_embed(preview_cfg))
         except discord.Forbidden:
             await interaction.followup.send(f"❌ {self.channel.mention} 채널에 메시지를 전송할 권한이 없습니다.", ephemeral=True)
             return
@@ -213,7 +217,25 @@ class StickyConfigModal(core.SafeModal, title="📌 자동 고정 메시지 설�
             await interaction.followup.send(f"❌ 고정 메시지 전송 중 오류가 발생했습니다: `{e}`", ephemeral=True)
             return
 
-        await asyncio.to_thread(core.save_data, data)
+        def _save_sticky():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                cfg = community_core.set_sticky_config(
+                    data,
+                    guild_id,
+                    channel_id,
+                    title_val,
+                    content_val,
+                    color=self.color,
+                    interval=self.interval,
+                    updated_by=interaction.user.id,
+                    last_message_id=posted.id,
+                )
+                cfg["last_posted_ts"] = time.time()
+                core.save_data(data)
+                return cfg
+
+        cfg = await asyncio.to_thread(_save_sticky)
         await interaction.followup.send(
             f"✅ {self.channel.mention} 채널에 **자동 고정 메시지**가 등록되어 하단에 게시되었습니다!\n"
             f"• **갱신 간격:** `{cfg['interval']}개` 메시지마다 자동 갱신 · **색상:** `{community_core.STICKY_COLOR_LABELS.get(cfg['color'], cfg['color'])}`",
@@ -277,30 +299,40 @@ class LinkPreviewChannelIgnoreSelect(discord.ui.ChannelSelect):
 
     async def callback(self, interaction: discord.Interaction):
         view: "LinkPreviewConfigView" = self.view
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 설정할 수 있습니다.", ephemeral=True)
+            return
         if not _is_guild_admin(interaction.user):
             await core.safe_send_response(interaction, "❌ 서버 관리자만 설정할 수 있습니다.", ephemeral=True)
             return
         await core.safe_defer(interaction)
         ch = self.values[0]
-        data = await asyncio.to_thread(core.load_data)
-        cfg = community_core.get_link_preview_config(data, interaction.guild.id)
-        ignored = set(cfg["ignored_channels"])
-        if ch.id in ignored:
-            ignored.remove(ch.id)
-            msg = f"✅ <#{ch.id}> 채널의 링크 미리보기/정리 제외가 **해제**되었습니다."
-        else:
-            ignored.add(ch.id)
-            msg = f"🚫 <#{ch.id}> 채널이 링크 미리보기/정리 **제외 목록**에 추가되었습니다."
-        cfg["ignored_channels"] = sorted(ignored)
-        saved = community_core.save_link_preview_config(data, interaction.guild.id, cfg)
-        await asyncio.to_thread(core.save_data, data)
+        guild_id = interaction.guild.id
+
+        def _toggle_ignore():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                cfg = community_core.get_link_preview_config(data, guild_id)
+                ignored = set(cfg["ignored_channels"])
+                if ch.id in ignored:
+                    ignored.remove(ch.id)
+                    msg = f"✅ <#{ch.id}> 채널의 링크 미리보기/정리 제외가 **해제**되었습니다."
+                else:
+                    ignored.add(ch.id)
+                    msg = f"🚫 <#{ch.id}> 채널이 링크 미리보기/정리 **제외 목록**에 추가되었습니다."
+                cfg["ignored_channels"] = sorted(ignored)
+                saved = community_core.save_link_preview_config(data, guild_id, cfg)
+                core.save_data(data)
+                return saved, msg
+
+        saved, msg = await asyncio.to_thread(_toggle_ignore)
         view.cfg = saved
         await interaction.edit_original_response(embed=view.build_embed(), view=view)
         await interaction.followup.send(msg, ephemeral=True)
 
 
 class LinkPreviewConfigView(core.SafeView):
-    def __init__(self, author_id: int, guild: discord.Guild, cfg: Optional[dict] = None):
+    def __init__(self, author_id: int = 0, guild: Optional[discord.Guild] = None, cfg: Optional[dict] = None):
         super().__init__(timeout=300)
         self.author_id = author_id
         self.guild = guild
@@ -308,7 +340,8 @@ class LinkPreviewConfigView(core.SafeView):
         self.add_item(LinkPreviewChannelIgnoreSelect())
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         if interaction.user.id != self.author_id and not _is_guild_admin(interaction.user):
             await core.safe_send_response(interaction, "❌ 관리자만 설정 패널을 조작할 수 있습니다.", ephemeral=True)
             return False
@@ -316,9 +349,10 @@ class LinkPreviewConfigView(core.SafeView):
 
     def build_embed(self) -> discord.Embed:
         c = self.cfg
+        gname = getattr(self.guild, "name", None) or "서버"
         ignored_str = ", ".join(f"<#{cid}>" for cid in c.get("ignored_channels", [])) or "없음"
         embed = discord.Embed(
-            title=f"🔗 [{self.guild.name}] SNS 링크 미리보기 & 추적 제거 설정",
+            title=f"🔗 [{gname}] SNS 링크 미리보기 & 추적 제거 설정",
             description=(
                 "• **전체 기능:** " + ("🟢 활성화됨" if c["enabled"] else "🔴 비활성화됨") + "\n"
                 "• **SNS 미리보기 보정:** " + ("🟢 켜짐" if c["sns_preview"] else "⚪ 꺼짐")
@@ -335,12 +369,22 @@ class LinkPreviewConfigView(core.SafeView):
         return embed
 
     async def _toggle_key(self, interaction: discord.Interaction, key: str):
+        guild_id = getattr(self.guild, "id", 0) or interaction.guild_id or 0
+        if not guild_id:
+            await core.safe_send_response(interaction, "❌ 서버 정보를 확인할 수 없습니다.", ephemeral=True)
+            return
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        cfg = community_core.get_link_preview_config(data, self.guild.id)
-        cfg[key] = not cfg.get(key, True)
-        self.cfg = community_core.save_link_preview_config(data, self.guild.id, cfg)
-        await asyncio.to_thread(core.save_data, data)
+
+        def _do_toggle():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                cfg = community_core.get_link_preview_config(data, guild_id)
+                cfg[key] = not cfg.get(key, True)
+                saved = community_core.save_link_preview_config(data, guild_id, cfg)
+                core.save_data(data)
+                return saved
+
+        self.cfg = await asyncio.to_thread(_do_toggle)
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="전체 ON/OFF", style=discord.ButtonStyle.primary, emoji="⚡", row=0)
@@ -380,8 +424,14 @@ class RaidAlertControlView(core.SafeView):
             await core.safe_send_response(interaction, "❌ 서버 관리자(Administrator)만 비상모드를 해제할 수 있습니다.", ephemeral=True)
             return
         await core.safe_defer(interaction, ephemeral=True)
-        data = await asyncio.to_thread(core.load_data)
-        cfg = community_core.get_raid_defense_config(data, interaction.guild.id)
+        guild_id = interaction.guild.id
+
+        def _read_cfg():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                return community_core.get_raid_defense_config(d, guild_id)
+
+        cfg = await asyncio.to_thread(_read_cfg)
         if not cfg["lockdown_active"]:
             await interaction.followup.send("ℹ️ 현재 비상모드가 이미 해제된 상태입니다.", ephemeral=True)
             return
@@ -394,11 +444,17 @@ class RaidAlertControlView(core.SafeView):
             except Exception:
                 pass
 
-        cfg["lockdown_active"] = False
-        cfg["invites_paused_by_bot"] = False
-        community_core.save_raid_defense_config(data, interaction.guild.id, cfg)
-        community_core.RAID_TRACKER.clear_guild(interaction.guild.id)
-        await asyncio.to_thread(core.save_data, data)
+        def _save_unlock():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                fresh_cfg = community_core.get_raid_defense_config(data, guild_id)
+                fresh_cfg["lockdown_active"] = False
+                fresh_cfg["invites_paused_by_bot"] = False
+                community_core.save_raid_defense_config(data, guild_id, fresh_cfg)
+                core.save_data(data)
+
+        await asyncio.to_thread(_save_unlock)
+        community_core.RAID_TRACKER.clear_guild(guild_id)
 
         note = " · 서버 초대 링크도 함께 복구되었습니다." if restored_invites else ""
         if interaction.message:
@@ -472,6 +528,9 @@ class RaidThresholdModal(core.SafeModal, title="⚙️ 레이드 감지 기준 �
         self.min_age_input.default = str(cfg.get("min_account_age_days", 0))
 
     async def on_submit(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 설정할 수 있습니다.", ephemeral=True)
+            return
         try:
             th = int(self.threshold_input.value.strip())
             win = int(self.window_input.value.strip())
@@ -481,13 +540,20 @@ class RaidThresholdModal(core.SafeModal, title="⚙️ 레이드 감지 기준 �
             return
 
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        cfg = community_core.get_raid_defense_config(data, interaction.guild.id)
-        cfg["threshold"] = max(3, min(30, th))
-        cfg["window_sec"] = max(5, min(60, win))
-        cfg["min_account_age_days"] = max(0, min(365, age))
-        self.parent_view.cfg = community_core.save_raid_defense_config(data, interaction.guild.id, cfg)
-        await asyncio.to_thread(core.save_data, data)
+        guild_id = interaction.guild.id
+
+        def _save_thresholds():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                cfg = community_core.get_raid_defense_config(data, guild_id)
+                cfg["threshold"] = max(3, min(30, th))
+                cfg["window_sec"] = max(5, min(60, win))
+                cfg["min_account_age_days"] = max(0, min(365, age))
+                saved = community_core.save_raid_defense_config(data, guild_id, cfg)
+                core.save_data(data)
+                return saved
+
+        self.parent_view.cfg = await asyncio.to_thread(_save_thresholds)
         await interaction.edit_original_response(embed=self.parent_view.build_embed(), view=self.parent_view)
 
 
@@ -503,13 +569,23 @@ class RaidAlertChannelSelect(discord.ui.ChannelSelect):
 
     async def callback(self, interaction: discord.Interaction):
         view: "RaidDefenseConfigView" = self.view
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 설정할 수 있습니다.", ephemeral=True)
+            return
         await core.safe_defer(interaction)
         ch = self.values[0]
-        data = await asyncio.to_thread(core.load_data)
-        cfg = community_core.get_raid_defense_config(data, interaction.guild.id)
-        cfg["alert_channel_id"] = ch.id
-        view.cfg = community_core.save_raid_defense_config(data, interaction.guild.id, cfg)
-        await asyncio.to_thread(core.save_data, data)
+        guild_id = interaction.guild.id
+
+        def _save_alert_ch():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                cfg = community_core.get_raid_defense_config(data, guild_id)
+                cfg["alert_channel_id"] = ch.id
+                saved = community_core.save_raid_defense_config(data, guild_id, cfg)
+                core.save_data(data)
+                return saved
+
+        view.cfg = await asyncio.to_thread(_save_alert_ch)
         await interaction.edit_original_response(embed=view.build_embed(), view=view)
 
 
@@ -524,13 +600,23 @@ class RaidQuarantineRoleSelect(discord.ui.RoleSelect):
 
     async def callback(self, interaction: discord.Interaction):
         view: "RaidDefenseConfigView" = self.view
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 설정할 수 있습니다.", ephemeral=True)
+            return
         await core.safe_defer(interaction)
         role = self.values[0]
-        data = await asyncio.to_thread(core.load_data)
-        cfg = community_core.get_raid_defense_config(data, interaction.guild.id)
-        cfg["quarantine_role_id"] = role.id
-        view.cfg = community_core.save_raid_defense_config(data, interaction.guild.id, cfg)
-        await asyncio.to_thread(core.save_data, data)
+        guild_id = interaction.guild.id
+
+        def _save_qrole():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                cfg = community_core.get_raid_defense_config(data, guild_id)
+                cfg["quarantine_role_id"] = role.id
+                saved = community_core.save_raid_defense_config(data, guild_id, cfg)
+                core.save_data(data)
+                return saved
+
+        view.cfg = await asyncio.to_thread(_save_qrole)
         await interaction.edit_original_response(embed=view.build_embed(), view=view)
 
 
@@ -545,17 +631,28 @@ class RaidActionSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         view: "RaidDefenseConfigView" = self.view
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 설정할 수 있습니다.", ephemeral=True)
+            return
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        cfg = community_core.get_raid_defense_config(data, interaction.guild.id)
-        cfg["action"] = self.values[0]
-        view.cfg = community_core.save_raid_defense_config(data, interaction.guild.id, cfg)
-        await asyncio.to_thread(core.save_data, data)
+        guild_id = interaction.guild.id
+        action_val = self.values[0]
+
+        def _save_action():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                cfg = community_core.get_raid_defense_config(data, guild_id)
+                cfg["action"] = action_val
+                saved = community_core.save_raid_defense_config(data, guild_id, cfg)
+                core.save_data(data)
+                return saved
+
+        view.cfg = await asyncio.to_thread(_save_action)
         await interaction.edit_original_response(embed=view.build_embed(), view=view)
 
 
 class RaidDefenseConfigView(core.SafeView):
-    def __init__(self, author_id: int, guild: discord.Guild, cfg: Optional[dict] = None):
+    def __init__(self, author_id: int = 0, guild: Optional[discord.Guild] = None, cfg: Optional[dict] = None):
         super().__init__(timeout=300)
         self.author_id = author_id
         self.guild = guild
@@ -565,7 +662,8 @@ class RaidDefenseConfigView(core.SafeView):
         self.add_item(RaidQuarantineRoleSelect())
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         if not _is_guild_admin(interaction.user, need_admin=True):
             await core.safe_send_response(interaction, "❌ 서버 관리자(Administrator)만 비상 방어 설정을 변경할 수 있습니다.", ephemeral=True)
             return False
@@ -573,12 +671,13 @@ class RaidDefenseConfigView(core.SafeView):
 
     def build_embed(self) -> discord.Embed:
         c = self.cfg
+        gname = getattr(self.guild, "name", None) or "서버"
         alert_str = f"<#{c['alert_channel_id']}>" if c.get("alert_channel_id") else "자동 (서버로그/시스템 채널)"
         qrole_str = f"<@&{c['quarantine_role_id']}>" if c.get("quarantine_role_id") else "미지정 *(미지정 시 60분 타임아웃으로 폴백)*"
         age_str = f"`{c['min_account_age_days']}일 미만`" if c.get("min_account_age_days", 0) > 0 else "사용 안 함 (`0일`)"
         lock_str = "🚨 **비상 잠금 발동 중!**" if c.get("lockdown_active") else "🟢 평상시 (정상)"
         embed = discord.Embed(
-            title=f"🛡️ [{self.guild.name}] 동시 입장(Raid) · 테러 비상 방어 설정",
+            title=f"🛡️ [{gname}] 동시 입장(Raid) · 테러 비상 방어 설정",
             description=(
                 f"• **현재 상태:** {lock_str}\n"
                 f"• **자동 레이드 감지:** {'🟢 활성화됨' if c['enabled'] else '🔴 비활성화됨'}\n"
@@ -597,22 +696,42 @@ class RaidDefenseConfigView(core.SafeView):
 
     @discord.ui.button(label="자동감지 ON/OFF", style=discord.ButtonStyle.primary, emoji="🤖", row=0)
     async def toggle_auto(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild_id = getattr(self.guild, "id", 0) or interaction.guild_id or 0
+        if not guild_id:
+            await core.safe_send_response(interaction, "❌ 서버 정보를 확인할 수 없습니다.", ephemeral=True)
+            return
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        cfg = community_core.get_raid_defense_config(data, self.guild.id)
-        cfg["enabled"] = not cfg.get("enabled", False)
-        self.cfg = community_core.save_raid_defense_config(data, self.guild.id, cfg)
-        await asyncio.to_thread(core.save_data, data)
+
+        def _do_toggle():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                cfg = community_core.get_raid_defense_config(data, guild_id)
+                cfg["enabled"] = not cfg.get("enabled", False)
+                saved = community_core.save_raid_defense_config(data, guild_id, cfg)
+                core.save_data(data)
+                return saved
+
+        self.cfg = await asyncio.to_thread(_do_toggle)
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="초대 중지 ON/OFF", style=discord.ButtonStyle.secondary, emoji="⛔", row=0)
     async def toggle_pause_invites(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild_id = getattr(self.guild, "id", 0) or interaction.guild_id or 0
+        if not guild_id:
+            await core.safe_send_response(interaction, "❌ 서버 정보를 확인할 수 없습니다.", ephemeral=True)
+            return
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        cfg = community_core.get_raid_defense_config(data, self.guild.id)
-        cfg["pause_invites"] = not cfg.get("pause_invites", True)
-        self.cfg = community_core.save_raid_defense_config(data, self.guild.id, cfg)
-        await asyncio.to_thread(core.save_data, data)
+
+        def _do_toggle():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                cfg = community_core.get_raid_defense_config(data, guild_id)
+                cfg["pause_invites"] = not cfg.get("pause_invites", True)
+                saved = community_core.save_raid_defense_config(data, guild_id, cfg)
+                core.save_data(data)
+                return saved
+
+        self.cfg = await asyncio.to_thread(_do_toggle)
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="인원/시간/계정연령 설정", style=discord.ButtonStyle.secondary, emoji="⚙️", row=0)
@@ -644,20 +763,29 @@ class RelayWriteModal(core.SafeModal, title="✍️ 릴레이 소설 다음 줄 
             return
 
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        ok, msg, story_obj, is_completed = community_core.append_relay_turn(
-            data,
-            interaction.guild.id,
-            interaction.channel.id,
-            interaction.user.id,
-            interaction.user.display_name,
-            self.sentence_input.value,
-        )
+        guild_id = interaction.guild.id
+        channel_id = interaction.channel.id
+        sentence_val = self.sentence_input.value
+
+        def _append_turn():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                ok, msg, story_obj, is_completed = community_core.append_relay_turn(
+                    data,
+                    guild_id,
+                    channel_id,
+                    interaction.user.id,
+                    interaction.user.display_name,
+                    sentence_val,
+                )
+                if ok and story_obj:
+                    core.save_data(data)
+                return ok, msg, story_obj, is_completed
+
+        ok, msg, story_obj, is_completed = await asyncio.to_thread(_append_turn)
         if not ok or not story_obj:
             await interaction.followup.send(f"⚠️ {msg}", ephemeral=True)
             return
-
-        await asyncio.to_thread(core.save_data, data)
 
         if is_completed:
             completed_embed = _build_relay_completed_embed(story_obj)
@@ -767,20 +895,28 @@ class RelayNovelView(core.SafeView):
             await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
             return
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        story = community_core.get_active_relay_novel(data, interaction.guild.id, interaction.channel.id)
-        if not story:
-            await interaction.followup.send("ℹ️ 이미 완결되었거나 종료된 소설입니다.", ephemeral=True)
-            return
-        if int(story.get("creator_id", 0)) != interaction.user.id and not _is_guild_admin(interaction.user, perm_attr="manage_messages"):
-            await interaction.followup.send("❌ 소설 개설자 또는 메시지 관리 권한을 가진 관리자만 조기 완결할 수 있습니다.", ephemeral=True)
-            return
+        guild_id = interaction.guild.id
+        channel_id = interaction.channel.id
+        is_admin = _is_guild_admin(interaction.user, perm_attr="manage_messages")
 
-        ok, msg, completed = community_core.finish_relay_novel_early(data, interaction.guild.id, interaction.channel.id)
-        if not ok or not completed:
-            await interaction.followup.send(f"⚠️ {msg}", ephemeral=True)
+        def _finish_story():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                story = community_core.get_active_relay_novel(data, guild_id, channel_id)
+                if not story:
+                    return "none", "ℹ️ 이미 완결되었거나 종료된 소설입니다.", None
+                if int(story.get("creator_id", 0)) != interaction.user.id and not is_admin:
+                    return "denied", "❌ 소설 개설자 또는 메시지 관리 권한을 가진 관리자만 조기 완결할 수 있습니다.", None
+                ok, msg, completed = community_core.finish_relay_novel_early(data, guild_id, channel_id)
+                if not ok or not completed:
+                    return "err", f"⚠️ {msg}", None
+                core.save_data(data)
+                return "ok", msg, completed
+
+        status, msg, completed = await asyncio.to_thread(_finish_story)
+        if status != "ok" or not completed:
+            await interaction.followup.send(msg, ephemeral=True)
             return
-        await asyncio.to_thread(core.save_data, data)
         completed_embed = _build_relay_completed_embed(completed)
         if interaction.message:
             try:
@@ -811,11 +947,11 @@ class RelayArchiveSelect(discord.ui.Select):
 
 
 class RelayArchiveView(core.SafeView):
-    def __init__(self, novels: list[dict]):
+    def __init__(self, novels: Optional[list[dict]] = None):
         super().__init__(timeout=180)
-        self.novels = novels
-        if novels:
-            self.add_item(RelayArchiveSelect(novels))
+        self.novels = novels or []
+        if self.novels:
+            self.add_item(RelayArchiveSelect(self.novels))
 
 
 # ==========================================
@@ -917,35 +1053,59 @@ class CommunityCog(commands.Cog):
             return
 
         await core.safe_defer(interaction, ephemeral=True)
-        data = await asyncio.to_thread(core.load_data)
-        prev = community_core.get_sticky_config(data, interaction.guild.id, target_ch.id)
-        if prev and prev.get("last_message_id"):
+        guild_id = interaction.guild.id
+        channel_id = target_ch.id
+
+        def _get_prev_id():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                prev = community_core.get_sticky_config(d, guild_id, channel_id)
+                return prev.get("last_message_id") if prev else None
+
+        prev_msg_id = await asyncio.to_thread(_get_prev_id)
+        if prev_msg_id:
             try:
-                old_msg = await target_ch.fetch_message(int(prev["last_message_id"]))
+                old_msg = await target_ch.fetch_message(int(prev_msg_id))
                 await old_msg.delete()
             except Exception:
                 pass
 
-        cfg = community_core.set_sticky_config(
-            data,
-            interaction.guild.id,
-            target_ch.id,
-            제목,
-            내용,
-            color=color_val,
-            interval=interval_val,
-            updated_by=interaction.user.id,
-        )
+        preview_cfg = {
+            "title": (제목 or "📌 채널 안내").strip()[:120],
+            "content": (내용 or "").strip()[:1800],
+            "color": color_val if color_val in community_core.STICKY_COLOR_MAP else "gold",
+            "interval": max(1, min(30, int(interval_val or 1))),
+        }
         try:
-            posted = await target_ch.send(embed=_build_sticky_embed(cfg))
-            cfg["last_message_id"] = posted.id
-            cfg["last_posted_ts"] = time.time()
-            self._last_sticky_post_ts[target_ch.id] = time.monotonic()
+            posted = await target_ch.send(embed=_build_sticky_embed(preview_cfg))
         except discord.Forbidden:
             await interaction.followup.send(f"❌ {target_ch.mention} 채널에 메시지를 보낼 권한이 없습니다.", ephemeral=True)
             return
+        except Exception as e:
+            await interaction.followup.send(f"❌ 고정 메시지 전송 중 오류가 발생했습니다: `{e}`", ephemeral=True)
+            return
 
-        await asyncio.to_thread(core.save_data, data)
+        self._last_sticky_post_ts[target_ch.id] = time.monotonic()
+
+        def _save_sticky():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                cfg = community_core.set_sticky_config(
+                    data,
+                    guild_id,
+                    channel_id,
+                    제목,
+                    내용,
+                    color=color_val,
+                    interval=interval_val,
+                    updated_by=interaction.user.id,
+                    last_message_id=posted.id,
+                )
+                cfg["last_posted_ts"] = time.time()
+                core.save_data(data)
+                return cfg
+
+        cfg = await asyncio.to_thread(_save_sticky)
         await interaction.followup.send(
             f"✅ {target_ch.mention} 채널에 **자동 고정 메시지**가 등록되었습니다! (`{cfg['interval']}개` 메시지마다 갱신)",
             ephemeral=True,
@@ -971,12 +1131,23 @@ class CommunityCog(commands.Cog):
         if not target_ch:
             await interaction.followup.send("❌ 대상 채널을 찾을 수 없습니다.", ephemeral=True)
             return
-        data = await asyncio.to_thread(core.load_data)
-        cfg = community_core.toggle_sticky_config(data, interaction.guild.id, target_ch.id, 상태.value == "on")
+        guild_id = interaction.guild.id
+        channel_id = target_ch.id
+        enabled_val = (상태.value == "on")
+
+        def _toggle_sticky():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                cfg = community_core.toggle_sticky_config(data, guild_id, channel_id, enabled_val)
+                if not cfg:
+                    return None
+                core.save_data(data)
+                return cfg
+
+        cfg = await asyncio.to_thread(_toggle_sticky)
         if not cfg:
             await interaction.followup.send(f"ℹ️ {target_ch.mention} 채널에 등록된 고정 메시지가 없습니다.", ephemeral=True)
             return
-        await asyncio.to_thread(core.save_data, data)
         state_str = "🟢 활성화" if cfg["enabled"] else "🔴 일시 중지"
         await interaction.followup.send(f"✅ {target_ch.mention} 채널의 자동 고정 메시지가 **{state_str}** 상태로 변경되었습니다.", ephemeral=True)
 
@@ -995,8 +1166,19 @@ class CommunityCog(commands.Cog):
         if not target_ch:
             await interaction.followup.send("❌ 대상 채널을 찾을 수 없습니다.", ephemeral=True)
             return
-        data = await asyncio.to_thread(core.load_data)
-        removed = community_core.remove_sticky_config(data, interaction.guild.id, target_ch.id)
+        guild_id = interaction.guild.id
+        channel_id = target_ch.id
+
+        def _remove_sticky():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                removed = community_core.remove_sticky_config(data, guild_id, channel_id)
+                if not removed:
+                    return None
+                core.save_data(data)
+                return removed
+
+        removed = await asyncio.to_thread(_remove_sticky)
         if not removed:
             await interaction.followup.send(f"ℹ️ {target_ch.mention} 채널에 등록된 고정 메시지가 없습니다.", ephemeral=True)
             return
@@ -1006,7 +1188,6 @@ class CommunityCog(commands.Cog):
                 await old_msg.delete()
             except Exception:
                 pass
-        await asyncio.to_thread(core.save_data, data)
         await interaction.followup.send(f"🗑️ {target_ch.mention} 채널의 자동 고정 메시지가 완전히 해제되었습니다.", ephemeral=True)
 
     @sticky_group.command(name="목록", description="[관리자] 서버에 등록된 모든 자동 고정 메시지 목록을 확인합니다.")
@@ -1065,18 +1246,27 @@ class CommunityCog(commands.Cog):
         if not target_ch:
             await interaction.followup.send("❌ 대상 채널을 찾을 수 없습니다.", ephemeral=True)
             return
-        data = await asyncio.to_thread(core.load_data)
-        cfg = community_core.get_link_preview_config(data, interaction.guild.id)
-        ignored = set(cfg["ignored_channels"])
-        if target_ch.id in ignored:
-            ignored.remove(target_ch.id)
-            res_msg = f"✅ {target_ch.mention} 채널의 링크 자동 변환 제외가 해제되었습니다."
-        else:
-            ignored.add(target_ch.id)
-            res_msg = f"🚫 {target_ch.mention} 채널이 링크 자동 변환 **제외 목록**에 추가되었습니다."
-        cfg["ignored_channels"] = sorted(ignored)
-        community_core.save_link_preview_config(data, interaction.guild.id, cfg)
-        await asyncio.to_thread(core.save_data, data)
+        guild_id = interaction.guild.id
+        target_ch_id = target_ch.id
+        target_ch_mention = target_ch.mention
+
+        def _toggle_ignore_cmd():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                cfg = community_core.get_link_preview_config(data, guild_id)
+                ignored = set(cfg["ignored_channels"])
+                if target_ch_id in ignored:
+                    ignored.remove(target_ch_id)
+                    res_msg = f"✅ {target_ch_mention} 채널의 링크 자동 변환 제외가 해제되었습니다."
+                else:
+                    ignored.add(target_ch_id)
+                    res_msg = f"🚫 {target_ch_mention} 채널이 링크 자동 변환 **제외 목록**에 추가되었습니다."
+                cfg["ignored_channels"] = sorted(ignored)
+                community_core.save_link_preview_config(data, guild_id, cfg)
+                core.save_data(data)
+                return res_msg
+
+        res_msg = await asyncio.to_thread(_toggle_ignore_cmd)
         await interaction.followup.send(res_msg, ephemeral=True)
 
     # ------------------------------------------
@@ -1100,23 +1290,44 @@ class CommunityCog(commands.Cog):
             await core.safe_send_response(interaction, "❌ 서버 관리자(Administrator) 권한이 필요합니다.", ephemeral=True)
             return
         await core.safe_defer(interaction, ephemeral=True)
-        data = await asyncio.to_thread(core.load_data)
-        cfg = community_core.get_raid_defense_config(data, interaction.guild.id)
+        guild_id = interaction.guild.id
         reason_txt = (사유 or "관리자 수동 비상 잠금 발동").strip()[:200]
-        paused_ok = await self._activate_lockdown(interaction.guild, cfg, data, by_label=interaction.user.mention, reason=reason_txt)
-        await asyncio.to_thread(core.save_data, data)
+
+        def _read_cfg():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                return community_core.get_raid_defense_config(d, guild_id)
+
+        init_cfg = await asyncio.to_thread(_read_cfg)
+        invites_paused, paused_by_bot_now = await self._pause_invites_if_enabled(interaction.guild, init_cfg, reason_txt)
+
+        def _save_lockdown():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                fresh_cfg = community_core.get_raid_defense_config(data, guild_id)
+                if paused_by_bot_now:
+                    fresh_cfg["invites_paused_by_bot"] = True
+                fresh_cfg["lockdown_active"] = True
+                fresh_cfg["lockdown_by"] = interaction.user.mention
+                fresh_cfg["lockdown_reason"] = reason_txt[:200]
+                fresh_cfg["lockdown_started_at"] = datetime.datetime.now(core.KST).isoformat()
+                saved_cfg = community_core.save_raid_defense_config(data, guild_id, fresh_cfg)
+                core.save_data(data)
+                return saved_cfg, data
+
+        cfg, data = await asyncio.to_thread(_save_lockdown)
 
         alert_ch = _resolve_raid_alert_channel(interaction.guild, cfg, data)
         if alert_ch and alert_ch.id != (interaction.channel.id if interaction.channel else 0):
             try:
                 await alert_ch.send(
-                    embed=self._build_raid_alert_embed(interaction.guild, cfg, paused_ok, recent_count=0),
+                    embed=self._build_raid_alert_embed(interaction.guild, cfg, invites_paused, recent_count=0),
                     view=RaidAlertControlView(),
                 )
             except Exception:
                 pass
         await interaction.followup.send(
-            embed=self._build_raid_alert_embed(interaction.guild, cfg, paused_ok, recent_count=0),
+            embed=self._build_raid_alert_embed(interaction.guild, cfg, invites_paused, recent_count=0),
             view=RaidAlertControlView(),
             ephemeral=True,
         )
@@ -1127,8 +1338,14 @@ class CommunityCog(commands.Cog):
             await core.safe_send_response(interaction, "❌ 서버 관리자(Administrator) 권한이 필요합니다.", ephemeral=True)
             return
         await core.safe_defer(interaction, ephemeral=True)
-        data = await asyncio.to_thread(core.load_data)
-        cfg = community_core.get_raid_defense_config(data, interaction.guild.id)
+        guild_id = interaction.guild.id
+
+        def _read_cfg():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                return community_core.get_raid_defense_config(d, guild_id)
+
+        cfg = await asyncio.to_thread(_read_cfg)
         if not cfg["lockdown_active"]:
             await interaction.followup.send("ℹ️ 현재 비상모드가 활성화되어 있지 않습니다.", ephemeral=True)
             return
@@ -1140,11 +1357,18 @@ class CommunityCog(commands.Cog):
                 restored = True
             except Exception:
                 pass
-        cfg["lockdown_active"] = False
-        cfg["invites_paused_by_bot"] = False
-        community_core.save_raid_defense_config(data, interaction.guild.id, cfg)
-        community_core.RAID_TRACKER.clear_guild(interaction.guild.id)
-        await asyncio.to_thread(core.save_data, data)
+
+        def _save_unlock():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                fresh_cfg = community_core.get_raid_defense_config(data, guild_id)
+                fresh_cfg["lockdown_active"] = False
+                fresh_cfg["invites_paused_by_bot"] = False
+                community_core.save_raid_defense_config(data, guild_id, fresh_cfg)
+                core.save_data(data)
+
+        await asyncio.to_thread(_save_unlock)
+        community_core.RAID_TRACKER.clear_guild(guild_id)
         msg = "🔓 비상 방어 모드가 해제되었습니다." + (" (일시 중지된 초대 링크도 복구됨)" if restored else "")
         await interaction.followup.send(msg, ephemeral=True)
 
@@ -1207,29 +1431,46 @@ class CommunityCog(commands.Cog):
             await core.safe_send_response(interaction, "❌ 서버 채널에서만 시작할 수 있습니다.", ephemeral=True)
             return
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
+        guild_id = interaction.guild.id
+        channel_id = interaction.channel.id
         blind = (공개모드.value != "open") if 공개모드 else True
         allow_consec = (연속작성.value == "yes") if 연속작성 else False
-        ok, msg, story = community_core.start_relay_novel(
-            data,
-            interaction.guild.id,
-            interaction.channel.id,
-            interaction.user.id,
-            interaction.user.display_name,
-            제목,
-            첫문장,
-            max_turns=int(목표턴 or 10),
-            blind_mode=blind,
-            allow_consecutive=allow_consec,
-        )
+
+        def _start_story():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                ok, msg, story = community_core.start_relay_novel(
+                    data,
+                    guild_id,
+                    channel_id,
+                    interaction.user.id,
+                    interaction.user.display_name,
+                    제목,
+                    첫문장,
+                    max_turns=int(목표턴 or 10),
+                    blind_mode=blind,
+                    allow_consecutive=allow_consec,
+                )
+                if ok and story:
+                    core.save_data(data)
+                return ok, msg, story
+
+        ok, msg, story = await asyncio.to_thread(_start_story)
         if not ok or not story:
             await interaction.followup.send(f"⚠️ {msg}", ephemeral=True)
             return
 
         sent = await interaction.followup.send(embed=_build_relay_active_embed(story), view=RelayNovelView())
         if sent:
-            story["message_id"] = sent.id
-        await asyncio.to_thread(core.save_data, data)
+            def _set_msg_id():
+                with core._DATA_LOCK:
+                    data = core.load_data()
+                    active = community_core.get_active_relay_novel(data, guild_id, channel_id)
+                    if active and active.get("id") == story.get("id"):
+                        active["message_id"] = sent.id
+                        core.save_data(data)
+
+            await asyncio.to_thread(_set_msg_id)
 
     @relay_group.command(name="현황", description="현재 채널에서 진행 중인 릴레이 소설 카드와 이어쓰기 버튼을 불러옵니다.")
     async def relay_status_cmd(self, interaction: discord.Interaction):
@@ -1237,8 +1478,10 @@ class CommunityCog(commands.Cog):
             await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
             return
         await core.safe_defer(interaction)
+        guild_id = interaction.guild.id
+        channel_id = interaction.channel.id
         data = await asyncio.to_thread(core.load_data)
-        story = community_core.get_active_relay_novel(data, interaction.guild.id, interaction.channel.id)
+        story = community_core.get_active_relay_novel(data, guild_id, channel_id)
         if not story:
             await interaction.followup.send(
                 "ℹ️ 현재 이 채널에서 진행 중인 릴레이 소설이 없습니다. `/릴레이소설 시작`으로 새 이야기를 열어보세요!",
@@ -1247,8 +1490,15 @@ class CommunityCog(commands.Cog):
             return
         sent = await interaction.followup.send(embed=_build_relay_active_embed(story), view=RelayNovelView())
         if sent:
-            story["message_id"] = sent.id
-            await asyncio.to_thread(core.save_data, data)
+            def _update_msg_id():
+                with core._DATA_LOCK:
+                    d = core.load_data()
+                    active = community_core.get_active_relay_novel(d, guild_id, channel_id)
+                    if active and active.get("id") == story.get("id"):
+                        active["message_id"] = sent.id
+                        core.save_data(d)
+
+            await asyncio.to_thread(_update_msg_id)
 
     @relay_group.command(name="목록", description="이 서버에서 완결된 릴레이 소설 명작집을 다시 읽어봅니다.")
     async def relay_list_cmd(self, interaction: discord.Interaction):
@@ -1270,16 +1520,29 @@ class CommunityCog(commands.Cog):
             await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
             return
         await core.safe_defer(interaction, ephemeral=True)
-        data = await asyncio.to_thread(core.load_data)
-        story = community_core.get_active_relay_novel(data, interaction.guild.id, interaction.channel.id)
-        if not story:
+        guild_id = interaction.guild.id
+        channel_id = interaction.channel.id
+        is_admin = _is_guild_admin(interaction.user, perm_attr="manage_messages")
+
+        def _cancel_story():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                story = community_core.get_active_relay_novel(data, guild_id, channel_id)
+                if not story:
+                    return "none", None
+                if int(story.get("creator_id", 0)) != interaction.user.id and not is_admin:
+                    return "denied", None
+                removed = community_core.cancel_relay_novel(data, guild_id, channel_id)
+                core.save_data(data)
+                return "ok", removed
+
+        status, removed = await asyncio.to_thread(_cancel_story)
+        if status == "none":
             await interaction.followup.send("ℹ️ 현재 이 채널에서 진행 중인 릴레이 소설이 없습니다.", ephemeral=True)
             return
-        if int(story.get("creator_id", 0)) != interaction.user.id and not _is_guild_admin(interaction.user, perm_attr="manage_messages"):
+        if status == "denied":
             await interaction.followup.send("❌ 소설 개설자 또는 관리자만 중단할 수 있습니다.", ephemeral=True)
             return
-        removed = community_core.cancel_relay_novel(data, interaction.guild.id, interaction.channel.id)
-        await asyncio.to_thread(core.save_data, data)
         title_s = removed.get("title", "릴레이 소설") if removed else "릴레이 소설"
         await interaction.followup.send(f"🛑 진행 중이던 릴레이 소설 **『{title_s}』**이(가) 중단되었습니다.", ephemeral=True)
 
@@ -1305,30 +1568,23 @@ class CommunityCog(commands.Cog):
         )
         return embed
 
-    async def _activate_lockdown(
+    async def _pause_invites_if_enabled(
         self,
         guild: discord.Guild,
         cfg: dict,
-        data: dict,
-        *,
-        by_label: str,
         reason: str,
-    ) -> bool:
+    ) -> tuple[bool, bool]:
         invites_paused = False
+        paused_by_bot_now = False
         if cfg.get("pause_invites", True) and guild.me and guild.me.guild_permissions.manage_guild:
             try:
                 if not guild.invites_disabled:
                     await guild.edit(invites_disabled=True, reason=f"비상모드 발동: {reason}")
-                    cfg["invites_paused_by_bot"] = True
+                    paused_by_bot_now = True
                 invites_paused = True
             except Exception:
                 invites_paused = False
-        cfg["lockdown_active"] = True
-        cfg["lockdown_by"] = by_label
-        cfg["lockdown_reason"] = reason[:200]
-        cfg["lockdown_started_at"] = datetime.datetime.now(core.KST).isoformat()
-        community_core.save_raid_defense_config(data, guild.id, cfg)
-        return invites_paused
+        return invites_paused, paused_by_bot_now
 
     async def _apply_raid_action(self, member: discord.Member, cfg: dict, reason: str) -> str:
         guild = member.guild
@@ -1410,39 +1666,59 @@ class CommunityCog(commands.Cog):
         try:
             sticky_cfg = community_core.get_sticky_config(cached, message.guild.id, message.channel.id)
             if sticky_cfg and sticky_cfg.get("enabled", True):
-                lock = self._get_sticky_lock(message.channel.id)
+                guild_id = message.guild.id
+                channel_id = message.channel.id
+                msg_id = message.id
+                lock = self._get_sticky_lock(channel_id)
                 async with lock:
-                    data = await asyncio.to_thread(core.load_data)
-                    cfg = community_core.get_sticky_config(data, message.guild.id, message.channel.id)
-                    if not cfg or not cfg.get("enabled", True):
-                        return
-                    if cfg.get("last_message_id") and int(cfg["last_message_id"]) == message.id:
+                    def _tick_or_prepare():
+                        with core._DATA_LOCK:
+                            data = core.load_data()
+                            cfg = community_core.get_sticky_config(data, guild_id, channel_id)
+                            if not cfg or not cfg.get("enabled", True):
+                                return "skip", None, None
+                            if cfg.get("last_message_id") and int(cfg["last_message_id"]) == msg_id:
+                                return "skip", None, None
+
+                            cfg["msg_count"] = int(cfg.get("msg_count", 0) or 0) + 1
+                            interval = max(1, int(cfg.get("interval", 1) or 1))
+                            cd = max(2, int(cfg.get("cooldown_sec", 3) or 3))
+                            now_ts = time.time()
+                            last_ts = float(cfg.get("last_posted_ts", 0.0) or 0.0)
+
+                            if cfg["msg_count"] < interval or (now_ts - last_ts) < cd:
+                                core.save_data(data)
+                                return "skip", None, None
+
+                            return "post", dict(cfg), cfg.get("last_message_id")
+
+                    action_mode, cfg_snapshot, old_msg_id = await asyncio.to_thread(_tick_or_prepare)
+                    if action_mode != "post" or not cfg_snapshot:
                         return
 
-                    cfg["msg_count"] = int(cfg.get("msg_count", 0) or 0) + 1
-                    interval = max(1, int(cfg.get("interval", 1) or 1))
-                    cd = max(2, int(cfg.get("cooldown_sec", 3) or 3))
-                    now_ts = time.time()
-                    last_ts = float(cfg.get("last_posted_ts", 0.0) or 0.0)
-
-                    if cfg["msg_count"] < interval or (now_ts - last_ts) < cd:
-                        await asyncio.to_thread(core.save_data, data)
-                        return
-
-                    if cfg.get("last_message_id"):
+                    if old_msg_id:
                         try:
-                            old_msg = await message.channel.fetch_message(int(cfg["last_message_id"]))
+                            old_msg = await message.channel.fetch_message(int(old_msg_id))
                             await old_msg.delete()
                         except Exception:
                             pass
 
                     try:
-                        posted = await message.channel.send(embed=_build_sticky_embed(cfg))
-                        cfg["last_message_id"] = posted.id
-                        cfg["msg_count"] = 0
-                        cfg["last_posted_ts"] = time.time()
-                        self._last_sticky_post_ts[message.channel.id] = time.monotonic()
-                        await asyncio.to_thread(core.save_data, data)
+                        posted = await message.channel.send(embed=_build_sticky_embed(cfg_snapshot))
+                        self._last_sticky_post_ts[channel_id] = time.monotonic()
+
+                        def _commit_sticky_post():
+                            with core._DATA_LOCK:
+                                data = core.load_data()
+                                cfg = community_core.get_sticky_config(data, guild_id, channel_id)
+                                if not cfg or not cfg.get("enabled", True):
+                                    return
+                                cfg["last_message_id"] = posted.id
+                                cfg["msg_count"] = 0
+                                cfg["last_posted_ts"] = time.time()
+                                core.save_data(data)
+
+                        await asyncio.to_thread(_commit_sticky_post)
                     except Exception:
                         pass
         except Exception:
@@ -1456,58 +1732,81 @@ class CommunityCog(commands.Cog):
         if not member.guild or member.bot:
             return
 
+        guild_id = member.guild.id
         cached = core.get_cached_data()
-        quick_cfg = community_core.get_raid_defense_config(cached, member.guild.id)
+        quick_cfg = community_core.get_raid_defense_config(cached, guild_id)
         if not quick_cfg["lockdown_active"] and not quick_cfg["enabled"] and quick_cfg["min_account_age_days"] <= 0:
             return
 
-        lock = self._get_raid_lock(member.guild.id)
+        lock = self._get_raid_lock(guild_id)
         async with lock:
-            data = await asyncio.to_thread(core.load_data)
-            cfg = community_core.get_raid_defense_config(data, member.guild.id)
+            def _read_cfg():
+                with core._DATA_LOCK:
+                    d = core.load_data()
+                    return community_core.get_raid_defense_config(d, guild_id)
+
+            cfg = await asyncio.to_thread(_read_cfg)
 
             # 1) 이미 비상 잠금(Lockdown) 중이면 즉시 차단/조치
             if cfg["lockdown_active"]:
                 act_res = await self._apply_raid_action(member, cfg, reason=f"비상 방어 잠금 중 입장 ({cfg.get('lockdown_reason', 'Raid')})")
-                community_core.append_raid_blocked_log(cfg, member.id, str(member), act_res, "비상 잠금 중 입장")
-                community_core.save_raid_defense_config(data, member.guild.id, cfg)
-                await asyncio.to_thread(core.save_data, data)
+
+                def _log_lockdown_block():
+                    with core._DATA_LOCK:
+                        data = core.load_data()
+                        fresh_cfg = community_core.get_raid_defense_config(data, guild_id)
+                        community_core.append_raid_blocked_log(fresh_cfg, member.id, str(member), act_res, "비상 잠금 중 입장")
+                        community_core.save_raid_defense_config(data, guild_id, fresh_cfg)
+                        core.save_data(data)
+
+                await asyncio.to_thread(_log_lockdown_block)
                 return
 
             # 2) 자동 감지 활성 시 슬라이딩 윈도우 검사
             if cfg["enabled"]:
                 triggered, recent_ids = community_core.RAID_TRACKER.record_join(
-                    member.guild.id,
+                    guild_id,
                     member.id,
                     cfg["window_sec"],
                     cfg["threshold"],
                 )
                 if triggered:
                     reason_txt = f"{cfg['window_sec']}초 내 {len(recent_ids)}명 동시 입장(Raid) 감지"
-                    paused_ok = await self._activate_lockdown(
-                        member.guild,
-                        cfg,
-                        data,
-                        by_label="🤖 자동 레이드 감지기",
-                        reason=reason_txt,
-                    )
+                    paused_ok, paused_by_bot_now = await self._pause_invites_if_enabled(member.guild, cfg, reason_txt)
+
+                    action_records: list[tuple[int, str, str]] = []
                     for uid in recent_ids:
                         target_m = member.guild.get_member(uid)
                         if target_m and not target_m.bot:
                             act_res = await self._apply_raid_action(target_m, cfg, reason=reason_txt)
-                            community_core.append_raid_blocked_log(cfg, target_m.id, str(target_m), act_res, reason_txt)
+                            action_records.append((target_m.id, str(target_m), act_res))
 
-                    community_core.save_raid_defense_config(data, member.guild.id, cfg)
-                    await asyncio.to_thread(core.save_data, data)
+                    def _save_auto_lockdown():
+                        with core._DATA_LOCK:
+                            data = core.load_data()
+                            fresh_cfg = community_core.get_raid_defense_config(data, guild_id)
+                            if paused_by_bot_now:
+                                fresh_cfg["invites_paused_by_bot"] = True
+                            fresh_cfg["lockdown_active"] = True
+                            fresh_cfg["lockdown_by"] = "🤖 자동 레이드 감지기"
+                            fresh_cfg["lockdown_reason"] = reason_txt[:200]
+                            fresh_cfg["lockdown_started_at"] = datetime.datetime.now(core.KST).isoformat()
+                            for rec_uid, rec_name, rec_res in action_records:
+                                community_core.append_raid_blocked_log(fresh_cfg, rec_uid, rec_name, rec_res, reason_txt)
+                            saved_cfg = community_core.save_raid_defense_config(data, guild_id, fresh_cfg)
+                            core.save_data(data)
+                            return saved_cfg, data
+
+                    saved_cfg, data = await asyncio.to_thread(_save_auto_lockdown)
 
                     now_m = time.monotonic()
-                    if now_m - self._last_raid_alert_ts.get(member.guild.id, 0.0) >= 10.0:
-                        self._last_raid_alert_ts[member.guild.id] = now_m
-                        alert_ch = _resolve_raid_alert_channel(member.guild, cfg, data)
+                    if now_m - self._last_raid_alert_ts.get(guild_id, 0.0) >= 10.0:
+                        self._last_raid_alert_ts[guild_id] = now_m
+                        alert_ch = _resolve_raid_alert_channel(member.guild, saved_cfg, data)
                         if alert_ch:
                             try:
                                 await alert_ch.send(
-                                    embed=self._build_raid_alert_embed(member.guild, cfg, paused_ok, recent_count=len(recent_ids)),
+                                    embed=self._build_raid_alert_embed(member.guild, saved_cfg, paused_ok, recent_count=len(recent_ids)),
                                     view=RaidAlertControlView(),
                                 )
                             except Exception:
@@ -1521,10 +1820,18 @@ class CommunityCog(commands.Cog):
                 if age_days < min_age:
                     reason_txt = f"신규 계정 기준 미달 (가입 {age_days}일 < {min_age}일)"
                     act_res = await self._apply_raid_action(member, cfg, reason=reason_txt)
-                    community_core.append_raid_blocked_log(cfg, member.id, str(member), act_res, reason_txt)
-                    community_core.save_raid_defense_config(data, member.guild.id, cfg)
-                    await asyncio.to_thread(core.save_data, data)
-                    alert_ch = _resolve_raid_alert_channel(member.guild, cfg, data)
+
+                    def _save_new_age_block():
+                        with core._DATA_LOCK:
+                            data = core.load_data()
+                            fresh_cfg = community_core.get_raid_defense_config(data, guild_id)
+                            community_core.append_raid_blocked_log(fresh_cfg, member.id, str(member), act_res, reason_txt)
+                            saved_cfg = community_core.save_raid_defense_config(data, guild_id, fresh_cfg)
+                            core.save_data(data)
+                            return saved_cfg, data
+
+                    saved_cfg, data = await asyncio.to_thread(_save_new_age_block)
+                    alert_ch = _resolve_raid_alert_channel(member.guild, saved_cfg, data)
                     if alert_ch:
                         try:
                             warn_embed = discord.Embed(
