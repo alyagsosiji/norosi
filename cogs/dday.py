@@ -1,5 +1,6 @@
 import io
 import re
+import copy
 import time
 import asyncio
 import datetime
@@ -9,7 +10,6 @@ from discord.ext import commands
 import core
 from cogs.music import MusicLibraryPaginationView, PlaylistStudioView
 from cogs.gacha import (
-    build_gacha_pull_embed,
     GachaPullAgainView,
     MyInventoryView,
     DuplicateConvertConfirmView,

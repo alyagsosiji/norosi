@@ -1973,7 +1973,7 @@ class ProsekaRatePaginationView(core.SafeView):
                 unit_str = f"{c['unit']}" + (f" ({c['support_unit']})" if c.get("support_unit") else "")
                 lines.append(
                     f"**{idx}.** {pickup_badge}`[{c['limit_label']}]` **{c['rarity_label']} [{c['prefix']}] {c['char_name']}**\n"
-                    f"   └ 🏷️ {unit_str} · {c['attr']} · 🎲 개별 확률: **`{c['prob']:.4f}%`** (ID: `{c['id']}`)"
+                    f"   └ 🏷️ {unit_str} · {c['attr']} · 🎲 개별 확률: **`{c.get('prob', 0.0):.4f}%`** (ID: `{c['id']}`)"
                 )
             core.add_chunked_embed_fields(
                 embed,

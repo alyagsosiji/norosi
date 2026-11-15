@@ -162,7 +162,7 @@ def _build_hsr_result_embed(result: dict, user: discord.abc.User | None) -> tupl
     elif banner_key == "lc":
         feat_str = f"★★★★★ {eff['lc_1']['name']} (시각 운명의 길: {sched['lc_path_emoji']}{sched['lc_path_name']})" if eff.get("lc_1") else "픽업 광추"
     elif banner_key == "relic":
-        t_id = str(u_state.get("relic_target_id") or "")
+        t_id = str(u_state.get("target_relic_set") or u_state.get("relic_target_id") or "")
         t_set = hsr_core.get_hsr_relic_by_id(t_id) if t_id else None
         rot_names = ", ".join(s["name"] for s in sched.get("featured_relic_sets", [])[:2]) or "전 세트"
         feat_str = f"집중 파밍: {t_set['name']}" if t_set else f"시각 픽업: {rot_names}"
@@ -1552,7 +1552,7 @@ class HSRRelicView(core.SafeView):
                     discord.SelectOption(
                         label=f"#{u_str} {lk}+{a.get('level', 0)} {a.get('name', '')} ({a.get('slot_name', '')})"[:95],
                         value=u_str,
-                        description=f"[{a.get('grade', 'A')}·{a.get('score', 0)}점] 주옵: {a.get('main_stat', '')} {a.get('main_value', '')}"[:95],
+                        description=f"[{a.get('grade', 'A')}·{a.get('score', a.get('rv', 0))}점] 주옵: {a.get('main_stat', '')} {a.get('main_value', '')}"[:95],
                         default=(u_str == str(self.selected_uid)),
                     )
                 )
@@ -1561,7 +1561,7 @@ class HSRRelicView(core.SafeView):
             self.add_item(sel)
 
         sets = hsr_core.get_hsr_relics()
-        cur_target = str(u_data.get("relic_target_id") or "")
+        cur_target = str(u_data.get("target_relic_set") or u_data.get("relic_target_id") or "")
         t_opts = [
             discord.SelectOption(
                 label="🎲 시각 연동 자동 로테이션 (집중 해제)",
@@ -1623,7 +1623,7 @@ class HSRRelicView(core.SafeView):
         sched = hsr_core.get_hsr_time_schedule()
         max_page = max(1, (len(relics) + self._per_page - 1) // self._per_page)
         sl = relics[self.page * self._per_page:(self.page + 1) * self._per_page]
-        cur_target = str(u_data.get("relic_target_id") or "")
+        cur_target = str(u_data.get("target_relic_set") or u_data.get("relic_target_id") or "")
         t_set = hsr_core.get_hsr_relic_by_id(cur_target) if cur_target else None
         rot_names = ", ".join(s["name"] for s in sched.get("featured_relic_sets", [])[:2]) or "전 세트"
         target_str = f"🎯 **{t_set['name']}** (55% 집중 드롭)" if t_set else f"⏰ 시각 로테이션 ({rot_names})"
@@ -1633,11 +1633,13 @@ class HSRRelicView(core.SafeView):
         if sel_piece:
             subs = " / ".join(f"**{s['name']}** `+{s['value']}`" for s in sel_piece.get("substats", []))
             lk = "🔒잠금" if sel_piece.get("locked") else "🔓미잠금"
+            sel_rar = sel_piece.get("rarity_label") or ("★" * int(sel_piece.get("rank", 5)))
+            sel_score = sel_piece.get("score", sel_piece.get("rv", 0))
             sel_block = (
                 f"🔎 **선택 유물 (`#{sel_piece['uid']}` · {lk}):**\n"
-                f"• {sel_piece['rarity_label']} **{sel_piece['name']}** `+{sel_piece.get('level', 0)}강` "
-                f"({sel_piece.get('slot_emoji', '💠')}{sel_piece.get('slot_name', '')}) — 등급 **`{sel_piece.get('grade', 'A')}`** (`{sel_piece.get('score', 0)}점`)\n"
-                f"• **주옵션:** `{sel_piece.get('main_stat', '')} +{sel_piece.get('main_value', '')}`\n"
+                f"• {sel_rar} **{sel_piece['name']}** `+{sel_piece.get('level', 0)}강` "
+                f"({sel_piece.get('slot_emoji', '💠')}{sel_piece.get('slot_name', '')}) — 등급 **`{sel_piece.get('grade', 'A')}`** (`{sel_score}점`)\n"
+                f"• **주옵션:** `{sel_piece.get('main_stat', '')} {sel_piece.get('main_value', '')}`\n"
                 f"• **부옵션:** {subs}\n\n"
             )
 
@@ -1646,9 +1648,10 @@ class HSRRelicView(core.SafeView):
             mark = "👉 " if str(a.get("uid")) == str(self.selected_uid) else "• "
             lk = "🔒" if a.get("locked") else ""
             subs_short = ", ".join(f"{s['name']}+{s['value']}" for s in a.get("substats", []))
+            a_score = a.get("score", a.get("rv", 0))
             lines.append(
                 f"{mark}`#{a['uid']}` {lk}**+{a.get('level', 0)} {a['name']}** ({a.get('slot_emoji', '💠')}{a.get('slot_name', '')}) "
-                f"**[{a.get('grade', 'A')}·{a.get('score', 0)}점]**\n"
+                f"**[{a.get('grade', 'A')}·{a_score}점]**\n"
                 f"  └ 주옵 `{a.get('main_stat', '')} {a.get('main_value', '')}` | {subs_short}"
             )
         list_txt = "\n".join(lines) if lines else "*(보유 중인 유물이 없습니다. `🕳️ 터널 10회 파밍` 버튼으로 획득해 보세요!)*"
@@ -1686,7 +1689,7 @@ class HSRRelicView(core.SafeView):
         if not await self._check_owner(interaction):
             return
         val = interaction.data["values"][0]
-        ok, msg = await asyncio.to_thread(
+        ok, msg, _ = await asyncio.to_thread(
             hsr_core.set_hsr_relic_target,
             self.guild_id,
             interaction.user.id,
@@ -1723,7 +1726,11 @@ class HSRRelicView(core.SafeView):
     async def _on_lock(self, interaction: discord.Interaction):
         if not await self._check_owner(interaction):
             return
-        ok, msg = await asyncio.to_thread(hsr_core.toggle_hsr_relic_lock, self.guild_id, interaction.user.id, self.selected_uid)
+        ok, new_locked, target = await asyncio.to_thread(hsr_core.toggle_hsr_relic_lock, self.guild_id, interaction.user.id, self.selected_uid)
+        if ok and target:
+            msg = f"{'🔒 잠금 설정됨' if new_locked else '🔓 잠금 해제됨'}: **{target['name']} ({target.get('slot_name', '')})**"
+        else:
+            msg = "해당 유물을 찾을 수 없습니다."
         self._build_relic_ui()
         await interaction.response.edit_message(embed=self.build_embed(msg), view=self)
 
@@ -1838,7 +1845,7 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
     async def relic_cmd(self, interaction: discord.Interaction, 집중세트: Optional[str] = None):
         notice = ""
         if 집중세트:
-            _, notice = await asyncio.to_thread(hsr_core.set_hsr_relic_target, interaction.guild_id or 0, interaction.user.id, 집중세트)
+            _, notice, _ = await asyncio.to_thread(hsr_core.set_hsr_relic_target, interaction.guild_id or 0, interaction.user.id, 집중세트)
         v = HSRRelicView(interaction.guild_id or 0, interaction.user)
         await core.safe_send_response(interaction, embed=v.build_embed(notice), view=v)
 

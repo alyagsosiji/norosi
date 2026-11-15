@@ -92,24 +92,35 @@ class MusicRecommendView(core.SafeView):
             liked_list = []
             profile["liked_music"] = liked_list
 
-        found_idx = next((i for i, t in enumerate(liked_list) if t.get("url") == self.track_info.get("url")), None)
+        track_title = self.track_info.get("title")
+        if not track_title and interaction.message and interaction.message.embeds:
+            emb0 = interaction.message.embeds[0]
+            track_title = (emb0.title or "").replace("🎵", "").strip() or "추천 곡"
+        track_title = track_title or "추천 곡"
+        track_url = self.track_info.get("url") or ""
+
+        found_idx = next((i for i, t in enumerate(liked_list) if t.get("url") == track_url and track_url), None)
         if found_idx is not None:
             liked_list.pop(found_idx)
             await asyncio.to_thread(core.save_data, data)
             await interaction.followup.send(
-                f"💔 **{self.track_info['title']}** 곡을 보관함에서 삭제했습니다.",
+                f"💔 **{track_title}** 곡을 보관함에서 삭제했습니다.",
                 ephemeral=True
             )
             return
 
         saved_item = dict(self.track_info)
+        saved_item.setdefault("title", track_title)
+        saved_item.setdefault("artist", self.track_info.get("artist", "아티스트 미지정"))
+        saved_item.setdefault("platform", self.track_info.get("platform", "YouTube"))
+        saved_item.setdefault("url", track_url)
         saved_item["added_at"] = core.get_now_datetime_str()
         saved_item["added_by"] = interaction.user.display_name
         liked_list.append(saved_item)
         await asyncio.to_thread(core.save_data, data)
 
         await interaction.followup.send(
-            f"❤️ **{self.track_info['title']}** 곡이 보관함에 저장되었습니다!\n*(💡 다시 버튼을 누르면 보관함에서 언제든 삭제할 수 있습니다)*",
+            f"❤️ **{track_title}** 곡이 보관함에 저장되었습니다!\n*(💡 다시 버튼을 누르면 보관함에서 언제든 삭제할 수 있습니다)*",
             ephemeral=True
         )
 
@@ -2368,18 +2379,23 @@ class PlaylistSearchResultView(core.SafeView):
     def __init__(self, studio_view: "PlaylistStudioView", matches: list, parent_message: Optional[discord.Message] = None):
         super().__init__(timeout=300)
         self.studio_view = studio_view
-        self.matches = matches[:25]
-        self.total_matches = len(matches)
+        self.matches = (matches or [])[:25]
+        self.total_matches = len(matches or [])
         self.parent_message = parent_message
-        self.result_select.options = [
-            discord.SelectOption(
-                label=f"#{i + 1:02d}. {t.get('title', '제목 없음')}"[:95],
-                value=str(i),
-                description=f"{t.get('artist', '-')} · 선택 시 재생/순번 변경/삭제"[:95],
-                emoji="🎵"
-            )
-            for i, t in self.matches
-        ]
+        if self.matches:
+            self.result_select.options = [
+                discord.SelectOption(
+                    label=f"#{i + 1:02d}. {t.get('title', '제목 없음')}"[:95],
+                    value=str(i),
+                    description=f"{t.get('artist', '-')} · 선택 시 재생/순번 변경/삭제"[:95],
+                    emoji="🎵"
+                )
+                for i, t in self.matches
+            ]
+        else:
+            self.result_select.options = [discord.SelectOption(label="검색 결과 없음", value="NONE")]
+            self.result_select.disabled = True
+            self.delete_all_matches_btn.disabled = True
         self.delete_all_matches_btn.label = f"🗑️ 검색된 {len(self.matches)}곡 모두 삭제"
 
     def build_content(self, keyword: str) -> str:
@@ -2390,6 +2406,9 @@ class PlaylistSearchResultView(core.SafeView):
     @discord.ui.select(placeholder="🎵 곡을 선택하면 재생 / 순번 변경 / 삭제 메뉴가 열립니다...", row=0,
                        options=[discord.SelectOption(label="결과 없음", value="NONE")])
     async def result_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if not select.values or select.values[0] == "NONE":
+            await core.safe_send_response(interaction, "ℹ️ 선택할 수 있는 검색 결과가 없습니다.", ephemeral=True)
+            return
         idx = int(select.values[0])
         cur_pl = self.studio_view.get_current_playlist()
         tracks = cur_pl.get("tracks", [])

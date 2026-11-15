@@ -2265,8 +2265,8 @@ def set_genshin_artifact_target(guild_id: int, user_id: int, set_id: str | None)
     return True, f"🏛️ **비경 집중 세트 지정 완료:** `★{art_set['max_rank']} {art_set['name']}`\n• 2세트: {art_set['bonus_2pc']}", u_data
 
 
-def enhance_genshin_artifact(guild_id: int, user_id: int, artifact_uid: str) -> tuple[bool, str, dict | None]:
-    """성유물을 +4단계씩 최대 +20까지 강화하며 부옵션 추가/상승 및 CV·등급을 재계산합니다."""
+def enhance_genshin_artifact(guild_id: int, user_id: int, artifact_uid: str, to_max: bool = False) -> tuple[bool, str, dict | None]:
+    """성유물을 +4단계씩(또는 to_max=True 시 최대 +20까지) 강화하며 부옵션 추가/상승 및 CV·등급을 재계산합니다."""
     data = core.load_data()
     u_data = ensure_genshin_user(data, guild_id, user_id)
     arts = u_data.get("artifacts", [])
@@ -2276,8 +2276,8 @@ def enhance_genshin_artifact(guild_id: int, user_id: int, artifact_uid: str) -> 
 
     rank = int(target.get("rank", 5))
     max_lv = int(target.get("max_level", 20 if rank == 5 else 16))
-    cur_lv = int(target.get("level", 0))
-    if cur_lv >= max_lv:
+    start_lv = int(target.get("level", 0))
+    if start_lv >= max_lv:
         return False, f"**{target['name']}** 성유물은 이미 최고 강화 단계(`+{max_lv}`)입니다!", target
 
     cost_ess = 2 if rank == 5 else 1
@@ -2285,53 +2285,72 @@ def enhance_genshin_artifact(guild_id: int, user_id: int, artifact_uid: str) -> 
     if cur_ess < cost_ess:
         return False, f"🧪 **축성의 정수**가 부족합니다! (필요: `{cost_ess}` / 보유: `{cur_ess}` · 성유물 비경 기원이나 분해로 획득)", target
 
-    u_data["artifact_essence"] = cur_ess - cost_ess
-    new_lv = min(max_lv, cur_lv + 4)
-    target["level"] = new_lv
-
-    # 주옵션 수치 보간
-    m_stat = target.get("main_stat_name", "HP")
-    v_start, v_max = GENSHIN_ARTIFACT_MAIN_VALUES.get((rank, m_stat), ("+717", "+4,780"))
-    if new_lv >= max_lv:
-        target["main_stat_val"] = v_max
-    else:
-        try:
-            is_pct = "%" in v_max
-            s_num = float(v_start.replace("+", "").replace(",", "").replace("%", ""))
-            m_num = float(v_max.replace("+", "").replace(",", "").replace("%", ""))
-            interp = s_num + (m_num - s_num) * (new_lv / float(max_lv))
-            target["main_stat_val"] = f"+{interp:.1f}%" if is_pct else f"+{int(round(interp)):,}"
-        except Exception:
-            target["main_stat_val"] = v_max
-
     rng = random.SystemRandom()
     subs = target.setdefault("substats", [])
-    used_names = {s["name"] for s in subs}
+    m_stat = target.get("main_stat_name") or target.get("main_stat", "HP")
+    v_start, v_max = GENSHIN_ARTIFACT_MAIN_VALUES.get((rank, m_stat), ("+717", "+4,780"))
     scale = 1.0 if rank == 5 else (0.80 if rank == 4 else 0.60)
 
-    if len(subs) < 4:
-        cands = [s for s in GENSHIN_ARTIFACT_SUBSTATS if s[0] != m_stat and s[0] not in used_names]
-        if cands:
-            pick_s = rng.choice(cands)
-            t_val = float(rng.choice(pick_s[1])) * scale
-            subs.append({
-                "name": pick_s[0],
-                "value": round(t_val, 1),
-                "is_pct": pick_s[2],
-                "display": _format_gi_stat_val(t_val, pick_s[2]),
-                "rolls": 1,
-            })
-            roll_msg = f"🆕 4번째 부옵션 개방: **{pick_s[0]} +{_format_gi_stat_val(t_val, pick_s[2])}**"
+    steps = 0
+    total_spent = 0
+    roll_msgs = []
+    elixir_cnt = 0
+    cur_lv = start_lv
+
+    while cur_lv < max_lv and int(u_data.get("artifact_essence", 0)) >= cost_ess:
+        u_data["artifact_essence"] = int(u_data.get("artifact_essence", 0)) - cost_ess
+        total_spent += cost_ess
+        steps += 1
+        new_lv = min(max_lv, cur_lv + 4)
+        target["level"] = new_lv
+        cur_lv = new_lv
+
+        if new_lv >= max_lv:
+            main_val_str = v_max
         else:
-            roll_msg = "부옵션 강화 완료"
-    else:
-        up_sub = rng.choice(subs)
-        meta_s = next((s for s in GENSHIN_ARTIFACT_SUBSTATS if s[0] == up_sub["name"]), None)
-        add_val = (float(rng.choice(meta_s[1])) if meta_s else 3.5) * scale
-        up_sub["value"] = round(float(up_sub.get("value", 0.0)) + add_val, 1)
-        up_sub["rolls"] = int(up_sub.get("rolls", 1)) + 1
-        up_sub["display"] = _format_gi_stat_val(up_sub["value"], bool(up_sub.get("is_pct")))
-        roll_msg = f"✨ 부옵션 상승: **{up_sub['name']} ➔ +{up_sub['display']}** (`{up_sub['rolls']}회`)"
+            try:
+                is_pct = "%" in v_max
+                s_num = float(v_start.replace("+", "").replace(",", "").replace("%", ""))
+                m_num = float(v_max.replace("+", "").replace(",", "").replace("%", ""))
+                interp = s_num + (m_num - s_num) * (new_lv / float(max_lv))
+                main_val_str = f"+{interp:.1f}%" if is_pct else f"+{int(round(interp)):,}"
+            except Exception:
+                main_val_str = v_max
+        target["main_stat_val"] = main_val_str
+        target["main_value"] = main_val_str
+
+        used_names = {s["name"] for s in subs}
+        if len(subs) < 4:
+            cands = [s for s in GENSHIN_ARTIFACT_SUBSTATS if s[0] != m_stat and s[0] not in used_names]
+            if cands:
+                pick_s = rng.choice(cands)
+                t_val = float(rng.choice(pick_s[1])) * scale
+                subs.append({
+                    "name": pick_s[0],
+                    "value": round(t_val, 1),
+                    "is_pct": pick_s[2],
+                    "unit": "%" if pick_s[2] else "",
+                    "display": _format_gi_stat_val(t_val, pick_s[2]),
+                    "rolls": 1,
+                })
+                roll_msgs.append(f"🆕 4번째 부옵션 개방: **{pick_s[0]} +{_format_gi_stat_val(t_val, pick_s[2])}**")
+            else:
+                roll_msgs.append("부옵션 강화 완료")
+        else:
+            up_sub = rng.choice(subs)
+            meta_s = next((s for s in GENSHIN_ARTIFACT_SUBSTATS if s[0] == up_sub["name"]), None)
+            add_val = (float(rng.choice(meta_s[1])) if meta_s else 3.5) * scale
+            up_sub["value"] = round(float(up_sub.get("value", 0.0)) + add_val, 1)
+            up_sub["rolls"] = int(up_sub.get("rolls", 1)) + 1
+            up_sub["display"] = _format_gi_stat_val(up_sub["value"], bool(up_sub.get("is_pct")))
+            roll_msgs.append(f"✨ **{up_sub['name']} ➔ +{up_sub['display']}** (`{up_sub['rolls']}회`)")
+
+        if new_lv == 20 and rng.random() < 0.25:
+            u_data["sanctifying_elixir"] = int(u_data.get("sanctifying_elixir", 0)) + 1
+            elixir_cnt += 1
+
+        if not to_max:
+            break
 
     cv, rv, grade = compute_genshin_artifact_score(target)
     target["cv"] = cv
@@ -2343,14 +2362,10 @@ def enhance_genshin_artifact(guild_id: int, user_id: int, artifact_uid: str) -> 
     if set_rec and cv > float(set_rec.get("best_cv", 0.0)):
         set_rec["best_cv"] = cv
 
-    # +20 달성 시 보너스 축성의 서리 확률 또는 마일리지
-    elixir_msg = ""
-    if new_lv == 20 and rng.random() < 0.25:
-        u_data["sanctifying_elixir"] = int(u_data.get("sanctifying_elixir", 0)) + 1
-        elixir_msg = " · 💧 **축성의 서리 +1** 획득!"
-
+    elixir_msg = f" · 💧 **축성의 서리 +{elixir_cnt}** 획득!" if elixir_cnt else ""
+    summary_roll = roll_msgs[-1] if len(roll_msgs) == 1 else f"✨ 총 `{steps}단계` 연속 강화 완료 (마지막: {roll_msgs[-1]})"
     core.save_data(data)
-    return True, f"🔨 **{target['name']}** `+{cur_lv}` ➔ **`+{new_lv}`** 강화 성공! (`-{cost_ess} 축성의 정수`)\n• {roll_msg}\n• 현재 치명타 가치(CV): **`{cv}점`** ({grade}){elixir_msg}", target
+    return True, f"🔨 **{target['name']}** `+{start_lv}` ➔ **`+{cur_lv}`** 강화 성공! (`-{total_spent} 축성의 정수`)\n• {summary_roll}\n• 현재 치명타 가치(CV): **`{cv}점`** ({grade}){elixir_msg}", target
 
 
 def toggle_genshin_artifact_lock(guild_id: int, user_id: int, artifact_uid: str) -> tuple[bool, bool, dict | None]:
@@ -2822,9 +2837,6 @@ async def genshin_5star_weapon_autocomplete(interaction, current: str):
     q = (current or "").strip().lower()
     cands = [w for w in weapons if w["rank"] == 5 and (not q or q in w["name"].lower() or q in w["id"])]
     return [
-        app_commands.Choice(name=f"★★★★★ {w['name']} ({w['weapon_type_emoji']}{w['weapon_type_name']} · {w['pool_type']})"[:100], value=w["id"])
-        for c in cands[:0]
-    ] + [
         app_commands.Choice(name=f"★★★★★ {w['name']} ({w['weapon_type_emoji']}{w['weapon_type_name']} · {w['pool_type']})"[:100], value=w["id"])
         for w in cands[:25]
     ]

@@ -1905,6 +1905,7 @@ def _apply_hsr_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[
                 "set_id": item["id"],
                 "name": item["name"],
                 "rank": 5,
+                "rarity_label": item.get("rarity_label", "★★★★★"),
                 "is_planar": bool(item.get("is_planar")),
                 "slot_code": item.get("slot_code", "HEAD"),
                 "slot_idx": item.get("slot_idx", 0),
@@ -1916,6 +1917,7 @@ def _apply_hsr_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[
                 "level": int(item.get("level", 0)),
                 "cv": float(item.get("cv", 0.0)),
                 "rv": float(item.get("rv", 0.0)),
+                "score": float(item.get("score", item.get("rv", 0.0))),
                 "grade": item.get("grade", "A"),
                 "locked": item.get("grade") in ("SSS", "SS"),
                 "obtained_at": now_iso,
@@ -2182,60 +2184,90 @@ def set_hsr_relic_target(guild_id: int, user_id: int, relic_id: str | None) -> t
     return True, f"🎯 침식된 터널 집중 파밍 세트가 **`{r_obj['name']}`** ({r_obj['relic_type']})로 지정되었습니다! (★5 획득 시 75% 확률로 해당 세트 드랍)", u_data
 
 
-def enhance_hsr_relic(guild_id: int, user_id: int, relic_uid: str) -> tuple[bool, str, dict | None]:
-    """보유 중인 ★5 유물을 +3 단계씩 최대 +15까지 강화하며, 부옵션 추가/상승을 적용합니다."""
+def enhance_hsr_relic(guild_id: int, user_id: int, relic_uid: str, to_max: bool = False) -> tuple[bool, str, dict | None]:
+    """보유 중인 ★5 유물을 +3 단계씩(또는 to_max=True 시 최대 +15까지) 강화하며, 부옵션 추가/상승을 적용합니다."""
     data = core.load_data()
     u_data = ensure_hsr_user(data, guild_id, user_id)
     relic_list = u_data.get("relics", [])
     target = next((r for r in relic_list if r.get("uid") == relic_uid), None)
     if not target:
         return False, "해당 유물을 찾을 수 없습니다.", None
-    cur_lv = int(target.get("level", 0))
-    if cur_lv >= 15:
+    start_lv = int(target.get("level", 0))
+    if start_lv >= 15:
         return False, f"**{target['name']} ({target.get('slot_name', '')})** 유물은 이미 최고 단계(`+15`)입니다!", target
 
     cost_remains = 10
     if int(u_data.get("relic_remains", 0)) < cost_remains:
         return False, f"유물 잔해가 부족합니다! (필요: `{cost_remains}개` / 보유: `{u_data.get('relic_remains', 0)}개` · 유물 토벌 또는 분해로 획득)", target
 
-    u_data["relic_remains"] = int(u_data.get("relic_remains", 0)) - cost_remains
-    new_lv = min(15, cur_lv + 3)
-    target["level"] = new_lv
-
     rng = random.SystemRandom()
     subs = target.setdefault("substats", [])
-    existing_names = {s["name"] for s in subs}
     main_stat = target.get("main_stat", "")
+    rank = int(target.get("rank", 5))
+    m_pair = HSR_RELIC_MAIN_VALUES.get((rank, main_stat)) or HSR_RELIC_MAIN_VALUES.get(main_stat)
 
-    if len(subs) < 4:
-        cands = [s for s in HSR_RELIC_SUBSTATS if s[0] != main_stat and s[0] not in existing_names]
-        if cands:
-            s_name, tiers, unit = rng.choice(cands)
-            val = round(rng.choice(tiers), 1 if unit == "%" else 0)
-            subs.append({"name": s_name, "value": val, "unit": unit, "rolls": 1})
-            roll_msg = f"🆕 4번째 부옵션 **`{s_name} +{val}{unit}`** 개방!"
+    steps = 0
+    total_spent = 0
+    roll_msgs = []
+    cur_lv = start_lv
+
+    while cur_lv < 15 and int(u_data.get("relic_remains", 0)) >= cost_remains:
+        u_data["relic_remains"] = int(u_data.get("relic_remains", 0)) - cost_remains
+        total_spent += cost_remains
+        steps += 1
+        new_lv = min(15, cur_lv + 3)
+        target["level"] = new_lv
+        cur_lv = new_lv
+
+        if isinstance(m_pair, tuple) and len(m_pair) == 2:
+            v_start, v_max = m_pair
+            if new_lv >= 15:
+                target["main_value"] = v_max
+            else:
+                try:
+                    is_pct = "%" in str(v_max)
+                    s_num = float(str(v_start).replace("+", "").replace(",", "").replace("%", ""))
+                    m_num = float(str(v_max).replace("+", "").replace(",", "").replace("%", ""))
+                    interp = s_num + (m_num - s_num) * (new_lv / 15.0)
+                    target["main_value"] = f"+{interp:.1f}%" if is_pct else f"+{int(round(interp)):,}"
+                except Exception:
+                    pass
+
+        existing_names = {s["name"] for s in subs}
+        if len(subs) < 4:
+            cands = [s for s in HSR_RELIC_SUBSTATS if s[0] != main_stat and s[0] not in existing_names]
+            if cands:
+                s_name, tiers, unit = rng.choice(cands)
+                val = round(rng.choice(tiers), 1 if unit == "%" else 0)
+                subs.append({"name": s_name, "value": val, "unit": unit, "rolls": 1})
+                roll_msgs.append(f"🆕 4번째 부옵션 **`{s_name} +{val}{unit}`** 개방!")
+            else:
+                roll_msgs.append("부옵션 개방 완료!")
         else:
-            roll_msg = "부옵션 개방 완료!"
-    else:
-        chosen = rng.choice(subs)
-        s_Def = next((s for s in HSR_RELIC_SUBSTATS if s[0] == chosen["name"]), None)
-        tiers = s_Def[1] if s_Def else [3.0, 3.4, 3.8]
-        unit = chosen.get("unit", "%")
-        inc = round(rng.choice(tiers), 1 if unit == "%" else 0)
-        old_v = chosen["value"]
-        chosen["value"] = round(old_v + inc, 1 if unit == "%" else 0) if unit == "%" else int(old_v + inc)
-        chosen["rolls"] = int(chosen.get("rolls", 1)) + 1
-        roll_msg = f"✨ **`{chosen['name']}`** 부옵션 강화! (`+{old_v}{unit}` ➔ **`+{chosen['value']}{unit}`**)"
+            chosen = rng.choice(subs)
+            s_def = next((s for s in HSR_RELIC_SUBSTATS if s[0] == chosen["name"]), None)
+            tiers = s_def[1] if s_def else [3.0, 3.4, 3.8]
+            unit = chosen.get("unit", "%")
+            inc = round(rng.choice(tiers), 1 if unit == "%" else 0)
+            old_v = chosen["value"]
+            chosen["value"] = round(old_v + inc, 1 if unit == "%" else 0) if unit == "%" else int(old_v + inc)
+            chosen["rolls"] = int(chosen.get("rolls", 1)) + 1
+            roll_msgs.append(f"✨ **`{chosen['name']}`** (`+{old_v}{unit}` ➔ **`+{chosen['value']}{unit}`**)")
+
+        if not to_max:
+            break
 
     cv, rv, grade = compute_hsr_relic_score(target)
     target["cv"] = cv
     target["rv"] = rv
+    target["score"] = rv
     target["grade"] = grade
     if grade in ("SSS", "SS"):
         target["locked"] = True
 
+    summary_roll = roll_msgs[-1] if len(roll_msgs) == 1 else f"✨ `{steps}단계` 연속 강화 완료 (마지막: {roll_msgs[-1]})"
     core.save_data(data)
-    return True, f"🔨 **{target['name']} ({target.get('slot_name')})** `+{cur_lv}` ➔ **`+{new_lv}`** 강화 성공! (`-10 유물 잔해`)\n└ {roll_msg} · 현재 등급 **`{grade}`** (CV `{cv}` / RV `{rv}`)", target
+    return True, f"🔨 **{target['name']} ({target.get('slot_name', '')})** `+{start_lv}` ➔ **`+{cur_lv}`** 강화 성공! (`-{total_spent} 유물 잔해`)\n└ {summary_roll} · 현재 등급 **`{grade}`** (CV `{cv}` / RV `{rv}`)", target
 
 
 def toggle_hsr_relic_lock(guild_id: int, user_id: int, relic_uid: str) -> tuple[bool, bool, dict | None]:
@@ -2250,21 +2282,39 @@ def toggle_hsr_relic_lock(guild_id: int, user_id: int, relic_uid: str) -> tuple[
 
 
 def salvage_hsr_relics(guild_id: int, user_id: int, max_grade: str = "A") -> tuple[bool, str, dict]:
-    """잠금되지 않은 A/B등급 유물을 일괄 분해하여 유물 잔해와 자가 변형 레진을 획득합니다."""
+    """잠금되지 않은 ★4 또는 B/A등급 +0강 유물을 일괄 분해하여 유물 잔해와 자가 변형 레진을 획득합니다."""
     data = core.load_data()
     u_data = ensure_hsr_user(data, guild_id, user_id)
     relic_list = u_data.get("relics", [])
-    target_grades = {"B"} if max_grade == "B" else {"A", "B"}
     kept = []
     salvaged_cnt = 0
     for r in relic_list:
-        if not r.get("locked") and r.get("grade", "B") in target_grades and int(r.get("level", 0)) == 0:
-            salvaged_cnt += 1
-        else:
+        if r.get("locked") or int(r.get("level", 0)) != 0:
             kept.append(r)
+            continue
+        if max_grade == "4star":
+            if int(r.get("rank", 5)) <= 4:
+                salvaged_cnt += 1
+            else:
+                kept.append(r)
+        elif max_grade in ("B", "5star_low"):
+            if r.get("grade", "B") in ("B",):
+                salvaged_cnt += 1
+            else:
+                kept.append(r)
+        else:
+            if r.get("grade", "B") in ("A", "B"):
+                salvaged_cnt += 1
+            else:
+                kept.append(r)
 
     if salvaged_cnt == 0:
-        return False, "분해할 수 있는 미잠금 +0강 유물(A/B등급)이 없습니다.", u_data
+        empty_msg = (
+            "분해할 수 있는 미잠금 ★4 유물이 없습니다. (워프 획득 ★4 유물은 자동으로 잔해 `+15`로 환원됩니다)"
+            if max_grade == "4star"
+            else "분해할 수 있는 미잠금 +0강 B이하 등급 유물이 없습니다."
+        )
+        return False, empty_msg, u_data
 
     gained_remains = salvaged_cnt * 20
     gained_resin = salvaged_cnt // 10

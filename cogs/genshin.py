@@ -132,8 +132,9 @@ def _build_genshin_result_embed(result: dict, user: discord.abc.User | None) -> 
             rew.append(f"+{it['gained_starglitter']}✨스타라이트")
         if it.get("gained_stardust"):
             rew.append(f"+{it['gained_stardust']}💠더스트")
-        if it.get("gained_sanctifying_essence"):
-            rew.append(f"+{it['gained_sanctifying_essence']}🧪축성정수")
+        if it.get("gained_essence") or it.get("gained_sanctifying_essence"):
+            g_ess = it.get("gained_essence", it.get("gained_sanctifying_essence", 0))
+            rew.append(f"+{g_ess}🧪축성정수")
         rew_txt = f" ({', '.join(rew)})" if rew else ""
 
         lines.append(
@@ -157,12 +158,13 @@ def _build_genshin_result_embed(result: dict, user: discord.abc.User | None) -> 
         ft_name = w_obj["name"] if w_obj else "미설정"
         pity_line = f"• **무기 기원 스택:** {p_txt} ({g_txt}) · 🧭 궤도: `{ft_name}` (`{fp}/1`)"
     elif banner_key == "artifact":
-        t_sid = u_state.get("artifact_target_set")
+        t_sid = u_state.get("target_artifact_set_id") or u_state.get("artifact_target_set")
         t_set = genshin_core.get_genshin_artifact_by_id(str(t_sid)) if t_sid else None
         t_name = t_set["name"] if t_set else (sched["featured_artifact"]["name"] if sched.get("featured_artifact") else "전체 비경 균등")
+        cur_ess = u_state.get("artifact_essence", u_state.get("sanctifying_essence", 0))
         pity_line = (
             f"• **비경 천장 스택:** `{u_state.get('pity_artifact', 0)}/10` (10회 내 ★5 확정) · 🎯 명정 세트: `{t_name}`\n"
-            f"• **성유물 재화:** 🧪 축성의 정수 `{u_state.get('sanctifying_essence', 0):,}` · ❄️ 축성의 서리 `{u_state.get('sanctifying_elixir', 0):,}` · 📦 보관 `{len(u_state.get('artifacts', []))}개`"
+            f"• **성유물 재화:** 🧪 축성의 정수 `{cur_ess:,}` · ❄️ 축성의 서리 `{u_state.get('sanctifying_elixir', 0):,}` · 📦 보관 `{len(u_state.get('artifacts', []))}개`"
         )
     else:
         pity_line = f"• **상시 기원 스택:** `{u_state.get('pity_standard', 0)}/90`"
@@ -175,7 +177,7 @@ def _build_genshin_result_embed(result: dict, user: discord.abc.User | None) -> 
         w_names = [w["name"] for w in (eff.get("weapon_1"), eff.get("weapon_2")) if w]
         feat_str = " / ".join(w_names) if w_names else "상시 무기"
     elif banner_key == "artifact":
-        t_sid = u_state.get("artifact_target_set")
+        t_sid = u_state.get("target_artifact_set_id") or u_state.get("artifact_target_set")
         t_set = genshin_core.get_genshin_artifact_by_id(str(t_sid)) if t_sid else sched.get("featured_artifact")
         feat_str = f"🏛️ {t_set['name']} (65% 집중 드롭)" if t_set else "전체 5성 성유물 비경"
     else:
@@ -206,7 +208,8 @@ def _build_genshin_result_embed(result: dict, user: discord.abc.User | None) -> 
     )
     if user:
         embed.set_author(name=f"{user.display_name}님의 티바트 기원", icon_url=user.display_avatar.url)
-    embed.set_footer(text=f"보유 스타라이트 {u_state.get('starglitter', 0):,} · 스타더스트 {u_state.get('stardust', 0):,} · 축성정수 {u_state.get('sanctifying_essence', 0):,} | 하단에서 배너/비경 전환")
+    cur_ess_ft = u_state.get("artifact_essence", u_state.get("sanctifying_essence", 0))
+    embed.set_footer(text=f"보유 스타라이트 {u_state.get('starglitter', 0):,} · 스타더스트 {u_state.get('stardust', 0):,} · 축성정수 {cur_ess_ft:,} | 하단에서 배너/비경 전환")
 
     high_items = [it for it in drawn if it["rank"] >= 5]
     if not high_items and len(drawn) == 1:
@@ -1492,7 +1495,7 @@ class GenshinArtifactView(core.SafeView):
             self.selected_uid = sl[0].get("uid", "")
 
         sets = genshin_core.get_genshin_artifacts()
-        cur_target = str(u_data.get("artifact_target_set") or "")
+        cur_target = str(u_data.get("target_artifact_set_id") or u_data.get("artifact_target_set") or "")
         if sets:
             t_opts = [discord.SelectOption(label="🎲 시간대 로테이션 비경 자동 연동", value="none", default=(not cur_target))]
             for s in sets[:24]:
@@ -1566,7 +1569,7 @@ class GenshinArtifactView(core.SafeView):
             return
         val = interaction.data["values"][0]
         gid = self.guild_id or interaction.guild_id or 0
-        _, msg = await asyncio.to_thread(genshin_core.set_genshin_artifact_target, gid, interaction.user.id, None if val == "none" else val)
+        _, msg, _ = await asyncio.to_thread(genshin_core.set_genshin_artifact_target, gid, interaction.user.id, None if val == "none" else val)
         self._build_artifact_ui()
         await interaction.response.edit_message(content=msg, embed=self.build_embed(), view=self)
 
@@ -1603,7 +1606,11 @@ class GenshinArtifactView(core.SafeView):
         if not await self._guard(interaction):
             return
         gid = self.guild_id or interaction.guild_id or 0
-        ok, msg = await asyncio.to_thread(genshin_core.toggle_genshin_artifact_lock, gid, interaction.user.id, self.selected_uid)
+        ok, new_locked, target = await asyncio.to_thread(genshin_core.toggle_genshin_artifact_lock, gid, interaction.user.id, self.selected_uid)
+        if not ok or not target:
+            msg = "❌ 보관함에서 해당 성유물을 찾을 수 없습니다."
+        else:
+            msg = f"🔒 **{target['name']}** 성유물을 잠금 처리했습니다." if new_locked else f"🔓 **{target['name']}** 성유물의 잠금을 해제했습니다."
         self._build_artifact_ui()
         await interaction.response.edit_message(content=msg, embed=self.build_embed(), view=self)
 
@@ -1618,7 +1625,7 @@ class GenshinArtifactView(core.SafeView):
         if not await self._guard(interaction):
             return
         gid = self.guild_id or interaction.guild_id or 0
-        ok, msg, _ = await asyncio.to_thread(genshin_core.salvage_genshin_artifacts, gid, interaction.user.id)
+        ok, msg, _ = await asyncio.to_thread(genshin_core.salvage_genshin_artifacts, gid, interaction.user.id, 5)
         self._build_artifact_ui()
         await interaction.response.edit_message(content=msg, embed=self.build_embed(), view=self)
 
@@ -1641,7 +1648,7 @@ class GenshinArtifactView(core.SafeView):
         sched = genshin_core.get_genshin_time_schedule()
         max_page = max(1, (len(arts) + self._per_page - 1) // self._per_page)
         sl = arts[self.page * self._per_page:(self.page + 1) * self._per_page]
-        t_sid = u_data.get("artifact_target_set")
+        t_sid = u_data.get("target_artifact_set_id") or u_data.get("artifact_target_set")
         t_set = genshin_core.get_genshin_artifact_by_id(str(t_sid)) if t_sid else None
         t_name = f"🎯 {t_set['name']} (65% 집중)" if t_set else f"⏰ 시간대 자동 ({sched['featured_artifact']['name'] if sched.get('featured_artifact') else '전체'})"
 
@@ -1656,10 +1663,11 @@ class GenshinArtifactView(core.SafeView):
             )
         body = "\n".join(lines) if lines else "*(보유한 성유물이 없습니다! `[🏛️ 비경 10회 기원]` 또는 `/원신 기원 배너:축성 비경`으로 획득해 보세요!)*"
         owner_n = self.user.display_name if self.user else "여행자"
+        cur_ess = u_data.get("artifact_essence", u_data.get("sanctifying_essence", 0))
         return discord.Embed(
             title=f"🏛️ {owner_n}님의 원신 성유물 보관함 & 축성 비경 ({len(arts)}개)",
             description=(
-                f"• **성유물 재화:** 🧪 축성의 정수 **`{u_data.get('sanctifying_essence', 0):,}`** · ❄️ 축성의 서리 **`{u_data.get('sanctifying_elixir', 0):,}`**\n"
+                f"• **성유물 재화:** 🧪 축성의 정수 **`{cur_ess:,}`** · ❄️ 축성의 서리 **`{u_data.get('sanctifying_elixir', 0):,}`**\n"
                 f"• **현재 비경 명정:** {t_name} · 천장 `{u_data.get('pity_artifact', 0)}/10`\n\n"
                 f"{body}"
             )[:4050],
@@ -1868,7 +1876,7 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
                 f"• **대표 캐릭터:** {rep_str}\n"
                 f"• **기원 통계:** 누적 `{u_data.get('total_pulls', 0):,}회` · 고유 수집 `{len(items)}종` · 성유물 `{len(u_data.get('artifacts', []))}개`\n"
                 f"• **현재 천장:** 캐릭터 `{u_data.get('pity_char', 0)}/90` ({'확정' if u_data.get('guaranteed_char') else '반천'}) · 무기 `{u_data.get('pity_weapon', 0)}/80` · 비경 `{u_data.get('pity_artifact', 0)}/10` · 상시 `{u_data.get('pity_standard', 0)}/90`\n"
-                f"• **재화:** ✨ 스타라이트 `{u_data.get('starglitter', 0):,}` · 💠 스타더스트 `{u_data.get('stardust', 0):,}` · 🧪 축성정수 `{u_data.get('sanctifying_essence', 0):,}` · ❄️ 축성의서리 `{u_data.get('sanctifying_elixir', 0):,}`\n"
+                f"• **재화:** ✨ 스타라이트 `{u_data.get('starglitter', 0):,}` · 💠 스타더스트 `{u_data.get('stardust', 0):,}` · 🧪 축성정수 `{u_data.get('artifact_essence', u_data.get('sanctifying_essence', 0)):,}` · ❄️ 축성의서리 `{u_data.get('sanctifying_elixir', 0):,}`\n"
                 f"• **주력 캐릭터:** {top3}\n"
                 f"• **파티 전투력:** `{party_ana['total_power']:,}` (공명 {len(party_ana['resonances'])}개)"
             ),
