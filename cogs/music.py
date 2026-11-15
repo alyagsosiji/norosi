@@ -319,13 +319,10 @@ class MusicScheduleAddModal(core.SafeModal, title="⏰ 새 맞춤 음악 추천 
             return
 
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        schedules = data.setdefault("music_schedules", [])
         sched_id = f"sched_{int(time.time())}_{random.randint(100, 999)}"
         ch_id = self.default_channel.id if self.default_channel else (interaction.channel_id or 0)
         genre_val = self.sched_genre.value.strip() if self.sched_genre.value and self.sched_genre.value.strip() else None
-
-        schedules.append({
+        new_entry = {
             "id": sched_id,
             "time": clean_time,
             "channel_id": ch_id,
@@ -333,9 +330,17 @@ class MusicScheduleAddModal(core.SafeModal, title="⏰ 새 맞춤 음악 추천 
             "name": self.sched_name.value.strip() or "맞춤 음악 추천",
             "genre": genre_val,
             "last_sent": ""
-        })
-        await asyncio.to_thread(core.save_data, data)
+        }
 
+        def _append_schedule():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                schedules = data.setdefault("music_schedules", [])
+                schedules.append(new_entry)
+                core.save_data(data)
+                return list(schedules)
+
+        schedules = await asyncio.to_thread(_append_schedule)
         self.hub_view.set_schedules(schedules)
         await interaction.edit_original_response(embed=self.hub_view.build_embed(), view=self.hub_view)
 
@@ -401,15 +406,20 @@ class MusicScheduleHubView(core.SafeView):
             await core.safe_defer(interaction)
             return
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        schedules = data.get("music_schedules", [])
-        data["music_schedules"] = [
-            s for s in schedules
-            if not (str(s.get("id")) == val and core.is_schedule_in_guild(s, self.guild))
-        ]
-        await asyncio.to_thread(core.save_data, data)
 
-        self.set_schedules(data["music_schedules"])
+        def _delete_schedule():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                schedules = data.get("music_schedules", [])
+                data["music_schedules"] = [
+                    s for s in schedules
+                    if not (str(s.get("id")) == val and core.is_schedule_in_guild(s, self.guild))
+                ]
+                core.save_data(data)
+                return list(data["music_schedules"])
+
+        remaining = await asyncio.to_thread(_delete_schedule)
+        self.set_schedules(remaining)
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
 
@@ -4179,7 +4189,7 @@ class MusicCog(commands.Cog):
                 return
             sched_id = f"sched_{int(time.time())}_{random.randint(100, 999)}"
             ch_id = target_ch.id if target_ch else (interaction.channel_id or 0)
-            schedules.append({
+            new_entry = {
                 "id": sched_id,
                 "time": clean_time,
                 "channel_id": ch_id,
@@ -4187,9 +4197,17 @@ class MusicCog(commands.Cog):
                 "name": 이름,
                 "genre": 장르.strip() if 장르 and 장르.strip() else None,
                 "last_sent": ""
-            })
-            await asyncio.to_thread(core.save_data, data)
+            }
 
+            def _add_sched():
+                with core._DATA_LOCK:
+                    d_add = core.load_data()
+                    lst = d_add.setdefault("music_schedules", [])
+                    lst.append(new_entry)
+                    core.save_data(d_add)
+                    return list(lst)
+
+            schedules = await asyncio.to_thread(_add_sched)
             hub_view = MusicScheduleHubView(schedules, target_ch, interaction.guild)
             embed = hub_view.build_embed()
             embed.title = f"✅ 새 음악 타이머 등록 완료 (`{clean_time}` — {이름})"
@@ -4200,16 +4218,27 @@ class MusicCog(commands.Cog):
                 hub_view = MusicScheduleHubView(schedules, target_ch, interaction.guild)
                 await interaction.followup.send("ℹ️ 아래 드롭다운 메뉴에서 삭제할 음악 알림을 선택해 주세요.", embed=hub_view.build_embed(), view=hub_view)
                 return
-            before_cnt = len(schedules)
-            data["music_schedules"] = [
-                s for s in schedules
-                if not (s.get("id") == 삭제할알림 and core.is_schedule_in_guild(s, interaction.guild))
-            ]
-            if len(data["music_schedules"]) == before_cnt:
+
+            def _del_sched():
+                with core._DATA_LOCK:
+                    d_del = core.load_data()
+                    lst = d_del.get("music_schedules", [])
+                    before_cnt = len(lst)
+                    filtered = [
+                        s for s in lst
+                        if not (s.get("id") == 삭제할알림 and core.is_schedule_in_guild(s, interaction.guild))
+                    ]
+                    if len(filtered) == before_cnt:
+                        return None
+                    d_del["music_schedules"] = filtered
+                    core.save_data(d_del)
+                    return list(filtered)
+
+            remaining = await asyncio.to_thread(_del_sched)
+            if remaining is None:
                 await interaction.followup.send("❌ 현재 서버에서 해당 알림을 찾을 수 없습니다.", ephemeral=True)
                 return
-            await asyncio.to_thread(core.save_data, data)
-            hub_view = MusicScheduleHubView(data["music_schedules"], target_ch, interaction.guild)
+            hub_view = MusicScheduleHubView(remaining, target_ch, interaction.guild)
             await interaction.followup.send("🗑️ 선택한 음악 알림 타이머가 삭제되었습니다.", embed=hub_view.build_embed(), view=hub_view)
 
     @app_commands.command(name="음악추천설정", description="매일 오전 7시 음악 추천을 받을 채널과 조건을 설정합니다.")
@@ -4249,7 +4278,6 @@ class MusicCog(commands.Cog):
             return
 
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
         selected_platform = 플랫폼.value if 플랫폼 else "all"
         g_id = str(interaction.guild_id or 0)
         pref_obj = {
@@ -4257,12 +4285,19 @@ class MusicCog(commands.Cog):
             "platform": selected_platform,
             "genre": 장르,
             "artist": 아티스트,
-            "playlist_url": 플레이리스트링크
+            "playlist_url": 플레이리스트링크,
+            "updated_at": datetime.datetime.now(core.KST).isoformat(),
         }
-        guild_prefs = core.ensure_dict_path(data, "guild_music_prefs")
-        guild_prefs[g_id] = pref_obj
-        data["music_prefs"] = pref_obj
-        await asyncio.to_thread(core.save_data, data)
+
+        def _save_music_prefs():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                guild_prefs = core.ensure_dict_path(data, "guild_music_prefs")
+                guild_prefs[g_id] = copy.deepcopy(pref_obj)
+                data["music_prefs"] = copy.deepcopy(pref_obj)
+                core.save_data(data)
+
+        await asyncio.to_thread(_save_music_prefs)
 
         embed = discord.Embed(title="🎧 모닝 음악 추천 설정 완료", color=discord.Color.from_rgb(0, 204, 221))
         embed.add_field(name="📢 전송 채널", value=채널.mention, inline=False)

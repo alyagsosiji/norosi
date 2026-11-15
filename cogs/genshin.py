@@ -1937,31 +1937,35 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
         if 프리셋 and not any([캐릭터1, 캐릭터2, 사성1, 사성2, 사성3, 무기1, 무기2, 배너이름]):
             ok, msg, eff = await asyncio.to_thread(genshin_core.apply_genshin_pickup_preset, 프리셋)
         else:
-            chars, weapons = genshin_core.load_genshin_kr_db()
-            by_c = {c["id"]: c for c in chars}
-            by_w = {w["id"]: w for w in weapons}
-            data = core.load_data()
-            cfg = dict(data.get("genshin_pickup") or {})
-            if 프리셋 and 프리셋 != "reset":
-                pr = genshin_core.GENSHIN_BANNER_PRESETS.get(프리셋, {})
-                cfg.update({k: pr[k] for k in ("char1", "char2", "char_4_ids", "weapon_1", "weapon_2", "banner_name") if k in pr})
-            if 캐릭터1 and 캐릭터1 in by_c:
-                cfg["char1"] = 캐릭터1
-            if 캐릭터2 and 캐릭터2 in by_c:
-                cfg["char2"] = 캐릭터2
-            custom_4s = [x for x in (사성1, 사성2, 사성3) if x and x in by_c]
-            if custom_4s:
-                cfg["char_4_ids"] = custom_4s
-            if 무기1 and 무기1 in by_w:
-                cfg["weapon_1"] = 무기1
-            if 무기2 and 무기2 in by_w:
-                cfg["weapon_2"] = 무기2
-            if 배너이름:
-                cfg["banner_name"] = 배너이름.strip()[:60]
-            cfg["updated_at"] = datetime.datetime.now(core.KST).isoformat()
-            data["genshin_pickup"] = cfg
-            core.save_data(data)
-            eff = genshin_core.resolve_effective_genshin_pickup(cfg)
+            def _save_custom_genshin_pickup():
+                chars, weapons = genshin_core.load_genshin_kr_db()
+                by_c = {c["id"]: c for c in chars}
+                by_w = {w["id"]: w for w in weapons}
+                with core._DATA_LOCK:
+                    data = core.load_data()
+                    cfg = dict(data.get("genshin_pickup") or {})
+                    if 프리셋 and 프리셋 != "reset":
+                        pr = genshin_core.GENSHIN_BANNER_PRESETS.get(프리셋, {})
+                        cfg.update({k: pr[k] for k in ("char1", "char2", "char_4_ids", "weapon_1", "weapon_2", "banner_name") if k in pr})
+                    if 캐릭터1 and 캐릭터1 in by_c:
+                        cfg["char1"] = 캐릭터1
+                    if 캐릭터2 and 캐릭터2 in by_c:
+                        cfg["char2"] = 캐릭터2
+                    custom_4s = [x for x in (사성1, 사성2, 사성3) if x and x in by_c]
+                    if custom_4s:
+                        cfg["char_4_ids"] = custom_4s
+                    if 무기1 and 무기1 in by_w:
+                        cfg["weapon_1"] = 무기1
+                    if 무기2 and 무기2 in by_w:
+                        cfg["weapon_2"] = 무기2
+                    if 배너이름:
+                        cfg["banner_name"] = 배너이름.strip()[:60]
+                    cfg["updated_at"] = datetime.datetime.now(core.KST).isoformat()
+                    data["genshin_pickup"] = cfg
+                    core.save_data(data)
+                    return genshin_core.resolve_effective_genshin_pickup(cfg)
+
+            eff = await asyncio.to_thread(_save_custom_genshin_pickup)
             msg = "✅ **원신 커스텀 픽업 설정이 적용되었습니다!**"
 
         emb = discord.Embed(

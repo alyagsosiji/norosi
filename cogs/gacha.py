@@ -4604,6 +4604,7 @@ class GachaCog(commands.Cog):
             app_commands.Choice(name="🌟 일반 / 현재 픽업 가챠 (★4 3.0%)", value="normal"),
             app_commands.Choice(name="🎊 컬러풀 페스티벌 (★4 2배 · 6.0%!)", value="fes"),
             app_commands.Choice(name="🎂 생일 / 기념일 스페셜 (생일한정 UP!)", value="birthday"),
+            app_commands.Choice(name="👗 3D 의상 & 악세서리 픽업 (★4 4.5%)", value="costume"),
         ],
     )
     async def set_pickup_cmd(
@@ -4612,7 +4613,7 @@ class GachaCog(commands.Cog):
         모드: app_commands.Choice[str] = None,
         유닛: app_commands.Choice[str] = None,
         캐릭터: str = None,
-        한정포함: bool = True,
+        한정포함: Optional[bool] = None,
         배너: app_commands.Choice[str] = None,
     ):
         if not await self.bot.is_bot_owner_user(interaction.user):
@@ -4628,23 +4629,30 @@ class GachaCog(commands.Cog):
                 await core.safe_send_response(interaction, content=f"❌ {msg}", ephemeral=True)
                 return
 
-            if 배너 is not None:
-                with core._DATA_LOCK:
-                    d_sync = core.load_data()
-                    gp_sync = core.ensure_dict_path(d_sync, "gacha_pickup")
-                    gp_sync["banner_type"] = 배너.value
-                    core.save_data(d_sync)
-                    pickup_obj["banner_type"] = 배너.value
+            if 배너 is not None or 한정포함 is not None:
+                def _apply_sync_overrides():
+                    with core._DATA_LOCK:
+                        d_sync = core.load_data()
+                        gp_sync = core.ensure_dict_path(d_sync, "gacha_pickup")
+                        if 배너 is not None:
+                            gp_sync["banner_type"] = 배너.value
+                        if 한정포함 is not None:
+                            gp_sync["include_limited"] = bool(한정포함)
+                        gp_sync["updated_at"] = datetime.datetime.now(core.KST).isoformat()
+                        core.save_data(d_sync)
+                        return copy.deepcopy(gp_sync)
+                pickup_obj = await asyncio.to_thread(_apply_sync_overrides)
 
             b_cfg = core.BANNER_CONFIGS.get(core.get_active_proseka_banner(pickup_obj), core.BANNER_CONFIGS["normal"])
             labels = pickup_obj.get("pickup_card_labels") or []
             cards_txt = "\n".join(f"• `{lbl}`" for lbl in labels) if labels else f"• 유닛 픽업: `{pickup_obj.get('unit') or '전체 동일'}`"
+            lim_txt = "포함됨" if pickup_obj.get("include_limited", True) else "제외됨 (통상만 등장)"
             embed = discord.Embed(
                 title="🎯 [봇주인 전용] 현재 한섭 이벤트 픽업 자동 연동 완료",
                 description=(
                     f"• **적용 배너:** `{b_cfg['name']}`\n"
                     f"• **적용 이벤트:** `{pickup_obj.get('event_name')}` ({pickup_obj.get('event_status', '진행 중')})\n"
-                    f"• **한정/페스/생일 카드 포함:** `포함됨`\n"
+                    f"• **한정/페스/생일 카드 포함:** `{lim_txt}`\n"
                     f"• **픽업 대상 ({len(labels)}종):**\n{cards_txt}\n\n"
                     "이제 `/프로세카뽑기` 및 `/프로세카확률목록`에 이벤트 픽업 확률(등급 내 50% 집중 배분)이 즉시 반영됩니다!"
                 ),
@@ -4654,13 +4662,20 @@ class GachaCog(commands.Cog):
             await core.safe_send_response(interaction, embed=embed)
             return
 
-        data = await asyncio.to_thread(core.load_data)
         if mode_val == "reset":
-            reset_obj = copy.deepcopy(core.DEFAULT_CONFIG["gacha_pickup"])
-            if 배너 is not None:
-                reset_obj["banner_type"] = 배너.value
-            data["gacha_pickup"] = reset_obj
-            await asyncio.to_thread(core.save_data, data)
+            def _do_reset():
+                with core._DATA_LOCK:
+                    d_res = core.load_data()
+                    reset_obj = copy.deepcopy(core.DEFAULT_CONFIG["gacha_pickup"])
+                    if 배너 is not None:
+                        reset_obj["banner_type"] = 배너.value
+                    if 한정포함 is not None:
+                        reset_obj["include_limited"] = bool(한정포함)
+                    reset_obj["updated_at"] = datetime.datetime.now(core.KST).isoformat()
+                    d_res["gacha_pickup"] = reset_obj
+                    core.save_data(d_res)
+                    return copy.deepcopy(reset_obj)
+            reset_obj = await asyncio.to_thread(_do_reset)
             b_cfg = core.BANNER_CONFIGS.get(core.get_active_proseka_banner(reset_obj), core.BANNER_CONFIGS["normal"])
             embed = discord.Embed(
                 title="🧹 [봇주인 전용] 프로세카 픽업 설정 초기화 완료",
@@ -4673,18 +4688,23 @@ class GachaCog(commands.Cog):
             await core.safe_send_response(interaction, embed=embed)
             return
 
-        if mode_val is None and 배너 is not None and 유닛 is None and 캐릭터 is None:
-            gp = core.ensure_dict_path(data, "gacha_pickup")
-            gp["banner_type"] = 배너.value
-            await asyncio.to_thread(core.save_data, data)
-            b_cfg = core.BANNER_CONFIGS.get(배너.value, core.BANNER_CONFIGS["normal"])
+        # 인자가 하나도 주어지지 않았을 때는 기존 설정을 덮어쓰지 않고 현재 설정 상태만 안전하게 조회
+        if mode_val is None and 유닛 is None and 캐릭터 is None and 한정포함 is None and 배너 is None:
+            data = await asyncio.to_thread(core.load_data)
+            gp = core.as_dict(data.get("gacha_pickup"))
+            active_banner = core.get_active_proseka_banner(gp)
+            b_cfg = core.BANNER_CONFIGS.get(active_banner, core.BANNER_CONFIGS["normal"])
+            lim_txt = "포함됨" if gp.get("include_limited", True) else "제외됨 (통상만 등장)"
             embed = discord.Embed(
-                title="🎰 [봇주인 전용] 프로세카 전역 가챠 배너 변경 완료",
+                title="🔎 [봇주인 전용] 현재 프로세카 픽업 설정 현황",
                 description=(
                     f"• **적용 배너:** `{b_cfg['name']}`\n"
-                    f"• **배너 설명:** {b_cfg['desc']}\n"
-                    f"• **유지 중인 픽업:** `{core.format_pickup_summary(gp)}`\n\n"
-                    "이제 모든 유저의 `/프로세카뽑기` 및 `/프로세카확률목록`에 해당 배너가 기본 적용됩니다!"
+                    f"• **픽업 요약:** `{core.format_pickup_summary(gp)}`\n"
+                    f"• **픽업 유닛:** `{gp.get('unit') or '미지정'}`\n"
+                    f"• **픽업 캐릭터:** `{gp.get('character') or '미지정'}`\n"
+                    f"• **한정/페스/생일 카드 포함:** `{lim_txt}`\n"
+                    f"• **최근 저장 시각:** `{gp.get('updated_at') or gp.get('synced_at') or '기록 없음'}`\n\n"
+                    "설정을 변경하려면 원하는 옵션(`모드`, `유닛`, `캐릭터`, `한정포함`, `배너`)만 선택해 실행해 주세요!"
                 ),
                 color=discord.Color.from_rgb(*b_cfg.get("color", (0, 204, 221))),
                 timestamp=datetime.datetime.now(core.KST),
@@ -4692,22 +4712,77 @@ class GachaCog(commands.Cog):
             await core.safe_send_response(interaction, embed=embed)
             return
 
-        prev_banner = core.get_active_proseka_banner(core.as_dict(data.get("gacha_pickup")))
-        active_banner = 배너.value if 배너 is not None else prev_banner
-        selected_unit = None if (not 유닛 or 유닛.value == "NONE") else 유닛.value
-        selected_char = None if (not 캐릭터 or 캐릭터 == "NONE") else 캐릭터
+        # 배너 또는 한정포함만 단독 변경할 때 기존 픽업(이벤트/유닛/캐릭터/카드ID) 보존
+        if mode_val is None and 유닛 is None and 캐릭터 is None:
+            def _update_partial_pickup():
+                with core._DATA_LOCK:
+                    d_part = core.load_data()
+                    gp = core.ensure_dict_path(d_part, "gacha_pickup")
+                    if 배너 is not None:
+                        gp["banner_type"] = 배너.value
+                    if 한정포함 is not None:
+                        gp["include_limited"] = bool(한정포함)
+                    gp["updated_at"] = datetime.datetime.now(core.KST).isoformat()
+                    core.save_data(d_part)
+                    return copy.deepcopy(gp)
+            gp = await asyncio.to_thread(_update_partial_pickup)
+            active_banner = core.get_active_proseka_banner(gp)
+            b_cfg = core.BANNER_CONFIGS.get(active_banner, core.BANNER_CONFIGS["normal"])
+            lim_txt = "포함됨" if gp.get("include_limited", True) else "제외됨 (통상만 등장)"
+            embed = discord.Embed(
+                title="🎰 [봇주인 전용] 프로세카 전역 가챠 설정 부분 변경 완료",
+                description=(
+                    f"• **적용 배너:** `{b_cfg['name']}`\n"
+                    f"• **배너 설명:** {b_cfg['desc']}\n"
+                    f"• **한정/페스/생일 카드 포함:** `{lim_txt}`\n"
+                    f"• **유지 중인 픽업:** `{core.format_pickup_summary(gp)}`\n\n"
+                    "이제 모든 유저의 `/프로세카뽑기` 및 `/프로세카확률목록`에 변경된 설정이 즉시 적용됩니다!"
+                ),
+                color=discord.Color.from_rgb(*b_cfg.get("color", (0, 204, 221))),
+                timestamp=datetime.datetime.now(core.KST),
+            )
+            await core.safe_send_response(interaction, embed=embed)
+            return
 
-        data["gacha_pickup"] = {
-            "unit": selected_unit,
-            "character": selected_char,
-            "card_ids": [],
-            "event_id": None,
-            "event_name": None,
-            "pickup_card_labels": [],
-            "include_limited": 한정포함,
-            "banner_type": active_banner,
-        }
-        await asyncio.to_thread(core.save_data, data)
+        def _apply_manual_pickup():
+            with core._DATA_LOCK:
+                d_man = core.load_data()
+                prev_gp = core.as_dict(d_man.get("gacha_pickup"))
+                prev_banner = core.get_active_proseka_banner(prev_gp)
+                active_banner = 배너.value if 배너 is not None else prev_banner
+                include_lim = bool(prev_gp.get("include_limited", True)) if 한정포함 is None else bool(한정포함)
+
+                if 유닛 is not None:
+                    selected_unit = None if 유닛.value == "NONE" else 유닛.value
+                else:
+                    selected_unit = None if 캐릭터 is not None else prev_gp.get("unit")
+
+                if 캐릭터 is not None:
+                    selected_char = None if 캐릭터 == "NONE" else 캐릭터
+                else:
+                    selected_char = None if 유닛 is not None else prev_gp.get("character")
+
+                new_gp = {
+                    "unit": selected_unit,
+                    "character": selected_char,
+                    "card_ids": [] if (유닛 is not None or 캐릭터 is not None) else list(prev_gp.get("card_ids") or []),
+                    "event_id": None if (유닛 is not None or 캐릭터 is not None) else prev_gp.get("event_id"),
+                    "event_name": None if (유닛 is not None or 캐릭터 is not None) else prev_gp.get("event_name"),
+                    "event_status": None if (유닛 is not None or 캐릭터 is not None) else prev_gp.get("event_status"),
+                    "pickup_card_labels": [] if (유닛 is not None or 캐릭터 is not None) else list(prev_gp.get("pickup_card_labels") or []),
+                    "include_limited": include_lim,
+                    "banner_type": active_banner,
+                    "updated_at": datetime.datetime.now(core.KST).isoformat(),
+                }
+                d_man["gacha_pickup"] = new_gp
+                core.save_data(d_man)
+                return copy.deepcopy(new_gp)
+
+        new_gp = await asyncio.to_thread(_apply_manual_pickup)
+        active_banner = new_gp["banner_type"]
+        selected_unit = new_gp["unit"]
+        selected_char = new_gp["character"]
+        include_lim = new_gp["include_limited"]
 
         b_cfg = core.BANNER_CONFIGS.get(active_banner, core.BANNER_CONFIGS["normal"])
         embed = discord.Embed(
@@ -4716,7 +4791,7 @@ class GachaCog(commands.Cog):
                 f"• **적용 배너:** `{b_cfg['name']}`\n"
                 f"• **픽업 유닛:** `{selected_unit or '미지정 (전체 동일)'}`\n"
                 f"• **픽업 캐릭터:** `{selected_char or '미지정 (전체 동일)'}`\n"
-                f"• **한정/페스/생일 카드 포함:** `{'포함됨' if 한정포함 else '제외됨 (통상만 등장)'}`\n\n"
+                f"• **한정/페스/생일 카드 포함:** `{'포함됨' if include_lim else '제외됨 (통상만 등장)'}`\n\n"
                 "이제 `/프로세카뽑기` 및 `/프로세카확률목록`에 픽업 확률(등급 내 50% 집중 배분)이 즉시 반영됩니다!"
             ),
             color=discord.Color.from_rgb(0, 204, 221)

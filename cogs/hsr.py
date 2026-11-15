@@ -2034,31 +2034,35 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
         if 프리셋 and not any([캐릭터1, 캐릭터2, 사성1, 사성2, 사성3, 광추1, 광추2, 배너이름]):
             ok, msg, eff = await asyncio.to_thread(hsr_core.apply_hsr_pickup_preset, 프리셋)
         else:
-            chars, lcs = hsr_core.load_hsr_kr_db()
-            by_c = {c["id"]: c for c in chars}
-            by_l = {l["id"]: l for l in lcs}
-            data = core.load_data()
-            cfg = dict(data.get("hsr_pickup") or {})
-            if 프리셋 and 프리셋 != "reset":
-                pr = hsr_core.HSR_BANNER_PRESETS.get(프리셋, {})
-                cfg.update({k: pr[k] for k in ("char1", "char2", "char_4_ids", "lc_1", "lc_2", "banner_name") if k in pr})
-            if 캐릭터1 and 캐릭터1 in by_c:
-                cfg["char1"] = 캐릭터1
-            if 캐릭터2 and 캐릭터2 in by_c:
-                cfg["char2"] = 캐릭터2
-            custom_4s = [x for x in (사성1, 사성2, 사성3) if x and x in by_c]
-            if custom_4s:
-                cfg["char_4_ids"] = custom_4s
-            if 광추1 and 광추1 in by_l:
-                cfg["lc_1"] = 광추1
-            if 광추2 and 광추2 in by_l:
-                cfg["lc_2"] = 광추2
-            if 배너이름:
-                cfg["banner_name"] = 배너이름.strip()[:60]
-            cfg["updated_at"] = datetime.datetime.now(core.KST).isoformat()
-            data["hsr_pickup"] = cfg
-            core.save_data(data)
-            eff = hsr_core.resolve_effective_hsr_pickup(cfg)
+            def _save_custom_hsr_pickup():
+                chars, lcs = hsr_core.load_hsr_kr_db()
+                by_c = {c["id"]: c for c in chars}
+                by_l = {l["id"]: l for l in lcs}
+                with core._DATA_LOCK:
+                    data = core.load_data()
+                    cfg = dict(data.get("hsr_pickup") or {})
+                    if 프리셋 and 프리셋 != "reset":
+                        pr = hsr_core.HSR_BANNER_PRESETS.get(프리셋, {})
+                        cfg.update({k: pr[k] for k in ("char1", "char2", "char_4_ids", "lc_1", "lc_2", "banner_name") if k in pr})
+                    if 캐릭터1 and 캐릭터1 in by_c:
+                        cfg["char1"] = 캐릭터1
+                    if 캐릭터2 and 캐릭터2 in by_c:
+                        cfg["char2"] = 캐릭터2
+                    custom_4s = [x for x in (사성1, 사성2, 사성3) if x and x in by_c]
+                    if custom_4s:
+                        cfg["char_4_ids"] = custom_4s
+                    if 광추1 and 광추1 in by_l:
+                        cfg["lc_1"] = 광추1
+                    if 광추2 and 광추2 in by_l:
+                        cfg["lc_2"] = 광추2
+                    if 배너이름:
+                        cfg["banner_name"] = 배너이름.strip()[:60]
+                    cfg["updated_at"] = datetime.datetime.now(core.KST).isoformat()
+                    data["hsr_pickup"] = cfg
+                    core.save_data(data)
+                    return hsr_core.resolve_effective_hsr_pickup(cfg)
+
+            eff = await asyncio.to_thread(_save_custom_hsr_pickup)
             msg = "✅ **스타레일 커스텀 워프 픽업이 적용되었습니다!**"
 
         emb = discord.Embed(

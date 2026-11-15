@@ -20,6 +20,7 @@ import urllib.parse
 import urllib.error
 import tempfile
 import base64
+import atexit
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -282,7 +283,7 @@ SPOTIPY_CLIENT_SECRET = os.getenv("SPOTIPY_CLIENT_SECRET", "").strip()
 
 KST = datetime.timezone(datetime.timedelta(hours=9))
 _CORE_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_FILE = "ddays_data.json"
+DATA_FILE = os.path.join(_CORE_BASE_DIR, "ddays_data.json")
 PROSEKA_CACHE_FILE = os.path.join(_CORE_BASE_DIR, "proseka_kr_cache.json")
 PROSEKA_COSTUMES_CACHE_FILE = os.path.join(_CORE_BASE_DIR, "proseka_costumes_cache.json")
 COSTUME_PURCHASE_PRICE = 300  # 다른 캐릭터에게 의상 제작/구매 시 소모되는 크리스탈
@@ -314,6 +315,11 @@ ATTENDANCE_MILESTONES = [
 _DATA_LOCK = threading.RLock()
 _DATA_CACHE = None
 _FIREBASE_DISABLED_UNTIL = 0.0
+_FIREBASE_SYNC_LOCK = threading.Lock()
+_FIREBASE_LATEST_JOB = None
+_FIREBASE_WORKER_ACTIVE = False
+_FIREBASE_IDLE_EVENT = threading.Event()
+_FIREBASE_IDLE_EVENT.set()
 
 # 일러스트 바이트 & 성공 URL LRU 캐시 (응답 지연 및 타임아웃 방지용)
 _IMAGE_BYTES_CACHE = OrderedDict()
@@ -3877,16 +3883,21 @@ DEFAULT_CONFIG = {
     "settings": {
         "dday_alert_channel_id": None,
         "default_category_id": None,
-        "terminal_log_channel_id": None
+        "terminal_log_channel_id": None,
+        "terminal_log_channels": {},
+        "github_webhooks": {},
     },
+    "guild_settings": {},
     "ddays": {},
     "music_prefs": {
         "channel_id": None,
         "platform": "all",
         "genre": None,
         "artist": None,
-        "playlist_url": None
+        "playlist_url": None,
+        "updated_at": None,
     },
+    "guild_music_prefs": {},
     "music_schedules": [],
     "gacha_pickup": {
         "unit": None,
@@ -3897,6 +3908,7 @@ DEFAULT_CONFIG = {
         "pickup_card_labels": [],
         "include_limited": True,
         "banner_type": "normal",
+        "updated_at": None,
     },
     "gacha_users": {},
     "gacha_hall_of_fame": {},
@@ -4010,11 +4022,11 @@ def ensure_my_sekai(profile: dict) -> dict:
         if ms["theme"] not in MY_SEKAI_THEMES:
             ms["theme"] = "default"
         if not isinstance(ms.get("owned_themes"), list):
-            ms["owned_themes"] = ["default"]
+            ms["owned_themes"] = [str(t) for t in coerce_list_like(ms.get("owned_themes")) if t]
         if "default" not in ms["owned_themes"]:
             ms["owned_themes"].insert(0, "default")
         if not isinstance(ms.get("furniture"), list):
-            ms["furniture"] = []
+            ms["furniture"] = [str(f) for f in coerce_list_like(ms.get("furniture")) if f]
         ms["furniture"] = [f for f in ms["furniture"] if f in MY_SEKAI_FURNITURE]
         ms.setdefault("greeting", "나만의 아늑한 마이세카이에 오신 것을 환영합니다! ✨")
     return ms
@@ -4093,9 +4105,10 @@ def normalize_playlist_track(trk: dict) -> dict:
 
 def ensure_user_playlists(profile: dict, user_name: str = "") -> list:
     """유저 프로필 내 커스텀 플레이리스트(playlists) 목록의 무결성을 보장합니다."""
-    pls = profile.get("playlists")
+    raw_pls = profile.get("playlists")
+    pls = raw_pls if isinstance(raw_pls, list) else coerce_list_like(raw_pls)
     today_s = get_today_str()
-    if not isinstance(pls, list) or len(pls) == 0:
+    if len(pls) == 0:
         default_pl = {
             "id": "pl_default",
             "name": "나만의 대표 플레이리스트",
@@ -4118,9 +4131,9 @@ def ensure_user_playlists(profile: dict, user_name: str = "") -> list:
         plat = str(pl.get("platform") or "YouTube")
         if plat not in PLAYLIST_PLATFORMS:
             plat = "YouTube"
-        raw_tracks = pl.get("tracks") if isinstance(pl.get("tracks"), list) else []
+        raw_tracks = pl.get("tracks") if isinstance(pl.get("tracks"), list) else coerce_list_like(pl.get("tracks"))
         norm_tracks = [normalize_playlist_track(t) for t in raw_tracks if isinstance(t, dict)]
-        likes = pl.get("likes") if isinstance(pl.get("likes"), list) else []
+        likes = pl.get("likes") if isinstance(pl.get("likes"), list) else coerce_list_like(pl.get("likes"))
         likes = [str(uid) for uid in likes]
         norm_pl = {
             "id": str(pl.get("id") or f"pl_{idx}_{int(time.time())}"),
@@ -4204,10 +4217,10 @@ def ensure_user_profile(data: dict, u_key: str | int, user_name: str = "") -> di
 
     p_val = profiles[u_str]
     if not isinstance(p_val.get("liked_music"), list):
-        p_val["liked_music"] = []
+        p_val["liked_music"] = coerce_list_like(p_val.get("liked_music"))
     p_val.setdefault("oshi", None)
     if not isinstance(p_val.get("deck"), list):
-        p_val["deck"] = []
+        p_val["deck"] = [str(d) for d in coerce_list_like(p_val.get("deck")) if d is not None]
     p_val.setdefault("partner_id", None)
     p_val.setdefault("crystals", 0)
     if not isinstance(p_val.get("secret_ddays"), dict):
@@ -4217,7 +4230,7 @@ def ensure_user_profile(data: dict, u_key: str | int, user_name: str = "") -> di
     if "equipped_costume_variants" in p_val and not isinstance(p_val.get("equipped_costume_variants"), dict):
         p_val["equipped_costume_variants"] = coerce_dict_like(p_val.get("equipped_costume_variants"))
     if "purchased_costumes" in p_val and not isinstance(p_val.get("purchased_costumes"), dict):
-        p_val["purchased_costumes"] = coerce_dict_like(p_purchased := p_val.get("purchased_costumes"))
+        p_val["purchased_costumes"] = coerce_dict_like(p_val.get("purchased_costumes"))
     ensure_my_sekai(p_val)
     ensure_user_playlists(p_val, user_name)
 
@@ -4246,7 +4259,7 @@ def ensure_user_profile(data: dict, u_key: str | int, user_name: str = "") -> di
     else:
         p_val["todo"].setdefault("date", today_str)
         if not isinstance(p_val["todo"].get("tasks"), list):
-            p_val["todo"]["tasks"] = []
+            p_val["todo"]["tasks"] = coerce_list_like(p_val["todo"].get("tasks"))
         if not isinstance(p_val["todo"].get("history"), dict):
             p_val["todo"]["history"] = coerce_dict_like(p_val["todo"].get("history"))
     if "hardcore_study_stats" in p_val and not isinstance(p_val.get("hardcore_study_stats"), dict):
@@ -4347,7 +4360,7 @@ def _normalize_guild_user_map(raw_root) -> dict:
 def normalize_data(data):
     today_str = get_today_str()
     if not isinstance(data, dict):
-        return copy.deepcopy(DEFAULT_CONFIG)
+        data = copy.deepcopy(DEFAULT_CONFIG)
 
     if "settings" not in data or not isinstance(data["settings"], dict):
         coerced_settings = coerce_dict_like(data.get("settings"))
@@ -4387,13 +4400,17 @@ def normalize_data(data):
         data["music_prefs"].setdefault(k, copy.deepcopy(v) if isinstance(v, (dict, list)) else v)
 
     if "music_schedules" not in data or not isinstance(data["music_schedules"], list):
-        data["music_schedules"] = []
+        data["music_schedules"] = [s for s in coerce_list_like(data.get("music_schedules")) if isinstance(s, dict)]
 
     if "gacha_pickup" not in data or not isinstance(data["gacha_pickup"], dict):
         coerced_gp = coerce_dict_like(data.get("gacha_pickup"))
         data["gacha_pickup"] = coerced_gp if coerced_gp else copy.deepcopy(DEFAULT_CONFIG["gacha_pickup"])
     for k, v in DEFAULT_CONFIG["gacha_pickup"].items():
         data["gacha_pickup"].setdefault(k, copy.deepcopy(v) if isinstance(v, (dict, list)) else v)
+    if not isinstance(data["gacha_pickup"].get("card_ids"), list):
+        data["gacha_pickup"]["card_ids"] = coerce_list_like(data["gacha_pickup"].get("card_ids"))
+    if not isinstance(data["gacha_pickup"].get("pickup_card_labels"), list):
+        data["gacha_pickup"]["pickup_card_labels"] = coerce_list_like(data["gacha_pickup"].get("pickup_card_labels"))
 
     data["gacha_users"] = _normalize_guild_user_map(data.get("gacha_users"))
     for g_key, g_map in data["gacha_users"].items():
@@ -4415,9 +4432,9 @@ def normalize_data(data):
         if isinstance(hof_val, dict):
             hof_val["user_best_10pull"] = coerce_dict_like(hof_val.get("user_best_10pull"))
             if not isinstance(hof_val.get("recent_pickup_logs"), list):
-                hof_val["recent_pickup_logs"] = []
+                hof_val["recent_pickup_logs"] = [x for x in coerce_list_like(hof_val.get("recent_pickup_logs")) if isinstance(x, dict)]
             if not isinstance(hof_val.get("recent_high_logs"), list):
-                hof_val["recent_high_logs"] = []
+                hof_val["recent_high_logs"] = [x for x in coerce_list_like(hof_val.get("recent_high_logs")) if isinstance(x, dict)]
             clean_gacha_hof[str(g_key)] = hof_val
     data["gacha_hall_of_fame"] = clean_gacha_hof
 
@@ -4427,6 +4444,9 @@ def normalize_data(data):
             data[p_key] = coerced_pk if coerced_pk else copy.deepcopy(DEFAULT_CONFIG[p_key])
         for k, v in DEFAULT_CONFIG[p_key].items():
             data[p_key].setdefault(k, copy.deepcopy(v) if isinstance(v, (dict, list)) else v)
+        for lk in ("char_4_ids", "weapon_4_ids", "lc_4_ids"):
+            if lk in data[p_key] and not isinstance(data[p_key].get(lk), list):
+                data[p_key][lk] = coerce_list_like(data[p_key].get(lk))
         if p_key == "hsr_pickup" and not data[p_key].get("mode"):
             data[p_key]["mode"] = "time_rotation" if (not data[p_key].get("char1") and not data[p_key].get("char2")) else "preset"
 
@@ -4444,30 +4464,28 @@ def normalize_data(data):
                 if not isinstance(u_info.get("shop_monthly"), dict):
                     u_info["shop_monthly"] = coerce_dict_like(u_info.get("shop_monthly"))
                 if not isinstance(u_info.get("party"), list):
-                    u_info["party"] = []
+                    u_info["party"] = coerce_list_like(u_info.get("party"))
                 if not isinstance(u_info.get("history"), list):
-                    u_info["history"] = []
+                    u_info["history"] = [x for x in coerce_list_like(u_info.get("history")) if isinstance(x, dict)]
                 if u_root_key == "genshin_users":
                     if not isinstance(u_info.get("artifacts"), dict):
-                        u_info["artifacts"] = {}
-                    else:
-                        for a_obj in u_info["artifacts"].values():
-                            if isinstance(a_obj, dict):
-                                a_obj.setdefault("locked", False)
+                        u_info["artifacts"] = coerce_dict_like(u_info.get("artifacts"))
+                    for a_obj in u_info["artifacts"].values():
+                        if isinstance(a_obj, dict):
+                            a_obj.setdefault("locked", False)
                     if not isinstance(u_info.get("artifact_sets_seen"), list):
-                        u_info["artifact_sets_seen"] = []
+                        u_info["artifact_sets_seen"] = coerce_list_like(u_info.get("artifact_sets_seen"))
                     u_info.setdefault("artifact_essence", 0)
                     u_info.setdefault("sanctifying_elixir", 2)
                     u_info.setdefault("artifact_pulls", 0)
                 else:
                     if not isinstance(u_info.get("relics"), dict):
-                        u_info["relics"] = {}
-                    else:
-                        for r_obj in u_info["relics"].values():
-                            if isinstance(r_obj, dict):
-                                r_obj.setdefault("locked", False)
+                        u_info["relics"] = coerce_dict_like(u_info.get("relics"))
+                    for r_obj in u_info["relics"].values():
+                        if isinstance(r_obj, dict):
+                            r_obj.setdefault("locked", False)
                     if not isinstance(u_info.get("relic_sets_seen"), list):
-                        u_info["relic_sets_seen"] = []
+                        u_info["relic_sets_seen"] = coerce_list_like(u_info.get("relic_sets_seen"))
                     u_info.setdefault("relic_remains", 0)
                     u_info.setdefault("self_modeling_resin", 2)
                     u_info.setdefault("relic_pulls", 0)
@@ -4479,9 +4497,9 @@ def normalize_data(data):
         for g_key, h_val in raw_hof.items():
             if isinstance(h_val, dict):
                 if not isinstance(h_val.get("top_records"), list):
-                    h_val["top_records"] = []
+                    h_val["top_records"] = [x for x in coerce_list_like(h_val.get("top_records")) if isinstance(x, dict)]
                 if not isinstance(h_val.get("recent_5_logs"), list):
-                    h_val["recent_5_logs"] = []
+                    h_val["recent_5_logs"] = [x for x in coerce_list_like(h_val.get("recent_5_logs")) if isinstance(x, dict)]
                 clean_hof[str(g_key)] = h_val
         data[hof_key] = clean_hof
 
@@ -4571,16 +4589,149 @@ def normalize_data(data):
     data["birthdays"] = coerce_dict_like(data.get("birthdays"))
 
     if "reminders" not in data or not isinstance(data["reminders"], list):
-        data["reminders"] = []
+        data["reminders"] = [r for r in coerce_list_like(data.get("reminders")) if isinstance(r, dict)]
 
     if "suggestions" not in data or not isinstance(data["suggestions"], list):
-        data["suggestions"] = []
+        data["suggestions"] = [s for s in coerce_list_like(data.get("suggestions")) if isinstance(s, dict)]
 
     raw_rr = coerce_dict_like(data.get("reaction_roles"))
-    data["reaction_roles"] = {str(k): v for k, v in raw_rr.items() if isinstance(v, dict)}
+    clean_rr = {}
+    for k, v in raw_rr.items():
+        if isinstance(v, dict):
+            if "roles" in v and not isinstance(v.get("roles"), list):
+                v["roles"] = [r for r in coerce_list_like(v.get("roles")) if isinstance(r, dict)]
+            clean_rr[str(k)] = v
+    data["reaction_roles"] = clean_rr
     data["proseka_accounts"] = coerce_dict_like(data.get("proseka_accounts"))
 
+    raw_meta = coerce_dict_like(data.get("_meta"))
+    meta_sections = {str(k): str(v) for k, v in coerce_dict_like(raw_meta.get("sections")).items() if v}
+    meta_entries = {}
+    for sec_k, ent_map in coerce_dict_like(raw_meta.get("entries")).items():
+        cleaned_ent = {str(ek): str(ev) for ek, ev in coerce_dict_like(ent_map).items() if ev}
+        if cleaned_ent:
+            meta_entries[str(sec_k)] = cleaned_ent
+    data["_meta"] = {
+        "last_saved_at": str(raw_meta.get("last_saved_at")) if raw_meta.get("last_saved_at") else None,
+        "sections": meta_sections,
+        "entries": meta_entries,
+    }
+
     return data
+
+
+_TRACKED_TOP_SECTIONS = (
+    "settings",
+    "gacha_pickup",
+    "genshin_pickup",
+    "hsr_pickup",
+    "music_prefs",
+    "music_schedules",
+    "ddays",
+    "reminders",
+    "suggestions",
+    "partners",
+    "birthdays",
+    "reaction_roles",
+)
+_TRACKED_ENTRY_MAPS = (
+    "guild_settings",
+    "guild_music_prefs",
+    "server_logs",
+    "user_ai_config",
+    "user_profiles",
+    "proseka_accounts",
+    "gacha_hall_of_fame",
+    "genshin_hall_of_fame",
+    "hsr_hall_of_fame",
+    "fishing_records",
+    "server_stats",
+)
+_TRACKED_GUILD_USER_MAPS = (
+    "gacha_users",
+    "genshin_users",
+    "hsr_users",
+    "fishing_users",
+    "guild_attendance",
+    "ai_usage",
+)
+
+
+def _norm_ts(ts_val) -> str:
+    return str(ts_val or "").strip().replace(" ", "T")
+
+
+def _strip_updated_at(obj):
+    if isinstance(obj, dict) and "updated_at" in obj:
+        return {k: v for k, v in obj.items() if k != "updated_at"}
+    return obj
+
+
+def _stamp_changed_metadata(normalized: dict, prev_snapshot: dict | None, now_iso: str) -> None:
+    """
+    저장 시 이전 스냅샷과 달라진 설정 섹션·유저/서버 엔트리에 타임스탬프(_meta 및 updated_at)를 자동 기록하여
+    업데이트·재시작 후 Firebase 병합 시 구버전 원격 데이터가 최신 로컬 설정을 덮어쓰지 않도록 보호합니다.
+    """
+    baseline = prev_snapshot if isinstance(prev_snapshot, dict) else normalize_data(copy.deepcopy(DEFAULT_CONFIG))
+    prev_meta = as_dict(baseline.get("_meta"))
+    prev_sections = as_dict(prev_meta.get("sections"))
+    prev_entries = as_dict(prev_meta.get("entries"))
+
+    cur_meta = ensure_dict_path(normalized, "_meta")
+    cur_sections = ensure_dict_path(cur_meta, "sections")
+    cur_entries = ensure_dict_path(cur_meta, "entries")
+
+    # 이전 스냅샷에 있던 타임스탬프 보존 (가장 최신 값 유지)
+    for sk, sv in prev_sections.items():
+        if sv and _norm_ts(cur_sections.get(sk)) < _norm_ts(sv):
+            cur_sections[sk] = str(sv)
+    for sec_k, ent_map in prev_entries.items():
+        dst_ent = ensure_dict_path(cur_entries, sec_k)
+        for ek, ev in as_dict(ent_map).items():
+            if ev and _norm_ts(dst_ent.get(ek)) < _norm_ts(ev):
+                dst_ent[ek] = str(ev)
+
+    for sec in _TRACKED_TOP_SECTIONS:
+        cur_val = normalized.get(sec)
+        prev_val = baseline.get(sec)
+        if _strip_updated_at(cur_val) != _strip_updated_at(prev_val):
+            cur_sections[sec] = now_iso
+            if sec in ("gacha_pickup", "genshin_pickup", "hsr_pickup", "music_prefs") and isinstance(cur_val, dict):
+                cur_val["updated_at"] = now_iso
+        elif sec in ("gacha_pickup", "genshin_pickup", "hsr_pickup", "music_prefs") and isinstance(cur_val, dict):
+            # 리셋 명령어 등 updated_at만 명시 변경/초기화된 경우에도 스탬프 유지
+            if cur_val.get("updated_at") and _norm_ts(cur_val.get("updated_at")) > _norm_ts(cur_sections.get(sec)):
+                cur_sections[sec] = str(cur_val["updated_at"])
+
+    for sec in _TRACKED_ENTRY_MAPS:
+        cur_map = as_dict(normalized.get(sec))
+        prev_map = as_dict(baseline.get(sec))
+        ent_meta = ensure_dict_path(cur_entries, sec)
+        sec_changed = (set(cur_map.keys()) != set(prev_map.keys()))
+        for ek, ev in cur_map.items():
+            if ev != prev_map.get(ek):
+                ent_meta[str(ek)] = now_iso
+                sec_changed = True
+        if sec_changed:
+            cur_sections[sec] = now_iso
+
+    for sec in _TRACKED_GUILD_USER_MAPS:
+        cur_root = as_dict(normalized.get(sec))
+        prev_root = as_dict(baseline.get(sec))
+        ent_meta = ensure_dict_path(cur_entries, sec)
+        sec_changed = (set(cur_root.keys()) != set(prev_root.keys()))
+        for gk, g_map in cur_root.items():
+            prev_g_map = as_dict(prev_root.get(gk))
+            if set(as_dict(g_map).keys()) != set(prev_g_map.keys()):
+                sec_changed = True
+            for uk, uv in as_dict(g_map).items():
+                if uv != prev_g_map.get(uk):
+                    ent_meta[f"{gk}:{uk}"] = now_iso
+                    sec_changed = True
+        if sec_changed:
+            cur_sections[sec] = now_iso
+
+    cur_meta["last_saved_at"] = now_iso
 
 
 def _load_local_file_safely():
@@ -4598,6 +4749,9 @@ def _load_local_file_safely():
 
 def _save_local_file_safely(data: dict):
     try:
+        parent_dir = os.path.dirname(os.path.abspath(DATA_FILE))
+        if parent_dir and not os.path.exists(parent_dir):
+            os.makedirs(parent_dir, exist_ok=True)
         tmp_file = f"{DATA_FILE}.tmp"
         with open(tmp_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
@@ -4608,8 +4762,8 @@ def _save_local_file_safely(data: dict):
 
 def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
     """
-    Firebase가 비어 있거나 일부 데이터만 있을 때 로컬 ddays_data.json의 디데이·출석·프로필·서버로그 설정이
-    절대 증발하지 않도록 병합합니다.
+    Firebase가 비어 있거나 일부 데이터(또는 구버전 스냅샷)만 있을 때 로컬 ddays_data.json의
+    픽업/음악/AI/서버/프로필/디데이/출석 설정이 업데이트·재시작 시 절대 초기화되지 않도록 병합합니다.
     """
     if not remote_data:
         return normalize_data(copy.deepcopy(local_data))
@@ -4619,30 +4773,188 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
     merged = normalize_data(copy.deepcopy(remote_data))
     local_norm = normalize_data(copy.deepcopy(local_data))
 
-    for d_name, d_info in as_dict(local_norm.get("ddays")).items():
-        if d_name not in merged["ddays"]:
-            merged["ddays"][d_name] = d_info
+    l_meta = as_dict(local_norm.get("_meta"))
+    r_meta = as_dict(merged.get("_meta"))
+    l_root_ts = _norm_ts(l_meta.get("last_saved_at"))
+    r_root_ts = _norm_ts(r_meta.get("last_saved_at"))
 
+    def _sec_ts(norm_d: dict, sec: str) -> str:
+        return _norm_ts(as_dict(as_dict(norm_d.get("_meta")).get("sections")).get(sec))
+
+    def _ent_ts(norm_d: dict, sec: str, key: str) -> str:
+        return _norm_ts(as_dict(as_dict(as_dict(norm_d.get("_meta")).get("entries")).get(sec)).get(str(key)))
+
+    def _pick_section_ts(sec: str, extra_l: str = "", extra_r: str = "") -> tuple[str, str]:
+        lt = max(_norm_ts(extra_l), _sec_ts(local_norm, sec))
+        rt = max(_norm_ts(extra_r), _sec_ts(merged, sec))
+        return lt, rt
+
+    # 1. 전역 픽업 & 음악 추천 설정 (gacha_pickup, genshin_pickup, hsr_pickup, music_prefs)
+    for p_key in ("gacha_pickup", "genshin_pickup", "hsr_pickup", "music_prefs"):
+        l_obj = as_dict(local_norm.get(p_key))
+        r_obj = as_dict(merged.get(p_key))
+        l_extra = l_obj.get("updated_at") or l_obj.get("synced_at") or ""
+        r_extra = r_obj.get("updated_at") or r_obj.get("synced_at") or ""
+        l_ts, r_ts = _pick_section_ts(p_key, l_extra, r_extra)
+        default_cmp = _strip_updated_at(DEFAULT_CONFIG.get(p_key))
+        l_is_custom = (_strip_updated_at(l_obj) != default_cmp)
+        r_is_custom = (_strip_updated_at(r_obj) != default_cmp)
+
+        prefer_local = False
+        if l_ts and r_ts:
+            prefer_local = (l_ts >= r_ts)
+        elif l_ts and not r_ts:
+            prefer_local = (not r_root_ts or l_ts >= r_root_ts or l_is_custom)
+        elif not l_ts and r_ts:
+            prefer_local = bool(l_root_ts and l_root_ts > r_ts)
+        else:
+            # 양쪽 모두 레거시(타임스탬프 없음): 로컬이 커스텀 설정이고 원격이 기본값이거나, 로컬 파일이 있는 경우 로컬 우선
+            if l_is_custom and (not r_is_custom or l_obj != r_obj):
+                prefer_local = True
+        if prefer_local:
+            merged[p_key] = copy.deepcopy(local_norm[p_key])
+
+    # 2. 전역 settings (dday_alert_channel_id, default_category_id, terminal_log_channels, github_webhooks)
+    l_set_ts, r_set_ts = _pick_section_ts("settings")
+    merged_settings = ensure_dict_path(merged, "settings")
+    local_settings = as_dict(local_norm.get("settings"))
+    if l_set_ts and r_set_ts:
+        if l_set_ts > r_set_ts:
+            merged["settings"] = copy.deepcopy(local_settings)
+    elif l_set_ts and not r_set_ts:
+        if not r_root_ts or l_set_ts >= r_root_ts:
+            merged["settings"] = copy.deepcopy(local_settings)
+    else:
+        for s_k, s_v in local_settings.items():
+            if isinstance(s_v, dict):
+                rem_sub = ensure_dict_path(merged_settings, s_k)
+                for sub_k, sub_v in s_v.items():
+                    if sub_k not in rem_sub:
+                        rem_sub[sub_k] = copy.deepcopy(sub_v)
+            elif s_v is not None and not merged_settings.get(s_k):
+                merged_settings[s_k] = copy.deepcopy(s_v)
+
+    # 3. 서버별 설정/음악설정, AI 개인설정, 프로세카 연동계정 (guild_settings, guild_music_prefs, user_ai_config, proseka_accounts)
+    for map_key in ("guild_settings", "guild_music_prefs", "user_ai_config", "proseka_accounts"):
+        l_sec_ts, r_sec_ts = _pick_section_ts(map_key)
+        rem_map = ensure_dict_path(merged, map_key)
+        loc_map = as_dict(local_norm.get(map_key))
+        if l_sec_ts and r_sec_ts and l_sec_ts > r_sec_ts:
+            # 로컬 섹션이 더 최신이면 삭제 포함 로컬 상태 우선 + 원격에만 이후 추가된 엔트리 보존
+            new_map = copy.deepcopy(loc_map)
+            for ek, ev in rem_map.items():
+                r_ets = _ent_ts(merged, map_key, ek)
+                if ek not in new_map and r_ets and r_ets > l_sec_ts:
+                    new_map[ek] = copy.deepcopy(ev)
+            merged[map_key] = new_map
+        else:
+            for ek, lv in loc_map.items():
+                if ek not in rem_map:
+                    l_ets = _ent_ts(local_norm, map_key, ek) or l_sec_ts
+                    if not (r_sec_ts and l_ets and r_sec_ts > l_ets):
+                        rem_map[ek] = copy.deepcopy(lv)
+                else:
+                    l_ets = _ent_ts(local_norm, map_key, ek) or l_sec_ts
+                    r_ets = _ent_ts(merged, map_key, ek) or r_sec_ts
+                    if l_ets and (not r_ets or l_ets >= r_ets):
+                        rem_map[ek] = copy.deepcopy(lv)
+                    elif not l_ets and not r_ets and isinstance(lv, dict) and lv != rem_map.get(ek):
+                        # 레거시 환경에서는 로컬에 비어있지 않은 설정이 있으면 보존
+                        if any(v is not None and v != "" and v != {} and v != [] for v in lv.values()):
+                            rem_map[ek] = copy.deepcopy(lv)
+
+    # 4. 맞춤 음악 스케줄 (music_schedules)
+    l_ms_ts, r_ms_ts = _pick_section_ts("music_schedules")
+    if l_ms_ts and (not r_ms_ts or l_ms_ts > r_ms_ts):
+        merged["music_schedules"] = copy.deepcopy(local_norm["music_schedules"])
+    else:
+        existing_sched_keys = {
+            (s.get("id") or f"{s.get('time')}|{s.get('channel_id')}|{s.get('name')}|{s.get('genre')}")
+            for s in merged.get("music_schedules", []) if isinstance(s, dict)
+        }
+        for s_item in local_norm.get("music_schedules", []):
+            if not isinstance(s_item, dict):
+                continue
+            sk = s_item.get("id") or f"{s_item.get('time')}|{s_item.get('channel_id')}|{s_item.get('name')}|{s_item.get('genre')}"
+            if sk not in existing_sched_keys:
+                merged["music_schedules"].append(copy.deepcopy(s_item))
+                existing_sched_keys.add(sk)
+
+    # 5. D-Day
+    l_dd_ts, r_dd_ts = _pick_section_ts("ddays")
+    if l_dd_ts and r_dd_ts and l_dd_ts > r_dd_ts:
+        merged["ddays"] = copy.deepcopy(local_norm["ddays"])
+    else:
+        for d_name, d_info in as_dict(local_norm.get("ddays")).items():
+            if d_name not in merged["ddays"]:
+                merged["ddays"][d_name] = copy.deepcopy(d_info)
+
+    # 6. 유저 통합 프로필 (oshi, deck, my_sekai, 의상, liked_music, secret_ddays, todo, partner_id, crystals, attendance, playlists)
+    l_up_sec_ts, r_up_sec_ts = _pick_section_ts("user_profiles")
     for u_key, local_prof in as_dict(local_norm.get("user_profiles")).items():
         if not isinstance(local_prof, dict):
             continue
         rem_prof = merged["user_profiles"].get(u_key)
         if not isinstance(rem_prof, dict):
-            merged["user_profiles"][u_key] = local_prof
-        else:
-            if int(local_prof.get("crystals", 0) or 0) > int(rem_prof.get("crystals", 0) or 0):
-                rem_prof["crystals"] = int(local_prof.get("crystals", 0) or 0)
-            l_att = as_dict(local_prof.get("attendance"))
-            r_att = as_dict(rem_prof.get("attendance"))
-            if int(l_att.get("total_days", 0) or 0) > int(r_att.get("total_days", 0) or 0):
-                rem_prof["attendance"] = copy.deepcopy(l_att)
-            l_pls = local_prof.get("playlists") if isinstance(local_prof.get("playlists"), list) else []
-            r_pls = rem_prof.get("playlists") if isinstance(rem_prof.get("playlists"), list) else []
-            l_trk_cnt = sum(len(p.get("tracks", [])) for p in l_pls if isinstance(p, dict) and isinstance(p.get("tracks"), list))
-            r_trk_cnt = sum(len(p.get("tracks", [])) for p in r_pls if isinstance(p, dict) and isinstance(p.get("tracks"), list))
-            if len(l_pls) > len(r_pls) or l_trk_cnt > r_trk_cnt:
-                rem_prof["playlists"] = copy.deepcopy(l_pls)
+            merged["user_profiles"][u_key] = copy.deepcopy(local_prof)
+            continue
 
+        l_u_ts = _ent_ts(local_norm, "user_profiles", u_key) or l_up_sec_ts
+        r_u_ts = _ent_ts(merged, "user_profiles", u_key) or r_up_sec_ts
+
+        if l_u_ts and r_u_ts and l_u_ts != r_u_ts:
+            if l_u_ts > r_u_ts:
+                merged["user_profiles"][u_key] = copy.deepcopy(local_prof)
+            continue
+        if l_u_ts and not r_u_ts:
+            if not r_root_ts or l_u_ts >= r_root_ts:
+                merged["user_profiles"][u_key] = copy.deepcopy(local_prof)
+                continue
+
+        # 타임스탬프가 없거나 동률일 때: 무손실 스마트 필드 병합
+        if int(local_prof.get("crystals", 0) or 0) > int(rem_prof.get("crystals", 0) or 0):
+            rem_prof["crystals"] = int(local_prof.get("crystals", 0) or 0)
+        l_att = as_dict(local_prof.get("attendance"))
+        r_att = as_dict(rem_prof.get("attendance"))
+        if int(l_att.get("total_days", 0) or 0) > int(r_att.get("total_days", 0) or 0):
+            rem_prof["attendance"] = copy.deepcopy(l_att)
+        l_pls = local_prof.get("playlists") if isinstance(local_prof.get("playlists"), list) else []
+        r_pls = rem_prof.get("playlists") if isinstance(rem_prof.get("playlists"), list) else []
+        l_trk_cnt = sum(len(p.get("tracks", [])) for p in l_pls if isinstance(p, dict) and isinstance(p.get("tracks"), list))
+        r_trk_cnt = sum(len(p.get("tracks", [])) for p in r_pls if isinstance(p, dict) and isinstance(p.get("tracks"), list))
+        if len(l_pls) > len(r_pls) or l_trk_cnt > r_trk_cnt:
+            rem_prof["playlists"] = copy.deepcopy(l_pls)
+        if local_prof.get("oshi") and not rem_prof.get("oshi"):
+            rem_prof["oshi"] = local_prof["oshi"]
+        if local_prof.get("partner_id") and not rem_prof.get("partner_id"):
+            rem_prof["partner_id"] = local_prof["partner_id"]
+        l_deck = local_prof.get("deck") if isinstance(local_prof.get("deck"), list) else []
+        r_deck = rem_prof.get("deck") if isinstance(rem_prof.get("deck"), list) else []
+        if len(l_deck) > len(r_deck):
+            rem_prof["deck"] = copy.deepcopy(l_deck)
+        l_liked = local_prof.get("liked_music") if isinstance(local_prof.get("liked_music"), list) else []
+        r_liked = rem_prof.get("liked_music") if isinstance(rem_prof.get("liked_music"), list) else []
+        if len(l_liked) > len(r_liked):
+            rem_prof["liked_music"] = copy.deepcopy(l_liked)
+        for d_k in ("secret_ddays", "equipped_costumes", "equipped_costume_variants", "purchased_costumes"):
+            l_sub = as_dict(local_prof.get(d_k))
+            if l_sub:
+                r_sub = ensure_dict_path(rem_prof, d_k)
+                for sk, sv in l_sub.items():
+                    if sk not in r_sub:
+                        r_sub[sk] = copy.deepcopy(sv)
+        l_ms = as_dict(local_prof.get("my_sekai"))
+        r_ms = as_dict(rem_prof.get("my_sekai"))
+        l_ms_score = len(l_ms.get("owned_themes", [])) + len(l_ms.get("furniture", [])) + (1 if l_ms.get("theme", "default") != "default" else 0)
+        r_ms_score = len(r_ms.get("owned_themes", [])) + len(r_ms.get("furniture", [])) + (1 if r_ms.get("theme", "default") != "default" else 0)
+        if l_ms_score > r_ms_score:
+            rem_prof["my_sekai"] = copy.deepcopy(l_ms)
+        l_todo = as_dict(local_prof.get("todo"))
+        r_todo = as_dict(rem_prof.get("todo"))
+        if len(as_dict(l_todo.get("history"))) > len(as_dict(r_todo.get("history"))) or len(l_todo.get("tasks") or []) > len(r_todo.get("tasks") or []):
+            rem_prof["todo"] = copy.deepcopy(l_todo)
+
+    # 7. 서버별 출석 기록
     for g_key, local_g_att in as_dict(local_norm.get("guild_attendance")).items():
         rem_g_att = ensure_dict_path(merged, "guild_attendance", g_key)
         if isinstance(local_g_att, dict):
@@ -4650,9 +4962,12 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                 if not isinstance(l_rec, dict):
                     continue
                 r_rec = rem_g_att.get(u_key)
-                if not isinstance(r_rec, dict) or int(l_rec.get("total_days", 0) or 0) > int(r_rec.get("total_days", 0) or 0):
+                l_ts = _ent_ts(local_norm, "guild_attendance", f"{g_key}:{u_key}")
+                r_ts = _ent_ts(merged, "guild_attendance", f"{g_key}:{u_key}")
+                if not isinstance(r_rec, dict) or (l_ts and r_ts and l_ts > r_ts) or (l_ts and not r_ts) or int(l_rec.get("total_days", 0) or 0) > int(r_rec.get("total_days", 0) or 0):
                     rem_g_att[u_key] = copy.deepcopy(l_rec)
 
+    # 8. 프로세카 가챠 유저 데이터
     for g_key, local_g_users in as_dict(local_norm.get("gacha_users")).items():
         if g_key not in merged["gacha_users"] or not isinstance(merged["gacha_users"].get(g_key), dict):
             merged["gacha_users"][g_key] = copy.deepcopy(local_g_users)
@@ -4662,11 +4977,22 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                 if not isinstance(local_u, dict):
                     continue
                 rem_u = rem_g.get(u_key)
-                l_cards_cnt = len(as_dict(local_u.get("cards")))
-                r_cards_cnt = len(as_dict(rem_u.get("cards"))) if isinstance(rem_u, dict) else -1
-                if not isinstance(rem_u, dict) or l_cards_cnt > r_cards_cnt:
+                l_ts = _ent_ts(local_norm, "gacha_users", f"{g_key}:{u_key}")
+                r_ts = _ent_ts(merged, "gacha_users", f"{g_key}:{u_key}")
+                if not isinstance(rem_u, dict):
                     rem_g[u_key] = copy.deepcopy(local_u)
+                elif l_ts and r_ts and l_ts != r_ts:
+                    if l_ts > r_ts:
+                        rem_g[u_key] = copy.deepcopy(local_u)
+                elif l_ts and not r_ts and (not r_root_ts or l_ts >= r_root_ts):
+                    rem_g[u_key] = copy.deepcopy(local_u)
+                else:
+                    l_cards_cnt = len(as_dict(local_u.get("cards")))
+                    r_cards_cnt = len(as_dict(rem_u.get("cards")))
+                    if l_cards_cnt > r_cards_cnt:
+                        rem_g[u_key] = copy.deepcopy(local_u)
 
+    # 9. 원신 / 스타레일 유저 데이터
     for u_root_key in ("genshin_users", "hsr_users"):
         for g_key, local_g_users in as_dict(local_norm.get(u_root_key)).items():
             if g_key not in merged[u_root_key] or not isinstance(merged[u_root_key].get(g_key), dict):
@@ -4677,9 +5003,16 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                     if not isinstance(local_u, dict):
                         continue
                     rem_u = rem_g.get(u_key)
+                    l_ts = _ent_ts(local_norm, u_root_key, f"{g_key}:{u_key}")
+                    r_ts = _ent_ts(merged, u_root_key, f"{g_key}:{u_key}")
                     if not isinstance(rem_u, dict):
                         rem_g[u_key] = copy.deepcopy(local_u)
-                    elif isinstance(local_u, dict):
+                    elif l_ts and r_ts and l_ts != r_ts:
+                        if l_ts > r_ts:
+                            rem_g[u_key] = copy.deepcopy(local_u)
+                    elif l_ts and not r_ts and (not r_root_ts or l_ts >= r_root_ts):
+                        rem_g[u_key] = copy.deepcopy(local_u)
+                    else:
                         l_score = int(local_u.get("total_pulls", 0) or 0) + int(local_u.get("artifact_pulls", 0) or 0) + int(local_u.get("relic_pulls", 0) or 0)
                         r_score = int(rem_u.get("total_pulls", 0) or 0) + int(rem_u.get("artifact_pulls", 0) or 0) + int(rem_u.get("relic_pulls", 0) or 0)
                         if l_score > r_score:
@@ -4702,6 +5035,7 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                 if len(l_logs) > len(r_logs):
                     rem_hof["recent_5_logs"] = copy.deepcopy(l_logs)
 
+    # 10. 낚시 유저 & 기록
     for g_key, local_f_users in as_dict(local_norm.get("fishing_users")).items():
         if g_key not in merged["fishing_users"] or not isinstance(merged["fishing_users"].get(g_key), dict):
             merged["fishing_users"][g_key] = copy.deepcopy(local_f_users)
@@ -4711,8 +5045,18 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                 if not isinstance(local_fu, dict):
                     continue
                 rem_fu = rem_g.get(u_key)
-                if not isinstance(rem_fu, dict) or int(local_fu.get("total_catches", 0) or 0) > int(rem_fu.get("total_catches", 0) or 0):
+                l_ts = _ent_ts(local_norm, "fishing_users", f"{g_key}:{u_key}")
+                r_ts = _ent_ts(merged, "fishing_users", f"{g_key}:{u_key}")
+                if not isinstance(rem_fu, dict):
                     rem_g[u_key] = copy.deepcopy(local_fu)
+                elif l_ts and r_ts and l_ts != r_ts:
+                    if l_ts > r_ts:
+                        rem_g[u_key] = copy.deepcopy(local_fu)
+                elif l_ts and not r_ts and (not r_root_ts or l_ts >= r_root_ts):
+                    rem_g[u_key] = copy.deepcopy(local_fu)
+                else:
+                    if int(local_fu.get("total_catches", 0) or 0) > int(rem_fu.get("total_catches", 0) or 0):
+                        rem_g[u_key] = copy.deepcopy(local_fu)
 
     for g_key, local_f_rec in as_dict(local_norm.get("fishing_records")).items():
         if g_key not in merged["fishing_records"] or not isinstance(merged["fishing_records"].get(g_key), dict):
@@ -4731,17 +5075,21 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                         if isinstance(l_m, dict) and (not isinstance(r_m, dict) or float(l_m.get("val", 0) or 0) > float(r_m.get("val", 0) or 0)):
                             rem_rec[fid][metric_k] = copy.deepcopy(l_m)
 
-    for p_key in ("genshin_pickup", "hsr_pickup"):
-        l_ts = str(as_dict(local_norm.get(p_key)).get("updated_at") or "")
-        r_ts = str(as_dict(merged.get(p_key)).get("updated_at") or "")
-        if l_ts and l_ts > r_ts:
-            merged[p_key] = copy.deepcopy(local_norm[p_key])
-
+    # 11. 서버 감사 로그 (server_logs)
+    l_sl_sec, r_sl_sec = _pick_section_ts("server_logs")
     for g_key, local_g_log in as_dict(local_norm.get("server_logs")).items():
         if not isinstance(local_g_log, dict):
             continue
         rem_g_log = merged["server_logs"].get(g_key)
         if not isinstance(rem_g_log, dict):
+            merged["server_logs"][g_key] = copy.deepcopy(local_g_log)
+            continue
+        l_ts = _ent_ts(local_norm, "server_logs", g_key) or l_sl_sec
+        r_ts = _ent_ts(merged, "server_logs", g_key) or r_sl_sec
+        if l_ts and r_ts and l_ts != r_ts:
+            if l_ts > r_ts:
+                merged["server_logs"][g_key] = copy.deepcopy(local_g_log)
+        elif l_ts and not r_ts and (not r_root_ts or l_ts >= r_root_ts):
             merged["server_logs"][g_key] = copy.deepcopy(local_g_log)
         else:
             if local_g_log.get("enabled", False) and not rem_g_log.get("enabled", False):
@@ -4754,26 +5102,46 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                 if ev_k not in rem_events:
                     rem_events[ev_k] = ev_v
 
+    # 12. 생일, 리마인더, 파트너, 반응역할
     for u_key, b_info in as_dict(local_norm.get("birthdays")).items():
         if u_key not in merged["birthdays"]:
             merged["birthdays"][u_key] = copy.deepcopy(b_info)
 
-    existing_rem_ids = {r.get("id") for r in merged.get("reminders", []) if isinstance(r, dict)}
-    for r_item in local_norm.get("reminders", []):
-        if isinstance(r_item, dict) and r_item.get("id") not in existing_rem_ids:
-            merged["reminders"].append(copy.deepcopy(r_item))
+    for pk, pv in as_dict(local_norm.get("partners")).items():
+        if pk not in merged["partners"]:
+            merged["partners"][pk] = copy.deepcopy(pv)
 
-    # 설정값(터미널 로그 채널, 알림 채널 등) 로컬 백업 보존
-    merged_settings = ensure_dict_path(merged, "settings")
-    for s_k, s_v in as_dict(local_norm.get("settings")).items():
-        if s_v is not None and not merged_settings.get(s_k):
-            merged_settings[s_k] = copy.deepcopy(s_v)
+    l_rem_ts, r_rem_ts = _pick_section_ts("reminders")
+    if l_rem_ts and r_rem_ts and l_rem_ts > r_rem_ts:
+        merged["reminders"] = copy.deepcopy(local_norm["reminders"])
+    else:
+        existing_rem_ids = {r.get("id") for r in merged.get("reminders", []) if isinstance(r, dict)}
+        for r_item in local_norm.get("reminders", []):
+            if isinstance(r_item, dict) and r_item.get("id") not in existing_rem_ids:
+                merged["reminders"].append(copy.deepcopy(r_item))
 
-    # 반응역할(reaction_roles) 로컬 백업 보존
-    merged_rr = ensure_dict_path(merged, "reaction_roles")
-    for mid_s, rr_cfg in as_dict(local_norm.get("reaction_roles")).items():
-        if mid_s not in merged_rr:
-            merged_rr[mid_s] = copy.deepcopy(rr_cfg)
+    l_rr_ts, r_rr_ts = _pick_section_ts("reaction_roles")
+    if l_rr_ts and r_rr_ts and l_rr_ts > r_rr_ts:
+        merged["reaction_roles"] = copy.deepcopy(local_norm["reaction_roles"])
+    else:
+        merged_rr = ensure_dict_path(merged, "reaction_roles")
+        for mid_s, rr_cfg in as_dict(local_norm.get("reaction_roles")).items():
+            if mid_s not in merged_rr:
+                merged_rr[mid_s] = copy.deepcopy(rr_cfg)
+
+    # 병합된 _meta 타임스탬프는 양쪽 중 최신 값 보존
+    merged_meta = ensure_dict_path(merged, "_meta")
+    merged_meta["last_saved_at"] = max(l_root_ts, r_root_ts) or None
+    m_sec = ensure_dict_path(merged_meta, "sections")
+    for sk, sv in as_dict(l_meta.get("sections")).items():
+        if sv and _norm_ts(sv) > _norm_ts(m_sec.get(sk)):
+            m_sec[sk] = str(sv)
+    m_ent = ensure_dict_path(merged_meta, "entries")
+    for sec_k, ent_map in as_dict(l_meta.get("entries")).items():
+        dst = ensure_dict_path(m_ent, sec_k)
+        for ek, ev in as_dict(ent_map).items():
+            if ev and _norm_ts(ev) > _norm_ts(dst.get(ek)):
+                dst[ek] = str(ev)
 
     return normalize_data(merged)
 
@@ -4809,8 +5177,12 @@ def load_data():
                 if res.status_code == 200:
                     fb_data = res.json()
                     if isinstance(fb_data, dict):
+                        fb_norm = normalize_data(copy.deepcopy(fb_data))
                         _DATA_CACHE = _merge_local_and_remote(local_data, fb_data)
                         _save_local_file_safely(_DATA_CACHE)
+                        # 로컬의 최신 변경이 원격과 달라졌으면 백그라운드로 원격도 즉시 동기화
+                        if local_data and _DATA_CACHE != fb_norm:
+                            _enqueue_firebase_sync(endpoint, copy.deepcopy(_DATA_CACHE))
                         return copy.deepcopy(_DATA_CACHE)
                     elif fb_data is None:
                         # 원격이 비어있을 때 로컬 데이터가 있으면 로컬 데이터를 보존 후 원격에 업로드
@@ -4834,27 +5206,80 @@ def load_data():
         return copy.deepcopy(_DATA_CACHE)
 
 
-def _sync_firebase_background(endpoint, payload):
+def _put_firebase_payload(endpoint: str, payload: dict) -> bool:
     global _FIREBASE_DISABLED_UNTIL
     try:
         res = requests.put(endpoint, json=payload, timeout=5)
         if res.status_code in (401, 403, 404):
             _FIREBASE_DISABLED_UNTIL = time.time() + 3600
+            return False
+        return res.status_code == 200
     except Exception as e:
         print(f"⚠️ Firebase 저장 오류 (로컬 백업에는 정상 저장됨): {e}", flush=True)
         _FIREBASE_DISABLED_UNTIL = time.time() + 300
+        return False
+
+
+def _firebase_sync_worker():
+    global _FIREBASE_LATEST_JOB, _FIREBASE_WORKER_ACTIVE
+    try:
+        while True:
+            with _FIREBASE_SYNC_LOCK:
+                job = _FIREBASE_LATEST_JOB
+                _FIREBASE_LATEST_JOB = None
+                if job is None:
+                    _FIREBASE_WORKER_ACTIVE = False
+                    _FIREBASE_IDLE_EVENT.set()
+                    return
+            ep, pl = job
+            _put_firebase_payload(ep, pl)
+    finally:
+        with _FIREBASE_SYNC_LOCK:
+            _FIREBASE_WORKER_ACTIVE = False
+            if _FIREBASE_LATEST_JOB is None:
+                _FIREBASE_IDLE_EVENT.set()
+
+
+def _enqueue_firebase_sync(endpoint: str, payload: dict):
+    global _FIREBASE_LATEST_JOB, _FIREBASE_WORKER_ACTIVE
+    if not endpoint or not payload:
+        return
+    with _FIREBASE_SYNC_LOCK:
+        _FIREBASE_LATEST_JOB = (endpoint, payload)
+        _FIREBASE_IDLE_EVENT.clear()
+        if not _FIREBASE_WORKER_ACTIVE:
+            _FIREBASE_WORKER_ACTIVE = True
+            t = threading.Thread(target=_firebase_sync_worker, daemon=True)
+            t.start()
+
+
+def flush_firebase_sync(timeout: float = 4.0):
+    """봇 업데이트·종료(SIGTERM) 전 대기 중인 최신 Firebase 동기화를 완료할 때까지 잠시 대기합니다."""
+    if _FIREBASE_IDLE_EVENT.is_set():
+        return
+    _FIREBASE_IDLE_EVENT.wait(timeout=max(0.1, float(timeout)))
+
+
+atexit.register(flush_firebase_sync)
+
+
+def _sync_firebase_background(endpoint, payload):
+    _put_firebase_payload(endpoint, payload)
 
 
 def save_data(data):
     """
-    인메모리 캐시 갱신 + 원자적 로컬 파일 저장 + Firebase RTDB 비동기 백그라운드 동기화.
+    인메모리 캐시 갱신 + 변경 섹션 타임스탬프 자동 기록 + 원자적 로컬 파일 저장 + Firebase RTDB 비동기 최신 병합 동기화.
     _DATA_LOCK 점유 중 동기식 네트워크 I/O(requests.put)를 배제하여 봇 프리징 및 타임아웃을 방지합니다.
     """
     global _DATA_CACHE
     endpoint = None
     payload = None
     with _DATA_LOCK:
+        prev_snapshot = _DATA_CACHE if isinstance(_DATA_CACHE, dict) else _load_local_file_safely()
         normalized = normalize_data(copy.deepcopy(data))
+        now_iso = datetime.datetime.now(KST).isoformat()
+        _stamp_changed_metadata(normalized, prev_snapshot, now_iso)
         _DATA_CACHE = normalized
         _save_local_file_safely(normalized)
 
@@ -4863,8 +5288,7 @@ def save_data(data):
             payload = copy.deepcopy(normalized)
 
     if endpoint and payload:
-        t = threading.Thread(target=_sync_firebase_background, args=(endpoint, payload), daemon=True)
-        t.start()
+        _enqueue_firebase_sync(endpoint, payload)
 
 
 def reset_dday_and_music_data():
@@ -5377,6 +5801,7 @@ def sync_gacha_pickup_to_live_event() -> tuple[bool, str, dict]:
         for cid in matched_ids if cid in card_map
     ]
 
+    now_kst = datetime.datetime.now(KST)
     pickup_obj = {
         "unit": None if matched_ids else ev_unit,
         "character": None,
@@ -5386,7 +5811,8 @@ def sync_gacha_pickup_to_live_event() -> tuple[bool, str, dict]:
         "event_status": info.get("event_status", "진행 중"),
         "pickup_card_labels": labels,
         "include_limited": True,
-        "synced_at": datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M"),
+        "synced_at": now_kst.strftime("%Y-%m-%d %H:%M"),
+        "updated_at": now_kst.isoformat(),
     }
 
     with _DATA_LOCK:

@@ -2782,31 +2782,34 @@ def get_genshin_hall_of_fame(data: dict, guild_id: int) -> dict:
 
 def apply_genshin_pickup_preset(preset_key: str) -> tuple[bool, str, dict]:
     load_genshin_kr_db()
-    data = core.load_data()
-    if preset_key == "reset":
-        data["genshin_pickup"] = copy.deepcopy(core.DEFAULT_CONFIG["genshin_pickup"])
+    with core._DATA_LOCK:
+        data = core.load_data()
+        now_iso = datetime.datetime.now(core.KST).isoformat()
+        if preset_key == "reset":
+            reset_cfg = copy.deepcopy(core.DEFAULT_CONFIG["genshin_pickup"])
+            reset_cfg["updated_at"] = now_iso
+            data["genshin_pickup"] = reset_cfg
+            core.save_data(data)
+            return True, "🧹 원신 기원 픽업 설정이 기본값으로 초기화되었습니다.", resolve_effective_genshin_pickup(reset_cfg)
+
+        preset = GENSHIN_BANNER_PRESETS.get(preset_key)
+        if not preset:
+            return False, "알 수 없는 프리셋입니다.", resolve_effective_genshin_pickup(data.get("genshin_pickup"))
+
+        cfg = {
+            "char1": preset.get("char1"),
+            "char2": preset.get("char2"),
+            "char_4_ids": list(preset.get("char_4_ids") or []),
+            "weapon_1": preset.get("weapon_1"),
+            "weapon_2": preset.get("weapon_2"),
+            "weapon_4_ids": [],
+            "banner_name": preset.get("banner_name", "티바트 이벤트 기원"),
+            "version_label": preset.get("label", "프리셋 연동"),
+            "updated_at": now_iso,
+        }
+        data["genshin_pickup"] = cfg
         core.save_data(data)
-        return True, "🧹 원신 기원 픽업 설정이 기본값으로 초기화되었습니다.", resolve_effective_genshin_pickup(data["genshin_pickup"])
-
-    preset = GENSHIN_BANNER_PRESETS.get(preset_key)
-    if not preset:
-        return False, "알 수 없는 프리셋입니다.", resolve_effective_genshin_pickup(data.get("genshin_pickup"))
-
-    now_iso = datetime.datetime.now(core.KST).isoformat()
-    cfg = {
-        "char1": preset.get("char1"),
-        "char2": preset.get("char2"),
-        "char_4_ids": list(preset.get("char_4_ids") or []),
-        "weapon_1": preset.get("weapon_1"),
-        "weapon_2": preset.get("weapon_2"),
-        "weapon_4_ids": [],
-        "banner_name": preset.get("banner_name", "티바트 이벤트 기원"),
-        "version_label": preset.get("label", "프리셋 연동"),
-        "updated_at": now_iso,
-    }
-    data["genshin_pickup"] = cfg
-    core.save_data(data)
-    return True, f"🎯 **{preset['label']}** 픽업 적용 완료!", resolve_effective_genshin_pickup(cfg)
+        return True, f"🎯 **{preset['label']}** 픽업 적용 완료!", resolve_effective_genshin_pickup(cfg)
 
 
 async def genshin_5star_char_autocomplete(interaction, current: str):

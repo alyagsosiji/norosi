@@ -2743,31 +2743,34 @@ def get_hsr_hall_of_fame(data: dict, guild_id: int) -> dict:
 
 def apply_hsr_pickup_preset(preset_key: str) -> tuple[bool, str, dict]:
     load_hsr_kr_db()
-    data = core.load_data()
-    if preset_key == "reset":
-        data["hsr_pickup"] = copy.deepcopy(core.DEFAULT_CONFIG["hsr_pickup"])
+    with core._DATA_LOCK:
+        data = core.load_data()
+        now_iso = datetime.datetime.now(core.KST).isoformat()
+        if preset_key == "reset":
+            reset_cfg = copy.deepcopy(core.DEFAULT_CONFIG["hsr_pickup"])
+            reset_cfg["updated_at"] = now_iso
+            data["hsr_pickup"] = reset_cfg
+            core.save_data(data)
+            return True, "🧹 스타레일 워프 픽업 설정이 기본값으로 초기화되었습니다.", resolve_effective_hsr_pickup(reset_cfg)
+
+        preset = HSR_BANNER_PRESETS.get(preset_key)
+        if not preset:
+            return False, "알 수 없는 프리셋입니다.", resolve_effective_hsr_pickup(data.get("hsr_pickup"))
+
+        cfg = {
+            "char1": preset.get("char1"),
+            "char2": preset.get("char2"),
+            "char_4_ids": list(preset.get("char_4_ids") or []),
+            "lc_1": preset.get("lc_1"),
+            "lc_2": preset.get("lc_2"),
+            "lc_4_ids": [],
+            "banner_name": preset.get("banner_name", "은하열차 이벤트 워프"),
+            "version_label": preset.get("label", "프리셋 연동"),
+            "updated_at": now_iso,
+        }
+        data["hsr_pickup"] = cfg
         core.save_data(data)
-        return True, "🧹 스타레일 워프 픽업 설정이 기본값으로 초기화되었습니다.", resolve_effective_hsr_pickup(data["hsr_pickup"])
-
-    preset = HSR_BANNER_PRESETS.get(preset_key)
-    if not preset:
-        return False, "알 수 없는 프리셋입니다.", resolve_effective_hsr_pickup(data.get("hsr_pickup"))
-
-    now_iso = datetime.datetime.now(core.KST).isoformat()
-    cfg = {
-        "char1": preset.get("char1"),
-        "char2": preset.get("char2"),
-        "char_4_ids": list(preset.get("char_4_ids") or []),
-        "lc_1": preset.get("lc_1"),
-        "lc_2": preset.get("lc_2"),
-        "lc_4_ids": [],
-        "banner_name": preset.get("banner_name", "은하열차 이벤트 워프"),
-        "version_label": preset.get("label", "프리셋 연동"),
-        "updated_at": now_iso,
-    }
-    data["hsr_pickup"] = cfg
-    core.save_data(data)
-    return True, f"🎯 **{preset['label']}** 워프 픽업 적용 완료!", resolve_effective_hsr_pickup(cfg)
+        return True, f"🎯 **{preset['label']}** 워프 픽업 적용 완료!", resolve_effective_hsr_pickup(cfg)
 
 
 async def hsr_5star_char_autocomplete(interaction, current: str):

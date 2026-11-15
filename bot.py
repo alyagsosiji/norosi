@@ -3,6 +3,7 @@ import re
 import sys
 import copy
 import time
+import signal
 import logging
 import asyncio
 import datetime
@@ -1219,7 +1220,8 @@ class NorosiBot(commands.Bot):
 
         data = await asyncio.to_thread(core.load_data)
         today = datetime.datetime.now(core.KST).date()
-        updated = False
+        dday_repeat_updates: Dict[str, tuple[str, str]] = {}
+        bday_celebrated: Dict[str, int] = {}
 
         for name, info in core.as_dict(data.get("ddays")).items():
             if not isinstance(info, dict):
@@ -1239,9 +1241,10 @@ class NorosiBot(commands.Bot):
                             t_date = t_date.replace(year=t_date.year + 1)
                         except ValueError:
                             t_date += datetime.timedelta(days=365)
-                    info["date"] = t_date.strftime("%Y-%m-%d")
+                    new_date_str = t_date.strftime("%Y-%m-%d")
+                    info["date"] = new_date_str
                     info["start_date"] = old_target_str
-                    updated = True
+                    dday_repeat_updates[name] = (new_date_str, old_target_str)
 
         # 자정(00:00 KST) 멤버 생일 자동 축하 및 +500 크리스탈 지급
         bday_map = core.as_dict(data.get("birthdays"))
@@ -1254,11 +1257,11 @@ class NorosiBot(commands.Bot):
             if b_info.get("month") == today.month and b_info.get("day") == today.day:
                 if b_info.get("last_celebrated_year") != today.year:
                     b_info["last_celebrated_year"] = today.year
+                    bday_celebrated[str(u_key)] = today.year
                     uid = b_info.get("user_id") or int(u_key)
                     uname = b_info.get("user_name", "멤버")
                     prof = core.ensure_user_profile(data, u_key, uname)
                     prof["crystals"] = prof.get("crystals", 0) + 500
-                    updated = True
 
                     bday_embed = discord.Embed(
                         title=f"🎂 Happy Birthday! 오늘은 {uname}님의 생일입니다! 🎉",
@@ -1292,15 +1295,28 @@ class NorosiBot(commands.Bot):
                     except Exception:
                         pass
 
-        if updated:
-            fresh_data = await asyncio.to_thread(core.load_data)
-            fresh_data["ddays"] = core.as_dict(data.get("ddays"))
-            fresh_data["birthdays"] = core.as_dict(data.get("birthdays"))
-            fresh_profiles = core.ensure_dict_path(fresh_data, "user_profiles")
-            for u_k, u_prof in core.as_dict(data.get("user_profiles")).items():
-                if isinstance(u_prof, dict) and isinstance(fresh_profiles.get(u_k), dict):
-                    fresh_profiles[u_k]["crystals"] = u_prof.get("crystals", 0)
-            await asyncio.to_thread(core.save_data, fresh_data)
+        if dday_repeat_updates or bday_celebrated:
+            def _commit_midnight_updates():
+                with core._DATA_LOCK:
+                    fresh_data = core.load_data()
+                    changed = False
+                    fresh_ddays = core.ensure_dict_path(fresh_data, "ddays")
+                    for d_name, (new_d, new_s) in dday_repeat_updates.items():
+                        if isinstance(fresh_ddays.get(d_name), dict):
+                            fresh_ddays[d_name]["date"] = new_d
+                            fresh_ddays[d_name]["start_date"] = new_s
+                            changed = True
+                    fresh_bdays = core.ensure_dict_path(fresh_data, "birthdays")
+                    for u_k, yr in bday_celebrated.items():
+                        b_rec = fresh_bdays.get(u_k)
+                        if isinstance(b_rec, dict) and b_rec.get("last_celebrated_year") != yr:
+                            b_rec["last_celebrated_year"] = yr
+                            prof = core.ensure_user_profile(fresh_data, u_k, b_rec.get("user_name", "멤버"))
+                            prof["crystals"] = int(prof.get("crystals", 0) or 0) + 500
+                            changed = True
+                    if changed:
+                        core.save_data(fresh_data)
+            await asyncio.to_thread(_commit_midnight_updates)
 
         await self.update_all_dday_channels()
 
@@ -1351,8 +1367,12 @@ class NorosiBot(commands.Bot):
         if not schedules and not reminders:
             return
 
-        updated = False
+        sent_sched_keys: set[str] = set()
+        fired_rem_ids: set[str] = set()
         base_prefs = core.as_dict(data.get("music_prefs")) or core.DEFAULT_CONFIG["music_prefs"]
+
+        def _sched_key(s: dict) -> str:
+            return str(s.get("id") or f"{s.get('time')}|{s.get('channel_id')}|{s.get('name')}")
 
         for sched in schedules:
             if not isinstance(sched, dict):
@@ -1374,16 +1394,16 @@ class NorosiBot(commands.Bot):
                         except Exception:
                             pass
                 sched["last_sent"] = today_str
-                updated = True
+                sent_sched_keys.add(_sched_key(sched))
 
         # /알림예약 개인 알리미 시각 도달 체크 및 발송
         now_ts = time.time()
-        remaining_reminders = []
         for rem in reminders:
             if not isinstance(rem, dict):
                 continue
             if rem.get("trigger_ts", 0) <= now_ts:
-                updated = True
+                if rem.get("id") is not None:
+                    fired_rem_ids.add(str(rem.get("id")))
                 uid = rem.get("user_id")
                 ch_id = rem.get("channel_id")
                 mode = rem.get("mode", "both")
@@ -1419,23 +1439,33 @@ class NorosiBot(commands.Bot):
                                 await ch_obj.send(content=f"🔔 <@{uid}>님, 예약하신 알림이 도착했습니다!", embed=rem_embed)
                             except Exception:
                                 pass
-            else:
-                remaining_reminders.append(rem)
 
-        if len(remaining_reminders) != len(reminders):
-            data["reminders"] = remaining_reminders
-            updated = True
-
-        if updated:
-            fresh_data = await asyncio.to_thread(core.load_data)
-            fresh_data["music_schedules"] = schedules
-            fresh_raw_reminders = fresh_data.get("reminders")
-            fresh_reminders = [
-                r for r in (fresh_raw_reminders if isinstance(fresh_raw_reminders, list) else [])
-                if isinstance(r, dict) and r.get("trigger_ts", 0) > now_ts
-            ]
-            fresh_data["reminders"] = fresh_reminders
-            await asyncio.to_thread(core.save_data, fresh_data)
+        if sent_sched_keys or fired_rem_ids:
+            def _commit_music_and_rem_updates():
+                with core._DATA_LOCK:
+                    fresh_data = core.load_data()
+                    changed = False
+                    fresh_scheds = fresh_data.get("music_schedules")
+                    if isinstance(fresh_scheds, list) and sent_sched_keys:
+                        for s_item in fresh_scheds:
+                            if isinstance(s_item, dict) and _sched_key(s_item) in sent_sched_keys:
+                                if s_item.get("last_sent") != today_str:
+                                    s_item["last_sent"] = today_str
+                                    changed = True
+                    fresh_raw_reminders = fresh_data.get("reminders")
+                    if isinstance(fresh_raw_reminders, list):
+                        new_rems = [
+                            r for r in fresh_raw_reminders
+                            if isinstance(r, dict)
+                            and str(r.get("id")) not in fired_rem_ids
+                            and r.get("trigger_ts", 0) > now_ts
+                        ]
+                        if len(new_rems) != len(fresh_raw_reminders):
+                            fresh_data["reminders"] = new_rems
+                            changed = True
+                    if changed:
+                        core.save_data(fresh_data)
+            await asyncio.to_thread(_commit_music_and_rem_updates)
 
     @custom_music_schedules_loop.before_loop
     async def before_custom_music_loop(self):
@@ -1447,7 +1477,8 @@ class NorosiBot(commands.Bot):
         today_str = core.get_today_str()
 
         # 1. 나만의 비밀 디데이 & 타임캡슐 개인 DM 발송 체크
-        dm_updated = False
+        notified_secrets: list[tuple[str, str]] = []
+        notified_partners: list[tuple[str, str]] = []
         for u_key, p_info in core.as_dict(data.get("user_profiles")).items():
             if not isinstance(p_info, dict):
                 continue
@@ -1475,8 +1506,7 @@ class NorosiBot(commands.Bot):
                                 timestamp=datetime.datetime.now(core.KST)
                             )
                             await target_user.send(embed=dm_embed)
-                            s_info["notified_date"] = today_str
-                            dm_updated = True
+                            notified_secrets.append((str(u_key), s_name))
                     except Exception as e:
                         print(f"⚠️ 비밀 디데이 DM 전송 실패 ({u_key}): {e}", flush=True)
 
@@ -1511,11 +1541,28 @@ class NorosiBot(commands.Bot):
                                 await u_obj.send(embed=p_embed)
                         except Exception:
                             pass
-                    p_dday_info["notified_date"] = today_str
-                    dm_updated = True
+                    notified_partners.append((str(pair_key), p_dday_name))
 
-        if dm_updated:
-            await asyncio.to_thread(core.save_data, data)
+        if notified_secrets or notified_partners:
+            def _commit_morning_notified():
+                with core._DATA_LOCK:
+                    fresh_data = core.load_data()
+                    changed = False
+                    fresh_profiles = core.as_dict(fresh_data.get("user_profiles"))
+                    for u_k, s_n in notified_secrets:
+                        s_map = core.as_dict(core.as_dict(fresh_profiles.get(u_k)).get("secret_ddays"))
+                        if isinstance(s_map.get(s_n), dict) and s_map[s_n].get("notified_date") != today_str:
+                            s_map[s_n]["notified_date"] = today_str
+                            changed = True
+                    fresh_partners = core.as_dict(fresh_data.get("partners"))
+                    for pk, pdn in notified_partners:
+                        pd_map = core.as_dict(core.as_dict(fresh_partners.get(pk)).get("ddays"))
+                        if isinstance(pd_map.get(pdn), dict) and pd_map[pdn].get("notified_date") != today_str:
+                            pd_map[pdn]["notified_date"] = today_str
+                            changed = True
+                    if changed:
+                        core.save_data(fresh_data)
+            await asyncio.to_thread(_commit_morning_notified)
 
         # 3. 서버 공개 오전 9시 D-Day 요약 알림
         alert_ch_id = core.as_dict(data.get("settings")).get("dday_alert_channel_id")
@@ -2255,6 +2302,26 @@ async def main():
 
         await bot.ensure_fresh_http_session()
 
+    loop = asyncio.get_running_loop()
+    main_task = asyncio.current_task()
+    _shutdown_requested = False
+
+    def _request_shutdown(sig_name: str):
+        nonlocal _shutdown_requested
+        if _shutdown_requested:
+            return
+        _shutdown_requested = True
+        print(f"🛑 [SHUTDOWN] {sig_name} 시그널 수신 — 대기 중인 설정 저장 및 Firebase 동기화를 완료한 뒤 안전 종료합니다...", flush=True)
+        if main_task is not None and not main_task.done():
+            main_task.cancel()
+
+    for _sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(_sig, _request_shutdown, _sig.name)
+        except (NotImplementedError, ValueError, RuntimeError):
+            pass
+
+    _cleaned_once = False
     try:
         while True:
             try:
@@ -2273,6 +2340,7 @@ async def main():
                         break
             except asyncio.CancelledError:
                 await _cleanup_bot_session()
+                _cleaned_once = True
                 raise
             except Exception as e:
                 print(f"⚠️ 봇 연결 예외 발생 (15초 후 재시도): {e}", flush=True)
@@ -2282,9 +2350,18 @@ async def main():
             else:
                 # 정상 종료 시 세션 정리 후 루프 탈출
                 await _cleanup_bot_session()
+                _cleaned_once = True
                 break
     finally:
-        await _cleanup_bot_session()
+        if not _cleaned_once:
+            await _cleanup_bot_session()
+        try:
+            await asyncio.to_thread(core.flush_firebase_sync, 4.0)
+        except Exception:
+            try:
+                core.flush_firebase_sync(4.0)
+            except Exception:
+                pass
         if getattr(bot, "_web_runner", None) is not None:
             try:
                 await bot._web_runner.cleanup()
@@ -2297,5 +2374,10 @@ async def main():
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
         pass
+    finally:
+        try:
+            core.flush_firebase_sync(2.0)
+        except Exception:
+            pass
