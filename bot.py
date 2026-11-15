@@ -414,7 +414,7 @@ class NorosiBot(commands.Bot):
         # 글로벌 슬래시 커맨드 에러 핸들러 등록 ("명령어 응답 안함" 3초 타임아웃 차단)
         self.tree.on_error = self.on_app_command_error
 
-        print("🔌 [2/4] Cogs 확장 모듈 등록 중 (gacha, genshin, hsr, fishing, music, dday, logger, ai, stats, roles, help, dashboard)...", flush=True)
+        print("🔌 [2/4] Cogs 확장 모듈 등록 중 (gacha, genshin, hsr, fishing, economy, life, tickets, music, dday, logger, ai, stats, roles, help, dashboard)...", flush=True)
         # 서버 배포 파일 뒤바뀜(예: fishing_core.py에 cogs/fishing.py 덮어쓰기, cogs/gacha.py에 cogs/hsr.py 덮어쓰기) 사전 진단
         try:
             base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -441,6 +441,9 @@ class NorosiBot(commands.Bot):
             "cogs.genshin",
             "cogs.hsr",
             "cogs.fishing",
+            "cogs.economy",
+            "cogs.life",
+            "cogs.tickets",
             "cogs.music",
             "cogs.dday",
             "cogs.logger",
@@ -493,6 +496,15 @@ class NorosiBot(commands.Bot):
         except Exception as e:
             print(f"ℹ️ 반응역할 지속 View 복원 건너뜀: {e}", flush=True)
 
+        # 1:1 문의 티켓 영구 View 등록 (봇 재시작 후에도 패널/제어 버튼 즉시 반응)
+        try:
+            from cogs.tickets import TicketPanelView, TicketControlView
+            self.add_view(TicketPanelView())
+            self.add_view(TicketControlView())
+            print("🎫 1:1 티켓 영구 View (패널/제어) 등록 완료", flush=True)
+        except Exception as e:
+            print(f"ℹ️ 1:1 티켓 영구 View 등록 건너뜀: {e}", flush=True)
+
         print("📚 [3/4] 프로세카 · 원신 · 스타레일 한국어 DB 백그라운드 캐시 워밍 시작...", flush=True)
         asyncio.create_task(asyncio.to_thread(core.load_proseka_kr_db))
         import genshin_core, hsr_core
@@ -510,6 +522,8 @@ class NorosiBot(commands.Bot):
             self.custom_music_schedules_loop.start()
         if not self.terminal_log_dispatch_loop.is_running():
             self.terminal_log_dispatch_loop.start()
+        if not self.weekly_lottery_draw_loop.is_running():
+            self.weekly_lottery_draw_loop.start()
 
     @tasks.loop(seconds=3.0)
     async def terminal_log_dispatch_loop(self):
@@ -1322,6 +1336,37 @@ class NorosiBot(commands.Bot):
 
     @midnight_tasks.before_loop
     async def before_midnight_tasks(self):
+        await self.wait_until_ready()
+
+    @tasks.loop(minutes=10)
+    async def weekly_lottery_draw_loop(self):
+        """매주 일요일 21:00~21:59 KST 사이에 주간 로또 복권을 주 1회 자동 추첨·공지합니다."""
+        now = datetime.datetime.now(core.KST)
+        if now.weekday() != 6 or now.hour != 21:
+            return
+        week_key = now.strftime("%Y-W%W")
+        data = await asyncio.to_thread(core.load_data)
+        last_draw = core.as_dict(core.as_dict(data.get("lottery_state")).get("last_draw"))
+        if last_draw.get("week_key") == week_key:
+            return
+
+        import economy_core
+        from cogs.economy import build_lottery_draw_embed
+        draw_res = await asyncio.to_thread(economy_core.execute_lottery_draw, "auto")
+        ann_chs = core.as_dict(draw_res.get("announce_channels"))
+        for gid_s, cid in ann_chs.items():
+            if not cid:
+                continue
+            ch = await self.resolve_channel(cid)
+            if ch and hasattr(ch, "send"):
+                gname = getattr(getattr(ch, "guild", None), "name", "서버")
+                try:
+                    await ch.send(embed=build_lottery_draw_embed(draw_res, gname))
+                except Exception as send_err:
+                    print(f"⚠️ [로또 자동 추첨 공지 예외] 채널 {cid}: {send_err}", flush=True)
+
+    @weekly_lottery_draw_loop.before_loop
+    async def before_weekly_lottery_draw_loop(self):
         await self.wait_until_ready()
 
     @tasks.loop(time=datetime.time(hour=7, minute=0, tzinfo=core.KST))
@@ -2244,6 +2289,7 @@ async def main():
             "morning_text_alert",
             "custom_music_schedules_loop",
             "terminal_log_dispatch_loop",
+            "weekly_lottery_draw_loop",
         ):
             loop_obj = getattr(bot, loop_attr, None)
             if loop_obj is not None:

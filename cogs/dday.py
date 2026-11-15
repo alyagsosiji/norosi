@@ -44,6 +44,8 @@ async def execute_and_build_attendance_response(interaction: discord.Interaction
     gained_crystals = res.get("gained_crystals", 100)
     milestone_bonus = res.get("milestone_bonus", 0)
     my_sekai_bonus = res.get("my_sekai_bonus", 0)
+    life_bonus = res.get("life_bonus", 0)
+    life_bonus_reasons = res.get("life_bonus_reasons", [])
     newly_claimed = res.get("newly_claimed_milestones", [])
     quick_view = AttendanceQuickActionView(bot_instance, interaction.user)
 
@@ -110,6 +112,9 @@ async def execute_and_build_attendance_response(interaction: discord.Interaction
         milestone_banner = f"\n🎊 **개근 마일스톤 달성 축하 보너스:** **{m_titles}** 추가 지급!"
     if my_sekai_bonus > 0:
         milestone_banner += f"\n🏠 **마이세카이 미니 룸 이자 보너스:** **`+{my_sekai_bonus:,}💎`** 추가 지급!"
+    if life_bonus > 0:
+        l_reasons = ", ".join(life_bonus_reasons) if life_bonus_reasons else "동반 펫·공동농장·요리 버프"
+        milestone_banner += f"\n🐾 **생활 컨텐츠(펫/공동농장/요리) 출석 보너스:** **`+{life_bonus:,}💎`** ({l_reasons})"
 
     embed = discord.Embed(
         title=f"🌟 {user_name}님, `{guild_name}` 오늘의 출석체크 완료! (+{gained_crystals:,} 💎)",
@@ -128,7 +133,14 @@ async def execute_and_build_attendance_response(interaction: discord.Interaction
         value=f"누적 **`{guild_stats.get('total_days', 1):,}일`** · 연속 **`{guild_stats.get('streak', 1):,}일 🔥`**\n*(최고 연속 `{guild_stats.get('max_streak', 1):,}일`)*",
         inline=True
     )
-    sekai_sub = f" (기본 100 + 🏠{my_sekai_bonus})" if my_sekai_bonus > 0 else ""
+    breakdown_parts = ["기본 100"]
+    if my_sekai_bonus > 0:
+        breakdown_parts.append(f"🏠{my_sekai_bonus}")
+    if life_bonus > 0:
+        breakdown_parts.append(f"🐾{life_bonus}")
+    if milestone_bonus > 0:
+        breakdown_parts.append(f"🎁{milestone_bonus}")
+    sekai_sub = f" ({' + '.join(breakdown_parts)})" if len(breakdown_parts) > 1 else ""
     embed.add_field(
         name="💎 크리스탈 & 통합 기록",
         value=f"**`+{gained_crystals:,}개 획득!`**{sekai_sub}\n보유: **`{total_crystals:,}개`** · 통합 `{global_stats.get('total_days', 1):,}회`",

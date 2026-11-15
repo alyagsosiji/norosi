@@ -3956,7 +3956,20 @@ DEFAULT_CONFIG = {
     "birthdays": {},
     "reminders": [],
     "suggestions": [],
-    "reaction_roles": {}
+    "reaction_roles": {},
+    "lottery_state": {
+        "round": 1,
+        "jackpot": 1000,
+        "pool": 0,
+        "tickets": [],
+        "last_draw": None,
+        "history": [],
+        "announce_channels": {}
+    },
+    "life_users": {},
+    "guild_farms": {},
+    "ticket_configs": {},
+    "tickets": {}
 }
 
 
@@ -4179,6 +4192,9 @@ def get_default_user_profile(user_name: str = "") -> dict:
         "secret_ddays": {},
         "partner_id": None,
         "crystals": 0,  # 출석체크 및 중복 카드 변환으로 획득, 카드 교환(100) 및 파트너 선물(50)에 사용
+        "equipped_title": "newbie",
+        "owned_titles": ["newbie"],
+        "transfer_log": {"date": today_s, "sent_today": 0, "received_today": 0},
         "my_sekai": {
             "theme": "default",
             "owned_themes": ["default"],
@@ -4223,6 +4239,20 @@ def ensure_user_profile(data: dict, u_key: str | int, user_name: str = "") -> di
         p_val["deck"] = [str(d) for d in coerce_list_like(p_val.get("deck")) if d is not None]
     p_val.setdefault("partner_id", None)
     p_val.setdefault("crystals", 0)
+    if "equipped_title" not in p_val:
+        p_val["equipped_title"] = "newbie"
+    if not isinstance(p_val.get("owned_titles"), list):
+        titles_list = [str(t) for t in coerce_list_like(p_val.get("owned_titles")) if t]
+        p_val["owned_titles"] = titles_list
+    if "newbie" not in p_val["owned_titles"]:
+        p_val["owned_titles"].insert(0, "newbie")
+    today_t_str = get_today_str()
+    if not isinstance(p_val.get("transfer_log"), dict):
+        p_val["transfer_log"] = {"date": today_t_str, "sent_today": 0, "received_today": 0}
+    else:
+        p_val["transfer_log"].setdefault("date", today_t_str)
+        p_val["transfer_log"].setdefault("sent_today", 0)
+        p_val["transfer_log"].setdefault("received_today", 0)
     if not isinstance(p_val.get("secret_ddays"), dict):
         p_val["secret_ddays"] = coerce_dict_like(p_val.get("secret_ddays"))
     if "equipped_costumes" in p_val and not isinstance(p_val.get("equipped_costumes"), dict):
@@ -4607,6 +4637,64 @@ def normalize_data(data):
     data["reaction_roles"] = clean_rr
     data["proseka_accounts"] = coerce_dict_like(data.get("proseka_accounts"))
 
+    # 통합 경제 · 복권 상태 정규화
+    raw_lottery = coerce_dict_like(data.get("lottery_state"))
+    if not raw_lottery:
+        raw_lottery = copy.deepcopy(DEFAULT_CONFIG["lottery_state"])
+    raw_lottery["round"] = max(1, int(raw_lottery.get("round", 1) or 1))
+    raw_lottery["jackpot"] = max(0, int(raw_lottery.get("jackpot", 1000) or 0))
+    raw_lottery["pool"] = max(0, int(raw_lottery.get("pool", 0) or 0))
+    if not isinstance(raw_lottery.get("tickets"), list):
+        raw_lottery["tickets"] = [t for t in coerce_list_like(raw_lottery.get("tickets")) if isinstance(t, dict)]
+    else:
+        raw_lottery["tickets"] = [t for t in raw_lottery["tickets"] if isinstance(t, dict)]
+    if not isinstance(raw_lottery.get("history"), list):
+        raw_lottery["history"] = [h for h in coerce_list_like(raw_lottery.get("history")) if isinstance(h, dict)]
+    else:
+        raw_lottery["history"] = [h for h in raw_lottery["history"] if isinstance(h, dict)]
+    if raw_lottery.get("last_draw") is not None and not isinstance(raw_lottery.get("last_draw"), dict):
+        raw_lottery["last_draw"] = coerce_dict_like(raw_lottery.get("last_draw")) or None
+    raw_lottery["announce_channels"] = {
+        str(k): v for k, v in coerce_dict_like(raw_lottery.get("announce_channels")).items() if v
+    }
+    data["lottery_state"] = raw_lottery
+
+    # 생활 컨텐츠 (개인 농장 · 펫 · 요리 버프) 정규화
+    l_users = _normalize_guild_user_map(data.get("life_users"))
+    for g_key, g_map in l_users.items():
+        for u_key, lu in g_map.items():
+            lu["plots"] = [p for p in coerce_list_like(lu.get("plots")) if isinstance(p, dict)]
+            lu["seeds"] = coerce_dict_like(lu.get("seeds"))
+            lu["crops"] = coerce_dict_like(lu.get("crops"))
+            lu["pets"] = coerce_dict_like(lu.get("pets"))
+            lu["dishes"] = coerce_dict_like(lu.get("dishes"))
+            lu["active_buffs"] = [b for b in coerce_list_like(lu.get("active_buffs")) if isinstance(b, dict)]
+    data["life_users"] = l_users
+
+    raw_g_farms = coerce_dict_like(data.get("guild_farms"))
+    clean_g_farms = {}
+    for g_key, gf in raw_g_farms.items():
+        if isinstance(gf, dict):
+            gf["water_log"] = coerce_dict_like(gf.get("water_log"))
+            gf["daily_claimed"] = coerce_dict_like(gf.get("daily_claimed"))
+            gf["contributors"] = coerce_dict_like(gf.get("contributors"))
+            clean_g_farms[str(g_key)] = gf
+    data["guild_farms"] = clean_g_farms
+
+    # 1:1 티켓 설정 & 티켓 기록 정규화
+    raw_tcfgs = coerce_dict_like(data.get("ticket_configs"))
+    clean_tcfgs = {}
+    for g_key, tcfg in raw_tcfgs.items():
+        if isinstance(tcfg, dict):
+            clean_tcfgs[str(g_key)] = tcfg
+    data["ticket_configs"] = clean_tcfgs
+
+    t_map = _normalize_guild_user_map(data.get("tickets"))
+    for g_key, g_tickets in t_map.items():
+        for c_key, t_obj in g_tickets.items():
+            t_obj["members"] = [int(m) for m in coerce_list_like(t_obj.get("members")) if str(m).isdigit()]
+    data["tickets"] = t_map
+
     raw_meta = coerce_dict_like(data.get("_meta"))
     meta_sections = {str(k): str(v) for k, v in coerce_dict_like(raw_meta.get("sections")).items() if v}
     meta_entries = {}
@@ -4636,6 +4724,7 @@ _TRACKED_TOP_SECTIONS = (
     "partners",
     "birthdays",
     "reaction_roles",
+    "lottery_state",
 )
 _TRACKED_ENTRY_MAPS = (
     "guild_settings",
@@ -4649,6 +4738,8 @@ _TRACKED_ENTRY_MAPS = (
     "hsr_hall_of_fame",
     "fishing_records",
     "server_stats",
+    "guild_farms",
+    "ticket_configs",
 )
 _TRACKED_GUILD_USER_MAPS = (
     "gacha_users",
@@ -4657,6 +4748,8 @@ _TRACKED_GUILD_USER_MAPS = (
     "fishing_users",
     "guild_attendance",
     "ai_usage",
+    "life_users",
+    "tickets",
 )
 
 
@@ -4957,6 +5050,24 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
         if len(as_dict(l_todo.get("history"))) > len(as_dict(r_todo.get("history"))) or len(l_todo.get("tasks") or []) > len(r_todo.get("tasks") or []):
             rem_prof["todo"] = copy.deepcopy(l_todo)
 
+        # 칭호 & 송금 기록 무손실 보존
+        l_titles = local_prof.get("owned_titles") if isinstance(local_prof.get("owned_titles"), list) else []
+        r_titles = rem_prof.get("owned_titles") if isinstance(rem_prof.get("owned_titles"), list) else []
+        merged_titles = list(dict.fromkeys([*r_titles, *l_titles]))
+        if "newbie" not in merged_titles:
+            merged_titles.insert(0, "newbie")
+        rem_prof["owned_titles"] = merged_titles
+        if local_prof.get("equipped_title") and local_prof.get("equipped_title") != "newbie" and rem_prof.get("equipped_title", "newbie") == "newbie":
+            rem_prof["equipped_title"] = local_prof["equipped_title"]
+        l_tl = as_dict(local_prof.get("transfer_log"))
+        r_tl = as_dict(rem_prof.get("transfer_log"))
+        if str(l_tl.get("date") or "") > str(r_tl.get("date") or ""):
+            rem_prof["transfer_log"] = copy.deepcopy(l_tl)
+        elif str(l_tl.get("date") or "") == str(r_tl.get("date") or ""):
+            r_tl["sent_today"] = max(int(r_tl.get("sent_today", 0) or 0), int(l_tl.get("sent_today", 0) or 0))
+            r_tl["received_today"] = max(int(r_tl.get("received_today", 0) or 0), int(l_tl.get("received_today", 0) or 0))
+            rem_prof["transfer_log"] = r_tl
+
     # 7. 서버별 출석 기록
     for g_key, local_g_att in as_dict(local_norm.get("guild_attendance")).items():
         rem_g_att = ensure_dict_path(merged, "guild_attendance", g_key)
@@ -5131,6 +5242,51 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
         for mid_s, rr_cfg in as_dict(local_norm.get("reaction_roles")).items():
             if mid_s not in merged_rr:
                 merged_rr[mid_s] = copy.deepcopy(rr_cfg)
+
+    # 13. 통합 복권(lottery_state), 생활 컨텐츠(life_users, guild_farms), 티켓 시스템(ticket_configs, tickets)
+    l_lot_ts, r_lot_ts = _pick_section_ts("lottery_state")
+    l_lot = as_dict(local_norm.get("lottery_state"))
+    r_lot = as_dict(merged.get("lottery_state"))
+    if l_lot_ts and (not r_lot_ts or l_lot_ts >= r_lot_ts):
+        merged["lottery_state"] = copy.deepcopy(l_lot)
+    elif not l_lot_ts and not r_lot_ts:
+        if int(l_lot.get("round", 1) or 1) > int(r_lot.get("round", 1) or 1) or (
+            int(l_lot.get("round", 1) or 1) == int(r_lot.get("round", 1) or 1)
+            and len(l_lot.get("tickets", [])) > len(r_lot.get("tickets", []))
+        ):
+            merged["lottery_state"] = copy.deepcopy(l_lot)
+
+    for map_key in ("guild_farms", "ticket_configs"):
+        l_sec_ts, r_sec_ts = _pick_section_ts(map_key)
+        rem_map = ensure_dict_path(merged, map_key)
+        for ek, lv in as_dict(local_norm.get(map_key)).items():
+            if not isinstance(lv, dict):
+                continue
+            l_ets = _ent_ts(local_norm, map_key, ek) or l_sec_ts
+            r_ets = _ent_ts(merged, map_key, ek) or r_sec_ts
+            if ek not in rem_map or not isinstance(rem_map.get(ek), dict):
+                rem_map[ek] = copy.deepcopy(lv)
+            elif l_ets and (not r_ets or l_ets >= r_ets):
+                rem_map[ek] = copy.deepcopy(lv)
+
+    for gu_key in ("life_users", "tickets"):
+        for g_key, local_g_map in as_dict(local_norm.get(gu_key)).items():
+            if g_key not in merged[gu_key] or not isinstance(merged[gu_key].get(g_key), dict):
+                merged[gu_key][g_key] = copy.deepcopy(local_g_map)
+            elif isinstance(local_g_map, dict):
+                rem_g = ensure_dict_path(merged, gu_key, g_key)
+                for u_key, lv in local_g_map.items():
+                    if not isinstance(lv, dict):
+                        continue
+                    l_ts = _ent_ts(local_norm, gu_key, f"{g_key}:{u_key}")
+                    r_ts = _ent_ts(merged, gu_key, f"{g_key}:{u_key}")
+                    if u_key not in rem_g or not isinstance(rem_g.get(u_key), dict):
+                        rem_g[u_key] = copy.deepcopy(lv)
+                    elif l_ts and r_ts and l_ts != r_ts:
+                        if l_ts > r_ts:
+                            rem_g[u_key] = copy.deepcopy(lv)
+                    elif l_ts and not r_ts and (not r_root_ts or l_ts >= r_root_ts):
+                        rem_g[u_key] = copy.deepcopy(lv)
 
     # 병합된 _meta 타임스탬프는 양쪽 중 최신 값 보존
     merged_meta = ensure_dict_path(merged, "_meta")
@@ -5419,6 +5575,8 @@ def process_user_attendance(guild_id: int, guild_name: str, user_id: int, user_n
                 "gained_crystals": bonus_gained,
                 "milestone_bonus": bonus_gained,
                 "my_sekai_bonus": my_sekai_bonus,
+                "life_bonus": 0,
+                "life_bonus_reasons": [],
                 "newly_claimed_milestones": newly_claimed,
                 "month_days_count": month_days_cnt
             }
@@ -5472,9 +5630,17 @@ def process_user_attendance(guild_id: int, guild_name: str, user_id: int, user_n
         global_att["user_name"] = user_name
         global_att["last_guild_name"] = guild_name
 
-        # 3) 서버별 1회 출석 기본 +100 크리스탈 + 마이세카이 가구/테마 패시브 이자 + 개근 마일스톤 달성 보너스 지급
+        # 3) 서버별 1회 출석 기본 +100 크리스탈 + 마이세카이 패시브 이자 + 개근 마일스톤 + 생활(펫/공동농장/요리) 보너스
         my_sekai_bonus = get_my_sekai_daily_bonus(profile)
-        total_gained = 100 + my_sekai_bonus + milestone_bonus
+        life_bonus = 0
+        life_bonus_reasons: list[str] = []
+        try:
+            import life_core
+            life_bonus, life_bonus_reasons = life_core.consume_attendance_life_bonus(data, g_key, u_key, user_name)
+        except Exception as life_err:
+            print(f"⚠️ [출석 생활보너스 계산 예외] {life_err}", flush=True)
+
+        total_gained = 100 + my_sekai_bonus + milestone_bonus + max(0, int(life_bonus))
         profile["crystals"] = profile.get("crystals", 0) + total_gained
 
         save_data(data)
@@ -5488,6 +5654,8 @@ def process_user_attendance(guild_id: int, guild_name: str, user_id: int, user_n
             "gained_crystals": total_gained,
             "milestone_bonus": milestone_bonus,
             "my_sekai_bonus": my_sekai_bonus,
+            "life_bonus": max(0, int(life_bonus)),
+            "life_bonus_reasons": life_bonus_reasons,
             "newly_claimed_milestones": newly_claimed,
             "month_days_count": month_days_cnt
         }

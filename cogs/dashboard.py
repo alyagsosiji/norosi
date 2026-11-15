@@ -255,6 +255,13 @@ class DashboardTabSelect(discord.ui.Select):
                 emoji="📊",
                 default=(current_tab == "stats")
             ),
+            discord.SelectOption(
+                label="💳 통합 경제·농장·펫·요리",
+                value="economy",
+                description="통합 프로필카드 PNG, 칭호·송금·로또복권, 농장·공동농장·펫·요리 버프",
+                emoji="💳",
+                default=(current_tab == "economy")
+            ),
         ]
         super().__init__(
             placeholder="🔍 이동할 기능 대시보드를 선택하세요...",
@@ -381,6 +388,8 @@ class MasterDashboardView(core.SafeView):
             self._setup_game_buttons()
         elif self.current_tab == "stats":
             self._setup_stats_buttons()
+        elif self.current_tab == "economy":
+            self._setup_economy_buttons()
 
         btn_refresh = discord.ui.Button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=3, custom_id="norosi:MasterDashboardView:_on_refresh_clicked")
         btn_refresh.callback = self._on_refresh_clicked
@@ -635,6 +644,22 @@ class MasterDashboardView(core.SafeView):
         btn_sugg.callback = self._on_suggestion_clicked
         self.add_item(btn_sugg)
 
+    def _setup_economy_buttons(self):
+        eco_buttons = [
+            ("🪪 프로필 카드 PNG", discord.ButtonStyle.primary, 1, "norosi:MasterDashboardView:_on_eco_profile_card", self._on_eco_profile_card),
+            ("🏷️ 칭호 & 배지", discord.ButtonStyle.secondary, 1, "norosi:MasterDashboardView:_on_eco_titles", self._on_eco_titles),
+            ("🎟️ 주간 로또 복권", discord.ButtonStyle.success, 1, "norosi:MasterDashboardView:_on_eco_lottery", self._on_eco_lottery),
+            ("🏦 통합 자산 랭킹", discord.ButtonStyle.secondary, 1, "norosi:MasterDashboardView:_on_eco_ranking", self._on_eco_ranking),
+            ("🌾 개인 농장", discord.ButtonStyle.success, 2, "norosi:MasterDashboardView:_on_life_farm", self._on_life_farm),
+            ("🤝 공동 농장", discord.ButtonStyle.primary, 2, "norosi:MasterDashboardView:_on_life_guild_farm", self._on_life_guild_farm),
+            ("🐾 펫 키우기", discord.ButtonStyle.primary, 2, "norosi:MasterDashboardView:_on_life_pet", self._on_life_pet),
+            ("🍳 생선 요리·버프", discord.ButtonStyle.secondary, 2, "norosi:MasterDashboardView:_on_life_cooking", self._on_life_cooking),
+        ]
+        for lbl, st, r, cid, cb in eco_buttons:
+            btn = discord.ui.Button(label=lbl, style=st, row=r, custom_id=cid)
+            btn.callback = cb
+            self.add_item(btn)
+
     # ----------------------------------------------------
     # 탭별 대시보드 임베드 빌더
     # ----------------------------------------------------
@@ -660,7 +685,36 @@ class MasterDashboardView(core.SafeView):
             return self.build_game_embed()
         elif self.current_tab == "stats":
             return self.build_stats_embed()
+        elif self.current_tab == "economy":
+            return self.build_economy_embed()
         return self.build_home_embed()
+
+    def build_economy_embed(self) -> discord.Embed:
+        import economy_core, life_core, ticket_core
+        g_id = self.guild.id if self.guild else 0
+        u_id = self.user.id if self.user else 0
+        u_name = self.user.display_name if self.user else "유저"
+        st = economy_core.collect_user_unified_stats(self.data, g_id, u_id, u_name)
+        lot = economy_core.get_lottery_overview(u_id)
+        buffs = life_core.get_active_life_buffs(g_id, u_id, data=self.data)
+        t_cfg = ticket_core.get_ticket_config(g_id, data=self.data)
+        t_open = len(ticket_core.list_guild_tickets(g_id, status_filter="open"))
+
+        embed = discord.Embed(
+            title=f"💳 {u_name}님의 통합 경제 · 생활 라이프 · 티켓 대시보드",
+            description=(
+                f"• **장착 칭호:** {st['title']['emoji']} **`{st['title']['tag']}`**  ·  **업적 배지:** `{len(st['badges'])}개`\n"
+                f"• **보유 자산:** 💎 **`{st['crystals']:,}💎`**  ·  🪙 **`{st['fish_gold']:,}🪙`**\n"
+                f"• **주간 복권(제 {lot['round']}회):** 예상 총 상금 **`{lot['jackpot'] + lot['pool']:,}💎`** (내 응모 `{len(lot['my_tickets'])}장`)\n"
+                f"• **생활 라이프:** 개인 농장 `Lv.{st['fishing_life']['farm_level']}` · 공동 농장 `Lv.{st['fishing_life']['guild_farm_level']}` · 펫 `{st['fishing_life']['pet_label']}`\n"
+                f"• **실시간 버프 합산:** 쿨타임 `-{buffs['cooldown_reduce']:.2f}초` · 희귀 `+{int(buffs['rare_bonus']*100)}%` · 골드 `+{int(buffs['gold_bonus']*100)}%` · 출석 `+{buffs['attendance_total_bonus']}💎`\n"
+                f"• **서버 1:1 티켓:** 현재 열림 `{t_open}건` (유저당 상한 `{t_cfg['max_per_user']}개` · `/티켓 설정`, `/티켓 패널생성`)"
+            ),
+            color=discord.Color.from_rgb(*st["title"].get("rgb", (56, 189, 248))),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.set_footer(text="하단 버튼으로 프로필 카드 PNG, 칭호, 복권, 랭킹, 농장, 펫, 요리를 바로 열 수 있습니다!")
+        return embed
 
     def build_home_embed(self) -> discord.Embed:
         g_key = str(self.guild.id if self.guild else 0)
@@ -1659,6 +1713,85 @@ class MasterDashboardView(core.SafeView):
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 건의함 모달 열기 실패: {e}", ephemeral=True)
 
+    # 통합 경제 · 생활 라이프 콜백
+    async def _on_eco_profile_card(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            from cogs.economy import _send_profile_card
+            await _send_profile_card(interaction.followup.send, interaction.user, interaction.guild_id or 0)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 프로필 카드 생성 중 오류: {e}", ephemeral=True)
+
+    async def _on_eco_titles(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            from cogs.economy import TitleStudioView
+            v = await asyncio.to_thread(TitleStudioView, interaction.user, interaction.guild_id or 0)
+            msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+            v.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 칭호 상점 열기 오류: {e}", ephemeral=True)
+
+    async def _on_eco_lottery(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            from cogs.economy import LotteryStudioView
+            v = await asyncio.to_thread(LotteryStudioView, interaction.user, interaction.guild)
+            msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+            v.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 복권 메뉴 열기 오류: {e}", ephemeral=True)
+
+    async def _on_eco_ranking(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            from cogs.economy import EconomyLeaderboardView
+            v = await asyncio.to_thread(EconomyLeaderboardView, interaction.user, interaction.guild_id or 0, "net_worth")
+            msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+            v.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 통합 랭킹 조회 오류: {e}", ephemeral=True)
+
+    async def _on_life_farm(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            from cogs.life import FarmView
+            v = await asyncio.to_thread(FarmView, interaction.user, interaction.guild_id or 0)
+            msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+            v.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 개인 농장 열기 오류: {e}", ephemeral=True)
+
+    async def _on_life_guild_farm(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            from cogs.life import CommunityFarmView
+            v = await asyncio.to_thread(CommunityFarmView, interaction.user, interaction.guild)
+            msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+            v.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 공동 농장 열기 오류: {e}", ephemeral=True)
+
+    async def _on_life_pet(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            from cogs.life import PetCareView
+            v = await asyncio.to_thread(PetCareView, interaction.user, interaction.guild_id or 0)
+            msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+            v.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 펫 하우스 열기 오류: {e}", ephemeral=True)
+
+    async def _on_life_cooking(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            from cogs.life import CookingView
+            v = await asyncio.to_thread(CookingView, interaction.user, interaction.guild_id or 0)
+            msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+            v.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 요리 주방 열기 오류: {e}", ephemeral=True)
+
 
 # ==========================================
 # 🚀 Dashboard Cog 메인 클래스
@@ -1669,7 +1802,7 @@ class Dashboard(commands.Cog, name="대시보드"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="대시보드", description="모든 봇 기능(프로세카·원신·스타레일 가챠, 일정, 음악, 역할, 통계)을 제어하는 올인원 대시보드를 엽니다.")
+    @app_commands.command(name="대시보드", description="모든 봇 기능(프로세카·원신·스타레일 가챠, 경제·농장·펫, 일정, 음악, 역할, 통계)을 제어하는 올인원 대시보드를 엽니다.")
     @app_commands.describe(탭="초기에 열람할 기능 대시보드 탭 (기본: 종합 관제)")
     @app_commands.choices(탭=[
         app_commands.Choice(name="🧭 [홈] 종합 관제 대시보드", value="home"),
@@ -1681,6 +1814,7 @@ class Dashboard(commands.Cog, name="대시보드"):
         app_commands.Choice(name="🎭 [역할] 역할버튼·공지 대시보드", value="admin"),
         app_commands.Choice(name="🎲 [게임] 미니게임·모집·날씨 대시보드", value="game"),
         app_commands.Choice(name="📊 [통계] 서버분석·유저정보 대시보드", value="stats"),
+        app_commands.Choice(name="💳 [경제·생활] 프로필카드·칭호·복권·농장·펫·요리", value="economy"),
     ])
     async def slash_dashboard(self, interaction: discord.Interaction, 탭: Optional[app_commands.Choice[str]] = None):
         await core.safe_defer(interaction)

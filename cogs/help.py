@@ -559,6 +559,174 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "source": "cogs/fishing.py",
     },
 
+    # 5-2. 💳 통합 경제 & 커스터마이징 (6종)
+    {
+        "category": "economy",
+        "cat_label": "💳 통합 경제 & 커스터마이징",
+        "name": "/프로필카드",
+        "desc": "프로세카·원신·스타레일·낚시·생활·칭호·업적 배지를 한 장의 고화질 1080×720 PNG 카드로 발급 (텍스트 `!프로필카드` 지원)",
+        "params": "유저: [@멤버(선택)]",
+        "example": "/프로필카드",
+        "source": "cogs/economy.py",
+    },
+    {
+        "category": "economy",
+        "cat_label": "💳 통합 경제 & 커스터마이징",
+        "name": "/경제 프로필카드",
+        "desc": "통합 경제 메뉴에서 본인 또는 다른 멤버의 4대 게임 통합 PNG 프로필 카드를 발급",
+        "params": "유저: [@멤버(선택)]",
+        "example": "/경제 프로필카드",
+        "source": "cogs/economy.py",
+    },
+    {
+        "category": "economy",
+        "cat_label": "💳 통합 경제 & 커스터마이징",
+        "name": "/경제 칭호",
+        "desc": "업적 자동 해금/상점 구매 칭호 10종 장착 및 자동 평가 업적 배지 7종 쇼케이스",
+        "params": "없음 (드롭다운 즉시 구매·장착)",
+        "example": "/경제 칭호",
+        "source": "cogs/economy.py",
+    },
+    {
+        "category": "economy",
+        "cat_label": "💳 통합 경제 & 커스터마이징",
+        "name": "/경제 송금",
+        "desc": "다른 멤버에게 크리스탈 안전 송금 (세금 5% 중 30% 로또 풀 적립 · 1일 한도 5,000💎)",
+        "params": "상대: [@멤버] 금액: [10~5000]",
+        "example": "/경제 송금 상대:@친구 금액:500",
+        "source": "cogs/economy.py",
+    },
+    {
+        "category": "economy",
+        "cat_label": "💳 통합 경제 & 커스터마이징",
+        "name": "/경제 복권",
+        "desc": "1~20 숫자 중 4개를 골라 매주 일요일 21:00 KST 이월 잭팟 주간 로또 추첨에 응모 (텍스트 `!복권` 지원)",
+        "params": "버튼(자동1장/5장, 수동입력 Modal, 관리자 알림설정/추첨)",
+        "example": "/경제 복권",
+        "source": "cogs/economy.py",
+    },
+    {
+        "category": "economy",
+        "cat_label": "💳 통합 경제 & 커스터마이징",
+        "name": "/경제 랭킹",
+        "desc": "칭호 배지가 반영된 통합 순자산 · 크리스탈 · 낚시 골드 TOP 15 서버 랭킹 조회",
+        "params": "없음 (탭 전환)",
+        "example": "/경제 랭킹",
+        "source": "cogs/economy.py",
+    },
+
+    # 5-3. 🌾 생활 라이프: 농장·공동농장·펫·요리 (6종)
+    {
+        "category": "life",
+        "cat_label": "🌾 생활 (농장·펫·요리·버프)",
+        "name": "/생활 대시보드",
+        "desc": "개인 농장 · 서버 공동 농장 · 펫 하우스 · 생선 요리 주방 및 합산 버프를 한눈에 보는 생활 허브",
+        "params": "없음",
+        "example": "/생활 대시보드",
+        "source": "cogs/life.py",
+    },
+    {
+        "category": "life",
+        "cat_label": "🌾 생활 (농장·펫·요리·버프)",
+        "name": "/생활 농장",
+        "desc": "4~6칸 개인 밭에 6종 씨앗 파종 · 물주기(-35% 시간) · 비료(즉시수확+1) · 수확 · 판매 (텍스트 `!농장` 지원)",
+        "params": "없음 (드롭다운·버튼 제어)",
+        "example": "/생활 농장",
+        "source": "cogs/life.py",
+    },
+    {
+        "category": "life",
+        "cat_label": "🌾 생활 (농장·펫·요리·버프)",
+        "name": "/생활 공동농장",
+        "desc": "서버 전체 협동 농장 Lv.1~10 육성! 무료 물주기(1일 3회) · 기부 · 일일 수확 배당 · 공용 낚시/출석 버프 (텍스트 `!공동농장` 지원)",
+        "params": "없음",
+        "example": "/생활 공동농장",
+        "source": "cogs/life.py",
+    },
+    {
+        "category": "life",
+        "cat_label": "🌾 생활 (농장·펫·요리·버프)",
+        "name": "/생활 펫",
+        "desc": "6종의 펫 입양·장착·간식/미잠금 ★1~2 생선 먹이기·놀아주기(5회/일)로 낚시 쿨감·희귀·골드·출석 버프 획득 (텍스트 `!펫` 지원)",
+        "params": "없음",
+        "example": "/생활 펫",
+        "source": "cogs/life.py",
+    },
+    {
+        "category": "life",
+        "cat_label": "🌾 생활 (농장·펫·요리·버프)",
+        "name": "/생활 요리",
+        "desc": "낚시 가방 속 미잠금 ★1~2 물고기와 수확 농작물로 6종 요리/파르페를 조리·섭취해 최대 3종 버프 활성화 (텍스트 `!요리` 지원)",
+        "params": "없음",
+        "example": "/생활 요리",
+        "source": "cogs/life.py",
+    },
+    {
+        "category": "life",
+        "cat_label": "🌾 생활 (농장·펫·요리·버프)",
+        "name": "/생활 버프",
+        "desc": "현재 내 낚시 출조 및 출석체크에 실시간 반영 중인 펫 · 공동농장 · 요리 통합 버프 합계 확인",
+        "params": "없음",
+        "example": "/생활 버프",
+        "source": "cogs/life.py",
+    },
+
+    # 5-4. 🎫 1:1 문의 티켓 시스템 (6종)
+    {
+        "category": "tickets",
+        "cat_label": "🎫 1:1 문의 티켓 시스템",
+        "name": "/티켓 설정",
+        "desc": "[관리자] 티켓 패널 채널, 담당자 역할, 카테고리, 트랜스크립트 로그 채널, 방식(비공개 채널/스레드), 최대 개수(1~5) 설정",
+        "params": "패널채널 · 담당자역할 · 카테고리 · 로그채널 · 방식 · 최대티켓수",
+        "example": "/티켓 설정 담당자역할:@운영진 로그채널:#티켓로그 방식:비공개 텍스트 채널",
+        "source": "cogs/tickets.py",
+    },
+    {
+        "category": "tickets",
+        "cat_label": "🎫 1:1 문의 티켓 시스템",
+        "name": "/티켓 패널생성",
+        "desc": "[관리자] 봇 재시작 후에도 영구 동작하는 `[📩 1:1 문의 티켓 열기]` 버튼 패널을 지정 채널에 발행",
+        "params": "채널: [#채널(선택)] 제목: [선택] 설명: [선택]",
+        "example": "/티켓 패널생성 채널:#문의안내",
+        "source": "cogs/tickets.py",
+    },
+    {
+        "category": "tickets",
+        "cat_label": "🎫 1:1 문의 티켓 시스템",
+        "name": "/티켓 닫기",
+        "desc": "현재 문의 티켓을 종료하고 전체 대화 내역을 UTF-8 `.txt` 파일(트랜스크립트)로 로그 채널·DM에 백업",
+        "params": "없음 (티켓 채널 내부에서도 🔒 버튼 지원)",
+        "example": "/티켓 닫기",
+        "source": "cogs/tickets.py",
+    },
+    {
+        "category": "tickets",
+        "cat_label": "🎫 1:1 문의 티켓 시스템",
+        "name": "/티켓 멤버추가",
+        "desc": "[운영진] 현재 진행 중인 비공개 티켓 채널에 다른 서버 멤버를 추가로 초대",
+        "params": "멤버: [@유저]",
+        "example": "/티켓 멤버추가 멤버:@유저",
+        "source": "cogs/tickets.py",
+    },
+    {
+        "category": "tickets",
+        "cat_label": "🎫 1:1 문의 티켓 시스템",
+        "name": "/티켓 멤버제거",
+        "desc": "[운영진] 티켓에 추가되었던 멤버의 열람/참여 권한 회수 (개설자 제외)",
+        "params": "멤버: [@유저]",
+        "example": "/티켓 멤버제거 멤버:@유저",
+        "source": "cogs/tickets.py",
+    },
+    {
+        "category": "tickets",
+        "cat_label": "🎫 1:1 문의 티켓 시스템",
+        "name": "/티켓 목록",
+        "desc": "[운영진] 서버의 진행 중 / 종료된 전체 1:1 문의 티켓 목록 및 담당자 현황 조회",
+        "params": "상태: [전체/진행중/종료됨]",
+        "example": "/티켓 목록 상태:진행 중 (Open)",
+        "source": "cogs/tickets.py",
+    },
+
     # 6. 📊 서버/유저 통계 & 상태 (4종)
     {
         "category": "stats",
@@ -1022,7 +1190,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "admin",
         "cat_label": "⚙️ 봇 관리 & 안내",
         "name": "/도움말",
-        "desc": "전체 80개 슬래시 명령어(110종 기능) 및 23종 `!` 단축 명령어의 카테고리별 상세 가이드 (텍스트 `!도움말` · `!help` 지원)",
+        "desc": "전체 슬래시 명령어(128종 세부 기능) 및 `!` 단축 명령어의 카테고리별 상세 가이드 (텍스트 `!도움말` · `!help` 지원)",
         "params": "category: [카테고리(선택)] search: [검색어(선택)]",
         "example": "/도움말 category:genshin search:성유물",
         "source": "cogs/help.py",
@@ -1033,7 +1201,10 @@ CATEGORY_META = [
     ("cards", "🎮 출석 & 프로세카 카드/가챠 (21종 · 5페이지)", "출석체크, 배너별 프로세카 뽑기, 내캐릭터(필터·정렬·일괄선택), 마스터랭크, 세카이라이브, 3D 의상·마이세카이 등"),
     ("genshin", "🌠 원신 기원 & 성유물 & 상점 (12종 · 3페이지)", "/원신 기원(90/80천장·포착된 광휘), /원신 성유물(비경·강화·축성의 서리), 운명의 궤도, 페이몬 상점, 4인 원소 공명 파티 등"),
     ("hsr", "🚄 스타레일 워프 & 유물 & 상점 (12종 · 3페이지)", "/스타레일 워프(광추 75/25), /스타레일 유물(침식된 터널·자가 조형 레진), 상시 300회 선택, 별빛/헤르타 상점, 4인 편대 등"),
-    ("fishing", "🎣 통합 낚시 — 호수·강·바다 13,444종 (9종 · 2페이지)", "/낚시 출조(13개 세부 수역·cm/kg·날씨), /낚시 랭킹(!낚시랭킹), 도감 필터, 개인 수족관, 6티어 장비 상점, 일일 퀘스트 등"),
+    ("fishing", "🎣 통합 낚시 — 호수·강·바다 13,444종 (9종 · 2페이지)", "/낚시 출조(13개 세부 수역·그물·cm/kg·날씨), /낚시 랭킹(!낚시랭킹), 도감 필터, 개인 수족관, 6티어 장비 상점, 일일 퀘스트 등"),
+    ("economy", "💳 통합 경제 & 프로필 카드 & 복권 (6종 · 2페이지)", "통합 PNG `/프로필카드`(!프로필카드), 칭호·배지 상점, 크리스탈 송금(세금 5%), 주간 로또 `/경제 복권`(!복권), 통합 랭킹"),
+    ("life", "🌾 생활 컨텐츠 — 농장 & 펫 & 요리 (6종 · 2페이지)", "개인 농장·길드 공동 농장(!농장·!공동농장), 6종 펫 육성(!펫), 도감 해금 물고기 생선 요리·버프(!요리·!버프)"),
+    ("tickets", "🎫 1:1 문의 티켓 시스템 (6종 · 2페이지)", "관리자 `/티켓 설정` · `/티켓 패널생성`, 비공개 채널/스레드 생성, 담당자 접수·멤버 초대, 닫기 시 `.txt` 대화록 아카이브"),
     ("dday", "📅 D-Day & 생일 & 미래시 & 라이프 (15종 · 3페이지)", "한섭 프로세카 /미래시(2026~2027), 실시간 /이벤트, 멤버 생일 전광판, 공용/비밀 D-Day, 파트너, 하드코어스터디 등"),
     ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", "올인원 /대시보드, /메뉴, /깃허브연동, /봇배너, /터미널로그채널, 반응역할 스튜디오, 공지발송 등"),
     ("games", "🎲 미니게임 & 파티 모집 (5종 · 1페이지)", "전 게임 파티원 /모집(모달 지원), 끝말잇기(두음법칙), 러시안룰렛, 초정밀 실시간 날씨, 스마트 알림예약"),
@@ -1043,11 +1214,14 @@ CATEGORY_META = [
 ]
 
 CATEGORY_DROPDOWN_OPTIONS = [
-    ("all", "🌟 전체 명령어 한눈에 보기 (110종 요약판)", "10대 카테고리 요약 보드 (다음 버튼으로 상세 가이드 열람)", "🌐"),
+    ("all", "🌟 전체 명령어 한눈에 보기 (128종 요약판)", "13대 카테고리 요약 보드 (다음 버튼으로 상세 가이드 열람)", "🌐"),
     ("cards", "🎮 출석 & 프로세카 가챠 (21종 · 5페이지)", "/프로세카뽑기, /내캐릭터, /마스터랭크, /라이브, /마이세카이 등", "🎮"),
     ("genshin", "🌠 원신 기원·성유물·상점 (12종 · 3페이지)", "/원신 기원, /원신 성유물, /원신 운명의궤도, /원신 상점, /원신 파티편성 등", "🌠"),
     ("hsr", "🚄 스타레일 워프·유물·편대 (12종 · 3페이지)", "/스타레일 워프, /스타레일 유물, /스타레일 상시300선택, /스타레일 상점 등", "🚄"),
     ("fishing", "🎣 통합 낚시 (9종 · 호수·강·바다 13,444종)", "/낚시 출조, /낚시 랭킹, /낚시 도감, /낚시 수족관, /낚시 상점 등", "🎣"),
+    ("economy", "💳 통합 경제 & 프로필카드 & 복권 (6종 · 2페이지)", "/프로필카드, /경제 칭호, /경제 송금, /경제 복권, /경제 랭킹", "💳"),
+    ("life", "🌾 생활 컨텐츠 — 농장·펫·요리 (6종 · 2페이지)", "/생활 농장, /생활 공동농장, /생활 펫, /생활 요리, /생활 버프", "🌾"),
+    ("tickets", "🎫 1:1 문의 티켓 시스템 (6종 · 2페이지)", "/티켓 설정, /티켓 패널생성, /티켓 닫기, /티켓 멤버추가, /티켓 목록", "🎫"),
     ("dday", "📅 D-Day & 생일 & 미래시 (15종 · 3페이지)", "/미래시, /이벤트, /디데이추가, /하드코어스터디, /생일등록, /파트너 등", "📅"),
     ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", "/대시보드, /메뉴, /깃허브연동, /봇배너, /터미널로그채널, /반응역할 등", "⚙️"),
     ("games", "🎲 미니게임 & 파티 모집 (5종 · 1페이지)", "/모집, /끝말잇기, /러시안룰렛, /날씨, /알림예약", "🎲"),
@@ -1060,7 +1234,7 @@ CATEGORY_DROPDOWN_OPTIONS = [
 def build_help_embed(category: str = "all", search_kw: str = "", page: int = 0) -> discord.Embed:
     """
     가독성을 극대화한 norosi bot help 임베드 빌더.
-    - category=='all' & page==0 & 검색어 없음: 전체 80개 슬래시 명령어(110종 기능)를 10대 카테고리별로 한눈에 볼 수 있는 요약 대시보드 제공
+    - category=='all' & page==0 & 검색어 없음: 전체 128종 세부 기능을 13대 카테고리별로 한눈에 볼 수 있는 요약 대시보드 제공
     - 특정 카테고리 선택 또는 페이지 이동 시: 페이지당 5개씩 깔끔하고 가독성 높은 카드 레이아웃 제공
     """
     total_cmds = len(COMMAND_CATALOG)
@@ -1075,9 +1249,9 @@ def build_help_embed(category: str = "all", search_kw: str = "", page: int = 0) 
         desc_lines = [
             header_links,
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            f"✨ **norosi**는 총 **`{total_cmds}종`**의 세부 기능(**80개 슬래시 명령어 + 23종 `!` 단축어**)을 제공하는 올인원 멀티가챠 & 커뮤니티 봇입니다.",
+            f"✨ **norosi**는 총 **`{total_cmds}종`**의 세부 기능(**82개 슬래시 명령어 + 26종 `!` 단축어**)을 제공하는 올인원 멀티가챠 & 생활·커뮤니티 봇입니다.",
             "💡 명령어를 직접 치기 번거로울 땐 **`/메뉴`** 또는 **`/대시보드`** 버튼 리모컨으로 모든 기능을 원클릭 조작할 수 있습니다!",
-            "⚡ **빠른 `!` 단축어:** `!대시보드`, `!메뉴`, `!원신기원`, `!원신성유물`, `!스타레일워프`, `!스타레일유물`, `!낚시`, `!낚시랭킹`, `!플리재생`, `!플리추가`, `!배속`, `!도움말`",
+            "⚡ **빠른 `!` 단축어:** `!대시보드`, `!프로필카드`, `!복권`, `!농장`, `!공동농장`, `!펫`, `!요리`, `!낚시`, `!원신기원`, `!스타레일워프`, `!플리재생`, `!도움말`",
             "👇 **아래 카테고리 드롭다운**을 선택하거나 **`다음 ▶` 버튼**으로 1페이지부터 상세 가이드를 열람하세요."
         ]
         embed = discord.Embed(
@@ -1096,7 +1270,7 @@ def build_help_embed(category: str = "all", search_kw: str = "", page: int = 0) 
                 inline=False
             )
 
-        embed.set_footer(text=f"전체 80개 슬래시 명령어 ({total_cmds}종 기능) 요약판  •  [다음 ▶]으로 상세 보기  •  /메뉴 로 원클릭 실행")
+        embed.set_footer(text=f"전체 {total_cmds}종 기능 요약판  •  [다음 ▶]으로 상세 보기  •  /메뉴 로 원클릭 실행")
         return embed
 
     # 2. 카테고리별 또는 검색어 필터링 상세 카드 보기
@@ -1317,9 +1491,12 @@ class HelpCategoryView(core.SafeView):
                 "cards": "gacha",
                 "genshin": "genshin",
                 "hsr": "hsr",
+                "economy": "economy",
+                "life": "economy",
                 "dday": "life",
                 "music": "music",
                 "admin": "admin",
+                "tickets": "admin",
                 "games": "game",
                 "stats": "stats",
             }
@@ -1349,17 +1526,20 @@ class HelpCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="도움말", description="norosi bot help - 전체 80개 슬래시 명령어(110종 기능) 한눈에 보기 및 카테고리별 상세 가이드")
+    @app_commands.command(name="도움말", description="norosi bot help - 전체 128종 기능 한눈에 보기 및 카테고리별 상세 가이드")
     @app_commands.describe(
-        category="안내받을 카테고리 (all/cards/genshin/hsr/fishing/dday/admin/games/stats/music/ai)",
-        search="검색할 명령어 이름 또는 키워드 (예: 낚시, 원신, 성유물, 스타레일, 유물, 프로세카뽑기, 미래시, 플레이리스트)"
+        category="안내받을 카테고리 (all/cards/genshin/hsr/fishing/economy/life/tickets/dday/admin/games/stats/music/ai)",
+        search="검색할 명령어 이름 또는 키워드 (예: 프로필카드, 복권, 농장, 펫, 요리, 티켓, 낚시, 원신)"
     )
     @app_commands.choices(category=[
-        app_commands.Choice(name="🌟 전체 명령어 한눈에 보기 (110종 요약판)", value="all"),
+        app_commands.Choice(name="🌟 전체 명령어 한눈에 보기 (128종 요약판)", value="all"),
         app_commands.Choice(name="🎮 출석 & 프로세카 가챠 (21종 · 5페이지)", value="cards"),
         app_commands.Choice(name="🌠 원신 기원 & 성유물 & 상점 (12종 · 3페이지)", value="genshin"),
         app_commands.Choice(name="🚄 스타레일 워프 & 유물 & 상점 (12종 · 3페이지)", value="hsr"),
         app_commands.Choice(name="🎣 통합 낚시 (9종 · 호수·강·바다 13,444종)", value="fishing"),
+        app_commands.Choice(name="💳 통합 경제 & 프로필카드 & 복권 (6종 · 2페이지)", value="economy"),
+        app_commands.Choice(name="🌾 생활 컨텐츠 — 농장·펫·요리 (6종 · 2페이지)", value="life"),
+        app_commands.Choice(name="🎫 1:1 문의 티켓 시스템 (6종 · 2페이지)", value="tickets"),
         app_commands.Choice(name="📅 D-Day & 생일 & 미래시 (15종 · 3페이지)", value="dday"),
         app_commands.Choice(name="⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", value="admin"),
         app_commands.Choice(name="🎲 미니게임 & 파티 모집 (5종 · 1페이지)", value="games"),
@@ -1381,7 +1561,7 @@ class HelpCog(commands.Cog):
 
     @commands.command(name="도움말", aliases=["help", "도움", "명령어"])
     async def prefix_help(self, ctx: commands.Context, *, 검색: Optional[str] = ""):
-        """채팅창에 !도움말 또는 !help 입력 시 즉시 110종 기능 올인원 가이드 및 카테고리 대시보드 호출"""
+        """채팅창에 !도움말 또는 !help 입력 시 즉시 128종 기능 올인원 가이드 및 카테고리 대시보드 호출"""
         embed = build_help_embed(category="all", search_kw=검색 or "", page=0)
         view = HelpCategoryView(bot_instance=self.bot, category="all", search_kw=검색 or "", author=ctx.author)
         await ctx.send(embed=embed, view=view)

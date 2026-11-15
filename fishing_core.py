@@ -39,15 +39,24 @@ FISHING_CAST_COOLDOWN_SECONDS: float = 4.0
 FISHING_CAST_COOLDOWN: Dict[int, float] = {}
 
 
-def check_and_update_fishing_cooldown(user_id: int | str) -> Tuple[bool, float]:
-    """낚시 출조(낚기) 쿨타임(4초) 확인 및 갱신. (허용 여부, 남은 초) 반환."""
+def check_and_update_fishing_cooldown(user_id: int | str, guild_id: int | str = 0) -> Tuple[bool, float]:
+    """낚시 출조(낚기) 쿨타임(기본 4초 - 펫/요리 버프 감축, 최소 1.5초) 확인 및 갱신. (허용 여부, 남은 초) 반환."""
     uid = int(user_id)
+    cd_sec = FISHING_CAST_COOLDOWN_SECONDS
+    try:
+        import life_core
+        buffs = life_core.get_active_life_buffs(guild_id, uid)
+        cd_reduce = float(buffs.get("cooldown_reduce", 0.0) or 0.0)
+        if cd_reduce > 0:
+            cd_sec = max(1.5, round(FISHING_CAST_COOLDOWN_SECONDS - cd_reduce, 2))
+    except Exception:
+        pass
     with _FISHING_LOCK:
         now = time.time()
         last = FISHING_CAST_COOLDOWN.get(uid, 0.0)
         elapsed = now - last
-        if elapsed < FISHING_CAST_COOLDOWN_SECONDS:
-            rem = max(0.1, round(FISHING_CAST_COOLDOWN_SECONDS - elapsed, 1))
+        if elapsed < cd_sec:
+            rem = max(0.1, round(cd_sec - elapsed, 1))
             return False, rem
         FISHING_CAST_COOLDOWN[uid] = now
         return True, 0.0
@@ -1048,6 +1057,12 @@ def get_user_fishing_summary(guild_id: int | str, user_id: int | str, user_name:
         pending_tank, hourly_tank = get_tank_pending_gold(u, env["now"])
         lvl, rem_exp, need_exp = _calc_level_from_exp(u.get("exp", 0))
         u["level"] = lvl
+        life_buffs = {}
+        try:
+            import life_core
+            life_buffs = life_core.get_active_life_buffs(guild_id, user_id, data=data)
+        except Exception:
+            life_buffs = {}
         core.save_data(data)
         return {
             "user": copy.deepcopy(u),
@@ -1061,6 +1076,7 @@ def get_user_fishing_summary(guild_id: int | str, user_id: int | str, user_name:
             "tank_hourly": hourly_tank,
             "rem_exp": rem_exp,
             "need_exp": need_exp,
+            "life_buffs": life_buffs,
         }
 
 
@@ -1138,14 +1154,15 @@ def _roll_species_weighted(
     zone_filter: str = "all",
     pokedex_ids: Optional[set] = None,
     net: Optional[Dict[str, Any]] = None,
+    life_rare_bonus: float = 0.0,
 ) -> Dict[str, Any]:
-    """2단계 성급 정규화 추첨: (1) 장비·미끼·날씨 기반 성급 결정 → (2) 해당 성급 풀 내 수역·시간·한글·신규 도감 가중 추첨"""
+    """2단계 성급 정규화 추첨: (1) 장비·미끼·날씨·생활버프 기반 성급 결정 → (2) 해당 성급 풀 내 수역·시간·한글·신규 도감 가중 추첨"""
     if habitat not in HABITATS:
         habitat = "lake"
     pool = FISH_BY_HABITAT.get(habitat) or FISH_SPECIES_DB
     net_rare = float((net or {}).get("rare_bonus", 0.0))
     rare_factor = (
-        (1.0 + rod["rare_bonus"] + net_rare)
+        (1.0 + rod["rare_bonus"] + net_rare + max(0.0, float(life_rare_bonus or 0.0)))
         * bait["rare_mult"]
         * env["weather_rare_mult"]
         * env["feeding_mult"]
@@ -1260,6 +1277,18 @@ def finalize_fish_catch(
         net = NETS.get(u.get("net_id"))
         bait = BAITS[use_bait_id]
 
+        # 생활 버프(요리 + 동반 펫 + 서버 공동 농장) 연동
+        life_buffs = {}
+        try:
+            import life_core
+            life_buffs = life_core.get_active_life_buffs(guild_id, user_id, data=data)
+        except Exception:
+            life_buffs = {}
+        life_rare_bonus = _safe_float(life_buffs.get("rare_bonus"), 0.0)
+        life_size_bonus = _safe_float(life_buffs.get("size_bonus"), 0.0)
+        life_trophy_bonus = _safe_float(life_buffs.get("trophy_bonus"), 0.0)
+        life_gold_bonus = _safe_float(life_buffs.get("gold_bonus"), 0.0)
+
         # 그물 장착 시 2~10마리 범위 내 랜덤 포획, 미장착 시 1마리
         if net:
             min_c = max(2, min(10, _safe_int(net.get("min_catch"), 2)))
@@ -1299,20 +1328,21 @@ def finalize_fish_catch(
                 zone_filter=use_zone,
                 pokedex_ids=pokedex_keys,
                 net=net,
+                life_rare_bonus=life_rare_bonus,
             )
 
-            # 체장(cm) 계산: 정규분포 중심 + 장비·그물·날씨·반응속도 보정
+            # 체장(cm) 계산: 정규분포 중심 + 장비·그물·날씨·반응속도·생활버프 보정
             span = sp["max_cm"] - sp["min_cm"]
             mu_ratio = (
                 0.42
-                + (rod["size_bonus"] + net_size_bonus) * 0.25
+                + (rod["size_bonus"] + net_size_bonus + life_size_bonus) * 0.25
                 + (bait["size_mult"] - 1.0) * 0.25
                 + (env["weather_size_mult"] - 1.0) * 0.35
             )
             if perfect_hook:
                 mu_ratio += 0.08
-            ratio = random.gauss(min(0.78, mu_ratio), 0.20)
-            if random.random() < (0.07 + reel["trophy_bonus"] * 0.20):
+            ratio = random.gauss(min(0.80, mu_ratio), 0.20)
+            if random.random() < (0.07 + (reel["trophy_bonus"] + life_trophy_bonus) * 0.20):
                 ratio = random.uniform(0.84, 1.04)
 
             ratio = max(0.0, min(1.06, ratio))
@@ -1325,7 +1355,7 @@ def finalize_fish_catch(
 
             # 예상 판매 골드 산정
             size_factor = 0.80 + (ratio * 0.70)
-            gold_val = int(sp["base_gold"] * size_factor * (1.0 + rod["gold_bonus"]))
+            gold_val = int(sp["base_gold"] * size_factor * (1.0 + rod["gold_bonus"] + life_gold_bonus))
             if is_trophy:
                 gold_val = int(gold_val * 1.40)
             if variant == "golden":
@@ -1559,6 +1589,7 @@ def finalize_fish_catch(
             "user_gold": _safe_int(u.get("gold"), 0),
             "user_crystals": _safe_int(prof.get("crystals"), 0),
             "remaining_bait": _safe_int(u["baits"].get(use_bait_id), 0) if use_bait_id != "dough" else -1,
+            "life_buffs": life_buffs,
         }
 
 

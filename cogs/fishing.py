@@ -474,6 +474,17 @@ class FishingCastView(core.SafeView):
             ),
             inline=False,
         )
+        life_buffs = self.summary.get("life_buffs") or {}
+        eff_cd = max(1.5, round(fishing_core.FISHING_CAST_COOLDOWN_SECONDS - float(life_buffs.get("cooldown_reduce", 0.0) or 0.0), 1))
+        cd_note = f"{eff_cd:.1f}초 (버프 적용)" if float(life_buffs.get("cooldown_reduce", 0.0) or 0.0) > 0 else "4초"
+        life_lines = life_buffs.get("summary_lines") or []
+        if life_lines:
+            embed.add_field(
+                name="🐾 생활 버프 적용 중 (/생활 펫·요리·공동농장)",
+                value="\n".join(f"• {ln}" for ln in life_lines[:4])
+                + f"\n└ 통합: 쿨타임 `-{float(life_buffs.get('cooldown_reduce', 0.0)):.1f}초` · 희귀 `+{int(float(life_buffs.get('rare_bonus', 0.0))*100)}%` · 골드 `+{int(float(life_buffs.get('gold_bonus', 0.0))*100)}%`",
+                inline=False,
+            )
         embed.add_field(
             name=f"💰 재화 & 낚시꾼 Lv.{u['level']}",
             value=(
@@ -482,7 +493,7 @@ class FishingCastView(core.SafeView):
             ),
             inline=False,
         )
-        embed.set_footer(text="💡 [🪝 찌 던지기] 클릭(쿨타임 4초) ➔ 입질 신호가 오면 초록색 [🎣 지금 당기기!]를 누르세요! (모바일 지연 보정 +1.25초 적용)")
+        embed.set_footer(text=f"💡 [🪝 찌 던지기] 클릭(쿨타임 {cd_note}) ➔ 입질 신호가 오면 초록색 [🎣 지금 당기세요!]를 누르세요! (모바일 지연 보정 +1.25초 적용)")
         return embed
 
     def build_catch_embed(self, res: Dict[str, Any]) -> discord.Embed:
@@ -492,7 +503,7 @@ class FishingCastView(core.SafeView):
         rmeta = fishing_core.RARITY_META[sp["rarity"]]
         catches = res.get("catches") or []
         catch_count = int(res.get("catch_count", len(catches) or 1) or 1)
-        net = res.get("net")
+        net = res.get("net") or self.summary.get("net")
 
         tags = []
         if res.get("any_server_record") or res.get("new_server_len_record") or res.get("new_server_wt_record"):
@@ -557,6 +568,13 @@ class FishingCastView(core.SafeView):
             if len(res["bonus_reasons"]) > 5:
                 reasons_txt += f" 외 {len(res['bonus_reasons']) - 5}건"
             desc += f"\n\n💎 **크리스탈 보너스:** `+{res['crystal_bonus']:,}💎` ({reasons_txt})"
+        life_buffs = res.get("life_buffs") or {}
+        if life_buffs.get("summary_lines"):
+            desc += (
+                f"\n🐾 **생활 버프 적용:** 희귀 `+{int(float(life_buffs.get('rare_bonus', 0.0))*100)}%` · "
+                f"골드 `+{int(float(life_buffs.get('gold_bonus', 0.0))*100)}%` · "
+                f"크기 `+{int(float(life_buffs.get('size_bonus', 0.0))*100)}%`"
+            )
         if res.get("auto_sold_msg"):
             desc += f"\n📦 *{res['auto_sold_msg']}*"
 
@@ -638,7 +656,7 @@ class FishingCastView(core.SafeView):
 
     @discord.ui.button(label="🪝 찌 던지기", style=discord.ButtonStyle.primary, row=2)
     async def btn_cast(self, interaction: discord.Interaction, button: discord.ui.Button):
-        allowed, rem_sec = fishing_core.check_and_update_fishing_cooldown(interaction.user.id)
+        allowed, rem_sec = fishing_core.check_and_update_fishing_cooldown(interaction.user.id, guild_id=self.guild_id)
         if not allowed:
             await core.safe_send_response(
                 interaction,
