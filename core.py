@@ -254,9 +254,10 @@ SPOTIPY_CLIENT_ID = os.getenv("SPOTIPY_CLIENT_ID", "").strip()
 SPOTIPY_CLIENT_SECRET = os.getenv("SPOTIPY_CLIENT_SECRET", "").strip()
 
 KST = datetime.timezone(datetime.timedelta(hours=9))
+_CORE_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_FILE = "ddays_data.json"
-PROSEKA_CACHE_FILE = "proseka_kr_cache.json"
-PROSEKA_COSTUMES_CACHE_FILE = "proseka_costumes_cache.json"
+PROSEKA_CACHE_FILE = os.path.join(_CORE_BASE_DIR, "proseka_kr_cache.json")
+PROSEKA_COSTUMES_CACHE_FILE = os.path.join(_CORE_BASE_DIR, "proseka_costumes_cache.json")
 COSTUME_PURCHASE_PRICE = 300  # 다른 캐릭터에게 의상 제작/구매 시 소모되는 크리스탈
 MALE_CHAR_IDS = {11, 12, 13, 16, 23, 26}
 RANDOM_KEYWORDS = ["pop", "lofi", "k-pop", "indie", "jazz", "r&b", "piano", "acoustic", "chill", "synthwave", "rock"]
@@ -527,10 +528,12 @@ def reconstruct_safe_view(view_cls_or_name: Union[type[SafeView], str], interact
                 continue
             if name in ("bot", "bot_instance"):
                 kwargs[name] = interaction.client
+            elif name in ("interaction", "orig_interaction"):
+                kwargs[name] = interaction
             elif name in ("owner",):
                 orig_user = getattr(getattr(interaction, "message", None), "interaction", None)
                 kwargs[name] = getattr(orig_user, "user", None) or interaction.user
-            elif name in ("user", "caller", "member", "viewer", "target_user", "host_user", "author", "host"):
+            elif name in ("user", "caller", "member", "viewer", "target_user", "host_user", "author", "host", "opponent"):
                 kwargs[name] = interaction.user
             elif name in ("requester", "target"):
                 kwargs[name] = interaction.user
@@ -538,21 +541,61 @@ def reconstruct_safe_view(view_cls_or_name: Union[type[SafeView], str], interact
                 kwargs[name] = interaction.guild
             elif name in ("guild_id",):
                 kwargs[name] = interaction.guild.id if interaction.guild else 0
+            elif name in ("channel", "target_channel", "default_channel"):
+                kwargs[name] = interaction.channel
+            elif name in ("channel_id",):
+                kwargs[name] = interaction.channel.id if interaction.channel else 0
+            elif name in ("owner_id", "partner_id", "user_id", "target_id"):
+                kwargs[name] = interaction.user.id if interaction.user else 0
             elif name in ("data",):
                 kwargs[name] = get_cached_data()
-            elif name in ("card_list", "items", "options", "all_prob_cards", "stats_list", "first_set", "initial_drawn"):
+            elif name in (
+                "card_list", "items", "options", "all_prob_cards", "stats_list", "first_set", "initial_drawn",
+                "liked_music", "matches", "entries", "schedules", "music_list", "inactive_list",
+            ):
                 kwargs[name] = []
-            elif name in ("stats", "profile", "user_cfg", "config", "cal_info", "game", "card", "pickup_cfg", "preview_info", "hall_of_fame", "req_card", "tgt_card", "req_cards", "tgt_cards"):
-                kwargs[name] = {}
+            elif name in (
+                "stats", "profile", "user_cfg", "config", "game", "card", "pickup_cfg", "preview_info",
+                "hall_of_fame", "req_card", "tgt_card", "req_cards", "tgt_cards", "track_info", "prefs",
+                "playlist_data", "guild_cfg", "weather_info", "track", "ddays", "s_ddays",
+            ):
+                if name == "game" and getattr(view_cls, "__name__", "") == "RecruitLobbyView":
+                    kwargs[name] = "프로세카"
+                else:
+                    kwargs[name] = {}
+            elif name in ("cal_info",):
+                gid = interaction.guild.id if interaction.guild else 0
+                gname = interaction.guild.name if interaction.guild else "개인 메시지(DM)"
+                uid = interaction.user.id if interaction.user else 0
+                uname = interaction.user.display_name if interaction.user else "유저"
+                kwargs[name] = build_monthly_attendance_calendar(gid, gname, uid, uname)
             elif name in ("year",):
                 kwargs[name] = datetime.datetime.now(KST).year
             elif name in ("month",):
                 kwargs[name] = datetime.datetime.now(KST).month
+            elif name in ("days_threshold", "total_members", "capacity"):
+                kwargs[name] = 2
+            elif name in ("goal",):
+                kwargs[name] = "파티 모집" if getattr(view_cls, "__name__", "") == "RecruitLobbyView" else 100
+            elif name in ("start_word",):
+                kwargs[name] = "세카이"
+            elif name in ("char_key", "title", "content", "description", "mode", "title_str", "query", "playlist_id"):
+                kwargs[name] = ""
+            elif name in ("studio_view",):
+                try:
+                    import cogs.music
+                    kwargs[name] = cogs.music.PlaylistStudioView(interaction.user, interaction.user, get_cached_data())
+                except Exception:
+                    kwargs[name] = None
+            elif name in ("ai_cog",):
+                kwargs[name] = None
             elif name in ("player",):
                 import cogs.music
                 kwargs[name] = cogs.music.get_voice_player(interaction.client, interaction.guild)
             elif p.default is not inspect.Parameter.empty:
                 kwargs[name] = p.default
+            else:
+                kwargs[name] = None
 
         inst = view_cls(**kwargs)
         if interaction.message:
@@ -888,15 +931,16 @@ def hydrate_proseka_kr_cache_from_disk() -> bool:
     return False
 
 
-def load_proseka_kr_db():
+def load_proseka_kr_db(force_refresh: bool = False):
     """프로세카 한국 서버(KR) 마스터 DB에서 전체 카드 및 캐릭터 대사(gachaPhrase, systemLive2ds)를 로드"""
     global PROSEKA_KR_CARDS, PROSEKA_KR_QUOTES
 
     # 1. 로컬 캐시 파일이 존재하면 먼저 로드하여 메모리 폭증(OOM Killer) 방지
-    if hydrate_proseka_kr_cache_from_disk():
+    if not force_refresh and hydrate_proseka_kr_cache_from_disk():
         try:
             mtime = os.path.getmtime(PROSEKA_CACHE_FILE)
             if time.time() - mtime < 86400:
+                load_proseka_costumes_db(force_refresh=False)
                 return
         except Exception:
             pass
@@ -983,8 +1027,10 @@ def load_proseka_kr_db():
                 })
 
         try:
-            with open(PROSEKA_CACHE_FILE, "w", encoding="utf-8") as f:
+            tmp_cards = f"{PROSEKA_CACHE_FILE}.tmp"
+            with open(tmp_cards, "w", encoding="utf-8") as f:
                 json.dump(parsed_cards, f, ensure_ascii=False)
+            os.replace(tmp_cards, PROSEKA_CACHE_FILE)
         except Exception:
             pass
 
@@ -1035,23 +1081,37 @@ def load_proseka_kr_db():
         f"✅ 프로세카 한섭 DB 로드 완료: 카드 {len(PROSEKA_KR_CARDS)}장 | 대사 {len(PROSEKA_KR_QUOTES)}개",
         flush=True
     )
-    load_proseka_costumes_db()
+    load_proseka_costumes_db(force_refresh=force_refresh)
 
 
-def load_proseka_costumes_db():
+def hydrate_proseka_costumes_cache_from_disk() -> bool:
+    """디스크의 한섭 3D 의상 캐시(proseka_costumes_cache.json)가 존재하면 네트워크 없이 즉시 로드합니다."""
+    if not os.path.exists(PROSEKA_COSTUMES_CACHE_FILE):
+        return False
+    try:
+        with open(PROSEKA_COSTUMES_CACHE_FILE, "r", encoding="utf-8") as f:
+            cached = json.load(f)
+        if cached and isinstance(cached, dict) and len(cached) > 50:
+            PROSEKA_KR_COSTUMES.clear()
+            PROSEKA_KR_COSTUMES.update(cached)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def load_proseka_costumes_db(force_refresh: bool = False):
     """프로세카 한국 서버 3D 의상 마스터 데이터 로드 및 캐시"""
     global PROSEKA_KR_COSTUMES
-    if os.path.exists(PROSEKA_COSTUMES_CACHE_FILE):
+    if not force_refresh and hydrate_proseka_costumes_cache_from_disk():
         try:
-            with open(PROSEKA_COSTUMES_CACHE_FILE, "r", encoding="utf-8") as f:
-                cached = json.load(f)
-                if cached and isinstance(cached, dict) and len(cached) > 50:
-                    PROSEKA_KR_COSTUMES.clear()
-                    PROSEKA_KR_COSTUMES.update(cached)
-                    print(f"✅ 프로세카 한섭 3D 의상 캐시 로드 완료: {len(PROSEKA_KR_COSTUMES)}개 의상", flush=True)
-                    return
+            mtime = os.path.getmtime(PROSEKA_COSTUMES_CACHE_FILE)
+            if time.time() - mtime < 86400:
+                print(f"✅ 프로세카 한섭 3D 의상 캐시 로드 완료: {len(PROSEKA_KR_COSTUMES)}개 의상", flush=True)
+                return
         except Exception:
-            pass
+            print(f"✅ 프로세카 한섭 3D 의상 캐시 로드 완료: {len(PROSEKA_KR_COSTUMES)}개 의상", flush=True)
+            return
 
     try:
         c_costumes = fetch_json_with_fallback(KR_CARD_COSTUMES_URLS)
@@ -1111,13 +1171,20 @@ def load_proseka_costumes_db():
             PROSEKA_KR_COSTUMES.clear()
             PROSEKA_KR_COSTUMES.update(parsed_costumes)
             try:
-                with open(PROSEKA_COSTUMES_CACHE_FILE, "w", encoding="utf-8") as f:
+                tmp_cos = f"{PROSEKA_COSTUMES_CACHE_FILE}.tmp"
+                with open(tmp_cos, "w", encoding="utf-8") as f:
                     json.dump(parsed_costumes, f, ensure_ascii=False, indent=2)
+                os.replace(tmp_cos, PROSEKA_COSTUMES_CACHE_FILE)
             except Exception:
                 pass
             print(f"✅ 프로세카 한섭 3D 의상 DB 파싱 및 캐시 저장 완료: {len(PROSEKA_KR_COSTUMES)}개 의상", flush=True)
     except Exception as e:
         print(f"⚠️ 프로세카 의상 DB 로드 중 예외 발생: {e}", flush=True)
+
+
+def refresh_proseka_dbs(force_refresh: bool = False):
+    """프로세카 한섭 카드 및 3D 의상 마스터 DB를 일괄 동기화합니다."""
+    load_proseka_kr_db(force_refresh=force_refresh)
 
 
 def get_default_costume(char_id: int) -> dict:
@@ -1205,6 +1272,16 @@ BANNER_CONFIGS = {
         "mid_rate": 8.5,
         "low_rate": 88.0,
         "color": (255, 182, 193),
+    },
+    "costume": {
+        "key": "costume",
+        "name": "👗 3D 의상 & 악세서리 픽업 가챠",
+        "short_name": "👗 3D 의상 픽업",
+        "desc": "3D 라이브 의상·헤어·악세서리 부속 ★4 카드 집중 픽업 & 시각별 세카이 유닛 UP!",
+        "top_rate": 4.5,
+        "mid_rate": 8.5,
+        "low_rate": 87.0,
+        "color": (170, 90, 255),
     },
 }
 
@@ -1734,7 +1811,7 @@ def purchase_and_equip_costume(guild_id: int, user_id: int, char_id: int, costum
 
 # 모듈 로드 시 로컬 캐시된 카드/의상 DB 즉시 초기화 (네트워크 호출 없음)
 hydrate_proseka_kr_cache_from_disk()
-load_proseka_costumes_db()
+hydrate_proseka_costumes_cache_from_disk()
 
 
 def get_random_proseka_quote(preferred_oshi: str = None, preferred_card: dict = None) -> dict:
@@ -2110,6 +2187,85 @@ def fetch_proseka_card_thumbnail_bytes(card: dict) -> bytes | None:
     return None
 
 
+def get_proseka_sekai_time_theme(now_dt: datetime.datetime | None = None) -> dict:
+    """현재 한국 시각(KST) 4개 6시간대에 따른 세카이 무대 시간대 테마 정보를 반환합니다."""
+    now = (now_dt.astimezone(KST) if now_dt and now_dt.tzinfo else (now_dt.replace(tzinfo=KST) if now_dt else datetime.datetime.now(KST)))
+    h = now.hour
+    hm = now.strftime("%H:%M")
+    now_str = f"{hm} KST"
+    if 0 <= h < 6:
+        return {
+            "window_key": "late_night",
+            "slot_label": "심야 25시 (00~06시)",
+            "label": "🌙 심야 25시 세카이",
+            "phase_name": "🌙 심야 25시 (00~06시)",
+            "unit_label": "25시, 나이트 코드에서.",
+            "attr_label": "🔮 미스테리어스 · ❄️ 쿨",
+            "units": ["25시, 나이트 코드에서."],
+            "attrs": ["🔮 미스테리어스", "❄️ 쿨"],
+            "emoji": "🌙",
+            "title": "아무도 없는 세카이 · 심야 작업 세션",
+            "desc": "새벽빛 고요한 나이트 코드 공방 무드 — 차분한 밤의 감성이 흐르는 시간대입니다.",
+            "header_label": f"🌙 {hm} 심야 25시",
+            "time_str": hm,
+            "now_str": now_str,
+            "hour_str": now_str,
+        }
+    if 6 <= h < 12:
+        return {
+            "window_key": "morning",
+            "slot_label": "오전 스튜디오 (06~12시)",
+            "label": "☀️ 오전 스튜디오 세카이",
+            "phase_name": "☀️ 오전 스튜디오 (06~12시)",
+            "unit_label": "Leo/need · MORE MORE JUMP!",
+            "attr_label": "🌿 퓨어 · 💗 큐트",
+            "units": ["Leo/need", "MORE MORE JUMP!"],
+            "attrs": ["🌿 퓨어", "💗 큐트"],
+            "emoji": "☀️",
+            "title": "교실 · 스테이지 세카이 · 아침 리허설",
+            "desc": "상쾌한 아침 합주와 아이돌 레슨이 시작되는 청량한 오전 시간대입니다.",
+            "header_label": f"☀️ {hm} 오전 스튜디오",
+            "time_str": hm,
+            "now_str": now_str,
+            "hour_str": now_str,
+        }
+    if 12 <= h < 18:
+        return {
+            "window_key": "afternoon",
+            "slot_label": "오후 라이브 (12~18시)",
+            "label": "🎭 오후 라이브 세카이",
+            "phase_name": "🎭 오후 라이브 (12~18시)",
+            "unit_label": "Vivid BAD SQUAD · 원더랜즈×쇼타임",
+            "attr_label": "🧡 해피 · 💗 큐트",
+            "units": ["Vivid BAD SQUAD", "원더랜즈×쇼타임"],
+            "attrs": ["🧡 해피", "💗 큐트"],
+            "emoji": "🎭",
+            "title": "스트리트 · 원더랜드 세카이 · 데이 쇼",
+            "desc": "햇살 가득한 야외 스테이지와 열정적인 댄스·퍼포먼스가 펼쳐지는 시간대입니다.",
+            "header_label": f"🎭 {hm} 오후 라이브",
+            "time_str": hm,
+            "now_str": now_str,
+            "hour_str": now_str,
+        }
+    return {
+        "window_key": "evening",
+        "slot_label": "야간 돔 (18~24시)",
+        "label": "🎤 야간 버츄얼 라이브 돔",
+        "phase_name": "🎤 야간 돔 (18~24시)",
+        "unit_label": "버추얼 싱어 · 전 유닛 합동",
+        "attr_label": "❄️ 쿨 · 🔮 미스테리어스",
+        "units": ["버추얼 싱어"],
+        "attrs": ["❄️ 쿨", "🔮 미스테리어스"],
+        "emoji": "🎤",
+        "title": "버츄얼 라이브 돔 · 네온 나이트 앵콜",
+        "desc": "형형색색 펜라이트와 화려한 무대 조명이 빛나는 저녁 라이브 시간대입니다.",
+        "header_label": f"🎤 {hm} 야간 돔",
+        "time_str": hm,
+        "now_str": now_str,
+        "hour_str": now_str,
+    }
+
+
 def build_10pull_grid_image_bytes(
     drawn_cards: list,
     banner_type: str = "normal",
@@ -2151,6 +2307,7 @@ def build_10pull_grid_image_bytes(
     font_name = _get_grid_font(14, bold=True)
     font_badge = _get_grid_font(12, bold=True)
 
+    sekai_time = get_proseka_sekai_time_theme()
     r4_cnt = sum(1 for c in cards if c.get("star_num", 0) >= 4)
     r3_cnt = sum(1 for c in cards if c.get("star_num", 0) == 3)
     banner_short = _sanitize_grid_text(b_cfg.get("short_name", "가챠"))
@@ -2158,15 +2315,19 @@ def build_10pull_grid_image_bytes(
     left_title = _sanitize_grid_text(f"PROSEKA {len(cards)}연차 결과  |  {banner_short}")
     if clean_tag:
         left_title = _sanitize_grid_text(f"{clean_tag}  |  {left_title}")
-    right_stats = _sanitize_grid_text(f"★4/생일: {r4_cnt}장   ★3: {r3_cnt}장")
+    right_stats = _sanitize_grid_text(f"★4/생일: {r4_cnt}장   ★3: {r3_cnt}장  |  {sekai_time['time_str']} KST · {sekai_time['slot_label']}")
     right_w = 0
     if font_sub:
         bbox = draw.textbbox((0, 0), right_stats, font=font_sub)
         right_w = bbox[2] - bbox[0]
+        if right_w > int(width * 0.50):
+            right_stats = _sanitize_grid_text(f"★4/생일: {r4_cnt}장 ★3: {r3_cnt}장 | {sekai_time['time_str']} KST")
+            bbox = draw.textbbox((0, 0), right_stats, font=font_sub)
+            right_w = bbox[2] - bbox[0]
         draw.text((width - pad_x - right_w, 14), right_stats, fill=(170, 238, 255, 255), font=font_sub)
     if font_header and right_w > 0:
         max_title_w = width - pad_x * 2 - right_w - 20
-        while len(left_title) > 12:
+        while len(left_title) > 10:
             tb = draw.textbbox((0, 0), left_title, font=font_header)
             if (tb[2] - tb[0]) <= max_title_w:
                 break
@@ -2365,314 +2526,1168 @@ def fetch_live_event_and_gacha_info(server_key: str = "kr"):
 # ==========================================
 FORECAST_DISCLAIMER = "※ 본 미래시 일정은 일본 서버(JP)의 이벤트 순서 및 주기를 바탕으로 추정한 예상 일정이며, 한국 서버(KR) 운영 상황 및 일정 조율에 따라 실제 시작/종료일 및 진행 순서가 일부 달라질 수 있습니다."
 
-BUILTIN_FORECAST_EVENTS = [   {   'assetbundleName': 'event_colors_2025',
-        'attribute': '✨ 퓨어',
+BUILTIN_FORECAST_EVENTS = [
+    {
+        'id': 182,
+        'name': 'Deep Dark For Light',
+        'jp_name': 'Deep Dark For Light',
         'eventType': 'marathon',
-        'featured_cards': ['★4 [자신의 경계를 넘어] 시노노메 에나', '★4 [독자적인 시점] 요이사키 카나데', "★4 [망설임 없는 '나다움'을] KAITO"],
-        'gacha_name': 'Colors of Pure Sense 픽업 가챠',
+        'assetbundleName': 'event_light_2025',
+        'jp_start': '2025-10-12',
+        'jp_end': '2025-10-20',
+        'kr_estimated_start': '2026-10-12',
+        'kr_estimated_end': '2026-10-20',
+        'unit': 'Leo/need',
+        'attribute': '✨ 퓨어',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'Light in the distance 뽑기',
+        'featured_cards': [
+            '★4 [모두에게 받은 용기] 모치즈키 호나미',
+            '★4 [기댈 수 있는 등과 미소] 히노모리 시호',
+            '★4 [드럼 강좌 개최!] KAITO',
+        ],
+        'theme_song': '1',
+    },
+    {
+        'id': 183,
+        'name': 'Dear my fellows',
+        'jp_name': 'Dear my fellows',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_fellows_2025',
+        'jp_start': '2025-10-22',
+        'jp_end': '2025-10-29',
+        'kr_estimated_start': '2026-10-22',
+        'kr_estimated_end': '2026-10-29',
+        'unit': 'MORE MORE JUMP!',
+        'attribute': '☀️ 해피',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'My precious memories 뽑기',
+        'featured_cards': [
+            '★4 [함께 걸어갈 너에게] 히노모리 시즈쿠',
+            '★4 [소중한 시간을 가슴에 품고] 하나사토 미노리',
+            '★4 [추억이 쌓여 가는 장소] 키리타니 하루카',
+        ],
+        'theme_song': '써니 루트',
+    },
+    {
         'id': 184,
-        'is_fes': False,
-        'is_limited': True,
-        'jp_end': '2025-11-08',
-        'jp_name': 'Colors of Pure Sense',
-        'jp_start': '2025-10-31',
-        'kr_estimated_end': '2026-11-08',
-        'kr_estimated_start': '2026-10-31',
         'name': 'Colors of Pure Sense',
-        'theme_song': 'Pure Sense / 센스 하모니',
-        'unit': '전 유닛 합동'},
-    {   'assetbundleName': 'event_protagonist_2025',
-        'attribute': '💖 큐트',
+        'jp_name': 'Colors of Pure Sense',
         'eventType': 'marathon',
-        'featured_cards': ['★4 [그 꽃이 피어날 때] 쿠사나기 네네', '★4 [해피해피해피한 서비스] 오오토리 에무', '★4 [작은 수호자] 카가미네 린'],
-        'gacha_name': '초월의 프로타고니스타 픽업 가챠',
+        'assetbundleName': 'event_colors_2025',
+        'jp_start': '2025-10-31',
+        'jp_end': '2025-11-08',
+        'kr_estimated_start': '2026-10-31',
+        'kr_estimated_end': '2026-11-08',
+        'unit': '25시, 나이트 코드에서.',
+        'attribute': '✨ 퓨어',
+        'is_limited': True,
+        'is_fes': False,
+        'gacha_name': 'Hues of the Self 뽑기',
+        'featured_cards': [
+            '★4 [자신의 경계를 넘어] 시노노메 에나',
+            '★4 [독자적인 시점] 요이사키 카나데',
+            "★4 [망설임 없는 '나다움'을] KAITO",
+        ],
+        'theme_song': '그 그림의 이름은',
+    },
+    {
         'id': 185,
-        'is_fes': False,
-        'is_limited': False,
-        'jp_end': '2025-11-17',
-        'jp_name': '超克のプロタゴニスタ',
-        'jp_start': '2025-11-10',
-        'kr_estimated_end': '2026-11-18',
-        'kr_estimated_start': '2026-11-10',
         'name': '초월의 프로타고니스타',
-        'theme_song': '프로타고니스타 / 서바이벌 스테이지',
-        'unit': 'Vivid BAD SQUAD'},
-    {   'assetbundleName': 'event_overcome_2025',
-        'attribute': '🌙 미스테리어스',
+        'jp_name': '超克のプロタゴニスタ',
         'eventType': 'marathon',
-        'featured_cards': ['★4 [끌어모은 무기로] 시노노메 아키토', '★4 [사전 준비는 철저히] 아즈사와 코하네', '★4 [전화로 물어보기] 시라이시 안'],
-        'gacha_name': "Overcome one's limits 픽업 가챠",
+        'assetbundleName': 'event_protagonist_2025',
+        'jp_start': '2025-11-10',
+        'jp_end': '2025-11-17',
+        'kr_estimated_start': '2026-11-10',
+        'kr_estimated_end': '2026-11-18',
+        'unit': '원더랜즈×쇼타임',
+        'attribute': '💖 큐트',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'Get my bright wings 뽑기',
+        'featured_cards': [
+            '★4 [그 꽃이 피어날 때] 쿠사나기 네네',
+            '★4 [해피해피해피한 서비스] 오오토리 에무',
+            '★4 [작은 수호자] 카가미네 린',
+        ],
+        'theme_song': '나아가라',
+    },
+    {
         'id': 187,
-        'is_fes': False,
-        'is_limited': False,
-        'jp_end': '2025-11-28',
-        'jp_name': "Overcome one's limits",
-        'jp_start': '2025-11-20',
-        'kr_estimated_end': '2026-11-28',
-        'kr_estimated_start': '2026-11-20',
         'name': "Overcome one's limits",
-        'theme_song': 'Beyond the Limit / 오버컴',
-        'unit': '전 유닛 합동'},
-    {   'assetbundleName': 'event_lookup_2025',
-        'attribute': '💖 큐트',
+        'jp_name': "Overcome one's limits",
         'eventType': 'marathon',
-        'featured_cards': ['★4 [밤바람에 날아간 진심] 텐마 사키', "★4 [당신'에게 전하는 말] 호시노 이치카", '★4 [산책 중의 말썽꾸러기] 모치즈키 호나미'],
-        'gacha_name': '올려다본 밤하늘에 별은 길을 잃고 픽업 가챠',
+        'assetbundleName': 'event_overcome_2025',
+        'jp_start': '2025-11-20',
+        'jp_end': '2025-11-28',
+        'kr_estimated_start': '2026-11-20',
+        'kr_estimated_end': '2026-11-28',
+        'unit': 'Vivid BAD SQUAD',
+        'attribute': '🌙 미스테리어스',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'Good to go! 뽑기',
+        'featured_cards': [
+            '★4 [끌어모은 무기로] 시노노메 아키토',
+            '★4 [사전 준비는 철저히] 아즈사와 코하네',
+            '★4 [전화로 물어보기] 시라이시 안',
+        ],
+        'theme_song': '파이터',
+    },
+    {
         'id': 188,
-        'is_fes': False,
-        'is_limited': True,
-        'jp_end': '2025-12-08',
-        'jp_name': '仰ぐ夜空に、星は紛れて',
-        'jp_start': '2025-11-30',
-        'kr_estimated_end': '2026-12-08',
-        'kr_estimated_start': '2026-11-30',
         'name': '올려다본 밤하늘에 별은 길을 잃고',
-        'theme_song': '별이 지는 밤하늘 / 스테이지 라이트',
-        'unit': 'Leo/need'},
-    {   'assetbundleName': 'event_trueroute_2025',
-        'attribute': '☀️ 해피',
+        'jp_name': '仰ぐ夜空に、星は紛れて',
         'eventType': 'marathon',
-        'featured_cards': ['★4 [추억을 손에 들고] 아사히나 마후유', '★4 [스릴 넘치는 술래잡기] 아즈사와 코하네', '★4 [떠오르는 예감] 메구리네 루카'],
-        'gacha_name': '함께, 트루 루트를 향해서 픽업 가챠',
+        'assetbundleName': 'event_lookup_2025',
+        'jp_start': '2025-11-30',
+        'jp_end': '2025-12-08',
+        'kr_estimated_start': '2026-11-30',
+        'kr_estimated_end': '2026-12-08',
+        'unit': 'Leo/need',
+        'attribute': '💖 큐트',
+        'is_limited': True,
+        'is_fes': False,
+        'gacha_name': 'Silent Starry Night 뽑기',
+        'featured_cards': [
+            '★4 [밤바람에 날아간 진심] 텐마 사키',
+            "★4 [당신'에게 전하는 말] 호시노 이치카",
+            '★4 [산책 중의 말썽꾸러기] 모치즈키 호나미',
+        ],
+        'theme_song': '별들의 정거장',
+    },
+    {
         'id': 189,
-        'is_fes': False,
-        'is_limited': False,
-        'jp_end': '2025-12-19',
-        'jp_name': 'ともに、トゥルールートを目指して',
-        'jp_start': '2025-12-10',
-        'kr_estimated_end': '2026-12-19',
-        'kr_estimated_start': '2026-12-10',
         'name': '함께, 트루 루트를 향해서',
-        'theme_song': '트루 루트의 궤적 / 메모리즈',
-        'unit': 'Leo/need'},
-    {   'assetbundleName': 'event_hope_2025',
-        'attribute': '❄️ 쿨',
+        'jp_name': 'ともに、トゥルールートを目指して',
         'eventType': 'marathon',
-        'featured_cards': ['★4 [흔들리지 않는 마음은 열기를 띠고] 키리타니 하루카', '★4 [역경까지도 파워로!] 모모이 아이리', '★4 [스테이지의 지식인] 카가미네 렌'],
-        'gacha_name': '이 이야기는 희망을 싣고 픽업 가챠',
+        'assetbundleName': 'event_trueroute_2025',
+        'jp_start': '2025-12-10',
+        'jp_end': '2025-12-19',
+        'kr_estimated_start': '2026-12-10',
+        'kr_estimated_end': '2026-12-19',
+        'unit': '전 유닛 합동',
+        'attribute': '☀️ 해피',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'Human×Tech 뽑기',
+        'featured_cards': [
+            '★4 [추억을 손에 들고] 아사히나 마후유',
+            '★4 [스릴 넘치는 술래잡기] 아즈사와 코하네',
+            '★4 [떠오르는 예감] 메구리네 루카',
+        ],
+        'theme_song': '커미션 신곡 없음 (합동 이벤트)',
+    },
+    {
         'id': 190,
-        'is_fes': False,
-        'is_limited': False,
-        'jp_end': '2025-12-29',
-        'jp_name': 'この物語は希望をのせて',
-        'jp_start': '2025-12-21',
-        'kr_estimated_end': '2026-12-29',
-        'kr_estimated_start': '2026-12-21',
         'name': '이 이야기는 희망을 싣고',
-        'theme_song': '희망을 실은 멜로디 / 호프 스퀘어',
-        'unit': '25시, 나이트코드에서.'},
-    {   'assetbundleName': 'event_celebrate_2025',
-        'attribute': '❄️ 쿨',
+        'jp_name': 'この物語は希望をのせて',
         'eventType': 'marathon',
-        'featured_cards': [   '★4 [햇볕 같은 지금을] 히노모리 시호',
-                              '★4 [내가 돌아갈 곳] 오오토리 에무',
-                              '★4 [마음을 담은 춤] 하나사토 미노리',
-                              '★4 [멀고 험한 동화 구연의 길] 아오야기 토우야',
-                              '★4 [노력하는 너에게 응원을] 카가미네 린'],
-        'gacha_name': '새해를 축복하는 기도의 춤 픽업 가챠',
+        'assetbundleName': 'event_hope_2025',
+        'jp_start': '2025-12-21',
+        'jp_end': '2025-12-29',
+        'kr_estimated_start': '2026-12-21',
+        'kr_estimated_end': '2026-12-29',
+        'unit': 'MORE MORE JUMP!',
+        'attribute': '❄️ 쿨',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'The Light We Found 뽑기',
+        'featured_cards': [
+            '★4 [흔들리지 않는 마음은 열기를 띠고] 키리타니 하루카',
+            '★4 [역경까지도 파워로!] 모모이 아이리',
+            '★4 [스테이지의 지식인] 카가미네 렌',
+        ],
+        'theme_song': 'Polar Star',
+    },
+    {
         'id': 191,
-        'is_fes': True,
-        'is_limited': True,
-        'jp_end': '2026-01-09',
-        'jp_name': '新年言祝ぐ、祈りの舞',
-        'jp_start': '2025-12-31',
-        'kr_estimated_end': '2027-01-09',
-        'kr_estimated_start': '2026-12-31',
         'name': '새해를 축복하는 기도의 춤',
-        'theme_song': '신년 기도의 춤 / 축복의 종소리',
-        'unit': '25시, 나이트코드에서.'},
-    {   'assetbundleName': 'event_knock_2026',
-        'attribute': '☀️ 해피',
+        'jp_name': '新年言祝ぐ、祈りの舞',
         'eventType': 'marathon',
-        'featured_cards': ['★4 [술렁이는 가슴] 요이사키 카나데', '★4 [해 질 녘 창가] 시노노메 에나', '★4 [지키는 자와 흔드는 자] MEIKO'],
-        'gacha_name': '깨지 않는 환상을 노크하며 픽업 가챠',
+        'assetbundleName': 'event_celebrate_2025',
+        'jp_start': '2025-12-31',
+        'jp_end': '2026-01-09',
+        'kr_estimated_start': '2026-12-31',
+        'kr_estimated_end': '2027-01-09',
+        'unit': '전 유닛 합동',
+        'attribute': '❄️ 쿨',
+        'is_limited': True,
+        'is_fes': True,
+        'gacha_name': '[2027 새해맞이] 블룸 페스티벌 뽑기',
+        'featured_cards': [
+            '★4 [햇볕 같은 지금을] 히노모리 시호',
+            '★4 [내가 돌아갈 곳] 오오토리 에무',
+            '★4 [마음을 담은 춤] 하나사토 미노리',
+            '★4 [멀고 험한 동화 구연의 길] 아오야기 토우야',
+            '★4 [노력하는 너에게 응원을] 카가미네 린',
+        ],
+        'theme_song': '커미션 신곡 없음 (신년 합동 이벤트)',
+    },
+    {
         'id': 192,
-        'is_fes': False,
-        'is_limited': False,
-        'jp_end': '2026-01-19',
-        'jp_name': '覚めない幻想をノックして',
-        'jp_start': '2026-01-11',
-        'kr_estimated_end': '2027-01-19',
-        'kr_estimated_start': '2027-01-11',
         'name': '깨지 않는 환상을 노크하며',
-        'theme_song': '환상의 노크 / 원더 판타지',
-        'unit': '전 유닛 합동'},
-    {   'assetbundleName': 'event_allout_2026',
-        'attribute': '✨ 퓨어',
+        'jp_name': '覚めない幻想をノックして',
         'eventType': 'marathon',
-        'featured_cards': ['★4 [타오르는 투지] 아오야기 토우야', '★4 [액자 속의 모습] 시라이시 안', '★4 [온 힘을 다해 달리는 너에게] KAITO'],
-        'gacha_name': 'GO ALL OUT 픽업 가챠',
-        'id': 193,
-        'is_fes': False,
-        'is_limited': False,
-        'jp_end': '2026-01-29',
-        'jp_name': 'GO ALL OUT',
-        'jp_start': '2026-01-21',
-        'kr_estimated_end': '2027-01-29',
-        'kr_estimated_start': '2027-01-21',
-        'name': 'GO ALL OUT',
-        'theme_song': 'GO ALL OUT / 풀 파워 스테이지',
-        'unit': '전 유닛 합동'},
-    {   'assetbundleName': 'event_revenge_2026',
-        'attribute': '💖 큐트',
-        'eventType': 'marathon',
-        'featured_cards': ['★4 [작렬! 사랑의 일격] 텐마 츠카사', '★4 [우울한 모험] 시노노메 아키토', '★4 [즐거운 떠보기] 아키야마 미즈키'],
-        'gacha_name': '분쇄하라! 언밸런타인의 복수 픽업 가챠',
-        'id': 194,
-        'is_fes': False,
-        'is_limited': True,
-        'jp_end': '2026-02-08',
-        'jp_name': '粉砕せよ！アンヴァレンタインの復讐',
-        'jp_start': '2026-01-31',
-        'kr_estimated_end': '2027-02-08',
-        'kr_estimated_start': '2027-01-31',
-        'name': '분쇄하라! 언밸런타인의 복수',
-        'theme_song': '언밸런타인 리벤지 / 쇼콜라 스위트',
-        'unit': 'Leo/need'},
-    {   'assetbundleName': 'event_path_2026',
-        'attribute': '❄️ 쿨',
-        'eventType': 'marathon',
-        'featured_cards': ["★4 [지금'의 나를 울리며] 히노모리 시호", '★4 [명프로듀서 등장!] 텐마 사키', '★4 [최고의 연습 상대] 메구리네 루카'],
-        'gacha_name': 'Path made by faith 픽업 가챠',
-        'id': 195,
-        'is_fes': False,
-        'is_limited': False,
-        'jp_end': '2026-02-17',
-        'jp_name': 'Path made by faith',
-        'jp_start': '2026-02-10',
-        'kr_estimated_end': '2027-02-17',
-        'kr_estimated_start': '2027-02-10',
-        'name': 'Path made by faith',
-        'theme_song': 'Faith on the Path / 신념의 길',
-        'unit': 'Leo/need'},
-    {   'assetbundleName': 'event_princess_2026',
-        'attribute': '🌙 미스테리어스',
-        'eventType': 'marathon',
-        'featured_cards': ['★4 [똑 닮은 얼굴에 깜짝?!] 오오토리 에무', '★4 [우주에서 좌충우돌 슈팅!] 카미시로 루이', '★4 [린이 있잖아!] 카가미네 린'],
-        'gacha_name': 'CHANGE! 에무는 왕녀님?! 픽업 가챠',
-        'id': 196,
-        'is_fes': False,
-        'is_limited': False,
-        'jp_end': '2026-02-26',
-        'jp_name': 'CHANGE！えむは王女さま！？',
-        'jp_start': '2026-02-19',
-        'kr_estimated_end': '2027-02-26',
-        'kr_estimated_start': '2027-02-19',
-        'name': 'CHANGE! 에무는 왕녀님?!',
-        'theme_song': '에무 왕녀님의 원더랜드 / 프린세스 쇼',
-        'unit': 'Vivid BAD SQUAD'},
-    {   'assetbundleName': 'event_nightmare_2026',
+        'assetbundleName': 'event_knock_2026',
+        'jp_start': '2026-01-11',
+        'jp_end': '2026-01-19',
+        'kr_estimated_start': '2027-01-11',
+        'kr_estimated_end': '2027-01-19',
+        'unit': '25시, 나이트 코드에서.',
         'attribute': '☀️ 해피',
-        'eventType': 'marathon',
-        'featured_cards': ['★4 [악몽의 세계에 울리는 노래는] 시노노메 에나', '★4 [어두운 정원과 호기심] 아즈사와 코하네', '★4 [가리킨 곳에 있는 길] 카가미네 렌'],
-        'gacha_name': '악몽의 정원을 노래로 밝히며 픽업 가챠',
-        'id': 197,
-        'is_fes': False,
         'is_limited': False,
-        'jp_end': '2026-03-08',
-        'jp_name': '悪夢の庭を歌い明かして',
-        'jp_start': '2026-02-28',
-        'kr_estimated_end': '2027-03-08',
-        'kr_estimated_start': '2027-02-28',
-        'name': '악몽의 정원을 노래로 밝히며',
-        'theme_song': '악몽의 정원 / 나이트 가든 보이스',
-        'unit': 'Vivid BAD SQUAD'},
-    {   'assetbundleName': 'event_horizons_2026',
+        'is_fes': False,
+        'gacha_name': 'Silent Reverie 뽑기',
+        'featured_cards': [
+            '★4 [술렁이는 가슴] 요이사키 카나데',
+            '★4 [해 질 녘 창가] 시노노메 에나',
+            '★4 [지키는 자와 흔드는 자] MEIKO',
+        ],
+        'theme_song': '행복형 (幸福刑)',
+    },
+    {
+        'id': 193,
+        'name': 'GO ALL OUT',
+        'jp_name': 'GO ALL OUT',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_allout_2026',
+        'jp_start': '2026-01-21',
+        'jp_end': '2026-01-29',
+        'kr_estimated_start': '2027-01-21',
+        'kr_estimated_end': '2027-01-29',
+        'unit': 'Vivid BAD SQUAD',
         'attribute': '✨ 퓨어',
-        'eventType': 'marathon',
-        'featured_cards': ['★4 [진심으로 눈물을] 모모이 아이리', '★4 [나도 모르게 입에서] 하나사토 미노리', '★4 [다 정말 근사한걸!] 히노모리 시즈쿠'],
-        'gacha_name': 'Open up new horizons! 픽업 가챠',
-        'id': 198,
-        'is_fes': False,
         'is_limited': False,
-        'jp_end': '2026-03-18',
-        'jp_name': 'Open up new horizons！',
-        'jp_start': '2026-03-10',
-        'kr_estimated_end': '2027-03-18',
-        'kr_estimated_start': '2027-03-10',
-        'name': 'Open up new horizons!',
-        'theme_song': 'New Horizons / 수평선을 향해',
-        'unit': '25시, 나이트코드에서.'},
-    {   'assetbundleName': 'event_wavering_2026',
+        'is_fes': False,
+        'gacha_name': 'Burning with spirit 뽑기',
+        'featured_cards': [
+            '★4 [타오르는 투지] 아오야기 토우야',
+            '★4 [액자 속의 모습] 시라이시 안',
+            '★4 [온 힘을 다해 달리는 너에게] KAITO',
+        ],
+        'theme_song': '투과하는 온도 (透過する温度)',
+    },
+    {
+        'id': 194,
+        'name': '분쇄하라! 언밸런타인의 복수',
+        'jp_name': '粉砕せよ！アンヴァレンタインの復讐',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_revenge_2026',
+        'jp_start': '2026-01-31',
+        'jp_end': '2026-02-08',
+        'kr_estimated_start': '2027-01-31',
+        'kr_estimated_end': '2027-02-08',
+        'unit': '전 유닛 합동',
         'attribute': '💖 큐트',
-        'eventType': 'marathon',
-        'featured_cards': ['★4 [옷 만들기 분투 중] 아키야마 미즈키', '★4 [아침 해와 코코아] 요이사키 카나데', '★4 [좋아하는 옷] 하츠네 미쿠'],
-        'gacha_name': 'Amid the Wavering Light 픽업 가챠',
-        'id': 199,
-        'is_fes': False,
-        'is_limited': False,
-        'jp_end': '2026-03-28',
-        'jp_name': 'Amid the Wavering Light',
-        'jp_start': '2026-03-20',
-        'kr_estimated_end': '2027-03-28',
-        'kr_estimated_start': '2027-03-20',
-        'name': 'Amid the Wavering Light',
-        'theme_song': 'Wavering Light / 흔들리는 등불',
-        'unit': '전 유닛 합동'},
-    {   'assetbundleName': 'event_direction_2026',
-        'attribute': '❄️ 쿨',
-        'eventType': 'marathon',
-        'featured_cards': [   '★4 [발자취를 따라서] 히노모리 시즈쿠',
-                              '★4 [네가 발견해 주었기에] 아사히나 마후유',
-                              '★4 [머릿속에 그리던 그 이미지가] 카미시로 루이',
-                              '★4 [말할 수 없는 이 마음] 쿠사나기 네네',
-                              '★4 [명탐정 MEIKO?!] MEIKO'],
-        'gacha_name': '저녁놀의 Inside Direction 픽업 가챠',
-        'id': 200,
-        'is_fes': False,
         'is_limited': True,
-        'jp_end': '2026-04-07',
-        'jp_name': '残照のInside Direction',
-        'jp_start': '2026-03-30',
-        'kr_estimated_end': '2027-04-07',
-        'kr_estimated_start': '2027-03-30',
-        'name': '저녁놀의 Inside Direction',
-        'theme_song': 'Inside Direction / 노을빛 방향',
-        'unit': 'Vivid BAD SQUAD'},
-    {   'assetbundleName': 'event_show_2026',
-        'attribute': '🌙 미스테리어스',
-        'eventType': 'marathon',
-        'featured_cards': ['★4 [엿보이는 날카로운 이빨] 시라이시 안', '★4 [이 벽을 뛰어넘기 위해] 시노노메 아키토', '★4 [응원하는 마음도 가득 올려서!] 메구리네 루카'],
-        'gacha_name': "Show 'em what's up! 픽업 가챠",
-        'id': 201,
         'is_fes': False,
+        'gacha_name': "Secret 'Loveless' Squad 뽑기",
+        'featured_cards': [
+            '★4 [작렬! 사랑의 일격] 텐마 츠카사',
+            '★4 [우울한 모험] 시노노메 아키토',
+            '★4 [즐거운 떠보기] 아키야마 미즈키',
+        ],
+        'theme_song': '커미션 신곡 없음 (합동 이벤트)',
+    },
+    {
+        'id': 195,
+        'name': 'Path made by faith',
+        'jp_name': 'Path made by faith',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_path_2026',
+        'jp_start': '2026-02-10',
+        'jp_end': '2026-02-17',
+        'kr_estimated_start': '2027-02-10',
+        'kr_estimated_end': '2027-02-17',
+        'unit': 'Leo/need',
+        'attribute': '❄️ 쿨',
         'is_limited': False,
-        'jp_end': '2026-04-16',
-        'jp_name': "Show 'em what's up！",
-        'jp_start': '2026-04-09',
-        'kr_estimated_end': '2027-04-16',
-        'kr_estimated_start': '2027-04-09',
+        'is_fes': False,
+        'gacha_name': 'Unchanged warmth 뽑기',
+        'featured_cards': [
+            "★4 [지금'의 나를 울리며] 히노모리 시호",
+            '★4 [명프로듀서 등장!] 텐마 사키',
+            '★4 [최고의 연습 상대] 메구리네 루카',
+        ],
+        'theme_song': '다가오는 계절에 (寄る辺の季節に)',
+    },
+    {
+        'id': 196,
+        'name': 'CHANGE! 에무는 왕녀님?!',
+        'jp_name': 'CHANGE！えむは王女さま！？',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_princess_2026',
+        'jp_start': '2026-02-19',
+        'jp_end': '2026-02-26',
+        'kr_estimated_start': '2027-02-19',
+        'kr_estimated_end': '2027-02-26',
+        'unit': '원더랜즈×쇼타임',
+        'attribute': '🌙 미스테리어스',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': '트윙클 스페이스 프린세스 뽑기',
+        'featured_cards': [
+            '★4 [똑 닮은 얼굴에 깜짝?!] 오오토리 에무',
+            '★4 [우주에서 좌충우돌 슈팅!] 카미시로 루이',
+            '★4 [린이 있잖아!] 카가미네 린',
+        ],
+        'theme_song': '튀어나와라! 완다표이 (とびだせ！わんだぴょい)',
+    },
+    {
+        'id': 197,
+        'name': '악몽의 정원을 노래로 밝히며',
+        'jp_name': '悪夢の庭を歌い明かして',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_nightmare_2026',
+        'jp_start': '2026-02-28',
+        'jp_end': '2026-03-08',
+        'kr_estimated_start': '2027-02-28',
+        'kr_estimated_end': '2027-03-08',
+        'unit': '전 유닛 합동',
+        'attribute': '☀️ 해피',
+        'is_limited': True,
+        'is_fes': False,
+        'gacha_name': 'Wandering Night Garden 뽑기',
+        'featured_cards': [
+            '★4 [악몽의 세계에 울리는 노래는] 시노노메 에나',
+            '★4 [어두운 정원과 호기심] 아즈사와 코하네',
+            '★4 [가리킨 곳에 있는 길] 카가미네 렌',
+        ],
+        'theme_song': '커미션 신곡 없음 (합동 이벤트)',
+    },
+    {
+        'id': 198,
+        'name': 'Open up new horizons!',
+        'jp_name': 'Open up new horizons！',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_horizons_2026',
+        'jp_start': '2026-03-10',
+        'jp_end': '2026-03-18',
+        'kr_estimated_start': '2027-03-10',
+        'kr_estimated_end': '2027-03-18',
+        'unit': 'MORE MORE JUMP!',
+        'attribute': '✨ 퓨어',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'Everyday Make U Shine 뽑기',
+        'featured_cards': [
+            '★4 [진심으로 눈물을] 모모이 아이리',
+            '★4 [나도 모르게 입에서] 하나사토 미노리',
+            '★4 [다 정말 근사한걸!] 히노모리 시즈쿠',
+        ],
+        'theme_song': '컬러풀 파운데이션 (カラフルファンデーション)',
+    },
+    {
+        'id': 199,
+        'name': 'Amid the Wavering Light',
+        'jp_name': 'Amid the Wavering Light',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_wavering_2026',
+        'jp_start': '2026-03-20',
+        'jp_end': '2026-03-28',
+        'kr_estimated_start': '2027-03-20',
+        'kr_estimated_end': '2027-03-28',
+        'unit': '25시, 나이트 코드에서.',
+        'attribute': '💖 큐트',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'Warming Stitch 뽑기',
+        'featured_cards': [
+            '★4 [옷 만들기 분투 중] 아키야마 미즈키',
+            '★4 [아침 해와 코코아] 요이사키 카나데',
+            '★4 [좋아하는 옷] 하츠네 미쿠',
+        ],
+        'theme_song': '고백 (告白)',
+    },
+    {
+        'id': 200,
+        'name': '저녁놀의 Inside Direction',
+        'jp_name': '残照のInside Direction',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_direction_2026',
+        'jp_start': '2026-03-30',
+        'jp_end': '2026-04-07',
+        'kr_estimated_start': '2027-03-30',
+        'kr_estimated_end': '2027-04-07',
+        'unit': '원더랜즈×쇼타임',
+        'attribute': '❄️ 쿨',
+        'is_limited': True,
+        'is_fes': True,
+        'gacha_name': '[5.5주년 기념] 블룸 페스티벌 뽑기',
+        'featured_cards': [
+            '★4 [발자취를 따라서] 히노모리 시즈쿠',
+            '★4 [네가 발견해 주었기에] 아사히나 마후유',
+            '★4 [머릿속에 그리던 그 이미지가] 카미시로 루이',
+            '★4 [말할 수 없는 이 마음] 쿠사나기 네네',
+            '★4 [명탐정 MEIKO?!] MEIKO',
+        ],
+        'theme_song': '꼭두각시의 현실 (傀儡のうつつ)',
+    },
+    {
+        'id': 201,
         'name': "Show 'em what's up!",
-        'theme_song': "Show 'em what's up! / 비트 스트리트",
-        'unit': '전 유닛 합동'}]
+        'jp_name': "Show 'em what's up！",
+        'eventType': 'marathon',
+        'assetbundleName': 'event_show_2026',
+        'jp_start': '2026-04-09',
+        'jp_end': '2026-04-16',
+        'kr_estimated_start': '2027-04-09',
+        'kr_estimated_end': '2027-04-16',
+        'unit': 'Vivid BAD SQUAD',
+        'attribute': '🌙 미스테리어스',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'Stand against the roaring storm 뽑기',
+        'featured_cards': [
+            '★4 [엿보이는 날카로운 이빨] 시라이시 안',
+            '★4 [이 벽을 뛰어넘기 위해] 시노노메 아키토',
+            '★4 [응원하는 마음도 가득 올려서!] 메구리네 루카',
+        ],
+        'theme_song': 'CRASH THE PARTY',
+    },
+    {
+        'id': 202,
+        'name': 'Re: paint my color',
+        'jp_name': 'Re: paint my color',
+        'eventType': 'world_bloom',
+        'assetbundleName': 'event_repaint_2026',
+        'jp_start': '2026-04-18',
+        'jp_end': '2026-04-27',
+        'kr_estimated_start': '2027-04-18',
+        'kr_estimated_end': '2027-04-27',
+        'unit': '전 유닛 합동',
+        'attribute': '✨ 퓨어',
+        'is_limited': True,
+        'is_fes': False,
+        'gacha_name': "Color of 'That Day' 뽑기 (월드 링크)",
+        'featured_cards': [
+            '★4 [고민의 색채] 히노모리 시호',
+            '★4 [눈부신 거리] 아즈사와 코하네',
+            '★4 [기대되는 원더랜드!] 오오토리 에무',
+            '★4 [그날의 반짝임] 시노노메 에나',
+        ],
+        'theme_song': '커미션 신곡 없음 (월드 링크 이벤트)',
+    },
+    {
+        'id': 203,
+        'name': '모여라! 봄의 피크닉 페스티벌♪ (집마れ！春のピクニックフェスティバル♪)',
+        'jp_name': '集まれ！春のピクニックフェスティバル♪',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_picnic_2026',
+        'jp_start': '2026-04-29',
+        'jp_end': '2026-05-07',
+        'kr_estimated_start': '2027-04-29',
+        'kr_estimated_end': '2027-05-07',
+        'unit': '전 유닛 합동',
+        'attribute': '☀️ 해피',
+        'is_limited': True,
+        'is_fes': False,
+        'gacha_name': 'Secret Magic Waltz 뽑기',
+        'featured_cards': [
+            '★4 [모두와 함께 웃는 얼굴로] 하나사토 미노리',
+            '★4 [봄바람이 부는 언덕에서] 모치즈키 호나미',
+            '★4 [꽃향기에 이끌려] 하츠네 미쿠',
+        ],
+        'theme_song': '커미션 신곡 없음 (합동 이벤트)',
+    },
+    {
+        'id': 204,
+        'name': 'Dusk approaches, shadows overlap',
+        'jp_name': 'Dusk approaches, shadows overlap',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_dusk_2026',
+        'jp_start': '2026-05-09',
+        'jp_end': '2026-05-17',
+        'kr_estimated_start': '2027-05-09',
+        'kr_estimated_end': '2027-05-17',
+        'unit': '25시, 나이트 코드에서.',
+        'attribute': '🌙 미스테리어스',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'Lingering Warmth in the Dusk 뽑기',
+        'featured_cards': [
+            '★4 [겹쳐지는 그림자 속에서] 아사히나 마후유',
+            '★4 [말없이 건네는 온기] 아키야마 미즈키',
+            '★4 [황혼에 스며드는 목소리] 카가미네 렌',
+        ],
+        'theme_song': '이로하 우타 / 황혼 신곡',
+    },
+    {
+        'id': 205,
+        'name': 'Starry Sky Melody',
+        'jp_name': 'Starry Sky Melody',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_starry_2026',
+        'jp_start': '2026-05-19',
+        'jp_end': '2026-05-27',
+        'kr_estimated_start': '2027-05-19',
+        'kr_estimated_end': '2027-05-27',
+        'unit': 'Leo/need',
+        'attribute': '✨ 퓨어',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'Echoes Under the Starlight 뽑기',
+        'featured_cards': [
+            '★4 [별빛 아래에서 울리는 선율] 호시노 이치카',
+            '★4 [마음을 이어 주는 화음] 모치즈키 호나미',
+            '★4 [밤하늘을 수놓는 노래] 하츠네 미쿠',
+        ],
+        'theme_song': 'Leo/need 커미션 신곡',
+    },
+    {
+        'id': 206,
+        'name': '비 온 뒤의 무지개 다리를 건너서 (雨上がりの虹の橋を渡って)',
+        'jp_name': '雨上がりの虹の橋を渡って',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_rainbow_2026',
+        'jp_start': '2026-05-29',
+        'jp_end': '2026-06-06',
+        'kr_estimated_start': '2027-05-29',
+        'kr_estimated_end': '2027-06-06',
+        'unit': '전 유닛 합동',
+        'attribute': '❄️ 쿨',
+        'is_limited': True,
+        'is_fes': False,
+        'gacha_name': 'Promise Under the Rainbow 뽑기',
+        'featured_cards': [
+            '★4 [빗방울이 빛나는 순간] 키리타니 하루카',
+            '★4 [우산 너머의 미소] 쿠사나기 네네',
+            '★4 [무지개빛 하모니] MEIKO',
+        ],
+        'theme_song': '커미션 신곡 없음 (합동 이벤트)',
+    },
+    {
+        'id': 207,
+        'name': 'Shining Stage! 꿈의 날개를 펼치고 (Shining Stage！夢の翼を広げて)',
+        'jp_name': 'Shining Stage！夢の翼を広げて',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_shining_2026',
+        'jp_start': '2026-06-08',
+        'jp_end': '2026-06-15',
+        'kr_estimated_start': '2027-06-08',
+        'kr_estimated_end': '2027-06-15',
+        'unit': 'MORE MORE JUMP!',
+        'attribute': '💖 큐트',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'Wings of Hopeful Idol 뽑기',
+        'featured_cards': [
+            '★4 [날개를 활짝 펴고!] 하나사토 미노리',
+            '★4 [반짝이는 무대의 중심에서] 히노모리 시즈쿠',
+            '★4 [함께 비상하는 스텝] 카가미네 린',
+        ],
+        'theme_song': 'MORE MORE JUMP! 커미션 신곡',
+    },
+    {
+        'id': 208,
+        'name': 'Next Curtain Call',
+        'jp_name': 'Next Curtain Call',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_curtain_2026',
+        'jp_start': '2026-06-17',
+        'jp_end': '2026-06-26',
+        'kr_estimated_start': '2027-06-17',
+        'kr_estimated_end': '2027-06-26',
+        'unit': '원더랜즈×쇼타임',
+        'attribute': '☀️ 해피',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'Encore of Wonder Show 뽑기',
+        'featured_cards': [
+            '★4 [막이 오르기 전의 두근거림] 텐마 츠카사',
+            '★4 [최고의 피날레를 연출하자] 카미시로 루이',
+            '★4 [무대 뒤의 든든한 조력자] KAITO',
+        ],
+        'theme_song': '원더랜즈×쇼타임 커미션 신곡',
+    },
+    {
+        'id': 209,
+        'name': 'Cross the Borderline',
+        'jp_name': 'Cross the Borderline',
+        'eventType': 'world_bloom',
+        'assetbundleName': 'event_borderline_2026',
+        'jp_start': '2026-06-28',
+        'jp_end': '2026-07-07',
+        'kr_estimated_start': '2027-06-28',
+        'kr_estimated_end': '2027-07-07',
+        'unit': '전 유닛 합동',
+        'attribute': '❄️ 쿨',
+        'is_limited': True,
+        'is_fes': False,
+        'gacha_name': 'Beyond the Horizon 뽑기 (월드 링크)',
+        'featured_cards': [
+            '★4 [경계를 넘어서는 소리] 호시노 이치카',
+            '★4 [더 높이 닿기를 바라며] 키리타니 하루카',
+            '★4 [뜨겁게 교차하는 시선] 시노노메 아키토',
+            '★4 [새로운 세계의 문을 열고] 카미시로 루이',
+        ],
+        'theme_song': '커미션 신곡 없음 (월드 링크 이벤트)',
+    },
+    {
+        'id': 210,
+        'name': 'Ignite the Beat!',
+        'jp_name': 'Ignite the Beat！',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_ignite_2026',
+        'jp_start': '2026-07-09',
+        'jp_end': '2026-07-16',
+        'kr_estimated_start': '2027-07-09',
+        'kr_estimated_end': '2027-07-16',
+        'unit': 'Vivid BAD SQUAD',
+        'attribute': '☀️ 해피',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'Blazing Street Groove 뽑기',
+        'featured_cards': [
+            '★4 [심장을 울리는 비트] 아즈사와 코하네',
+            '★4 [멈추지 않는 열기] 아오야기 토우야',
+            '★4 [그루브에 몸을 맡기고] 카가미네 렌',
+        ],
+        'theme_song': 'Vivid BAD SQUAD 커미션 신곡',
+    },
+    {
+        'id': 211,
+        'name': '투명한 바다와 흔들리는 윤슬 (透明な海と揺れる水鏡)',
+        'jp_name': '透明な海と揺れる水鏡',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_mirror_2026',
+        'jp_start': '2026-07-18',
+        'jp_end': '2026-07-27',
+        'kr_estimated_start': '2027-07-18',
+        'kr_estimated_end': '2027-07-27',
+        'unit': '25시, 나이트 코드에서.',
+        'attribute': '❄️ 쿨',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'Reflection on Still Water 뽑기',
+        'featured_cards': [
+            '★4 [수면 위에 비친 마음] 요이사키 카나데',
+            '★4 [투명하게 번지는 색] 시노노메 에나',
+            '★4 [조용한 파도 소리] 메구리네 루카',
+        ],
+        'theme_song': '25시, 나이트 코드에서. 커미션 신곡',
+    },
+    {
+        'id': 212,
+        'name': '한여름 밤의 불꽃과 약속의 해변 (真夏の夜の花火と約束の浜辺)',
+        'jp_name': '真夏の夜の花火と約束の浜辺',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_fireworks_2026',
+        'jp_start': '2026-07-29',
+        'jp_end': '2026-08-06',
+        'kr_estimated_start': '2027-07-29',
+        'kr_estimated_end': '2027-08-06',
+        'unit': '전 유닛 합동',
+        'attribute': '✨ 퓨어',
+        'is_limited': True,
+        'is_fes': False,
+        'gacha_name': 'Midsummer Sparkle Night 뽑기',
+        'featured_cards': [
+            '★4 [밤하늘에 피어난 약속] 텐마 사키',
+            '★4 [파도 소리와 불꽃놀이] 시라이시 안',
+            '★4 [여름밤을 수놓는 미소] 오오토리 에무',
+        ],
+        'theme_song': '커미션 신곡 없음 (합동 이벤트)',
+    },
+    {
+        'id': 213,
+        'name': 'Weaving Our Future',
+        'jp_name': 'Weaving Our Future',
+        'eventType': 'world_bloom',
+        'assetbundleName': 'event_weaving_2026',
+        'jp_start': '2026-08-08',
+        'jp_end': '2026-08-17',
+        'kr_estimated_start': '2027-08-08',
+        'kr_estimated_end': '2027-08-17',
+        'unit': '전 유닛 합동',
+        'attribute': '💖 큐트',
+        'is_limited': True,
+        'is_fes': False,
+        'gacha_name': 'Threads of Tomorrow 뽑기 (월드 링크)',
+        'featured_cards': [
+            '★4 [미래를 엮어 가는 손길] 모치즈키 호나미',
+            '★4 [희망을 전하는 미소] 모모이 아이리',
+            '★4 [함께 걸어온 길] 아오야기 토우야',
+            '★4 [다정한 빛을 따라서] 요이사키 카나데',
+        ],
+        'theme_song': '커미션 신곡 없음 (월드 링크 이벤트)',
+    },
+    {
+        'id': 214,
+        'name': 'Chasing the Sunburst',
+        'jp_name': 'Chasing the Sunburst',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_sunburst_2026',
+        'jp_start': '2026-08-19',
+        'jp_end': '2026-08-27',
+        'kr_estimated_start': '2027-08-19',
+        'kr_estimated_end': '2027-08-27',
+        'unit': 'Leo/need',
+        'attribute': '☀️ 해피',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'Sunlit Chord Progression 뽑기',
+        'featured_cards': [
+            '★4 [태양을 닮은 멜로디] 텐마 사키',
+            '★4 [울려 퍼지는 스트로크] 호시노 이치카',
+            '★4 [눈부신 무대 위에서] 카가미네 린',
+        ],
+        'theme_song': 'Leo/need 커미션 신곡',
+    },
+    {
+        'id': 215,
+        'name': '환상의 카니발과 별의 퍼레이드 (幻想のカーニバルと星のパレード)',
+        'jp_name': '幻想のカーニバルと星のパレード',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_carnival_2026',
+        'jp_start': '2026-08-29',
+        'jp_end': '2026-09-06',
+        'kr_estimated_start': '2027-08-29',
+        'kr_estimated_end': '2027-09-06',
+        'unit': '원더랜즈×쇼타임',
+        'attribute': '🌙 미스테리어스',
+        'is_limited': True,
+        'is_fes': False,
+        'gacha_name': 'Starlight Fantasy Parade 뽑기',
+        'featured_cards': [
+            '★4 [별빛 퍼레이드의 선두에서] 카미시로 루이',
+            '★4 [환상적인 밤의 초대장] 쿠사나기 네네',
+            '★4 [신비한 광대의 미소] 하츠네 미쿠',
+        ],
+        'theme_song': '원더랜즈×쇼타임 커미션 신곡',
+    },
+    {
+        'id': 216,
+        'name': 'Step by Step, Toward the Dream',
+        'jp_name': 'Step by Step, Toward the Dream',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_stepdream_2026',
+        'jp_start': '2026-09-08',
+        'jp_end': '2026-09-16',
+        'kr_estimated_start': '2027-09-08',
+        'kr_estimated_end': '2027-09-16',
+        'unit': 'MORE MORE JUMP!',
+        'attribute': '✨ 퓨어',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'Dreaming Idol Step 뽑기',
+        'featured_cards': [
+            '★4 [한 걸음씩 나아가는 용기] 히노모리 시즈쿠',
+            '★4 [언제나 곁에서 응원을] 키리타니 하루카',
+            '★4 [상냥한 노랫소리] 메구리네 루카',
+        ],
+        'theme_song': 'MORE MORE JUMP! 커미션 신곡',
+    },
+    {
+        'id': 217,
+        'name': 'Resonance of Virtual Voices',
+        'jp_name': 'Resonance of Virtual Voices',
+        'eventType': 'world_bloom',
+        'assetbundleName': 'event_virtual_2026',
+        'jp_start': '2026-09-18',
+        'jp_end': '2026-09-27',
+        'kr_estimated_start': '2027-09-18',
+        'kr_estimated_end': '2027-09-27',
+        'unit': '버추얼 싱어',
+        'attribute': '💖 큐트',
+        'is_limited': True,
+        'is_fes': False,
+        'gacha_name': 'Virtual Resonance 뽑기 (월드 링크)',
+        'featured_cards': [
+            '★4 [이어지는 세카이의 노래] 하츠네 미쿠',
+            '★4 [반짝이는 두 사람의 화음] 카가미네 린',
+            '★4 [울려 퍼지는 마음의 비트] 카가미네 렌',
+            '★4 [시간을 넘어선 선율] 메구리네 루카',
+            '★4 [따뜻하게 감싸는 목소리] MEIKO',
+            '★4 [다정한 울림을 그대에게] KAITO',
+        ],
+        'theme_song': '커미션 신곡 없음 (버추얼 싱어 월드 링크)',
+    },
+    {
+        'id': 218,
+        'name': '울려 퍼지는 축제의 노래, 이어지는 마음 (響く祝祭の歌、繋がる想い)',
+        'jp_name': '響く祝祭の歌、繋がる想い',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_anniv6th_2026',
+        'jp_start': '2026-09-30',
+        'jp_end': '2026-10-09',
+        'kr_estimated_start': '2027-09-30',
+        'kr_estimated_end': '2027-10-09',
+        'unit': '전 유닛 합동',
+        'attribute': '☀️ 해피',
+        'is_limited': True,
+        'is_fes': True,
+        'gacha_name': '[6주년 기념] 블룸 페스티벌 뽑기',
+        'featured_cards': [
+            '★4 [새로운 계절의 시작] 호시노 이치카',
+            '★4 [언제나 변함없는 미소로] 하나사토 미노리',
+            '★4 [파트너와 함께라면] 아즈사와 코하네',
+            '★4 [모두를 웃게 하는 무대] 텐마 츠카사',
+            '★4 [마음에 닿는 멜로디] 요이사키 카나데',
+            '★4 [세카이를 잇는 노랫소리] 하츠네 미쿠',
+        ],
+        'theme_song': '6주년 기념 애니버서리 곡',
+    },
+    {
+        'id': 219,
+        'name': 'Unbroken Street Pride',
+        'jp_name': 'Unbroken Street Pride',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_pride_2026',
+        'jp_start': '2026-10-11',
+        'jp_end': '2026-10-19',
+        'kr_estimated_start': '2027-10-11',
+        'kr_estimated_end': '2027-10-19',
+        'unit': 'Vivid BAD SQUAD',
+        'attribute': '❄️ 쿨',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'Pride on the Asphalt 뽑기',
+        'featured_cards': [
+            '★4 [꺾이지 않는 자부심] 시노노메 아키토',
+            '★4 [정상을 향한 발걸음] 아오야기 토우야',
+            '★4 [뜨거운 함성 속에서] MEIKO',
+        ],
+        'theme_song': 'Vivid BAD SQUAD 커미션 신곡',
+    },
+    {
+        'id': 220,
+        'name': 'Whispers in the Pale Fog',
+        'jp_name': 'Whispers in the Pale Fog',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_fog_2026',
+        'jp_start': '2026-10-21',
+        'jp_end': '2026-10-29',
+        'kr_estimated_start': '2027-10-21',
+        'kr_estimated_end': '2027-10-29',
+        'unit': '25시, 나이트 코드에서.',
+        'attribute': '✨ 퓨어',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'Veiled in Morning Mist 뽑기',
+        'featured_cards': [
+            '★4 [안개 너머로 들리는 목소리] 아키야마 미즈키',
+            '★4 [희미한 빛을 찾아서] 아사히나 마후유',
+            '★4 [조용히 곁을 지키는 그림자] KAITO',
+        ],
+        'theme_song': '25시, 나이트 코드에서. 커미션 신곡',
+    },
+    {
+        'id': 221,
+        'name': '달빛 아래의 가면무도회 (月下の仮面舞踏会)',
+        'jp_name': '月下の仮面舞踏会',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_masquerade_2026',
+        'jp_start': '2026-10-31',
+        'jp_end': '2026-11-08',
+        'kr_estimated_start': '2027-10-31',
+        'kr_estimated_end': '2027-11-08',
+        'unit': '전 유닛 합동',
+        'attribute': '🌙 미스테리어스',
+        'is_limited': True,
+        'is_fes': False,
+        'gacha_name': 'Moonlight Masquerade 뽑기',
+        'featured_cards': [
+            '★4 [가면 뒤에 숨긴 미소] 시라이시 안',
+            '★4 [밤을 수놓는 왈츠] 텐마 츠카사',
+            '★4 [달빛의 초대장] 메구리네 루카',
+        ],
+        'theme_song': '커미션 신곡 없음 (합동 이벤트)',
+    },
+    {
+        'id': 222,
+        'name': 'Harmony of Autumn Breeze',
+        'jp_name': 'Harmony of Autumn Breeze',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_autumn_2026',
+        'jp_start': '2026-11-02',
+        'jp_end': '2026-11-09',
+        'kr_estimated_start': '2027-11-02',
+        'kr_estimated_end': '2027-11-09',
+        'unit': 'Leo/need',
+        'attribute': '💖 큐트',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'Autumn Breeze Session 뽑기',
+        'featured_cards': [
+            '★4 [가을바람을 타고 울리는 소리] 히노모리 시호',
+            '★4 [따뜻한 차 한 잔의 여유] 모치즈키 호나미',
+            '★4 [단풍잎이 춤추는 길] 하츠네 미쿠',
+        ],
+        'theme_song': 'Leo/need 커미션 신곡',
+    },
+    {
+        'id': 225,
+        'name': 'Curtain Rises on the Miracle',
+        'jp_name': 'Curtain Rises on the Miracle',
+        'eventType': 'marathon',
+        'assetbundleName': 'event_miracle_2026',
+        'jp_start': '2026-11-11',
+        'jp_end': '2026-11-18',
+        'kr_estimated_start': '2027-11-11',
+        'kr_estimated_end': '2027-11-18',
+        'unit': '원더랜즈×쇼타임',
+        'attribute': '✨ 퓨어',
+        'is_limited': False,
+        'is_fes': False,
+        'gacha_name': 'Miracle Stage Curtain 뽑기',
+        'featured_cards': [
+            '★4 [기적이 시작되는 순간] 오오토리 에무',
+            '★4 [반짝이는 관객석을 향해] 쿠사나기 네네',
+            '★4 [마법 같은 쇼타임!] 카가미네 렌',
+        ],
+        'theme_song': '원더랜즈×쇼타임 커미션 신곡',
+    },
+]
 
 _FORECAST_CACHE = None
 _FORECAST_CACHE_TIME = 0.0
 
+_UNIT_CODE_TO_KR = {
+    "light_sound": "Leo/need",
+    "idol": "MORE MORE JUMP!",
+    "street": "Vivid BAD SQUAD",
+    "theme_park": "원더랜즈×쇼타임",
+    "school_refusal": "25시, 나이트 코드에서.",
+    "piapro": "버추얼 싱어",
+}
 
-def get_event_forecast_list():
+_ATTR_CODE_TO_FORECAST_LABEL = {
+    "cool": "❄️ 쿨",
+    "cute": "💖 큐트",
+    "pure": "✨ 퓨어",
+    "happy": "☀️ 해피",
+    "mysterious": "🌙 미스테리어스",
+}
+
+
+def _add_one_year_date_str(date_str: str) -> str:
+    """YYYY-MM-DD 형식의 문자열에 정확히 1년(윤년 안전 처리)을 더한 날짜 문자열을 반환합니다."""
+    try:
+        dt = datetime.date.fromisoformat(date_str)
+        try:
+            return dt.replace(year=dt.year + 1).isoformat()
+        except ValueError:
+            return dt.replace(year=dt.year + 1, day=28).isoformat()
+    except Exception:
+        return date_str
+
+
+def get_event_forecast_list(force_refresh: bool = False):
     """
-    일섭 events.json 및 한섭 데이터를 비교/병합하여
-    한국 서버 미래시 예상 이벤트 목록을 반환합니다.
-    (실패 시 신뢰도 높은 내장 미래시 데이터셋으로 즉시 안전 폴백)
+    일섭(JP) 및 한섭(KR) 마스터 DB(events, eventDeckBonuses, eventCards, eventMusics, gachas, cards)를
+    실시간 병합하여 한국 서버 미래시 예상 이벤트 목록을 반환합니다.
+    (실패 또는 일반 UI 빠른 조회 시 신뢰도 높은 내장 미래시 데이터셋과 즉시 병합/폴백)
     """
     global _FORECAST_CACHE, _FORECAST_CACHE_TIME
     now = time.time()
-    if _FORECAST_CACHE and (now - _FORECAST_CACHE_TIME < 1800):
+    if _FORECAST_CACHE and not force_refresh and (now - _FORECAST_CACHE_TIME < 21600):
         return _FORECAST_CACHE
 
-    events = BUILTIN_FORECAST_EVENTS
-    try:
-        cfg_jp = SERVER_DB_URLS["jp"]
-        jp_events = fetch_json_with_fallback(cfg_jp["events"])
-        if jp_events and isinstance(jp_events, list) and len(jp_events) > 50:
-            # JP 최신 이벤트 목록에서 빌트인 데이터의 상세 정보와 매핑
-            pass
-    except Exception:
-        pass
+    builtin_by_id = {int(ev["id"]): dict(ev) for ev in BUILTIN_FORECAST_EVENTS}
 
-    _FORECAST_CACHE = events
-    _FORECAST_CACHE_TIME = now
+    # 빠른 초기 응답이 필요하고 강제 새로고침이 아니면 내장 최신화 데이터로 먼저 캐시 초기화
+    if not force_refresh and _FORECAST_CACHE is None:
+        _FORECAST_CACHE = [dict(ev) for ev in BUILTIN_FORECAST_EVENTS]
+        _FORECAST_CACHE_TIME = now
+
+    if force_refresh:
+        try:
+            cfg_jp = SERVER_DB_URLS["jp"]
+            cfg_kr = SERVER_DB_URLS["kr"]
+            jp_events = fetch_json_with_fallback(cfg_jp["events"])
+            kr_events = fetch_json_with_fallback(cfg_kr["events"])
+            jp_bonuses = fetch_json_with_fallback([
+                "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/eventDeckBonuses.json",
+                "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-diff@main/eventDeckBonuses.json",
+            ])
+            jp_char_units = fetch_json_with_fallback([
+                "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/gameCharacterUnits.json",
+                "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-diff@main/gameCharacterUnits.json",
+            ])
+            jp_event_cards = fetch_json_with_fallback([
+                "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/eventCards.json",
+                "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-diff@main/eventCards.json",
+            ])
+            jp_cards = fetch_json_with_fallback([
+                "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/cards.json",
+                "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-diff@main/cards.json",
+            ])
+            kr_cards = fetch_json_with_fallback([
+                "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-kr-diff/main/cards.json",
+                "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-kr-diff@main/cards.json",
+            ])
+            jp_event_musics = fetch_json_with_fallback([
+                "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/eventMusics.json",
+                "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-diff@main/eventMusics.json",
+            ])
+            jp_musics = fetch_json_with_fallback([
+                "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/musics.json",
+                "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-diff@main/musics.json",
+            ])
+            kr_musics = fetch_json_with_fallback([
+                "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-kr-diff/main/musics.json",
+                "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-kr-diff@main/musics.json",
+            ])
+            kr_gachas = fetch_json_with_fallback(cfg_kr["gachas"])
+            jp_gachas = fetch_json_with_fallback(cfg_jp["gachas"])
+
+            if isinstance(jp_events, list) and len(jp_events) > 50:
+                kr_ev_map = {int(e["id"]): e for e in (kr_events or []) if isinstance(e, dict) and "id" in e}
+                gcu_map = {int(u["id"]): u.get("unit", "") for u in (jp_char_units or []) if isinstance(u, dict) and "id" in u}
+                jp_card_map = {int(c["id"]): c for c in (jp_cards or []) if isinstance(c, dict) and "id" in c}
+                kr_card_map = {int(c["id"]): c for c in (kr_cards or []) if isinstance(c, dict) and "id" in c}
+                jp_music_map = {int(m["id"]): m.get("title", "") for m in (jp_musics or []) if isinstance(m, dict) and "id" in m}
+                kr_music_map = {int(m["id"]): m.get("title", "") for m in (kr_musics or []) if isinstance(m, dict) and "id" in m}
+
+                bonus_by_ev: dict[int, list[dict]] = {}
+                for b in (jp_bonuses or []):
+                    if isinstance(b, dict) and "eventId" in b:
+                        bonus_by_ev.setdefault(int(b["eventId"]), []).append(b)
+
+                ev_cards_by_ev: dict[int, list[int]] = {}
+                for ec in (jp_event_cards or []):
+                    if isinstance(ec, dict) and "eventId" in ec and "cardId" in ec:
+                        ev_cards_by_ev.setdefault(int(ec["eventId"]), []).append(int(ec["cardId"]))
+
+                ev_music_by_ev: dict[int, int] = {}
+                for em in (jp_event_musics or []):
+                    if isinstance(em, dict) and "eventId" in em and "musicId" in em:
+                        ev_music_by_ev.setdefault(int(em["eventId"]), int(em["musicId"]))
+
+                merged_events = []
+                for jev in jp_events:
+                    if not isinstance(jev, dict) or "id" not in jev:
+                        continue
+                    eid = int(jev["id"])
+                    if eid < 154:
+                        continue
+                    start_ms = int(jev.get("startAt", 0) or 0)
+                    end_ms = int(jev.get("aggregateAt", 0) or jev.get("closedAt", 0) or 0)
+                    # 1일 미만 테스트 이벤트(예: 치어풀 테스트 186, 224)는 미래시 캘린더에서 제외
+                    if start_ms and end_ms and (end_ms - start_ms) < 3 * 86400 * 1000:
+                        continue
+
+                    base = dict(builtin_by_id.get(eid, {}))
+                    kev = kr_ev_map.get(eid)
+
+                    jp_s = datetime.datetime.fromtimestamp(start_ms / 1000, KST).strftime("%Y-%m-%d") if start_ms else base.get("jp_start", "")
+                    jp_e = datetime.datetime.fromtimestamp(end_ms / 1000, KST).strftime("%Y-%m-%d") if end_ms else base.get("jp_end", "")
+
+                    if kev and kev.get("startAt") and kev.get("aggregateAt"):
+                        kr_s = datetime.datetime.fromtimestamp(int(kev["startAt"]) / 1000, KST).strftime("%Y-%m-%d")
+                        kr_e = datetime.datetime.fromtimestamp(int(kev["aggregateAt"]) / 1000, KST).strftime("%Y-%m-%d")
+                    else:
+                        kr_s = base.get("kr_estimated_start") or _add_one_year_date_str(jp_s)
+                        kr_e = base.get("kr_estimated_end") or _add_one_year_date_str(jp_e)
+
+                    # 유닛 및 보너스 속성 판별
+                    unit_label = base.get("unit", "전 유닛 합동")
+                    attr_label = base.get("attribute", "✨ 퓨어")
+                    eb_list = bonus_by_ev.get(eid, [])
+                    if eb_list:
+                        attrs = [b.get("cardAttr") for b in eb_list if b.get("cardAttr")]
+                        if attrs and attrs[0] in _ATTR_CODE_TO_FORECAST_LABEL:
+                            attr_label = _ATTR_CODE_TO_FORECAST_LABEL[attrs[0]]
+                        units_in_ev = {
+                            gcu_map.get(int(b["gameCharacterUnitId"]), "")
+                            for b in eb_list
+                            if b.get("gameCharacterUnitId") and gcu_map.get(int(b["gameCharacterUnitId"]), "")
+                        }
+                        non_piapro = units_in_ev - {"piapro"}
+                        if len(non_piapro) == 1:
+                            only_u = next(iter(non_piapro))
+                            unit_label = _UNIT_CODE_TO_KR.get(only_u, unit_label)
+                        elif len(non_piapro) == 0 and "piapro" in units_in_ev:
+                            unit_label = "버추얼 싱어"
+                        elif len(non_piapro) > 1:
+                            unit_label = "전 유닛 합동"
+
+                    # ★4 픽업 카드 및 한정/페스 판별
+                    cids = ev_cards_by_ev.get(eid, [])
+                    featured_cards = []
+                    supply_ids = set()
+                    four_star_ids = set()
+                    for cid in cids:
+                        c_obj = kr_card_map.get(cid) or jp_card_map.get(cid)
+                        if not c_obj:
+                            continue
+                        if c_obj.get("cardRarityType") == "rarity_4":
+                            four_star_ids.add(cid)
+                            supply_ids.add(int(c_obj.get("cardSupplyId", 1) or 1))
+                            char_name = CHARACTER_MAP.get(int(c_obj.get("characterId", 0)), {}).get("name", "")
+                            prefix = c_obj.get("prefix", "")
+                            featured_cards.append(f"★4 [{prefix}] {char_name}".strip())
+
+                    if not featured_cards:
+                        featured_cards = base.get("featured_cards", ["★4 픽업 카드 정보 업데이트 예정"])
+
+                    is_fes = bool(base.get("is_fes", False) or (4 in supply_ids) or (5 in supply_ids))
+                    is_limited = bool(base.get("is_limited", False) or is_fes or any(sid in (2, 3, 4, 5, 6, 7) for sid in supply_ids))
+
+                    # 테마곡 매핑
+                    mid = ev_music_by_ev.get(eid)
+                    theme_song = base.get("theme_song") or ""
+                    if mid:
+                        theme_song = kr_music_map.get(mid) or theme_song or jp_music_map.get(mid) or ""
+                    if not theme_song:
+                        if jev.get("eventType") == "world_bloom":
+                            theme_song = "커미션 신곡 없음 (월드 링크 이벤트)"
+                        else:
+                            theme_song = "커미션 신곡 없음 (합동 이벤트)"
+
+                    # 가챠 배너명 매핑
+                    gacha_name = base.get("gacha_name") or ""
+                    if four_star_ids and isinstance(kr_gachas, list):
+                        for g in kr_gachas:
+                            pickups = {int(p.get("cardId", 0)) for p in (g.get("gachaPickups") or []) if isinstance(p, dict)}
+                            if len(four_star_ids & pickups) >= 2:
+                                gacha_name = g.get("name") or gacha_name
+                                break
+                    if not gacha_name and four_star_ids and isinstance(jp_gachas, list):
+                        for g in jp_gachas:
+                            pickups = {int(p.get("cardId", 0)) for p in (g.get("gachaPickups") or []) if isinstance(p, dict)}
+                            if len(four_star_ids & pickups) >= 2:
+                                gacha_name = g.get("name") or gacha_name
+                                break
+                    if not gacha_name:
+                        gacha_name = f"{(kev or {}).get('name') or base.get('name') or jev.get('name', '이벤트')} 픽업 뽑기"
+
+                    ev_name = (kev or {}).get("name") or base.get("name") or jev.get("name", f"Event #{eid}")
+                    merged_events.append({
+                        "id": eid,
+                        "name": ev_name,
+                        "jp_name": jev.get("name", base.get("jp_name", ev_name)),
+                        "eventType": jev.get("eventType", base.get("eventType", "marathon")),
+                        "assetbundleName": jev.get("assetbundleName", base.get("assetbundleName", "")),
+                        "jp_start": jp_s,
+                        "jp_end": jp_e,
+                        "kr_estimated_start": kr_s,
+                        "kr_estimated_end": kr_e,
+                        "unit": unit_label,
+                        "attribute": attr_label,
+                        "is_limited": is_limited,
+                        "is_fes": is_fes,
+                        "gacha_name": gacha_name,
+                        "featured_cards": featured_cards,
+                        "theme_song": theme_song,
+                    })
+
+                if merged_events:
+                    merged_events.sort(key=lambda x: (x["kr_estimated_start"], x["id"]))
+                    _FORECAST_CACHE = merged_events
+                    _FORECAST_CACHE_TIME = now
+                    print(f"✅ 프로세카 미래시(KR+JP) DB 실시간 병합 완료: {len(merged_events)}개 이벤트", flush=True)
+        except Exception as e:
+            print(f"⚠️ 프로세카 미래시 실시간 병합 중 예외 발생 (내장 DB 사용): {e}", flush=True)
+
+    if not _FORECAST_CACHE:
+        _FORECAST_CACHE = [dict(ev) for ev in BUILTIN_FORECAST_EVENTS]
+        _FORECAST_CACHE_TIME = now
     return _FORECAST_CACHE
 
 
@@ -2683,6 +3698,7 @@ def build_monthly_event_forecast_calendar(target_year: int, target_month: int):
     """
     cal = calendar.monthcalendar(target_year, target_month)
     forecast_list = get_event_forecast_list()
+    today_str = datetime.datetime.now(KST).strftime("%Y-%m-%d")
 
     last_day = calendar.monthrange(target_year, target_month)[1]
     month_start_str = f"{target_year:04d}-{target_month:02d}-01"
@@ -2694,7 +3710,17 @@ def build_monthly_event_forecast_calendar(target_year: int, target_month: int):
         ev_e = ev["kr_estimated_end"]
         # 오버랩 검사: 이번 달과 겹치는 이벤트
         if not (ev_e < month_start_str or ev_s > month_end_str):
-            events_in_month.append(ev)
+            ev_copy = dict(ev)
+            if ev_s <= today_str <= ev_e:
+                ev_copy["status_badge"] = "🟢 현재 진행 중"
+                ev_copy["status_code"] = "ongoing"
+            elif today_str < ev_s:
+                ev_copy["status_badge"] = "⏳ 진행 예정"
+                ev_copy["status_code"] = "upcoming"
+            else:
+                ev_copy["status_badge"] = "🏁 종료됨"
+                ev_copy["status_code"] = "ended"
+            events_in_month.append(ev_copy)
 
     # 아스키 달력 테이블 생성
     days_header = "일   월   화   수   목   금   토"
@@ -2711,7 +3737,9 @@ def build_monthly_event_forecast_calendar(target_year: int, target_month: int):
                 is_end = any(ev["kr_estimated_end"] == day_str for ev in events_in_month)
                 is_ongoing = any(ev["kr_estimated_start"] <= day_str <= ev["kr_estimated_end"] for ev in events_in_month)
 
-                if is_start:
+                if day_str == today_str:
+                    icon = f"{day:2d}📍"
+                elif is_start:
                     icon = f"{day:2d}🚩"
                 elif is_end:
                     icon = f"{day:2d}🏁"
@@ -2728,6 +3756,7 @@ def build_monthly_event_forecast_calendar(target_year: int, target_month: int):
         "year": target_year,
         "month": target_month,
         "month_label": f"{target_year}년 {target_month:02d}월",
+        "today_str": today_str,
         "calendar_ascii": calendar_ascii,
         "events_in_month": events_in_month,
         "total_events_count": len(forecast_list),
@@ -3189,10 +4218,35 @@ def normalize_data(data):
             for g_key, g_map in list(data[u_root_key].items()):
                 if isinstance(g_map, dict):
                     for u_key, u_info in list(g_map.items()):
-                        if isinstance(u_info, dict) and isinstance(u_info.get("items"), dict):
-                            for item_k, item_obj in u_info["items"].items():
-                                if isinstance(item_obj, dict):
-                                    item_obj.setdefault("locked", False)
+                        if isinstance(u_info, dict):
+                            if isinstance(u_info.get("items"), dict):
+                                for item_k, item_obj in u_info["items"].items():
+                                    if isinstance(item_obj, dict):
+                                        item_obj.setdefault("locked", False)
+                            if u_root_key == "genshin_users":
+                                if not isinstance(u_info.get("artifacts"), dict):
+                                    u_info["artifacts"] = {}
+                                else:
+                                    for a_obj in u_info["artifacts"].values():
+                                        if isinstance(a_obj, dict):
+                                            a_obj.setdefault("locked", False)
+                                if not isinstance(u_info.get("artifact_sets_seen"), list):
+                                    u_info["artifact_sets_seen"] = []
+                                u_info.setdefault("artifact_essence", 0)
+                                u_info.setdefault("sanctifying_elixir", 2)
+                                u_info.setdefault("artifact_pulls", 0)
+                            else:
+                                if not isinstance(u_info.get("relics"), dict):
+                                    u_info["relics"] = {}
+                                else:
+                                    for r_obj in u_info["relics"].values():
+                                        if isinstance(r_obj, dict):
+                                            r_obj.setdefault("locked", False)
+                                if not isinstance(u_info.get("relic_sets_seen"), list):
+                                    u_info["relic_sets_seen"] = []
+                                u_info.setdefault("relic_remains", 0)
+                                u_info.setdefault("self_modeling_resin", 2)
+                                u_info.setdefault("relic_pulls", 0)
 
     for hof_key in ("genshin_hall_of_fame", "hsr_hall_of_fame"):
         if hof_key not in data or not isinstance(data[hof_key], dict):
@@ -3327,11 +4381,13 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                 rem_g = merged[u_root_key].setdefault(g_key, {})
                 for u_key, local_u in local_g_users.items():
                     rem_u = rem_g.get(u_key)
-                    if not isinstance(rem_u, dict) or (
-                        isinstance(local_u, dict)
-                        and local_u.get("total_pulls", 0) > rem_u.get("total_pulls", 0)
-                    ):
+                    if not isinstance(rem_u, dict):
                         rem_g[u_key] = copy.deepcopy(local_u)
+                    elif isinstance(local_u, dict):
+                        l_score = int(local_u.get("total_pulls", 0)) + int(local_u.get("artifact_pulls", 0)) + int(local_u.get("relic_pulls", 0))
+                        r_score = int(rem_u.get("total_pulls", 0)) + int(rem_u.get("artifact_pulls", 0)) + int(rem_u.get("relic_pulls", 0))
+                        if l_score > r_score:
+                            rem_g[u_key] = copy.deepcopy(local_u)
 
     for hof_key in ("genshin_hall_of_fame", "hsr_hall_of_fame"):
         for g_key, local_hof in local_norm.get(hof_key, {}).items():
@@ -4016,13 +5072,22 @@ def _is_banner_pickup(card: dict, pickup_cfg: dict, banner_type: str = "normal",
                     return True
             return True
         return False
+    elif banner_type == "costume":
+        has_cos = str(card.get("id")) in PROSEKA_KR_COSTUMES
+        if not has_cos:
+            return False
+        sekai_t = get_proseka_sekai_time_theme()
+        t_units = sekai_t.get("units", [])
+        if t_units and (card.get("unit") in t_units or card.get("support_unit") in t_units):
+            return True
+        return has_cos
     return is_card_pickup(card, pickup_cfg)
 
 
 def calculate_card_probabilities(pickup_cfg, banner_type: str = "normal"):
     b_key = banner_type if banner_type in BANNER_CONFIGS else "normal"
     b_cfg = BANNER_CONFIGS[b_key]
-    include_lim = True if b_key in ("fes", "birthday") else pickup_cfg.get("include_limited", True)
+    include_lim = True if b_key in ("fes", "birthday", "costume") else pickup_cfg.get("include_limited", True)
     pool = [c for c in PROSEKA_KR_CARDS if include_lim or not c["is_limited"]]
     if not pool:
         pool = list(PROSEKA_KR_CARDS)

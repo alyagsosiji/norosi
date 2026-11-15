@@ -634,13 +634,45 @@ class NorosiBot(commands.Bot):
         if custom_id.startswith("norosi:"):
             parts = custom_id.split(":", 2)
             if len(parts) >= 3:
-                view_name = parts[1]
+                raw_view_name = parts[1]
+                legacy_view_aliases = {
+                    "forecast": "EventForecastView",
+                }
+                view_name = legacy_view_aliases.get(raw_view_name, raw_view_name)
                 item_name = parts[2]
+                legacy_item_aliases = {
+                    ("EventForecastView", "prev"): "on_prev_month",
+                    ("EventForecastView", "cur"): "on_current_month",
+                    ("EventForecastView", "next"): "on_next_month",
+                    ("EventForecastView", "all"): "on_show_all_list",
+                }
+                item_name = legacy_item_aliases.get((view_name, item_name), item_name)
                 view_cls = core.SAFE_VIEW_REGISTRY.get(view_name)
                 if view_cls:
                     try:
                         view = core.reconstruct_safe_view(view_cls, interaction)
                         if view:
+                            if view_name == "MasterDashboardView" and msg and msg.embeds:
+                                e_title = (msg.embeds[0].title or "")
+                                if "원신" in e_title:
+                                    view.current_tab = "genshin"
+                                elif "스타레일" in e_title:
+                                    view.current_tab = "hsr"
+                                elif "프로세카" in e_title or "가챠" in e_title:
+                                    view.current_tab = "gacha"
+                                elif "라이프" in e_title or "D-Day" in e_title:
+                                    view.current_tab = "life"
+                                elif "음악" in e_title or "플레이리스트" in e_title:
+                                    view.current_tab = "music"
+                                elif "역할" in e_title or "서버 관리" in e_title:
+                                    view.current_tab = "admin"
+                                elif "미니게임" in e_title or "파티 모집" in e_title:
+                                    view.current_tab = "game"
+                                elif "통계" in e_title or "호스트" in e_title:
+                                    view.current_tab = "stats"
+                                if hasattr(view, "refresh_components"):
+                                    view.refresh_components()
+
                             target_item = None
                             for child in view.children:
                                 if getattr(child, "custom_id", None) == custom_id:
@@ -648,14 +680,26 @@ class NorosiBot(commands.Bot):
                                     break
                             if not target_item:
                                 for child in view.children:
-                                    cb_name = getattr(getattr(child, "callback", None), "__name__", "")
-                                    if cb_name == item_name:
+                                    cb_obj = getattr(child, "callback", None)
+                                    inner_cb = getattr(cb_obj, "callback", None)
+                                    cb_names = {
+                                        getattr(cb_obj, "__name__", ""),
+                                        getattr(inner_cb, "__name__", ""),
+                                    }
+                                    if item_name in cb_names:
                                         target_item = child
                                         break
                                     if getattr(child, "label", None) == item_name:
                                         target_item = child
                                         break
                             if target_item and hasattr(target_item, "callback"):
+                                if hasattr(view, "interaction_check"):
+                                    try:
+                                        allowed = await view.interaction_check(interaction)
+                                        if not allowed:
+                                            return
+                                    except Exception as chk_err:
+                                        print(f"⚠️ [norosi interaction_check 예외] {chk_err}", flush=True)
                                 if hasattr(target_item, "_refresh_state"):
                                     try:
                                         target_item._refresh_state(interaction, interaction.data)
@@ -664,7 +708,11 @@ class NorosiBot(commands.Bot):
                                 try:
                                     await target_item.callback(interaction)
                                 except Exception as cb_err:
-                                    print(f"⚠️ [norosi 버튼 콜백 실행 예외] {cb_err}", flush=True)
+                                    print(f"⚠️ [norosi 버튼 콜백 실행 예외] {view_name}.{item_name}: {cb_err}", flush=True)
+                                    try:
+                                        await view.on_error(interaction, cb_err, target_item)
+                                    except Exception:
+                                        pass
                                 if msg:
                                     self.attach_view_to_message(view, message_id=msg.id)
                                 return
@@ -674,9 +722,11 @@ class NorosiBot(commands.Bot):
         # 3. 코드 반영 전 구버전 메시지(랜덤 hex custom_id) 지능형 매칭 및 복구
         if msg:
             embed_text = ""
+            e_title_only = ""
             if msg.embeds:
                 emb = msg.embeds[0]
-                embed_text = f"{emb.title or ''} {emb.description or ''}"
+                e_title_only = emb.title or ""
+                embed_text = f"{e_title_only} {emb.description or ''}"
 
             clicked_label = ""
             clicked_emoji = ""
@@ -744,12 +794,29 @@ class NorosiBot(commands.Bot):
                     print(f"⚠️ [음성 플레이어 리모컨 구버전 복구 예외] {e}", flush=True)
 
             # 3-2. 올인원 마스터 대시보드
-            if "마스터 대시보드" in embed_text or "norosi 통합 제어" in embed_text:
+            if "대시보드" in e_title_only or "마스터 대시보드" in embed_text or "norosi 통합 제어" in embed_text:
                 try:
                     from cogs.dashboard import MasterDashboardView
                     data = core.get_cached_data()
                     view = MasterDashboardView(self, interaction.user, interaction.guild, data)
                     view.message = msg
+                    if "원신" in e_title_only:
+                        view.current_tab = "genshin"
+                    elif "스타레일" in e_title_only:
+                        view.current_tab = "hsr"
+                    elif "프로세카" in e_title_only or "가챠" in e_title_only:
+                        view.current_tab = "gacha"
+                    elif "라이프" in e_title_only or "D-Day" in e_title_only:
+                        view.current_tab = "life"
+                    elif "음악" in e_title_only or "플레이리스트" in e_title_only:
+                        view.current_tab = "music"
+                    elif "역할" in e_title_only or "서버 관리" in e_title_only:
+                        view.current_tab = "admin"
+                    elif "미니게임" in e_title_only or "파티 모집" in e_title_only:
+                        view.current_tab = "game"
+                    elif "통계" in e_title_only or "호스트" in e_title_only:
+                        view.current_tab = "stats"
+                    view.refresh_components()
 
                     if component_type in (3, 5, 6, 7, 8):
                         for child in view.children:
@@ -1037,9 +1104,9 @@ class NorosiBot(commands.Bot):
     async def midnight_tasks(self):
         import genshin_core, hsr_core
         await asyncio.gather(
-            asyncio.to_thread(core.load_proseka_kr_db),
-            asyncio.to_thread(genshin_core.load_genshin_kr_db),
-            asyncio.to_thread(hsr_core.load_hsr_kr_db),
+            asyncio.to_thread(core.refresh_proseka_dbs, True),
+            asyncio.to_thread(genshin_core.load_genshin_kr_db, True),
+            asyncio.to_thread(hsr_core.load_hsr_kr_db, True),
             return_exceptions=True,
         )
 

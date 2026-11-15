@@ -325,18 +325,13 @@ class CommandRemoteSelect(discord.ui.Select):
         self.bot_instance = bot_instance
         self.user = user
         options = [
-            discord.SelectOption(label="📅 /출석체크", value="attendance", description="자정 기준 하루 1회 출석하고 +100💎 및 마일스톤 받기"),
-            discord.SelectOption(label="🗓️ /출석달력", value="att_calendar", description="이번 달 출석 도장 캘린더 및 개근 보상 조회"),
+            discord.SelectOption(label="📅 /출석체크 & 달력", value="attendance", description="자정 기준 하루 1회 출석하고 +100💎 및 월간 마일스톤 받기"),
             discord.SelectOption(label="🌱 /오늘목표", value="todo", description="오늘의 To-Do 체크 및 7일 은하수 잔디 심기"),
-            discord.SelectOption(label="🎮 /모집", value="recruit", description="프로세카 및 모든 게임 파티/팀원 자유 작성 모집"),
-            discord.SelectOption(label="🎂 /생일등록", value="birthday", description="멤버 생일 전광판 조회 및 내 생일 등록 (+500💎 축하)"),
-            discord.SelectOption(label="⏰ /알림예약", value="reminder", description="잊지 않게 챙겨주는 스마트 개인 알리미 예약/관리"),
-            discord.SelectOption(label="🌤️ /날씨", value="weather", description="기상청/ECMWF 초정밀 실시간 날씨·미세먼지·강수확률"),
-            discord.SelectOption(label="🔤 /끝말잇기", value="word_chain", description="표준 두음법칙 적용 실시간 끝말잇기 대결 (+150💎)"),
-            discord.SelectOption(label="🔫 /러시안룰렛", value="roulette", description="6연발 리볼버 스릴 만점 생존 게임"),
-            discord.SelectOption(label="🪪 /유저정보", value="user_info", description="멤버 가입일, 서버 입장 순번, 역할, 활동량 상세 조회"),
+            discord.SelectOption(label="🎰 /프로세카뽑기 (10회)", value="pull_10", description="프로세카 10회 연속 뽑기 (★3 이상 확정 / 시각별 유닛 픽업)"),
+            discord.SelectOption(label="🌠 /원신기원 (10회)", value="genshin_10", description="원신 10회 기원 (캐릭터·신의 주조 무기·성유물 시각별 로테이션)"),
+            discord.SelectOption(label="🚆 /스타레일워프 (10회)", value="hsr_10", description="붕괴: 스타레일 10회 워프 (캐릭터·광추·유물 시각별 로테이션)"),
+            discord.SelectOption(label="📅 /미래시", value="forecast", description="프로세카 한섭 이벤트 미래시 달력 & 일섭 비교 상세 타임라인"),
             discord.SelectOption(label="🎶 /이벤트", value="event_info", description="한섭/일섭 실시간 이벤트 및 가챠 배너 정보"),
-            discord.SelectOption(label="🎰 /프로세카뽑기 (10회)", value="pull_10", description="10회 연속 뽑기 (★3 이상 1장 확정 / 2,000💎 소모)"),
             discord.SelectOption(label="🎒 /내캐릭터", value="my_chars", description="뽑은 캐릭터 보관함 & 잠금(🔒) 관리"),
             discord.SelectOption(label="👗 /의상", value="wardrobe", description="캐릭터 3D 의상 착용·어나더 컬러 및 타 캐릭터 의상 제작"),
             discord.SelectOption(label="🏆 /마스터랭크", value="master_rank", description="카드 한계 돌파(MR 0~5) 및 어나더 컬러·한정 헤어 해금"),
@@ -349,6 +344,11 @@ class CommandRemoteSelect(discord.ui.Select):
             discord.SelectOption(label="📋 /디데이목록", value="dday_list", description="등록된 모든 D-Day 전광판 진행 상황 확인"),
             discord.SelectOption(label="💌 /비밀디데이", value="dday_secret", description="나만 볼 수 있는 비밀 D-Day & 타임캡슐 DM"),
             discord.SelectOption(label="💑 /파트너", value="partner", description="연인·친구 파트너 맺기 및 공동 D-Day 관리"),
+            discord.SelectOption(label="🎂 /생일등록", value="birthday", description="멤버 생일 전광판 조회 및 내 생일 등록 (+500💎 축하)"),
+            discord.SelectOption(label="⏰ /알림예약", value="reminder", description="잊지 않게 챙겨주는 스마트 개인 알리미 예약/관리"),
+            discord.SelectOption(label="🎮 /모집", value="recruit", description="프로세카·원신·스타레일 등 모든 게임 파티/팀원 자유 모집"),
+            discord.SelectOption(label="🌤️ /날씨", value="weather", description="기상청/ECMWF 초정밀 실시간 날씨·미세먼지·강수확률"),
+            discord.SelectOption(label="🔤 /끝말잇기", value="word_chain", description="표준 두음법칙 적용 실시간 끝말잇기 대결 (+150💎)"),
             discord.SelectOption(label="❓ /도움말", value="help", description="norosi 봇 전체 명령어 카테고리별 상세 도움말"),
         ]
         super().__init__(
@@ -406,7 +406,16 @@ class CommandRemoteSelect(discord.ui.Select):
             await core.safe_defer(interaction)
             now = datetime.datetime.now(core.KST)
             view = EventForecastView(interaction.user, now.year, now.month)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            embed = await asyncio.to_thread(view.build_embed)
+            await interaction.followup.send(embed=embed, view=view)
+        elif val == "genshin_10":
+            import cogs.genshin as genshin_mod
+            pv = genshin_mod.GenshinPullAgainView(interaction.user, banner_key="char1", skip_anim=False, practice=False, last_count=10)
+            await pv._run_repull_with_cooldown(interaction, 10)
+        elif val == "hsr_10":
+            import cogs.hsr as hsr_mod
+            wv = hsr_mod.HSRWarpAgainView(interaction.user, banner_key="char1", skip_anim=False, practice=False, last_count=10)
+            await wv._run_rewarp_with_cooldown(interaction, 10)
         elif val == "event_info":
             await core.safe_defer(interaction)
             info = await asyncio.to_thread(core.fetch_live_event_and_gacha_info, "kr")
@@ -1671,7 +1680,8 @@ class DDayDeleteSelect(discord.ui.Select):
     def __init__(self, ddays, bot_instance):
         self.bot_instance = bot_instance
         options = []
-        sorted_ddays = sorted(ddays.items(), key=lambda x: x[1].get("date", "9999-12-31"))
+        ddays_dict = ddays if isinstance(ddays, dict) else {}
+        sorted_ddays = sorted(ddays_dict.items(), key=lambda x: x[1].get("date", "9999-12-31"))
         for name, info in sorted_ddays[:25]:
             date_str = info.get("date", "")
             repeat_icon = "🔄 " if info.get("repeat") else ""
@@ -1680,11 +1690,16 @@ class DDayDeleteSelect(discord.ui.Select):
                 label=name,
                 description=f"{ch_icon}{repeat_icon}목표일: {date_str}" if date_str else "목표일 미지정"
             ))
+        if not options:
+            options.append(discord.SelectOption(label="삭제할 일정이 없습니다", value="NONE"))
         super().__init__(placeholder="🗑️ 삭제할 일정을 선택하세요 (연결된 채널도 함께 삭제됩니다)...", min_values=1, max_values=1, options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction, ephemeral=True)
         selected_name = self.values[0]
+        if selected_name == "NONE":
+            await core.safe_defer(interaction, ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
 
         if selected_name in data["ddays"]:

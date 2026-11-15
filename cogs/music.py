@@ -60,11 +60,11 @@ class MusicRecommendView(core.SafeView):
         self.bot_instance = bot_instance
         self.prefs = prefs
         self.is_morning = is_morning
-        self.track_info = dict(track_info)
+        self.track_info = dict(track_info or {})
 
         self.add_item(discord.ui.Button(
-            label=f"{track_info['platform']}에서 바로 듣기",
-            url=track_info["url"],
+            label=f"{self.track_info.get('platform', 'YouTube')}에서 바로 듣기",
+            url=self.track_info.get("url") or "https://www.youtube.com",
             style=discord.ButtonStyle.link
         ))
 
@@ -1435,7 +1435,7 @@ class VoicePlayerControlView(core.SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         await super().interaction_check(interaction)
-        vc = self.player.guild.voice_client
+        vc = getattr(self.player.guild, "voice_client", None)
         if not vc or not vc.channel:
             await core.safe_send_response(interaction, "❌ 봇이 현재 음성채널에 연결되어 있지 않습니다.", ephemeral=True)
             return False
@@ -1449,7 +1449,7 @@ class VoicePlayerControlView(core.SafeView):
         return True
 
     def update_components(self):
-        vc = self.player.guild.voice_client
+        vc = getattr(self.player.guild, "voice_client", None)
         connected = bool(vc and vc.is_connected())
         has_tracks = len(self.player.tracks) > 0
 
@@ -1532,7 +1532,7 @@ class VoicePlayerControlView(core.SafeView):
 
     def build_embed(self) -> discord.Embed:
         self.update_components()
-        vc = self.player.guild.voice_client
+        vc = getattr(self.player.guild, "voice_client", None)
         connected = bool(vc and vc.is_connected())
         vc_name = vc.channel.name if (connected and vc.channel) else "연결 종료됨"
         p_meta = core.PLAYLIST_PLATFORMS.get(self.player.playlist_platform, core.PLAYLIST_PLATFORMS["YouTube"])
@@ -2220,9 +2220,9 @@ class PlaylistTrackDeleteView(core.SafeView):
             lines.append(f"*…외 {n_sel - 10}곡*")
         return header + f"\n\n🗑️ **선택된 곡 ({n_sel}곡):**\n" + "\n".join(lines)
 
-    async def _refresh(self, interaction: discord.Interaction):
+    async def _refresh_delete_view(self, interaction: discord.Interaction):
         self._rebuild()
-        await interaction.response.edit_message(content=self.build_content(), view=self)
+        await core.safe_edit_response(interaction, content=self.build_content(), view=self)
 
     @discord.ui.select(placeholder="🗑️ 삭제할 곡 선택...", min_values=0, max_values=1, row=0,
                        options=[discord.SelectOption(label="불러오는 중", value="NONE")])
@@ -2239,17 +2239,17 @@ class PlaylistTrackDeleteView(core.SafeView):
             idx = int(v)
             if 0 <= idx < len(tracks):
                 self.selected[idx] = _track_key(tracks[idx])
-        await self._refresh(interaction)
+        await self._refresh_delete_view(interaction)
 
     @discord.ui.button(label="◀ 이전", style=discord.ButtonStyle.secondary, row=1)
     async def prev_page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.page = max(0, self.page - 1)
-        await self._refresh(interaction)
+        await self._refresh_delete_view(interaction)
 
     @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.secondary, row=1)
     async def next_page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.page = min(self.max_page, self.page + 1)
-        await self._refresh(interaction)
+        await self._refresh_delete_view(interaction)
 
     @discord.ui.button(label="☑️ 이 페이지 전체 선택", style=discord.ButtonStyle.secondary, row=1)
     async def select_page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2257,12 +2257,12 @@ class PlaylistTrackDeleteView(core.SafeView):
         start = self.page * self.PAGE_SIZE
         for idx in range(start, min(start + self.PAGE_SIZE, len(tracks))):
             self.selected[idx] = _track_key(tracks[idx])
-        await self._refresh(interaction)
+        await self._refresh_delete_view(interaction)
 
     @discord.ui.button(label="↩️ 선택 해제", style=discord.ButtonStyle.secondary, row=1)
     async def clear_sel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.selected.clear()
-        await self._refresh(interaction)
+        await self._refresh_delete_view(interaction)
 
     @discord.ui.button(label="🗑️ 선택한 곡 삭제", style=discord.ButtonStyle.danger, row=2)
     async def confirm_delete_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2796,10 +2796,10 @@ class PlaylistTrackDetailView(core.SafeView):
 
 class ImportLikedMusicView(core.SafeView):
     """내 음악보관함(하트 누른 곡)에서 원하는 곡들을 골라 플레이리스트로 한 번에 가져오는 뷰"""
-    def __init__(self, studio_view: "PlaylistStudioView", liked_music: list, parent_message: Optional[discord.Message] = None):
+    def __init__(self, studio_view: "PlaylistStudioView" = None, liked_music: list = None, parent_message: Optional[discord.Message] = None):
         super().__init__(timeout=300)
         self.studio_view = studio_view
-        self.liked_music = list(reversed(liked_music))[:25]
+        self.liked_music = list(reversed(liked_music or []))[:25]
         self.parent_message = parent_message
 
         opts = []
@@ -2813,13 +2813,20 @@ class ImportLikedMusicView(core.SafeView):
                 description=f"{artist} · {plat}"[:95],
                 emoji="❤️"
             ))
+        if not opts:
+            opts = [discord.SelectOption(label="보관함에 저장된 곡이 없습니다", value="NONE")]
         self.import_select.options = opts
-        self.import_select.max_values = min(10, len(opts))
+        self.import_select.max_values = max(1, min(10, len(opts)))
 
     @discord.ui.select(placeholder="❤️ 플레이리스트에 담을 보관함 곡을 선택하세요 (최대 10곡 동시 선택)...", min_values=1, max_values=1, row=0)
     async def import_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if "NONE" in select.values:
+            await core.safe_defer(interaction, ephemeral=True)
+            return
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
+        if not self.studio_view:
+            self.studio_view = PlaylistStudioView(interaction.user, interaction.user, data)
         u_key = str(self.studio_view.owner.id)
         profile = core.ensure_user_profile(data, u_key, self.studio_view.owner.display_name)
         pls = core.ensure_user_playlists(profile, self.studio_view.owner.display_name)

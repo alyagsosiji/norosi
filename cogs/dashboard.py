@@ -261,17 +261,18 @@ class DashboardTabSelect(discord.ui.Select):
             min_values=1,
             max_values=1,
             options=options,
-            row=0
+            row=0,
+            custom_id="norosi:MasterDashboardView:tab_select",
         )
 
     async def callback(self, interaction: discord.Interaction):
-        view: "MasterDashboardView" = self.view
+        view: "MasterDashboardView" = self.view or MasterDashboardView(interaction.client, interaction.user, interaction.guild, core.get_cached_data())
         selected_tab = self.values[0]
         view.current_tab = selected_tab
         view.data = await asyncio.to_thread(core.load_data)
         view.refresh_components()
         embed = view.build_current_embed()
-        await interaction.response.edit_message(embed=embed, view=view)
+        await core.safe_edit_response(interaction, embed=embed, view=view)
 
 
 # ==========================================
@@ -381,226 +382,265 @@ class MasterDashboardView(core.SafeView):
         elif self.current_tab == "stats":
             self._setup_stats_buttons()
 
-        btn_refresh = discord.ui.Button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=2)
+        btn_refresh = discord.ui.Button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=3, custom_id="norosi:MasterDashboardView:_on_refresh_clicked")
         btn_refresh.callback = self._on_refresh_clicked
         self.add_item(btn_refresh)
 
     def _setup_home_buttons(self):
-        btn_att = discord.ui.Button(label="📅 즉시 출석체크", style=discord.ButtonStyle.primary, row=1)
+        btn_att = discord.ui.Button(label="📅 즉시 출석체크", style=discord.ButtonStyle.primary, row=1, custom_id="norosi:MasterDashboardView:_on_attendance_clicked")
         btn_att.callback = self._on_attendance_clicked
         self.add_item(btn_att)
 
-        btn_pull = discord.ui.Button(label="🎰 10회 뽑기", style=discord.ButtonStyle.success, row=1)
+        btn_pull = discord.ui.Button(label="🎰 프세카 10연", style=discord.ButtonStyle.success, row=1, custom_id="norosi:MasterDashboardView:_on_pull_10_clicked")
         btn_pull.callback = self._on_pull_10_clicked
         self.add_item(btn_pull)
 
-        btn_todo = discord.ui.Button(label="🌱 오늘 목표 체크", style=discord.ButtonStyle.secondary, row=1)
+        btn_gi = discord.ui.Button(label="🌠 원신 10회 기원", style=discord.ButtonStyle.success, row=1, custom_id="norosi:MasterDashboardView:_on_gi_pull_10")
+        btn_gi.callback = self._on_gi_pull_10
+        self.add_item(btn_gi)
+
+        btn_hsr = discord.ui.Button(label="🚆 스타레일 10연", style=discord.ButtonStyle.success, row=1, custom_id="norosi:MasterDashboardView:_on_hsr_warp_10")
+        btn_hsr.callback = self._on_hsr_warp_10
+        self.add_item(btn_hsr)
+
+        btn_todo = discord.ui.Button(label="🌱 오늘 목표 체크", style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:MasterDashboardView:_on_todo_clicked")
         btn_todo.callback = self._on_todo_clicked
         self.add_item(btn_todo)
 
-        btn_dup = discord.ui.Button(label="💎 중복 일괄 환전", style=discord.ButtonStyle.secondary, row=1)
+        btn_forecast = discord.ui.Button(label="📅 미래시 달력", style=discord.ButtonStyle.primary, row=2, custom_id="norosi:MasterDashboardView:_on_forecast_clicked")
+        btn_forecast.callback = self._on_forecast_clicked
+        self.add_item(btn_forecast)
+
+        btn_mr = discord.ui.Button(label="🏆 마스터 랭크", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:MasterDashboardView:_on_master_rank_clicked")
+        btn_mr.callback = self._on_master_rank_clicked
+        self.add_item(btn_mr)
+
+        btn_dup = discord.ui.Button(label="💎 중복 일괄 환전", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:MasterDashboardView:_on_dup_convert_clicked")
         btn_dup.callback = self._on_dup_convert_clicked
         self.add_item(btn_dup)
 
-        btn_music = discord.ui.Button(label="🎧 감성 음악 추천", style=discord.ButtonStyle.secondary, row=2)
+        btn_music = discord.ui.Button(label="🎧 감성 음악 추천", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:MasterDashboardView:_on_music_now_clicked")
         btn_music.callback = self._on_music_now_clicked
         self.add_item(btn_music)
 
     def _setup_gacha_buttons(self):
-        btn_p10 = discord.ui.Button(label="🌈 10회 뽑기", style=discord.ButtonStyle.success, row=1)
+        btn_p10 = discord.ui.Button(label="🌈 10회 뽑기", style=discord.ButtonStyle.success, row=1, custom_id="norosi:MasterDashboardView:_on_pull_10_clicked")
         btn_p10.callback = self._on_pull_10_clicked
         self.add_item(btn_p10)
 
-        btn_p1 = discord.ui.Button(label="🎲 1회 뽑기", style=discord.ButtonStyle.success, row=1)
+        btn_p1 = discord.ui.Button(label="🎲 1회 뽑기", style=discord.ButtonStyle.success, row=1, custom_id="norosi:MasterDashboardView:_on_pull_1_clicked")
         btn_p1.callback = self._on_pull_1_clicked
         self.add_item(btn_p1)
 
-        btn_inv = discord.ui.Button(label="🎒 내 보관함", style=discord.ButtonStyle.primary, row=1)
+        btn_inv = discord.ui.Button(label="🎒 내 보관함", style=discord.ButtonStyle.primary, row=1, custom_id="norosi:MasterDashboardView:_on_my_inventory_clicked")
         btn_inv.callback = self._on_my_inventory_clicked
         self.add_item(btn_inv)
 
-        btn_dup = discord.ui.Button(label="💎 중복 일괄 환전", style=discord.ButtonStyle.secondary, row=1)
+        btn_mr = discord.ui.Button(label="🏆 마스터 랭크", style=discord.ButtonStyle.primary, row=1, custom_id="norosi:MasterDashboardView:_on_master_rank_clicked")
+        btn_mr.callback = self._on_master_rank_clicked
+        self.add_item(btn_mr)
+
+        btn_dup = discord.ui.Button(label="💎 중복 일괄 환전", style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:MasterDashboardView:_on_dup_convert_clicked")
         btn_dup.callback = self._on_dup_convert_clicked
         self.add_item(btn_dup)
 
-        btn_deck = discord.ui.Button(label="🎴 덱 편성 현황", style=discord.ButtonStyle.primary, row=2)
+        btn_deck = discord.ui.Button(label="🎴 덱 편성 현황", style=discord.ButtonStyle.primary, row=2, custom_id="norosi:MasterDashboardView:_on_deck_edit_clicked")
         btn_deck.callback = self._on_deck_edit_clicked
         self.add_item(btn_deck)
 
-        btn_pokedex = discord.ui.Button(label="📖 카드 도감", style=discord.ButtonStyle.secondary, row=2)
+        btn_live = discord.ui.Button(label="⚔️ 세카이 라이브", style=discord.ButtonStyle.success, row=2, custom_id="norosi:MasterDashboardView:_on_sekai_live_clicked")
+        btn_live.callback = self._on_sekai_live_clicked
+        self.add_item(btn_live)
+
+        btn_wardrobe = discord.ui.Button(label="👗 3D 의상실", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:MasterDashboardView:_on_wardrobe_clicked")
+        btn_wardrobe.callback = self._on_wardrobe_clicked
+        self.add_item(btn_wardrobe)
+
+        btn_pokedex = discord.ui.Button(label="📖 카드 도감", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:MasterDashboardView:_on_pokedex_clicked")
         btn_pokedex.callback = self._on_pokedex_clicked
         self.add_item(btn_pokedex)
 
-        btn_rank = discord.ui.Button(label="🏆 가챠 랭킹", style=discord.ButtonStyle.secondary, row=2)
+        btn_rank = discord.ui.Button(label="🏆 가챠 랭킹", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:MasterDashboardView:_on_gacha_rank_clicked")
         btn_rank.callback = self._on_gacha_rank_clicked
         self.add_item(btn_rank)
 
     def _setup_genshin_buttons(self):
-        b10 = discord.ui.Button(label="🌠 10회 기원", style=discord.ButtonStyle.success, row=1)
+        b10 = discord.ui.Button(label="🌠 10회 기원", style=discord.ButtonStyle.success, row=1, custom_id="norosi:MasterDashboardView:_on_gi_pull_10")
         b10.callback = self._on_gi_pull_10
         self.add_item(b10)
 
-        b1 = discord.ui.Button(label="✨ 1회 기원", style=discord.ButtonStyle.success, row=1)
+        b1 = discord.ui.Button(label="✨ 1회 기원", style=discord.ButtonStyle.success, row=1, custom_id="norosi:MasterDashboardView:_on_gi_pull_1")
         b1.callback = self._on_gi_pull_1
         self.add_item(b1)
 
-        binv = discord.ui.Button(label="🎒 원신 보관함", style=discord.ButtonStyle.primary, row=1)
+        bart = discord.ui.Button(label="🏛️ 성유물 비경", style=discord.ButtonStyle.primary, row=1, custom_id="norosi:MasterDashboardView:_on_gi_artifact")
+        bart.callback = self._on_gi_artifact
+        self.add_item(bart)
+
+        binv = discord.ui.Button(label="🎒 원신 보관함", style=discord.ButtonStyle.primary, row=1, custom_id="norosi:MasterDashboardView:_on_gi_inv")
         binv.callback = self._on_gi_inv
         self.add_item(binv)
 
-        bfate = discord.ui.Button(label="🧭 운명의 궤도", style=discord.ButtonStyle.secondary, row=1)
+        bfate = discord.ui.Button(label="🧭 운명의 궤도", style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:MasterDashboardView:_on_gi_fate")
         bfate.callback = self._on_gi_fate
         self.add_item(bfate)
 
-        bdex = discord.ui.Button(label="📖 티바트 도감", style=discord.ButtonStyle.secondary, row=2)
+        bdex = discord.ui.Button(label="📖 티바트 도감", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:MasterDashboardView:_on_gi_pokedex")
         bdex.callback = self._on_gi_pokedex
         self.add_item(bdex)
 
-        bshop = discord.ui.Button(label="🧚 페이몬 상점", style=discord.ButtonStyle.primary, row=2)
+        bshop = discord.ui.Button(label="🧚 페이몬 상점", style=discord.ButtonStyle.primary, row=2, custom_id="norosi:MasterDashboardView:_on_gi_shop")
         bshop.callback = self._on_gi_shop
         self.add_item(bshop)
 
-        bparty = discord.ui.Button(label="⚔️ 4인 파티·공명", style=discord.ButtonStyle.secondary, row=2)
+        bparty = discord.ui.Button(label="⚔️ 4인 파티·공명", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:MasterDashboardView:_on_gi_party")
         bparty.callback = self._on_gi_party
         self.add_item(bparty)
 
-        brank = discord.ui.Button(label="🏆 원신 랭킹", style=discord.ButtonStyle.secondary, row=2)
+        brank = discord.ui.Button(label="🏆 원신 랭킹", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:MasterDashboardView:_on_gi_rank")
         brank.callback = self._on_gi_rank
         self.add_item(brank)
 
     def _setup_hsr_buttons(self):
-        b10 = discord.ui.Button(label="🚆 10회 워프", style=discord.ButtonStyle.success, row=1)
+        b10 = discord.ui.Button(label="🚆 10회 워프", style=discord.ButtonStyle.success, row=1, custom_id="norosi:MasterDashboardView:_on_hsr_warp_10")
         b10.callback = self._on_hsr_warp_10
         self.add_item(b10)
 
-        b1 = discord.ui.Button(label="🎫 1회 워프", style=discord.ButtonStyle.success, row=1)
+        b1 = discord.ui.Button(label="🎫 1회 워프", style=discord.ButtonStyle.success, row=1, custom_id="norosi:MasterDashboardView:_on_hsr_warp_1")
         b1.callback = self._on_hsr_warp_1
         self.add_item(b1)
 
-        binv = discord.ui.Button(label="🎒 스타레일 보관함", style=discord.ButtonStyle.primary, row=1)
+        brel = discord.ui.Button(label="🕳️ 유물 터널", style=discord.ButtonStyle.primary, row=1, custom_id="norosi:MasterDashboardView:_on_hsr_relic")
+        brel.callback = self._on_hsr_relic
+        self.add_item(brel)
+
+        binv = discord.ui.Button(label="🎒 스타레일 보관함", style=discord.ButtonStyle.primary, row=1, custom_id="norosi:MasterDashboardView:_on_hsr_inv")
         binv.callback = self._on_hsr_inv
         self.add_item(binv)
 
-        b300 = discord.ui.Button(label="🎁 상시 300 선택", style=discord.ButtonStyle.secondary, row=1)
+        b300 = discord.ui.Button(label="🎁 상시 300 선택", style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:MasterDashboardView:_on_hsr_300")
         b300.callback = self._on_hsr_300
         self.add_item(b300)
 
-        bdex = discord.ui.Button(label="📖 은하 아카이브", style=discord.ButtonStyle.secondary, row=2)
+        bdex = discord.ui.Button(label="📖 은하 아카이브", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:MasterDashboardView:_on_hsr_pokedex")
         bdex.callback = self._on_hsr_pokedex
         self.add_item(bdex)
 
-        bshop = discord.ui.Button(label="🛍️ 별빛·헤르타 상점", style=discord.ButtonStyle.primary, row=2)
+        bshop = discord.ui.Button(label="🛍️ 별빛·헤르타 상점", style=discord.ButtonStyle.primary, row=2, custom_id="norosi:MasterDashboardView:_on_hsr_shop")
         bshop.callback = self._on_hsr_shop
         self.add_item(bshop)
 
-        bparty = discord.ui.Button(label="🚄 4인 개척 편대", style=discord.ButtonStyle.secondary, row=2)
+        bparty = discord.ui.Button(label="🚄 4인 개척 편대", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:MasterDashboardView:_on_hsr_party")
         bparty.callback = self._on_hsr_party
         self.add_item(bparty)
 
-        brank = discord.ui.Button(label="🏆 스타레일 랭킹", style=discord.ButtonStyle.secondary, row=2)
+        brank = discord.ui.Button(label="🏆 스타레일 랭킹", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:MasterDashboardView:_on_hsr_rank")
         brank.callback = self._on_hsr_rank
         self.add_item(brank)
 
     def _setup_life_buttons(self):
-        btn_add_dday = discord.ui.Button(label="➕ 새 D-Day 등록", style=discord.ButtonStyle.primary, row=1)
+        btn_add_dday = discord.ui.Button(label="➕ 새 D-Day 등록", style=discord.ButtonStyle.primary, row=1, custom_id="norosi:MasterDashboardView:_on_add_dday_clicked")
         btn_add_dday.callback = self._on_add_dday_clicked
         self.add_item(btn_add_dday)
 
-        btn_dday_list = discord.ui.Button(label="📋 D-Day 전체 목록", style=discord.ButtonStyle.secondary, row=1)
+        btn_dday_list = discord.ui.Button(label="📋 D-Day 전체 목록", style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:MasterDashboardView:_on_dday_list_clicked")
         btn_dday_list.callback = self._on_dday_list_clicked
         self.add_item(btn_dday_list)
 
-        btn_bday = discord.ui.Button(label="🎂 멤버 생일 전광판", style=discord.ButtonStyle.secondary, row=1)
+        btn_bday = discord.ui.Button(label="🎂 멤버 생일 전광판", style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:MasterDashboardView:_on_birthday_clicked")
         btn_bday.callback = self._on_birthday_clicked
         self.add_item(btn_bday)
 
-        btn_pomo = discord.ui.Button(label="⏳ 뽀모도로 집중모드", style=discord.ButtonStyle.primary, row=1)
+        btn_pomo = discord.ui.Button(label="⏳ 뽀모도로 집중모드", style=discord.ButtonStyle.primary, row=1, custom_id="norosi:MasterDashboardView:_on_pomodoro_clicked")
         btn_pomo.callback = self._on_pomodoro_clicked
         self.add_item(btn_pomo)
 
-        btn_hardcore = discord.ui.Button(label="🔥 하드코어 스터디", style=discord.ButtonStyle.success, row=1)
+        btn_hardcore = discord.ui.Button(label="🔥 하드코어 스터디", style=discord.ButtonStyle.success, row=1, custom_id="norosi:MasterDashboardView:_on_hardcore_study_clicked")
         btn_hardcore.callback = self._on_hardcore_study_clicked
         self.add_item(btn_hardcore)
 
-        btn_partner = discord.ui.Button(label="💑 파트너 관리", style=discord.ButtonStyle.secondary, row=2)
+        btn_partner = discord.ui.Button(label="💑 파트너 관리", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:MasterDashboardView:_on_partner_clicked")
         btn_partner.callback = self._on_partner_clicked
         self.add_item(btn_partner)
 
-        btn_forecast = discord.ui.Button(label="📅 미래시 달력", style=discord.ButtonStyle.secondary, row=2)
+        btn_forecast = discord.ui.Button(label="📅 미래시 달력", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:MasterDashboardView:_on_forecast_clicked")
         btn_forecast.callback = self._on_forecast_clicked
         self.add_item(btn_forecast)
 
     def _setup_music_buttons(self):
-        btn_pl = discord.ui.Button(label="💿 플레이리스트 스튜디오", style=discord.ButtonStyle.primary, row=1)
+        btn_pl = discord.ui.Button(label="💿 플레이리스트 스튜디오", style=discord.ButtonStyle.primary, row=1, custom_id="norosi:MasterDashboardView:_on_playlist_studio_clicked")
         btn_pl.callback = self._on_playlist_studio_clicked
         self.add_item(btn_pl)
 
-        btn_rec = discord.ui.Button(label="🎲 감성 음악 선곡", style=discord.ButtonStyle.success, row=1)
+        btn_rec = discord.ui.Button(label="🎲 감성 음악 선곡", style=discord.ButtonStyle.success, row=1, custom_id="norosi:MasterDashboardView:_on_music_now_clicked")
         btn_rec.callback = self._on_music_now_clicked
         self.add_item(btn_rec)
 
-        btn_audio = discord.ui.Button(label="🔊 440Hz 오디오 자가진단", style=discord.ButtonStyle.secondary, row=1)
+        btn_audio = discord.ui.Button(label="🔊 440Hz 오디오 자가진단", style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:MasterDashboardView:_on_audio_test_clicked")
         btn_audio.callback = self._on_audio_test_clicked
         self.add_item(btn_audio)
 
     def _setup_admin_buttons(self):
-        btn_quick_btn = discord.ui.Button(label="🚀 사진 스타일 역할버튼 제작", style=discord.ButtonStyle.primary, emoji="🚀", row=1)
+        btn_quick_btn = discord.ui.Button(label="🚀 사진 스타일 역할버튼 제작", style=discord.ButtonStyle.primary, emoji="🚀", row=1, custom_id="norosi:MasterDashboardView:_on_quick_role_btn_clicked")
         btn_quick_btn.callback = self._on_quick_role_btn_clicked
         self.add_item(btn_quick_btn)
 
-        btn_studio = discord.ui.Button(label="🎭 반응역할 종합 스튜디오", style=discord.ButtonStyle.secondary, row=1)
+        btn_studio = discord.ui.Button(label="🎭 반응역할 종합 스튜디오", style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:MasterDashboardView:_on_role_studio_clicked")
         btn_studio.callback = self._on_role_studio_clicked
         self.add_item(btn_studio)
 
-        btn_notice = discord.ui.Button(label="📢 스마트 공지 발송", style=discord.ButtonStyle.secondary, row=1)
+        btn_notice = discord.ui.Button(label="📢 스마트 공지 발송", style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:MasterDashboardView:_on_announcement_clicked")
         btn_notice.callback = self._on_announcement_clicked
         self.add_item(btn_notice)
 
-        btn_audit = discord.ui.Button(label="🛡️ 비활성 유저 감사", style=discord.ButtonStyle.secondary, row=2)
+        btn_audit = discord.ui.Button(label="🛡️ 비활성 유저 감사", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:MasterDashboardView:_on_inactive_audit_clicked")
         btn_audit.callback = self._on_inactive_audit_clicked
         self.add_item(btn_audit)
 
     def _setup_game_buttons(self):
-        btn_recruit = discord.ui.Button(label="🎮 파티/팀원 모집", style=discord.ButtonStyle.primary, row=1)
+        btn_recruit = discord.ui.Button(label="🎮 파티/팀원 모집", style=discord.ButtonStyle.primary, row=1, custom_id="norosi:MasterDashboardView:_on_recruit_clicked")
         btn_recruit.callback = self._on_recruit_clicked
         self.add_item(btn_recruit)
 
-        btn_word = discord.ui.Button(label="🔤 끝말잇기 시작", style=discord.ButtonStyle.success, row=1)
+        btn_word = discord.ui.Button(label="🔤 끝말잇기 시작", style=discord.ButtonStyle.success, row=1, custom_id="norosi:MasterDashboardView:_on_word_chain_clicked")
         btn_word.callback = self._on_word_chain_clicked
         self.add_item(btn_word)
 
-        btn_roulette = discord.ui.Button(label="🔫 러시안룰렛", style=discord.ButtonStyle.danger, row=1)
+        btn_roulette = discord.ui.Button(label="🔫 러시안룰렛", style=discord.ButtonStyle.danger, row=1, custom_id="norosi:MasterDashboardView:_on_roulette_clicked")
         btn_roulette.callback = self._on_roulette_clicked
         self.add_item(btn_roulette)
 
-        btn_weather = discord.ui.Button(label="🌤️ 실시간 날씨", style=discord.ButtonStyle.secondary, row=1)
+        btn_weather = discord.ui.Button(label="🌤️ 실시간 날씨", style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:MasterDashboardView:_on_weather_clicked")
         btn_weather.callback = self._on_weather_clicked
         self.add_item(btn_weather)
 
-        btn_remind = discord.ui.Button(label="⏰ 스마트 알림 예약", style=discord.ButtonStyle.secondary, row=2)
+        btn_remind = discord.ui.Button(label="⏰ 스마트 알림 예약", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:MasterDashboardView:_on_remind_clicked")
         btn_remind.callback = self._on_remind_clicked
         self.add_item(btn_remind)
 
     def _setup_stats_buttons(self):
-        btn_sstats = discord.ui.Button(label="📊 서버 실시간 통계", style=discord.ButtonStyle.primary, row=1)
+        btn_sstats = discord.ui.Button(label="📊 서버 실시간 통계", style=discord.ButtonStyle.primary, row=1, custom_id="norosi:MasterDashboardView:_on_server_stats_clicked")
         btn_sstats.callback = self._on_server_stats_clicked
         self.add_item(btn_sstats)
 
-        btn_uinfo = discord.ui.Button(label="🪪 내 상세 유저정보", style=discord.ButtonStyle.secondary, row=1)
+        btn_uinfo = discord.ui.Button(label="🪪 내 상세 유저정보", style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:MasterDashboardView:_on_user_info_clicked")
         btn_uinfo.callback = self._on_user_info_clicked
         self.add_item(btn_uinfo)
 
-        btn_bstat = discord.ui.Button(label="🤖 봇 호스트 상태", style=discord.ButtonStyle.secondary, row=1)
+        btn_bstat = discord.ui.Button(label="🤖 봇 호스트 상태", style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:MasterDashboardView:_on_bot_status_clicked")
         btn_bstat.callback = self._on_bot_status_clicked
         self.add_item(btn_bstat)
 
-        btn_sugg = discord.ui.Button(label="📬 건의사항 보내기", style=discord.ButtonStyle.secondary, row=2)
+        btn_sugg = discord.ui.Button(label="📬 건의사항 보내기", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:MasterDashboardView:_on_suggestion_clicked")
         btn_sugg.callback = self._on_suggestion_clicked
         self.add_item(btn_sugg)
 
     # ----------------------------------------------------
     # 탭별 대시보드 임베드 빌더
     # ----------------------------------------------------
+    def build_embed(self) -> discord.Embed:
+        return self.build_current_embed()
+
     def build_current_embed(self) -> discord.Embed:
         if self.current_tab == "home":
             return self.build_home_embed()
@@ -675,6 +715,9 @@ class MasterDashboardView(core.SafeView):
             if checked_today else
             f"⬜ **오늘 미출석** (`[📅 즉시 출석체크]` 버튼으로 `+{100 + ms_bonus}💎` 받기!)"
         )
+        sekai_t = core.get_proseka_sekai_time_theme()
+        gi_t = genshin_core.get_genshin_time_schedule()
+        hsr_t = hsr_core.get_hsr_time_schedule()
 
         embed = discord.Embed(
             title=f"🧭 {u_name}님의 norosi 종합 관제 대시보드",
@@ -686,6 +729,7 @@ class MasterDashboardView(core.SafeView):
                 f"• **💎 보유 크리스탈:** **`{crystals:,}개`** (마이세카이 일일 보너스 `+{ms_bonus}💎`)\n"
                 f"• **💖 오시 캐릭터:** `{oshi_name}`  ·  **💑 파트너:** {partner_tag}\n"
                 f"• **🌌 멀티가챠 보유:** 프로세카 `{unique_cnt:,}종` (중복 `{dup_excess:,}장`) · 🌠 원신 `{gi_cnt:,}종` · 🚄 스타레일 `{hsr_cnt:,}종`\n"
+                f"• **⏰ 현재 시각 가챠 테마 ({sekai_t['hour_str']}):** 프세카 `{sekai_t['attr_label']}` · 원신 `{gi_t['char_elem_emoji']}{gi_t['char_elem_name']}/{gi_t['weapon_type_name']}` · 스타레일 `{hsr_t['char_elem_emoji']}{hsr_t['char_elem_name']}/{hsr_t['lc_path_name']}`\n"
                 f"• **📅 가장 가까운 D-Day:** {nearest_dday_str}\n"
                 f"• **🌱 오늘 목표 달성률 (`{done_cnt}/{tot_cnt}`):** {grass_bar}\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -715,6 +759,7 @@ class MasterDashboardView(core.SafeView):
 
         deck = profile.get("deck", [])
         deck_str = ", ".join(f"`{cid}`" for cid in deck) if deck else "편성된 덱 없음 (`/덱편성`)"
+        sekai_t = core.get_proseka_sekai_time_theme()
 
         embed = discord.Embed(
             title="🎮 프로세카 카드 & 가챠 대시보드",
@@ -722,6 +767,7 @@ class MasterDashboardView(core.SafeView):
                 f"**{u_name}**님의 카드 컬렉션 및 뽑기 종합 현황입니다.\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"• **💎 보유 크리스탈:** **`{crystals:,}개`**\n"
+                f"• **⏰ 현재 세카이 시각 ({sekai_t['hour_str']} · {sekai_t['phase_name']}):** `{sekai_t['unit_label']}` · `{sekai_t['attr_label']}`\n"
                 f"• **🎒 보유 카드 현황:** 총 `{total_cards_count:,}장` (고유 수집: `{total_unique:,}종`)\n"
                 f"• **🌟 최고 희귀도 보유:** ★4 카드 **`{four_stars}장`**  ·  🎂 생일 카드 **`{birthdays}장`**\n"
                 f"• **💎 환전 가능 중복:** **`{dup_excess}장`** *(아래 `[💎 중복 일괄 환전]` 버튼으로 크리스탈 수령)*\n"
@@ -740,6 +786,7 @@ class MasterDashboardView(core.SafeView):
         u_name = self.user.display_name if self.user else "여행자"
         u_data = self.data.get("genshin_users", {}).get(g_key, {}).get(u_key, {})
         items = u_data.get("items", {})
+        art_cnt = len(u_data.get("artifacts") or [])
         r5_cnt = sum(1 for v in items.values() if v.get("rank") == 5)
         r4_cnt = sum(1 for v in items.values() if v.get("rank") == 4)
 
@@ -750,6 +797,7 @@ class MasterDashboardView(core.SafeView):
         c1_name = eff["char1"]["name"] if eff.get("char1") else "픽업 ①"
         c2_name = eff["char2"]["name"] if eff.get("char2") else "픽업 ②"
         w_names = " / ".join(w["name"] for w in (eff.get("weapon_1"), eff.get("weapon_2")) if w) or "픽업 무기"
+        gi_t = genshin_core.get_genshin_time_schedule()
 
         ft = u_data.get("fate_target_id")
         w_obj = next((w for w in (eff.get("weapon_1"), eff.get("weapon_2")) if w and w["id"] == ft), None)
@@ -759,24 +807,24 @@ class MasterDashboardView(core.SafeView):
         party_ana = genshin_core.analyze_genshin_party(party_objs) if party_objs else {"total_power": 0, "resonances": []}
 
         embed = discord.Embed(
-            title="🌠 원신 (Genshin Impact) 기원 & 컬렉션 대시보드",
+            title="🌠 원신 (Genshin Impact) 기원 & 성유물 대시보드",
             description=(
-                f"**{u_name}**님의 티바트 기원 · 천장 · 상점 · 파티 통합 현황입니다.\n\n"
+                f"**{u_name}**님의 티바트 기원 · 성유물 비경 · 상점 · 파티 통합 현황입니다.\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"• **🎯 현재 이벤트 픽업:** `{c1_name}` / `{c2_name}`\n"
-                f"• **⚔️ 신의 주조 픽업 무기:** `{w_names}`\n"
+                f"• **🎯 현재 이벤트 픽업:** `{c1_name}` / `{c2_name}`  ·  **⚔️ 무기:** `{w_names}`\n"
+                f"• **⏰ 시각 연동 ({gi_t['hour_str']} · {gi_t['phase_name']}):** `{gi_t['buff_summary']}`\n"
                 f"• **🌠 현재 천장 스택:**\n"
                 f"  - 캐릭터 `{u_data.get('pity_char', 0)}/90` ({'🔒확정' if u_data.get('guaranteed_char') else '🎲반천장'} · 광휘 `{u_data.get('loss_streak', 0)}`)\n"
-                f"  - 무기 `{u_data.get('pity_weapon', 0)}/80` (🧭 궤도: `{ft_txt}`) · 상시 `{u_data.get('pity_standard', 0)}/90`\n"
-                f"• **💎 보유 재화:** ✨ 스타라이트 `{u_data.get('starglitter', 0):,}` · 💠 스타더스트 `{u_data.get('stardust', 0):,}` · 📘 영웅의 경험 `{u_data.get('hero_wit', 0):,}권`\n"
-                f"• **🎒 보유 컬렉션:** 총 `{len(items)}종` (★5 `{r5_cnt}종` · ★4 `{r4_cnt}종` · 누적 기원 `{u_data.get('total_pulls', 0):,}회`)\n"
+                f"  - 무기 `{u_data.get('pity_weapon', 0)}/80` (🧭 궤도: `{ft_txt}`) · 성유물 비경 `{u_data.get('pity_artifact', 0)}/5`\n"
+                f"• **💎 보유 재화:** ✨ 스타라이트 `{u_data.get('starglitter', 0):,}` · 💠 스타더스트 `{u_data.get('stardust', 0):,}` · 🏺 정수 `{u_data.get('sanctifying_essence', 0):,}` · 🧪 엘릭서 `{u_data.get('sanctifying_elixir', 0)}`\n"
+                f"• **🎒 보유 컬렉션:** 캐릭터·무기 `{len(items)}종` (★5 `{r5_cnt}` · ★4 `{r4_cnt}`) · 성유물 `{art_cnt}개` · 누적 `{u_data.get('total_pulls', 0):,}회`\n"
                 f"• **⚔️ 편성 파티 ({len(party_objs)}/4):** 전투력 `{party_ana['total_power']:,}` (원소 공명 `{len(party_ana['resonances'])}개`)\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             ),
             color=discord.Color.from_rgb(56, 152, 236),
             timestamp=datetime.datetime.now(core.KST)
         )
-        embed.set_footer(text="하단 버튼으로 10회/1회 기원, 운명의 궤도, 보관함, 페이몬 상점, 4인 파티를 즉시 열 수 있습니다!")
+        embed.set_footer(text="하단 버튼으로 10회/1회 기원, 성유물 비경·환성·엘릭서, 운명의 궤도, 보관함, 상점을 즉시 열 수 있습니다!")
         return embed
 
     def build_hsr_embed(self) -> discord.Embed:
@@ -785,6 +833,7 @@ class MasterDashboardView(core.SafeView):
         u_name = self.user.display_name if self.user else "개척자"
         u_data = self.data.get("hsr_users", {}).get(g_key, {}).get(u_key, {})
         items = u_data.get("items", {})
+        rel_cnt = len(u_data.get("relics") or [])
         r5_cnt = sum(1 for v in items.values() if v.get("rank") == 5)
         r4_cnt = sum(1 for v in items.values() if v.get("rank") == 4)
 
@@ -795,6 +844,7 @@ class MasterDashboardView(core.SafeView):
         c1_name = eff["char1"]["name"] if eff.get("char1") else "픽업 ①"
         c2_name = eff["char2"]["name"] if eff.get("char2") else "픽업 ②"
         lc_name = eff["lc_1"]["name"] if eff.get("lc_1") else "픽업 광추"
+        hsr_t = hsr_core.get_hsr_time_schedule()
 
         std_tot = int(u_data.get("standard_total_pulls", 0))
         claimed = bool(u_data.get("standard_300_claimed"))
@@ -804,24 +854,24 @@ class MasterDashboardView(core.SafeView):
         party_ana = hsr_core.analyze_hsr_party(party_objs) if party_objs else {"total_power": 0, "synergies": []}
 
         embed = discord.Embed(
-            title="🚄 붕괴: 스타레일 워프 & 은하 열차 대시보드",
+            title="🚄 붕괴: 스타레일 워프 & 유물 터널 대시보드",
             description=(
-                f"**{u_name}**님의 워프 · 천장 · 별빛·헤르타 상점 · 개척 편대 통합 현황입니다.\n\n"
+                f"**{u_name}**님의 워프 · 침식된 터널 유물 · 별빛·헤르타 상점 · 개척 편대 통합 현황입니다.\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"• **🎯 현재 이벤트 워프:** `{c1_name}` / `{c2_name}`\n"
-                f"• **🪩 빛의 자취 픽업 광추:** `{lc_name}`\n"
+                f"• **🎯 현재 이벤트 워프:** `{c1_name}` / `{c2_name}`  ·  **🪩 광추:** `{lc_name}`\n"
+                f"• **⏰ 시각 연동 ({hsr_t['hour_str']} · {hsr_t['phase_name']}):** `{hsr_t['buff_summary']}`\n"
                 f"• **🚄 현재 천장 스택:**\n"
                 f"  - 캐릭터 `{u_data.get('pity_char', 0)}/90` ({'🔒확정' if u_data.get('guaranteed_char') else '🎲50/50'}) · 광추 `{u_data.get('pity_lc', 0)}/80` ({'🔒확정' if u_data.get('guaranteed_lc') else '🎲75/25'})\n"
-                f"  - 상시 `{u_data.get('pity_standard', 0)}/90` · 🎁 300회 보상: {sel_status}\n"
-                f"• **💎 보유 재화:** 🌟 별빛 `{u_data.get('starlight', 0):,}` · 🫧 잔재 `{u_data.get('embers', 0):,}` · 🧪 헤르타채권 `{u_data.get('herta_bond', 0):,}` · 📘 가이드 `{u_data.get('traveler_guide', 0):,}권`\n"
-                f"• **🎒 보유 아카이브:** 총 `{len(items)}종` (★5 `{r5_cnt}종` · ★4 `{r4_cnt}종` · 누적 워프 `{u_data.get('total_pulls', 0):,}회`)\n"
+                f"  - 터널 유물 `{u_data.get('pity_relic', 0)}/5` · 상시 `{u_data.get('pity_standard', 0)}/90` · 🎁 300회: {sel_status}\n"
+                f"• **💎 보유 재화:** 🌟 별빛 `{u_data.get('starlight', 0):,}` · 🫧 잔재 `{u_data.get('embers', 0):,}` · 🧪 채권 `{u_data.get('herta_bond', 0):,}` · 🧩 유물잔해 `{u_data.get('relic_remains', 0):,}` · 🧪 레진 `{u_data.get('self_modeling_resin', 0)}`\n"
+                f"• **🎒 보유 아카이브:** 캐릭터·광추 `{len(items)}종` (★5 `{r5_cnt}` · ★4 `{r4_cnt}`) · 유물 `{rel_cnt}개` · 누적 `{u_data.get('total_pulls', 0):,}회`\n"
                 f"• **🚄 개척 편대 ({len(party_objs)}/4):** 전투력 `{party_ana['total_power']:,}` (시너지 `{len(party_ana['synergies'])}개`)\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             ),
             color=discord.Color.from_rgb(174, 114, 255),
             timestamp=datetime.datetime.now(core.KST)
         )
-        embed.set_footer(text="하단 버튼으로 10회/1회 워프, 상시 300 선택, 별빛·헤르타 상점, 4인 편대를 즉시 열 수 있습니다!")
+        embed.set_footer(text="하단 버튼으로 10회/1회 워프, 유물 터널·합성기, 상시 300 선택, 별빛·헤르타 상점을 즉시 열 수 있습니다!")
         return embed
 
     def build_life_embed(self) -> discord.Embed:
@@ -873,7 +923,7 @@ class MasterDashboardView(core.SafeView):
         tot_tracks = sum(len(p.get("tracks", [])) for p in u_pls if isinstance(p, dict))
 
         vc_status = "❌ 미연결 (대기 중)"
-        if self.guild and self.guild.voice_client:
+        if self.guild and getattr(self.guild, "voice_client", None):
             vc = self.guild.voice_client
             if vc.is_playing():
                 vc_status = f"🎶 재생 중 (채널: `{vc.channel.name}`)"
@@ -1106,6 +1156,36 @@ class MasterDashboardView(core.SafeView):
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 덱 정보 조회 중 오류: {e}", ephemeral=True)
 
+    async def _on_master_rank_clicked(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            guild_id = interaction.guild_id or 0
+            view = gacha.MasterRankView(interaction.user, guild_id=guild_id)
+            embed = await asyncio.to_thread(view.build_embed)
+            await interaction.followup.send(embed=embed, view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 마스터 랭크 로드 중 오류: {e}", ephemeral=True)
+
+    async def _on_sekai_live_clicked(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            guild_id = interaction.guild_id or 0
+            view = gacha.SekaiLiveView(interaction.user, guild_id=guild_id)
+            embed = await asyncio.to_thread(view.build_embed)
+            await interaction.followup.send(embed=embed, view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 세카이 라이브 로드 중 오류: {e}", ephemeral=True)
+
+    async def _on_wardrobe_clicked(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            guild_id = interaction.guild_id or 0
+            view = gacha.CharacterCostumeWardrobeView(interaction.user, guild_id=guild_id)
+            embed = await asyncio.to_thread(view.build_embed)
+            await interaction.followup.send(embed=embed, view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 3D 의상실 로드 중 오류: {e}", ephemeral=True)
+
     async def _on_pokedex_clicked(self, interaction: discord.Interaction):
         try:
             await core.safe_defer(interaction)
@@ -1169,6 +1249,13 @@ class MasterDashboardView(core.SafeView):
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 페이몬 상점 로드 중 오류: {e}", ephemeral=True)
 
+    async def _on_gi_artifact(self, interaction: discord.Interaction):
+        try:
+            v = genshin.GenshinArtifactView(interaction.guild_id or 0, interaction.user)
+            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 원신 성유물 비경 로드 중 오류: {e}", ephemeral=True)
+
     async def _on_gi_party(self, interaction: discord.Interaction):
         try:
             v = genshin.GenshinPartyView(interaction.guild_id or 0, interaction.user)
@@ -1197,6 +1284,13 @@ class MasterDashboardView(core.SafeView):
             await wv._run_rewarp_with_cooldown(interaction, 1)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 스타레일 워프 실행 중 오류: {e}", ephemeral=True)
+
+    async def _on_hsr_relic(self, interaction: discord.Interaction):
+        try:
+            v = hsr.HSRRelicView(interaction.guild_id or 0, interaction.user)
+            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 스타레일 유물 터널 로드 중 오류: {e}", ephemeral=True)
 
     async def _on_hsr_inv(self, interaction: discord.Interaction):
         try:
@@ -1362,8 +1456,9 @@ class MasterDashboardView(core.SafeView):
     async def _on_forecast_clicked(self, interaction: discord.Interaction):
         try:
             await core.safe_defer(interaction)
+            await asyncio.to_thread(core.get_event_forecast_list, False)
             now = datetime.datetime.now(core.KST)
-            view = dday.EventForecastView(interaction.user, now.year, now.month)
+            view = gacha.EventForecastView(interaction.user, now.year, now.month, guild_id=interaction.guild_id or 0)
             await interaction.followup.send(embed=view.build_embed(), view=view)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 미래시 조회 중 오류: {e}", ephemeral=True)

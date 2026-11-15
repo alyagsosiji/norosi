@@ -277,8 +277,9 @@ class ServerLogHubView(core.SafeView):
         roles_st = "🟢 ON" if e.get("roles", True) else "🔴 OFF"
         server_st = "🟢 ON" if e.get("server", True) else "🔴 OFF"
 
+        guild_name = self.guild.name if self.guild else "현재 서버"
         embed = discord.Embed(
-            title=f"🛡️ {self.guild.name} 7대 카테고리 통합 감사 로그 설정",
+            title=f"🛡️ {guild_name} 7대 카테고리 통합 감사 로그 설정",
             description=(
                 f"📢 **로그 수신 채널:** {ch_mention}\n"
                 f"⚙️ **전체 로그 상태:** {status_str}\n\n"

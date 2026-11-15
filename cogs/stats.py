@@ -37,9 +37,10 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
     today_str = core.get_today_str()
 
     # 1. 실제 서버 기본 제원
-    member_count = guild.member_count or len(guild.members) or 1
-    if guild.members:
-        bots_count = sum(1 for m in guild.members if m.bot)
+    g_members = getattr(guild, "members", None) or []
+    member_count = getattr(guild, "member_count", 0) or len(g_members) or 1
+    if g_members:
+        bots_count = sum(1 for m in g_members if getattr(m, "bot", False))
         humans_count = max(0, member_count - bots_count)
         members_desc = f"`{member_count:,}명` (유저 `{humans_count:,}명` · 봇 `{bots_count:,}개`)"
     else:
@@ -47,12 +48,13 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
         humans_count = member_count
         members_desc = f"`{member_count:,}명`"
 
-    text_chs = guild.text_channels
-    voice_chs = guild.voice_channels
-    roles_cnt = max(0, len(guild.roles) - 1)
+    text_chs = getattr(guild, "text_channels", None) or []
+    voice_chs = getattr(guild, "voice_channels", None) or []
+    roles_cnt = max(0, len(getattr(guild, "roles", None) or []) - 1)
     boost_cnt = getattr(guild, "premium_subscription_count", 0) or 0
     boost_lvl = getattr(guild, "premium_tier", 0) or 0
-    created_str = guild.created_at.astimezone(core.KST).strftime("%Y-%m-%d") if guild.created_at else "-"
+    created_at = getattr(guild, "created_at", None)
+    created_str = created_at.astimezone(core.KST).strftime("%Y-%m-%d") if created_at else "-"
 
     # 2. 실시간 음성 채널 접속 인원 (100% 실시간 사실)
     active_voice_chs = [vc for vc in voice_chs if hasattr(vc, "members") and len(vc.members) > 0]
@@ -234,25 +236,28 @@ class ServerStatsDashboardView(core.SafeView):
             return False
         return True
 
+    def build_embed(self) -> discord.Embed:
+        return build_server_stats_embed(self.guild, self.data, self.timeframe, self.mode)
+
     def _update_button_styles(self):
         self.toggle_mode_btn.label = "📊 요약 보기" if self.mode == "detailed" else "📜 상세 리포트"
         self.toggle_time_btn.label = "📅 주간 통계" if self.timeframe == "daily" else "📅 일간 통계"
 
-    @discord.ui.button(label="📜 상세 리포트", style=discord.ButtonStyle.primary, custom_id="btn_toggle_mode")
+    @discord.ui.button(label="📜 상세 리포트", style=discord.ButtonStyle.primary)
     async def toggle_mode_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.mode = "summary" if self.mode == "detailed" else "detailed"
         self._update_button_styles()
         embed = build_server_stats_embed(self.guild, self.data, self.timeframe, self.mode)
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="📅 주간 통계", style=discord.ButtonStyle.secondary, custom_id="btn_toggle_time")
+    @discord.ui.button(label="📅 주간 통계", style=discord.ButtonStyle.secondary)
     async def toggle_time_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.timeframe = "weekly" if self.timeframe == "daily" else "daily"
         self._update_button_styles()
         embed = build_server_stats_embed(self.guild, self.data, self.timeframe, self.mode)
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="🔄 데이터 새로고침", style=discord.ButtonStyle.success, custom_id="btn_refresh_stats")
+    @discord.ui.button(label="🔄 데이터 새로고침", style=discord.ButtonStyle.success)
     async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.data = await asyncio.to_thread(core.load_data)
@@ -474,8 +479,9 @@ class RecruitLobbyView(core.SafeView):
             icon_url=self.host.display_avatar.url if hasattr(self.host, "display_avatar") else None
         )
 
-        if self.host.guild and self.host.guild.icon:
-            embed.set_thumbnail(url=self.host.guild.icon.url)
+        host_guild = getattr(self.host, "guild", None)
+        if host_guild and getattr(host_guild, "icon", None):
+            embed.set_thumbnail(url=host_guild.icon.url)
 
         embed.set_footer(
             text=f"norosi Party Matcher  ·  모집장: {self.host.display_name}",
@@ -1373,22 +1379,22 @@ class WeatherRefreshView(core.SafeView):
         return True
 
     def build_embed(self) -> discord.Embed:
-        w = self.w
+        w = self.w or {}
         now_kst = datetime.datetime.now(core.KST)
 
         hourly_lines = []
         for h in w.get("hourly", []):
-            hourly_lines.append(f"`{h['time']}` {h['emoji']} **{h['temp']:.1f}°C** (강수 `{h['pop']}%`)")
+            hourly_lines.append(f"`{h.get('time', '-')}` {h.get('emoji', '☀️')} **{h.get('temp', 0.0):.1f}°C** (강수 `{h.get('pop', 0)}%`)")
         hourly_str = "  |  ".join(hourly_lines) if hourly_lines else "예보 데이터 갱신 중"
 
         embed = discord.Embed(
-            title=f"{w['weather_emoji']} [{w['location']}] 초정밀 실시간 기상 & 대기질 리포트",
+            title=f"{w.get('weather_emoji', '🌤️')} [{w.get('location', self.query or '서울')}] 초정밀 실시간 기상 & 대기질 리포트",
             description=(
-                f"📍 **관측 좌표:** `위도 {w['lat']}, 경도 {w['lon']}` · 🕒 **기준:** `{now_kst.strftime('%Y-%m-%d %H:%M KST')}`\n"
+                f"📍 **관측 좌표:** `위도 {w.get('lat', '-')}, 경도 {w.get('lon', '-')}` · 🕒 **기준:** `{now_kst.strftime('%Y-%m-%d %H:%M KST')}`\n"
                 "───────────────────────────────────────\n"
-                f"### 🌡️ 현재 기온: **`{w['temp']:.1f}°C`** ({w['weather_desc']})\n"
-                f"• **체감 온도:** **`{w['feels_like']:.1f}°C`**  |  **오늘 최저/최고:** `{w['min_temp']:.1f}°C` / `{w['max_temp']:.1f}°C`\n"
-                f"• **상대 습도:** `{w['humidity']}%`  |  **풍속:** `{w['wind']} km/h`  |  **기압:** `{w['pressure']:.0f} hPa`"
+                f"### 🌡️ 현재 기온: **`{w.get('temp', 0.0):.1f}°C`** ({w.get('weather_desc', '맑음')})\n"
+                f"• **체감 온도:** **`{w.get('feels_like', 0.0):.1f}°C`**  |  **오늘 최저/최고:** `{w.get('min_temp', 0.0):.1f}°C` / `{w.get('max_temp', 0.0):.1f}°C`\n"
+                f"• **상대 습도:** `{w.get('humidity', 0)}%`  |  **풍속:** `{w.get('wind', 0)} km/h`  |  **기압:** `{w.get('pressure', 1013.0):.0f} hPa`"
             ),
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=now_kst
@@ -1397,8 +1403,8 @@ class WeatherRefreshView(core.SafeView):
         embed.add_field(
             name="☔ 강수 확률 & 자외선 & 일출/일몰",
             value=(
-                f"• **오늘 최대 강수확률:** **`{w['pop_max']}%`** (현재 강수량 `{w['precip']}mm`)\n"
-                f"• **자외선 지수(UV):** `{w['uv_max']:.1f}`  |  🌅 **일출/일몰:** `{w['sunrise']}` / `{w['sunset']}`"
+                f"• **오늘 최대 강수확률:** **`{w.get('pop_max', 0)}%`** (현재 강수량 `{w.get('precip', 0)}mm`)\n"
+                f"• **자외선 지수(UV):** `{w.get('uv_max', 0.0):.1f}`  |  🌅 **일출/일몰:** `{w.get('sunrise', '-')}` / `{w.get('sunset', '-')}`"
             ),
             inline=False
         )
@@ -1406,8 +1412,8 @@ class WeatherRefreshView(core.SafeView):
         embed.add_field(
             name="😷 실시간 미세먼지 & 대기질 (환경부 기준)",
             value=(
-                f"• **미세먼지 (PM10):** {w['pm10_grade']}\n"
-                f"• **초미세먼지 (PM2.5):** {w['pm25_grade']}"
+                f"• **미세먼지 (PM10):** {w.get('pm10_grade', '좋음')}\n"
+                f"• **초미세먼지 (PM2.5):** {w.get('pm25_grade', '좋음')}"
             ),
             inline=False
         )
@@ -1421,9 +1427,9 @@ class WeatherRefreshView(core.SafeView):
         embed.add_field(
             name="📅 내일 날씨 미리보기 & 생활 가이드",
             value=(
-                f"• **내일 예보:** {w['tmr_desc']} (`{w['tmr_min']:.1f}°C ~ {w['tmr_max']:.1f}°C` · 강수확률 `{w['tmr_pop']}%`)\n"
-                f"• {w['umbrella_tip']}\n"
-                f"• **추천 옷차림:** {w['outfit_tip']}"
+                f"• **내일 예보:** {w.get('tmr_desc', '맑음')} (`{w.get('tmr_min', 0.0):.1f}°C ~ {w.get('tmr_max', 0.0):.1f}°C` · 강수확률 `{w.get('tmr_pop', 0)}%`)\n"
+                f"• {w.get('umbrella_tip', '쾌적한 날씨입니다.')}\n"
+                f"• **추천 옷차림:** {w.get('outfit_tip', '가벼운 외출복')}"
             ),
             inline=False
         )
@@ -1434,7 +1440,7 @@ class WeatherRefreshView(core.SafeView):
     @discord.ui.button(label="🔄 실시간 날씨 새로고침", style=discord.ButtonStyle.primary)
     async def refresh_weather_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
-        new_w, err = await asyncio.to_thread(core.fetch_accurate_weather_sync, self.query)
+        new_w, err = await asyncio.to_thread(core.fetch_accurate_weather_sync, self.query or "서울")
         if not err and new_w:
             self.w = new_w
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
@@ -1455,7 +1461,7 @@ class WordChainInputModal(core.SafeModal, title="✏️ 끝말잇기 단어 입�
     def __init__(self, game_view: "WordChainGameView"):
         super().__init__()
         self.game_view = game_view
-        valid_chars = core.get_dueum_chars(game_view.current_word[-1])
+        valid_chars = core.get_dueum_chars((game_view.current_word or "세카이")[-1])
         char_hint = " 또는 ".join([f"'{c}'" for c in valid_chars])
         self.word_input.label = f"{char_hint}(으)로 시작하는 단어 입력"
 
@@ -1464,8 +1470,9 @@ class WordChainInputModal(core.SafeModal, title="✏️ 끝말잇기 단어 입�
 
 
 class WordChainGameView(core.SafeView):
-    def __init__(self, host_user: discord.User, opponent: discord.Member | None, start_word: str):
+    def __init__(self, host_user: discord.User, opponent: discord.Member | None, start_word: str = "세카이"):
         super().__init__(timeout=300)
+        start_word = start_word or "세카이"
         self.host_user = host_user
         self.opponent = opponent  # None이면 세카이 AI 봇과 1:1 대결
         self.current_word = start_word

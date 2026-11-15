@@ -17,6 +17,7 @@ import core
 def build_gacha_intro_embed(drawn: list, banner_type: str = "normal", pull_count: int = 1) -> discord.Embed:
     """뽑기 결과 공개 직전 오브 승격 연출 및 ★4·생일 대사(gachaPhrase) 선공개 임베드"""
     b_cfg = core.BANNER_CONFIGS.get(banner_type, core.BANNER_CONFIGS["normal"])
+    sekai_t = core.get_proseka_sekai_time_theme()
     high_cards = [c for c in drawn if c.get("star_num", 0) >= 4]
     has_4star = len(high_cards) > 0
     has_3star = any(c.get("star_num", 0) == 3 for c in drawn)
@@ -42,10 +43,10 @@ def build_gacha_intro_embed(drawn: list, banner_type: str = "normal", pull_count
         color = discord.Color.from_rgb(0, 204, 221)
         quote_block = "\n\n✨ *카드가 도착하고 있습니다...*"
 
-    title = f"🎰 {b_cfg['short_name']} ({pull_count}회 뽑기)"
+    title = f"🎰 {b_cfg['short_name']} ({pull_count}회 뽑기) · {sekai_t['label']}"
     embed = discord.Embed(
-        title=title,
-        description=f"{orb_line}\n{tier_msg}{quote_block}",
+        title=title[:256],
+        description=f"{orb_line}\n{tier_msg}\n🕒 `{sekai_t['now_str']}` — *{sekai_t['desc']}*{quote_block}",
         color=color,
         timestamp=datetime.datetime.now(core.KST)
     )
@@ -63,6 +64,7 @@ def build_gacha_pull_embed(
 ):
     has_4star = any(c["star_num"] >= 4 for c in drawn)
     b_cfg = core.BANNER_CONFIGS.get(banner_type, core.BANNER_CONFIGS["normal"])
+    sekai_t = core.get_proseka_sekai_time_theme()
     default_rgb = b_cfg.get("color", (0, 204, 221))
     embed_color = discord.Color.from_rgb(255, 105, 180) if has_4star else discord.Color.from_rgb(*default_rgb)
 
@@ -127,7 +129,10 @@ def build_gacha_pull_embed(
     elif has_4star:
         title_str = "🎉✨ " + title_str + " (최고 등급 카드 등장!)"
 
-    header_lines = [f"🎰 **선택 배너:** `{b_cfg['name']}`"]
+    header_lines = [
+        f"🎰 **선택 배너:** `{b_cfg['name']}`",
+        f"🕒 **세카이 시간대:** {sekai_t['label']} (`{sekai_t['now_str']}`) — *{sekai_t['desc']}*",
+    ]
     if mode_note:
         header_lines.append(mode_note)
     today_bdays = core.get_today_birthday_characters()
@@ -169,6 +174,9 @@ async def send_gacha_pull_result(
     grid_tag: str = "",
 ):
     """뽑기 결과 전송: 연출 보기 시 3.5초 승격 연출+대사 선공개 후 5x2 결과판 & 일러스트와 함께 결과를 표시합니다."""
+    if not grid_tag:
+        sekai_t = core.get_proseka_sekai_time_theme()
+        grid_tag = f"{sekai_t['label']} · {sekai_t['now_str']}"
     embed, has_4star = build_gacha_pull_embed(
         drawn, pickup_cfg, pull_count, user=interaction.user, banner_type=banner_type, mode_note=mode_note
     )
@@ -501,6 +509,12 @@ class GachaPullAgainView(core.SafeView):
                 value="birthday",
                 description=core.BANNER_CONFIGS["birthday"]["desc"][:100],
                 default=(self.banner_type == "birthday"),
+            ),
+            discord.SelectOption(
+                label="👗 3D 의상 & 악세서리 픽업 가챠 (★4 4.5%)",
+                value="costume",
+                description=core.BANNER_CONFIGS["costume"]["desc"][:100],
+                default=(self.banner_type == "costume"),
             ),
         ]
 
@@ -1411,14 +1425,14 @@ class CardIllustToggleView(core.SafeView):
     def build_embed(self):
         mode_text = "✨ 각성 후 (After Training)" if self.current_mode == "after_training" else "🌸 각성 전 (Normal)"
         lock_status = "🔒 잠금 보호 중 (교환·선물·중복변환 제외)" if self.card.get("locked", False) else "🔓 잠금 해제됨"
-        unit_str = f"{self.card['unit']}" + (f" ({self.card['support_unit']})" if self.card.get("support_unit") else "")
+        unit_str = f"{self.card.get('unit', '세카이')}" + (f" ({self.card['support_unit']})" if self.card.get("support_unit") else "")
         mr = int(self.card.get("master_rank", 0))
         cur_lvl = self.card.get("level", 1)
         max_lvl = core.get_card_max_level(self.card)
         pwr = core.get_card_power(self.card)
         desc_lines = [
             f"• **소속 유닛:** `{unit_str}`",
-            f"• **속성:** {self.card.get('attr', '✨')} · **보유 수량:** `{self.card.get('count', 1)}장` (ID: `{self.card.get('id')}`)",
+            f"• **속성:** {self.card.get('attr', '✨')} · **보유 수량:** `{self.card.get('count', 1)}장` (ID: `{self.card.get('id', 0)}`)",
             f"• **성장 스탯:** `Lv.{cur_lvl}/{max_lvl}` · **✦MR.{mr}/5** · **`⚔️ {pwr:,}`**",
             f"• **일러스트 상태:** `{mode_text}`",
             f"• **보호 상태:** `{lock_status}`"
@@ -1429,7 +1443,7 @@ class CardIllustToggleView(core.SafeView):
             desc_lines.append(f"• **부속 3D 의상:** 👗 **`[{cos['name']}]`** (`{'/'.join(cos.get('parts', ['body']))}`) · *{ac_txt}*")
 
         embed = discord.Embed(
-            title=f"🖼️ [{self.card.get('limit_label', '통상')}] {self.card['rarity_label']} [{self.card['prefix']}] {self.card['char_name']}",
+            title=f"🖼️ [{self.card.get('limit_label', '통상')}] {self.card.get('rarity_label', '★4')} [{self.card.get('prefix', '카드')}] {self.card.get('char_name', '캐릭터')}",
             description="\n".join(desc_lines),
             color=discord.Color.from_rgb(255, 105, 180) if self.card.get("star_num", 1) >= 4 else discord.Color.from_rgb(0, 204, 221)
         )
@@ -1516,6 +1530,8 @@ class CharacterCostumeWardrobeView(core.SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         await super().interaction_check(interaction)
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
@@ -2008,6 +2024,8 @@ class MyInventoryView(core.SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         await super().interaction_check(interaction)
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
@@ -2259,6 +2277,8 @@ class CardPokedexView(core.SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         await super().interaction_check(interaction)
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
@@ -2658,7 +2678,9 @@ class EventForecastSelect(discord.ui.Select):
         for ev in events_list[:25]:
             is_sel = (selected_id == ev["id"])
             tag = "🌟페스" if ev.get("is_fes") else ("🎀한정" if ev.get("is_limited") else "🎵통상")
-            label = f"[{ev['id']}] {ev['name']}"[:95]
+            st_code = ev.get("status_code", "upcoming")
+            st_icon = "🟢" if st_code == "ongoing" else ("⏳" if st_code == "upcoming" else "🏁")
+            label = f"{st_icon} [{ev['id']}] {ev['name']}"[:95]
             desc = f"{ev['kr_estimated_start']}~{ev['kr_estimated_end']} · {tag} · {ev.get('unit', '')}"[:98]
             options.append(discord.SelectOption(
                 label=label,
@@ -2669,6 +2691,7 @@ class EventForecastSelect(discord.ui.Select):
         if not options:
             options = [discord.SelectOption(label="예정된 이벤트가 없습니다", value="NONE")]
         super().__init__(
+            custom_id="norosi:EventForecastView:select",
             placeholder="🔍 상세 카드와 가챠 정보를 확인할 이벤트를 선택하세요...",
             min_values=1,
             max_values=1,
@@ -2681,9 +2704,25 @@ class EventForecastSelect(discord.ui.Select):
         if val == "NONE":
             await core.safe_defer(interaction)
             return
-        self.view.selected_event_id = int(val)
-        self.view.update_components()
-        await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view)
+        await core.safe_defer(interaction)
+        parent_view: EventForecastView = self.view or EventForecastView(interaction.user)
+        parent_view.selected_event_id = int(val)
+        # 선택한 이벤트가 현재 달에 속하지 않는 경우 해당 이벤트의 시작 년/월로 달력을 자동 이동
+        all_events = await asyncio.to_thread(core.get_event_forecast_list)
+        cal_data = await asyncio.to_thread(core.build_monthly_event_forecast_calendar, parent_view.year, parent_view.month)
+        month_ids = {e["id"] for e in cal_data.get("events_in_month", [])}
+        if parent_view.selected_event_id not in month_ids:
+            sel_ev = next((e for e in all_events if e["id"] == parent_view.selected_event_id), None)
+            if sel_ev and sel_ev.get("kr_estimated_start"):
+                try:
+                    y, m, _ = map(int, sel_ev["kr_estimated_start"].split("-"))
+                    parent_view.year = y
+                    parent_view.month = m
+                except Exception:
+                    pass
+        await asyncio.to_thread(parent_view.update_components)
+        embed = await asyncio.to_thread(parent_view.build_embed)
+        await core.safe_edit_response(interaction, embed=embed, view=parent_view)
 
 
 class EventForecastView(core.SafeView):
@@ -2718,26 +2757,32 @@ class EventForecastView(core.SafeView):
 
         target_list = events_in_month if events_in_month else all_events
         if not self.selected_event_id and events_in_month:
-            self.selected_event_id = events_in_month[0]["id"]
+            ongoing_ev = next((e for e in events_in_month if e.get("status_code") == "ongoing"), None)
+            upcoming_ev = next((e for e in events_in_month if e.get("status_code") == "upcoming"), None)
+            picked_ev = ongoing_ev or upcoming_ev or events_in_month[0]
+            self.selected_event_id = picked_ev["id"]
         elif not self.selected_event_id and all_events:
-            self.selected_event_id = all_events[0]["id"]
+            ongoing_ev = next((e for e in all_events if e.get("status_code") == "ongoing"), None)
+            upcoming_ev = next((e for e in all_events if e.get("status_code") == "upcoming"), None)
+            picked_ev = ongoing_ev or upcoming_ev or all_events[0]
+            self.selected_event_id = picked_ev["id"]
 
         self.add_item(EventForecastSelect(target_list, self.selected_event_id))
 
-        # 네비게이션 버튼 (Row 1)
-        prev_btn = discord.ui.Button(label="◀ 이전달", style=discord.ButtonStyle.secondary, row=1)
+        # 네비게이션 버튼 (Row 1) - 고정 custom_id 부여로 봇 재시작 후에도 폴백 복구 보장
+        prev_btn = discord.ui.Button(label="◀ 이전달", style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:EventForecastView:on_prev_month")
         prev_btn.callback = self.on_prev_month
         self.add_item(prev_btn)
 
-        cur_btn = discord.ui.Button(label="📅 이번달", style=discord.ButtonStyle.primary, row=1)
+        cur_btn = discord.ui.Button(label="📅 이번달", style=discord.ButtonStyle.primary, row=1, custom_id="norosi:EventForecastView:on_current_month")
         cur_btn.callback = self.on_current_month
         self.add_item(cur_btn)
 
-        next_btn = discord.ui.Button(label="다음달 ▶", style=discord.ButtonStyle.secondary, row=1)
+        next_btn = discord.ui.Button(label="다음달 ▶", style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:EventForecastView:on_next_month")
         next_btn.callback = self.on_next_month
         self.add_item(next_btn)
 
-        all_list_btn = discord.ui.Button(label="📜 전체 미래시 목록", style=discord.ButtonStyle.success, row=1)
+        all_list_btn = discord.ui.Button(label="📜 전체 미래시 목록", style=discord.ButtonStyle.success, row=1, custom_id="norosi:EventForecastView:on_show_all_list")
         all_list_btn.callback = self.on_show_all_list
         self.add_item(all_list_btn)
 
@@ -2750,10 +2795,14 @@ class EventForecastView(core.SafeView):
         if self.selected_event_id:
             selected_ev = next((e for e in all_events if e["id"] == self.selected_event_id), None)
         if not selected_ev and events_in_month:
-            selected_ev = events_in_month[0]
+            ongoing_ev = next((e for e in events_in_month if e.get("status_code") == "ongoing"), None)
+            upcoming_ev = next((e for e in events_in_month if e.get("status_code") == "upcoming"), None)
+            selected_ev = ongoing_ev or upcoming_ev or events_in_month[0]
+            self.selected_event_id = selected_ev["id"]
 
         embed = discord.Embed(
             title=f"📅 프로세카 한섭 이벤트 미래시 달력 ({cal_data['month_label']})",
+            description=f"🕒 **기준 시각:** `{cal_data.get('today_str', core.get_today_str())}` (한섭 공식 DB + 일섭 마스터 DB 실시간 연동)",
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST)
         )
@@ -2764,103 +2813,116 @@ class EventForecastView(core.SafeView):
             f"```\n"
             f"📌 **범례:** `🚩 시작일` · `🟢 진행 중` · `🏁 종료일` · `· 평일`"
         )
-        embed.add_field(name=f"🗓️ {self.year}년 {self.month:02d}월 한섭 예상 일정표", value=cal_box, inline=False)
+        embed.add_field(name=f"🗓️ {self.year}년 {self.month:02d}월 한섭 일정표", value=cal_box, inline=False)
 
         if selected_ev:
             ev_type_label = core.EVENT_TYPE_MAP.get(selected_ev.get("eventType", ""), selected_ev.get("eventType", "이벤트"))
             tag = "🌟 컬러풀 페스티벌 (컬페한정)" if selected_ev.get("is_fes") else ("🎀 기간 한정 가챠" if selected_ev.get("is_limited") else "🎵 통상 가챠")
-            
+            status_badge = selected_ev.get("status_badge") or "⏳ 진행 예정"
+
             cards_lines = []
             for c in selected_ev.get("featured_cards", []):
                 cards_lines.append(f"  • {c}")
             cards_str = "\n".join(cards_lines) if cards_lines else "  • 정보 확인 중"
 
             detail_val = (
+                f"• **진행 상태:** **{status_badge}** (이벤트 `#{selected_ev['id']}`)\n"
                 f"• **이벤트 명:** `{selected_ev['name']}`\n"
                 f"  └ *일섭 원제: {selected_ev.get('jp_name', '-') }*\n"
                 f"• **이벤트 유형:** `{ev_type_label}` · **유닛:** `{selected_ev.get('unit', '-')}` · **속성:** {selected_ev.get('attribute', '-')}\n"
-                f"• **🇰🇷 한섭 예상 기간:** `{selected_ev['kr_estimated_start']}` ~ `{selected_ev['kr_estimated_end']}`\n"
+                f"• **🇰🇷 한섭 기간:** `{selected_ev['kr_estimated_start']}` ~ `{selected_ev['kr_estimated_end']}`\n"
                 f"• **🇯🇵 일섭 원본 기간:** `{selected_ev['jp_start']}` ~ `{selected_ev['jp_end']}` *(약 1년 선행)*\n"
                 f"• **🎰 연계 가챠 배너:** `{selected_ev.get('gacha_name', '-')}` (`{tag}`)\n"
                 f"• **🌟 주요 픽업 카드:**\n{cards_str}\n"
                 f"• **🎵 이벤트 테마곡:** `{selected_ev.get('theme_song', '-')}`"
             )
-            embed.add_field(name=f"🏆 [이벤트 상세] {selected_ev['name']}", value=detail_val, inline=False)
+            embed.add_field(name=f"🏆 [이벤트 상세] #{selected_ev['id']} {selected_ev['name']}", value=detail_val[:1024], inline=False)
         else:
-            embed.add_field(name="🏆 이벤트 상세", value="이번 달에는 예정된 이벤트가 없거나 일정을 산출 중입니다.", inline=False)
+            embed.add_field(name="🏆 이벤트 상세", value="이번 달에는 예정된 이벤트가 없거나 일정을 산출 중입니다. `◀ 이전달` / `다음달 ▶` 버튼을 눌러 확인해 보세요!", inline=False)
 
         if events_in_month:
             summary_lines = []
             for ev in events_in_month:
                 tag = "🌟컬페" if ev.get("is_fes") else ("🎀한정" if ev.get("is_limited") else "🎵통상")
-                summary_lines.append(f"• `[{ev['kr_estimated_start'][5:]} ~ {ev['kr_estimated_end'][5:]}]` **{ev['name']}** ({ev['unit']} · `{tag}`)")
-            embed.add_field(name=f"📋 이번 달 예정 이벤트 ({len(events_in_month)}개)", value="\n".join(summary_lines), inline=False)
+                st_b = ev.get("status_badge", "⏳ 예정")
+                summary_lines.append(
+                    f"• {st_b} `[{ev['kr_estimated_start'][5:]}~{ev['kr_estimated_end'][5:]}]` **#{ev['id']} {ev['name']}** ({ev['unit']} · `{tag}`)"
+                )
+            embed.add_field(name=f"📋 {self.year}년 {self.month:02d}월 이벤트 목록 ({len(events_in_month)}개)", value="\n".join(summary_lines)[:1024], inline=False)
 
         embed.set_footer(text=cal_data["disclaimer"])
         return embed
 
     async def on_prev_month(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
         if self.month == 1:
             self.year -= 1
             self.month = 12
         else:
             self.month -= 1
         self.selected_event_id = None
-        self.update_components()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await asyncio.to_thread(self.update_components)
+        embed = await asyncio.to_thread(self.build_embed)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
 
     async def on_next_month(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
         if self.month == 12:
             self.year += 1
             self.month = 1
         else:
             self.month += 1
         self.selected_event_id = None
-        self.update_components()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await asyncio.to_thread(self.update_components)
+        embed = await asyncio.to_thread(self.build_embed)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
 
     async def on_current_month(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
         now = datetime.datetime.now(core.KST)
         self.year = now.year
         self.month = now.month
         self.selected_event_id = None
-        self.update_components()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await asyncio.to_thread(self.update_components)
+        embed = await asyncio.to_thread(self.build_embed)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
 
     async def on_show_all_list(self, interaction: discord.Interaction):
-        all_events = core.get_event_forecast_list()
+        await core.safe_defer(interaction, ephemeral=True)
+        all_events = await asyncio.to_thread(core.get_event_forecast_list)
+        today_str = datetime.datetime.now(core.KST).strftime("%Y-%m-%d")
+        upcoming_or_active = [e for e in all_events if e.get("kr_estimated_end", "") >= today_str] or all_events
         embed = discord.Embed(
-            title="📜 프로세카 한섭 다가오는 이벤트 미래시 전체 목록",
-            description="일본 서버(JP) 순서를 기반으로 한 다가오는 한국 서버(KR) 예상 일정입니다.",
+            title="📜 프로세카 한섭 진행 중 & 다가오는 이벤트 미래시 목록",
+            description=f"기준일 `{today_str}` 이후 진행 중이거나 예정된 한국 서버(KR) 이벤트 일정입니다. (총 `{len(upcoming_or_active)}개`)",
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST)
         )
         total_chars = len(embed.title) + len(embed.description) + len(core.FORECAST_DISCLAIMER)
         omitted = 0
-        for idx, ev in enumerate(all_events):
+        for idx, ev in enumerate(upcoming_or_active):
             tag = "🌟컬페한정" if ev.get("is_fes") else ("🎀한정" if ev.get("is_limited") else "🎵통상")
+            st_b = "🟢 진행 중" if (ev["kr_estimated_start"] <= today_str <= ev["kr_estimated_end"]) else "⏳ 진행 예정"
             val = (
-                f"• **예상 기간:** `{ev['kr_estimated_start']}` ~ `{ev['kr_estimated_end']}`\n"
-                f"• **일섭 원본:** `{ev['jp_start']}` ~ `{ev['jp_end']}`\n"
+                f"• **상태/기간:** **{st_b}** · `{ev['kr_estimated_start']}` ~ `{ev['kr_estimated_end']}` (일섭 `{ev['jp_start']}`~`{ev['jp_end']}`)\n"
                 f"• **유닛/가챠:** {ev['unit']} · `{ev['gacha_name']}` ({tag})\n"
                 f"• **대표 픽업:** {', '.join(ev.get('featured_cards', [])[:2])}"
             )[:1024]
-            fname = f"🏆 [{ev['id']}] {ev['name']}"[:256]
-            # Reserve 1 field + chars if there will be omitted items
-            max_fields = 24 if idx < len(all_events) - 1 else 25
+            fname = f"🏆 [#{ev['id']}] {ev['name']}"[:256]
+            max_fields = 24 if idx < len(upcoming_or_active) - 1 else 25
             if len(embed.fields) >= max_fields or (total_chars + len(fname) + len(val) > 5400):
-                omitted = len(all_events) - idx
+                omitted = len(upcoming_or_active) - idx
                 break
             embed.add_field(name=fname, value=val, inline=False)
             total_chars += len(fname) + len(val)
         if omitted > 0:
             embed.add_field(
                 name=f"➕ 외 {omitted}개 예정 이벤트",
-                value="나머지 일정은 월별 미래시 달력에서 이전/다음 월 버튼으로 확인하실 수 있습니다.",
+                value="나머지 일정은 월별 미래시 달력에서 `◀ 이전달` / `다음달 ▶` 버튼으로 확인하실 수 있습니다.",
                 inline=False
             )
         embed.set_footer(text=core.FORECAST_DISCLAIMER)
-        await core.safe_send_response(interaction, embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 class EventInfoView(core.SafeView):
@@ -2872,9 +2934,11 @@ class EventInfoView(core.SafeView):
 
     @discord.ui.button(label="📅 한섭 이벤트 미래시 달력 보기", style=discord.ButtonStyle.primary, emoji="📅")
     async def open_forecast(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction, ephemeral=True)
         now = datetime.datetime.now(core.KST)
-        view = EventForecastView(interaction.user, now.year, now.month)
-        await core.safe_send_response(interaction, embed=view.build_embed(), view=view, ephemeral=True)
+        view = await asyncio.to_thread(EventForecastView, interaction.user, now.year, now.month)
+        embed = await asyncio.to_thread(view.build_embed)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     @discord.ui.button(label="🎯 이벤트 픽업 맞추기 (봇주 전용)", style=discord.ButtonStyle.success)
     async def sync_event_pickup(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2911,7 +2975,7 @@ class EventInfoView(core.SafeView):
 
 class MasterRankView(core.SafeView):
     """보유 카드의 마스터 랭크(0~5) 한계 돌파 및 MR.2 어나더 컬러·한정 헤어 해금 뷰"""
-    def __init__(self, user: discord.User | None = None, guild_id: int = 0, initial_card_id: str | None = None):
+    def __init__(self, user: discord.User | None = None, guild_id: int = 0, initial_card_id: str | int | None = None):
         super().__init__(timeout=600)
         self.user = user
         self.guild_id = guild_id
@@ -2929,10 +2993,34 @@ class MasterRankView(core.SafeView):
                     break
         elif sorted_cards:
             self.selected_card_id = str(sorted_cards[0].get("id"))
-        self._refresh(data)
+        self._sync_card_state(data)
+
+    def _recover_state_from_message(self, interaction: discord.Interaction):
+        """봇 재시작 또는 뷰 재생성 시 메시지의 기존 선택 카드/페이지 상태를 복원합니다."""
+        try:
+            msg = interaction.message
+            if not msg or not msg.components:
+                return
+            for row in msg.components:
+                for child in getattr(row, "children", []):
+                    opts = getattr(child, "options", None)
+                    if opts:
+                        for opt in opts:
+                            if getattr(opt, "default", False) and getattr(opt, "value", "NONE") != "NONE":
+                                self.selected_card_id = str(opt.value)
+                                break
+                    lbl = getattr(child, "label", "") or ""
+                    if lbl.startswith("📄 "):
+                        parts = lbl.replace("📄 ", "").split("/")
+                        if parts and parts[0].strip().isdigit():
+                            self.card_page = max(0, int(parts[0].strip()) - 1)
+        except Exception:
+            pass
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         await super().interaction_check(interaction)
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
@@ -2942,6 +3030,9 @@ class MasterRankView(core.SafeView):
             return False
         if not self.user:
             self.user = interaction.user
+        if not self.selected_card_id:
+            self._recover_state_from_message(interaction)
+            self._sync_card_state(core.get_cached_data())
         return True
 
     def _get_sorted_cards(self, data: dict) -> list[dict]:
@@ -2959,7 +3050,7 @@ class MasterRankView(core.SafeView):
         ))
         return cards
 
-    def _refresh(self, data: dict | None = None) -> tuple[dict, list[dict], dict | None]:
+    def _sync_card_state(self, data: dict | None = None) -> tuple[dict, list[dict], dict | None]:
         d = data if data is not None else core.load_data()
         cards = self._get_sorted_cards(d)
         max_page = max(0, (len(cards) - 1) // self.per_page) if cards else 0
@@ -3025,13 +3116,15 @@ class MasterRankView(core.SafeView):
 
     def build_embed(self) -> discord.Embed:
         data = core.load_data()
-        d, cards, selected = self._refresh(data)
-        prof = core.ensure_user_profile(d, self.user.id, self.user.display_name)
+        d, cards, selected = self._sync_card_state(data)
+        u_id = self.user.id if self.user else 0
+        u_name = self.user.display_name if self.user else "유저"
+        prof = core.ensure_user_profile(d, u_id, u_name)
         crystals = int(prof.get("crystals", 0))
 
         if not selected:
             return discord.Embed(
-                title=f"🏆 {self.user.display_name}님의 마스터 랭크 (한계 돌파)",
+                title=f"🏆 {u_name}님의 마스터 랭크 (한계 돌파)",
                 description="📭 보유한 프로세카 카드가 없습니다.\n`/프로세카뽑기`로 카드를 먼저 뽑아주세요!",
                 color=discord.Color.dark_grey(),
                 timestamp=datetime.datetime.now(core.KST)
@@ -3071,7 +3164,7 @@ class MasterRankView(core.SafeView):
 
         notice_block = f"\n🎉 {self.status_notice}\n" if self.status_notice else ""
         embed = discord.Embed(
-            title=f"🏆 {self.user.display_name}님의 마스터 랭크 한계 돌파",
+            title=f"🏆 {u_name}님의 마스터 랭크 한계 돌파",
             description=(
                 f"{notice_block}"
                 f"**선택 카드:** `[{selected.get('limit_label', '통상')}]` **{selected['rarity_label']} [{selected['prefix']}] {selected['char_name']}**\n"
@@ -3094,17 +3187,24 @@ class MasterRankView(core.SafeView):
         if val == "NONE":
             await core.safe_defer(interaction)
             return
+        await core.safe_defer(interaction)
         self.selected_card_id = val
         self.status_notice = ""
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        embed = await asyncio.to_thread(self.build_embed)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
 
     @discord.ui.button(label="🃏 중복 카드로 돌파 (0💎)", style=discord.ButtonStyle.success, row=1)
     async def btn_upgrade_dup(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.selected_card_id:
-            await core.safe_defer(interaction)
+            self._recover_state_from_message(interaction)
+            self._sync_card_state(core.get_cached_data())
+        if not self.selected_card_id:
+            await core.safe_send_response(interaction, "❌ 돌파할 카드를 먼저 선택해 주세요.", ephemeral=True)
             return
+        await core.safe_defer(interaction)
+        guild_id = self.guild_id or (interaction.guild_id or 0)
         ok, msg, info = await asyncio.to_thread(
-            core.upgrade_card_master_rank, self.guild_id, interaction.user.id, self.selected_card_id, True
+            core.upgrade_card_master_rank, guild_id, interaction.user.id, self.selected_card_id, True
         )
         if not ok:
             await core.safe_send_response(interaction, f"❌ {msg}", ephemeral=True)
@@ -3115,15 +3215,21 @@ class MasterRankView(core.SafeView):
         if info.get("unlocked_hair_now"):
             extra += " 💇 **한정 헤어스타일 해금!**"
         self.status_notice = f"{msg} (`+{info['diff_power']:,} ⚔️`){extra}"
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        embed = await asyncio.to_thread(self.build_embed)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
 
     @discord.ui.button(label="💎 크리스탈로 돌파", style=discord.ButtonStyle.primary, row=1)
     async def btn_upgrade_crystal(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.selected_card_id:
-            await core.safe_defer(interaction)
+            self._recover_state_from_message(interaction)
+            self._sync_card_state(core.get_cached_data())
+        if not self.selected_card_id:
+            await core.safe_send_response(interaction, "❌ 돌파할 카드를 먼저 선택해 주세요.", ephemeral=True)
             return
+        await core.safe_defer(interaction)
+        guild_id = self.guild_id or (interaction.guild_id or 0)
         ok, msg, info = await asyncio.to_thread(
-            core.upgrade_card_master_rank, self.guild_id, interaction.user.id, self.selected_card_id, False
+            core.upgrade_card_master_rank, guild_id, interaction.user.id, self.selected_card_id, False
         )
         if not ok:
             await core.safe_send_response(interaction, f"❌ {msg}", ephemeral=True)
@@ -3134,24 +3240,30 @@ class MasterRankView(core.SafeView):
         if info.get("unlocked_hair_now"):
             extra += " 💇 **한정 헤어스타일 해금!**"
         self.status_notice = f"{msg} (`-{info['cost_crystals']:,}💎`, `+{info['diff_power']:,} ⚔️`){extra}"
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        embed = await asyncio.to_thread(self.build_embed)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
 
     @discord.ui.button(label="👗 의상실 바로가기", style=discord.ButtonStyle.secondary, row=1)
     async def btn_goto_wardrobe(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
-        g_key = str(self.guild_id or 0)
-        u_key = str(self.user.id)
-        card = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get("cards", {}).get(str(self.selected_card_id))
+        g_key = str(self.guild_id or (interaction.guild_id or 0))
+        u_key = str(interaction.user.id)
+        card = data.get("gacha_users", {}).get(g_key, {}).get(u_key, {}).get(
+            "cards", {}
+        ).get(str(self.selected_card_id))
         init_cid = card.get("char_id", 1) if card else 1
-        view = CharacterCostumeWardrobeView(interaction.user, guild_id=self.guild_id, initial_char_id=init_cid)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        view = CharacterCostumeWardrobeView(interaction.user, guild_id=self.guild_id or (interaction.guild_id or 0), initial_char_id=init_cid)
+        embed = await asyncio.to_thread(view.build_embed)
+        await interaction.followup.send(embed=embed, view=view)
 
     @discord.ui.button(label="◀ 카드 목록", style=discord.ButtonStyle.secondary, row=2)
     async def prev_list_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
         self.card_page = max(0, self.card_page - 1)
         self.status_notice = ""
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        embed = await asyncio.to_thread(self.build_embed)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
 
     @discord.ui.button(label="📄 1 / 1", style=discord.ButtonStyle.secondary, disabled=True, row=2)
     async def list_page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -3159,9 +3271,11 @@ class MasterRankView(core.SafeView):
 
     @discord.ui.button(label="카드 목록 ▶", style=discord.ButtonStyle.secondary, row=2)
     async def next_list_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
         self.card_page += 1
         self.status_notice = ""
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        embed = await asyncio.to_thread(self.build_embed)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
 
 
 class SekaiLiveView(core.SafeView):
@@ -3178,13 +3292,17 @@ class SekaiLiveView(core.SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         await super().interaction_check(interaction)
-        if interaction.user.id != self.user.id:
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
+        if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
                 f"❌ 이 세카이 라이브 무대는 **{self.user.display_name}**님 전용입니다. `/라이브`를 입력해 보세요!",
                 ephemeral=True
             )
             return False
+        if not self.user:
+            self.user = interaction.user
         return True
 
     def _refresh_components(self):
@@ -3375,9 +3493,10 @@ class GachaCog(commands.Cog):
             app_commands.Choice(name="🌈 10회 뽑기 (10연차 - ★3 이상 확정!)", value=10)
         ],
         배너=[
-            app_commands.Choice(name="🌟 일반 / 현재 픽업 가챠 (★4 3.0%)", value="normal"),
+            app_commands.Choice(name="🌟 일반 / 현재 픽업 가챠 (★4 3.0% · 시각별 유닛 UP)", value="normal"),
             app_commands.Choice(name="🎊 컬러풀 페스티벌 (★4 2배 · 6.0%!)", value="fes"),
             app_commands.Choice(name="🎂 생일 / 기념일 스페셜 (생일한정 UP!)", value="birthday"),
+            app_commands.Choice(name="👗 3D 의상 & 악세서리 픽업 (3D 의상 카드 UP!)", value="costume"),
         ],
         연출=[
             app_commands.Choice(name="✨ 무지개 승격 & 대사 연출 보기 (기본)", value="anim"),
@@ -3546,6 +3665,7 @@ class GachaCog(commands.Cog):
         app_commands.Choice(name="🌟 일반 / 현재 픽업 가챠 (★4 3.0%)", value="normal"),
         app_commands.Choice(name="🎊 컬러풀 페스티벌 (★4 2배 · 6.0%)", value="fes"),
         app_commands.Choice(name="🎂 생일 / 기념일 스페셜 (★4·생일 3.5%)", value="birthday"),
+        app_commands.Choice(name="👗 3D 의상 & 악세서리 픽업 (★4 4.5%)", value="costume"),
     ])
     async def proseka_rate_list_cmd(self, interaction: discord.Interaction, 배너: app_commands.Choice[str] = None):
         await core.safe_defer(interaction)
@@ -4486,6 +4606,16 @@ class MySekaiHubView(core.SafeView):
         self.status_notice = ""
         if self.caller and self.owner:
             self._refresh_components()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
+        if not self.caller:
+            self.caller = interaction.user
+        if not self.owner:
+            self.owner = interaction.user
+        return True
 
     def _refresh_components(self):
         is_owner = (self.caller.id == self.owner.id)
