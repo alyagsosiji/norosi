@@ -12,6 +12,7 @@ import asyncio
 import datetime
 import io
 import re
+import unicodedata
 from typing import Any, Dict, List, Optional
 
 import discord
@@ -20,6 +21,186 @@ from discord.ext import commands
 
 import core
 import ticket_core
+
+
+_CLEAR_ROLE_KEYWORDS = {"__clear__", "해제", "초기화", "없음", "제거", "clear", "none", "reset", "null"}
+
+
+_INVISIBLE_FILLERS = {"\u3164", "\u115f", "\u1160", "\uffa0", "\u2800", "\u00a0", "\u3000"}
+_SEPARATING_DOTS = {"\u318d", "\u119e"}
+
+
+def _clean_role_invisible(text: str) -> str:
+    """유니코드 호환 정규화(NFKC) + 제로너비/공백필러(ㅤ 등)/제어문자/선행 '@' 제거."""
+    s = unicodedata.normalize("NFKC", str(text or ""))
+    out = []
+    for ch in s:
+        if ch in _INVISIBLE_FILLERS:
+            out.append(" ")
+            continue
+        cat = unicodedata.category(ch)
+        # Cf: 포맷문자(\u200b 등), Cc: 제어문자, Mn: 결합부호(variation selector 등)
+        if cat in ("Cf", "Cc", "Mn"):
+            continue
+        out.append(ch)
+    cleaned = re.sub(r"\s+", " ", "".join(out)).strip()
+    while cleaned.startswith("@") or cleaned.startswith("＠"):
+        cleaned = cleaned[1:].strip()
+    return cleaned
+
+
+def _strip_role_specials(text: str) -> str:
+    """특수문자·이모지·공백필러·구분선·공백을 제거하고 핵심 문자(한글/영문/숫자)만 추출합니다."""
+    s = unicodedata.normalize("NFKC", str(text or ""))
+    out = []
+    for ch in s:
+        if ch in _INVISIBLE_FILLERS or ch in _SEPARATING_DOTS:
+            continue
+        cat = unicodedata.category(ch)
+        if cat and cat[0] in ("L", "N"):
+            out.append(ch.lower())
+    return "".join(out)
+
+
+def _list_guild_assignable_roles(guild: Any) -> List[Any]:
+    if guild is None:
+        return []
+    gid = getattr(guild, "id", None)
+    roles = []
+    for r in (getattr(guild, "roles", None) or []):
+        try:
+            if getattr(r, "is_default", None) and r.is_default():
+                continue
+        except Exception:
+            pass
+        if gid is not None and getattr(r, "id", None) == gid:
+            continue
+        roles.append(r)
+    roles.sort(key=lambda r: (-int(getattr(r, "position", 0) or 0), str(getattr(r, "name", ""))))
+    return roles
+
+
+async def _fetch_guild_roles_safe(guild: Any) -> List[Any]:
+    roles = _list_guild_assignable_roles(guild)
+    if roles or guild is None or not hasattr(guild, "fetch_roles"):
+        return roles
+    try:
+        fetched = await guild.fetch_roles()
+        gid = getattr(guild, "id", None)
+        res = [
+            r for r in fetched
+            if not (getattr(r, "is_default", None) and r.is_default()) and getattr(r, "id", None) != gid
+        ]
+        res.sort(key=lambda r: (-int(getattr(r, "position", 0) or 0), str(getattr(r, "name", ""))))
+        return res
+    except Exception:
+        return roles
+
+
+async def _resolve_guild_role(guild: Any, raw_query: str) -> Optional[Any]:
+    """<@&ID>, 숫자 ID, 특수문자/이모지/제로너비 문자가 포함된 역할명 모두 정확하게 매칭."""
+    if guild is None:
+        return None
+    raw = str(raw_query or "").strip()
+    if not raw:
+        return None
+
+    # 1. 멘션 <@&123456> 또는 숫자 ID 직접 조회
+    m_mention = re.fullmatch(r"\s*<@&(\d+)>\s*", raw)
+    rid_str = m_mention.group(1) if m_mention else (raw if re.fullmatch(r"\d{5,25}", raw) else None)
+    if rid_str:
+        rid = int(rid_str)
+        if rid != getattr(guild, "id", -1):
+            role = guild.get_role(rid) if hasattr(guild, "get_role") else None
+            if role is not None:
+                return role
+            for r in await _fetch_guild_roles_safe(guild):
+                if getattr(r, "id", None) == rid:
+                    return r
+
+    roles = _list_guild_assignable_roles(guild)
+    if not roles:
+        roles = await _fetch_guild_roles_safe(guild)
+    if not roles:
+        return None
+
+    raw_no_at = raw.lstrip("@＠").strip()
+    # 2. 원본 정확 일치
+    for r in roles:
+        rn = str(getattr(r, "name", ""))
+        if rn == raw or (raw_no_at and rn == raw_no_at):
+            return r
+
+    clean_q = _clean_role_invisible(raw).lower()
+    # 3. 유니코드 정규화 + 보이지 않는 문자 제거 후 대소문자 무시 정확 일치
+    if clean_q:
+        for r in roles:
+            if _clean_role_invisible(getattr(r, "name", "")).lower() == clean_q:
+                return r
+
+    strip_q = _strip_role_specials(raw)
+    # 4. 특수문자·공백 제거 후 핵심 문자 정확 일치 (예: "담당자" -> "『★ 담당자 ★』")
+    if strip_q:
+        for r in roles:
+            if _strip_role_specials(getattr(r, "name", "")) == strip_q:
+                return r
+
+    # 5. 부분 일치 (가장 짧고 밀접한 이름 우선)
+    candidates = []
+    for r in roles:
+        r_name = str(getattr(r, "name", ""))
+        r_clean = _clean_role_invisible(r_name).lower()
+        r_strip = _strip_role_specials(r_name)
+        if clean_q and clean_q in r_clean:
+            candidates.append((0, len(r_clean), r))
+        elif strip_q and strip_q in r_strip:
+            candidates.append((1, len(r_strip), r))
+    if candidates:
+        candidates.sort(key=lambda item: (item[0], item[1], -int(getattr(item[2], "position", 0) or 0)))
+        return candidates[0][2]
+    return None
+
+
+async def _staff_role_autocomplete(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+    guild = interaction.guild
+    roles = _list_guild_assignable_roles(guild)
+    q_raw = str(current or "").strip()
+    q_clean = _clean_role_invisible(q_raw).lower()
+    q_strip = _strip_role_specials(q_raw)
+
+    choices: List[app_commands.Choice[str]] = []
+    if not q_clean or any(k in q_clean for k in ("해제", "초기", "없음", "clear", "none")):
+        choices.append(app_commands.Choice(name="🔓 담당자 역할 해제 (서버 관리자 전용)", value="__CLEAR__"))
+
+    scored = []
+    for r in roles:
+        r_name = str(getattr(r, "name", ""))
+        r_id = str(getattr(r, "id", ""))
+        r_clean = _clean_role_invisible(r_name).lower()
+        r_strip = _strip_role_specials(r_name)
+
+        if not q_raw:
+            score = (0, -int(getattr(r, "position", 0) or 0))
+        elif r_clean == q_clean or (q_strip and r_strip == q_strip) or r_id == q_raw:
+            score = (0, len(r_name))
+        elif q_clean and q_clean in r_clean:
+            score = (1, len(r_name))
+        elif q_strip and q_strip in r_strip:
+            score = (2, len(r_name))
+        elif q_raw.isdigit() and q_raw in r_id:
+            score = (3, len(r_name))
+        else:
+            continue
+        scored.append((score, r))
+
+    scored.sort(key=lambda it: (it[0], -int(getattr(it[1], "position", 0) or 0)))
+    for _, r in scored:
+        if len(choices) >= 25:
+            break
+        mem_cnt = len(getattr(r, "members", None) or [])
+        label = f"🛡️ {str(getattr(r, 'name', '역할'))[:78]} ({mem_cnt}명)"[:100]
+        choices.append(app_commands.Choice(name=label, value=str(getattr(r, "id", ""))))
+    return choices[:25]
 
 
 def _is_ticket_admin(member: Any, bot: Any) -> bool:
@@ -39,10 +220,45 @@ def _is_ticket_staff(member: Any, guild_id: int, bot: Any) -> bool:
     cfg = ticket_core.get_ticket_config(guild_id)
     staff_rid = cfg.get("staff_role_id")
     if staff_rid and member is not None:
+        try:
+            target_rid = int(staff_rid)
+        except (TypeError, ValueError):
+            return False
         roles = getattr(member, "roles", None) or []
-        if any(getattr(r, "id", 0) == int(staff_rid) for r in roles):
+        if any(getattr(r, "id", 0) == target_rid for r in roles):
             return True
     return False
+
+
+def _build_ticket_config_embed(cfg: Dict[str, Any], guild: Optional[discord.Guild] = None) -> discord.Embed:
+    p_ch = f"<#{cfg['panel_channel_id']}>" if cfg.get("panel_channel_id") else "미지정 (`/티켓 패널생성` 시 현재 채널)"
+    s_rid = cfg.get("staff_role_id")
+    if s_rid:
+        s_role_obj = guild.get_role(int(s_rid)) if (guild and hasattr(guild, "get_role")) else None
+        if s_role_obj is not None:
+            safe_rname = str(getattr(s_role_obj, "name", "")).replace("`", "")
+            s_role = f"<@&{s_rid}> (`{safe_rname}`)"
+        else:
+            s_role = f"<@&{s_rid}> (`ID: {s_rid}`)"
+    else:
+        s_role = "미지정 (서버 관리자 전용)"
+    cat_ch = f"<#{cfg['category_id']}>" if cfg.get("category_id") else "카테고리 없음 (최상단)"
+    l_ch = f"<#{cfg['log_channel_id']}>" if cfg.get("log_channel_id") else "미지정 (개설자 DM·채널에만 출력)"
+    embed = discord.Embed(
+        title="⚙️ 서버 1:1 티켓 시스템 설정 완료",
+        description=(
+            f"• **패널 채널:** {p_ch}\n"
+            f"• **담당자 역할:** {s_role}\n"
+            f"• **티켓 카테고리:** {cat_ch}\n"
+            f"• **트랜스크립트 로그 채널:** {l_ch}\n"
+            f"• **티켓 생성 방식:** `{'비공개 텍스트 채널' if cfg['mode'] == 'channel' else '비공개 스레드'}`\n"
+            f"• **유저당 동시 오픈 상한:** `{cfg['max_per_user']}개` · **누적 발행:** `{cfg['counter']}건`"
+        ),
+        color=0x38BDF8,
+        timestamp=datetime.datetime.now(core.KST),
+    )
+    embed.set_footer(text="아래 역할 드롭다운으로 특수문자 포함 역할을 바로 선택하거나, `/티켓 패널생성`으로 패널을 발행하세요!")
+    return embed
 
 
 def _build_ticket_welcome_embed(rec: Dict[str, Any], cfg: Dict[str, Any]) -> discord.Embed:
@@ -520,6 +736,57 @@ class TicketControlView(core.SafeView):
                 pass
 
 
+class TicketConfigRoleView(core.SafeView):
+    """특수문자·이모지 포함 역할도 1클릭으로 선택/해제 가능한 티켓 담당자 역할 설정 뷰"""
+    def __init__(self, guild_id: int = 0, author_id: int = 0):
+        super().__init__(timeout=300)
+        self.guild_id = int(guild_id or 0)
+        self.author_id = int(author_id or 0)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if self.author_id and interaction.user.id != self.author_id:
+            await core.safe_send_response(interaction, "❌ `/티켓 설정`을 호출한 관리자만 조작할 수 있습니다.", ephemeral=True)
+            return False
+        if not _is_ticket_admin(interaction.user, interaction.client):
+            await core.safe_send_response(interaction, "❌ **서버 관리자** 권한이 필요합니다.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(
+        cls=discord.ui.RoleSelect,
+        placeholder="🛡️ 담당자 역할 직접 선택 (특수문자·이모지 포함 100% 인식)",
+        min_values=1,
+        max_values=1,
+        row=0,
+    )
+    async def role_select(self, interaction: discord.Interaction, select: discord.ui.RoleSelect):
+        guild = interaction.guild
+        gid = self.guild_id or (guild.id if guild else 0)
+        if not gid or not select.values:
+            await core.safe_send_response(interaction, "❌ 서버 역할을 확인할 수 없습니다.", ephemeral=True)
+            return
+        picked_role = select.values[0]
+        if (guild and getattr(picked_role, "id", None) == guild.id) or (getattr(picked_role, "is_default", None) and picked_role.is_default()):
+            await core.safe_send_response(interaction, "❌ `@everyone` 기본 역할은 담당자 역할로 지정할 수 없습니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        cfg = await asyncio.to_thread(ticket_core.update_ticket_config, gid, staff_role_id=picked_role.id)
+        embed = _build_ticket_config_embed(cfg, guild)
+        await core.safe_edit_response(interaction, content=f"✅ 담당자 역할을 {picked_role.mention} 로 설정했습니다!", embed=embed, view=self)
+
+    @discord.ui.button(label="🔓 담당자 역할 해제 (관리자 전용)", style=discord.ButtonStyle.secondary, row=1)
+    async def btn_clear_staff_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
+        gid = self.guild_id or (guild.id if guild else 0)
+        if not gid:
+            await core.safe_send_response(interaction, "❌ 서버 정보를 확인할 수 없습니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        cfg = await asyncio.to_thread(ticket_core.update_ticket_config, gid, staff_role_id=None)
+        embed = _build_ticket_config_embed(cfg, guild)
+        await core.safe_edit_response(interaction, content="🔓 담당자 역할 지정을 해제했습니다. (서버 관리자만 접수 가능)", embed=embed, view=self)
+
+
 # ==========================================
 # Slash Command GroupCog (/티켓)
 # ==========================================
@@ -530,12 +797,13 @@ class TicketGroupCog(commands.GroupCog, name="티켓", description="🎫 1:1 비
     @app_commands.command(name="설정", description="[관리자] 서버의 1:1 티켓 채널, 담당자 역할, 로그 채널, 방식, 최대 오픈 수를 설정합니다.")
     @app_commands.describe(
         패널채널="문의 열기 패널이 위치할 기본 채널",
-        담당자역할="모든 티켓 열람·접수 권한을 가질 운영진 역할",
+        담당자역할="모든 티켓 열람·접수 권한을 가질 운영진 역할 (역할명·일부 글자·특수문자 포함·@멘션·ID·해제 지원)",
         카테고리="비공개 티켓 채널이 생성될 디스코드 카테고리",
         로그채널="티켓 종료 시 UTF-8 .txt 대화 기록이 백업될 로그 채널",
         방식="티켓 생성 방식 (비공개 채널 vs 비공개 스레드)",
         최대티켓수="유저 1명당 동시에 열 수 있는 최대 티켓 수 (1~5)",
     )
+    @app_commands.autocomplete(담당자역할=_staff_role_autocomplete)
     @app_commands.choices(방식=[
         app_commands.Choice(name="📁 비공개 텍스트 채널 (권장)", value="channel"),
         app_commands.Choice(name="🧵 비공개 스레드 (Thread)", value="thread"),
@@ -544,7 +812,7 @@ class TicketGroupCog(commands.GroupCog, name="티켓", description="🎫 1:1 비
         self,
         interaction: discord.Interaction,
         패널채널: Optional[discord.TextChannel] = None,
-        담당자역할: Optional[discord.Role] = None,
+        담당자역할: Optional[str] = None,
         카테고리: Optional[discord.CategoryChannel] = None,
         로그채널: Optional[discord.TextChannel] = None,
         방식: Optional[app_commands.Choice[str]] = None,
@@ -559,10 +827,23 @@ class TicketGroupCog(commands.GroupCog, name="티켓", description="🎫 1:1 비
 
         await core.safe_defer(interaction, ephemeral=True)
         updates: Dict[str, Any] = {}
+        warn_msg: Optional[str] = None
         if 패널채널 is not None:
             updates["panel_channel_id"] = 패널채널.id
         if 담당자역할 is not None:
-            updates["staff_role_id"] = 담당자역할.id
+            q_role = str(담당자역할).strip()
+            if q_role.lower() in _CLEAR_ROLE_KEYWORDS:
+                updates["staff_role_id"] = None
+            else:
+                resolved_role = await _resolve_guild_role(interaction.guild, q_role)
+                if resolved_role is None:
+                    safe_q = q_role.replace("`", "")[:60]
+                    warn_msg = (
+                        f"⚠️ 입력하신 역할 **`{safe_q}`**을(를) 서버에서 자동으로 찾지 못했습니다.\n"
+                        "👉 아래 **역할 선택 드롭다운**에서 특수문자 포함 역할을 클릭해 바로 지정해 주세요!"
+                    )
+                else:
+                    updates["staff_role_id"] = resolved_role.id
         if 카테고리 is not None:
             updates["category_id"] = 카테고리.id
         if 로그채널 is not None:
@@ -573,25 +854,9 @@ class TicketGroupCog(commands.GroupCog, name="티켓", description="🎫 1:1 비
             updates["max_per_user"] = int(최대티켓수)
 
         cfg = await asyncio.to_thread(ticket_core.update_ticket_config, interaction.guild.id, **updates)
-        p_ch = f"<#{cfg['panel_channel_id']}>" if cfg.get("panel_channel_id") else "미지정 (`/티켓 패널생성` 시 현재 채널)"
-        s_role = f"<@&{cfg['staff_role_id']}>" if cfg.get("staff_role_id") else "미지정 (서버 관리자 전용)"
-        cat_ch = f"<#{cfg['category_id']}>" if cfg.get("category_id") else "카테고리 없음 (최상단)"
-        l_ch = f"<#{cfg['log_channel_id']}>" if cfg.get("log_channel_id") else "미지정 (개설자 DM·채널에만 출력)"
-        embed = discord.Embed(
-            title="⚙️ 서버 1:1 티켓 시스템 설정 완료",
-            description=(
-                f"• **패널 채널:** {p_ch}\n"
-                f"• **담당자 역할:** {s_role}\n"
-                f"• **티켓 카테고리:** {cat_ch}\n"
-                f"• **트랜스크립트 로그 채널:** {l_ch}\n"
-                f"• **티켓 생성 방식:** `{'비공개 텍스트 채널' if cfg['mode'] == 'channel' else '비공개 스레드'}`\n"
-                f"• **유저당 동시 오픈 상한:** `{cfg['max_per_user']}개` · **누적 발행:** `{cfg['counter']}건`"
-            ),
-            color=0x38BDF8,
-            timestamp=datetime.datetime.now(core.KST),
-        )
-        embed.set_footer(text="설정 후 `/티켓 패널생성`을 실행하면 문의 열기 버튼 패널이 발행됩니다!")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        embed = _build_ticket_config_embed(cfg, interaction.guild)
+        view = TicketConfigRoleView(guild_id=interaction.guild.id, author_id=interaction.user.id)
+        await interaction.followup.send(content=warn_msg, embed=embed, view=view, ephemeral=True)
 
     @app_commands.command(name="패널생성", description="[관리자] 1:1 문의 티켓 열기 영구 버튼 패널을 지정 채널에 생성합니다.")
     @app_commands.describe(

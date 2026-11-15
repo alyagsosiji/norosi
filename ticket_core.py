@@ -31,6 +31,18 @@ DEFAULT_TICKET_CONFIG: Dict[str, Any] = {
 }
 
 
+def _safe_optional_id(val: Any) -> Optional[int]:
+    if val is None or isinstance(val, bool):
+        return None
+    if isinstance(val, int):
+        return val if val > 0 else None
+    s = str(val).strip()
+    if s.isdigit():
+        iv = int(s)
+        return iv if iv > 0 else None
+    return None
+
+
 def get_ticket_config(guild_id: int | str, data: Optional[dict] = None) -> Dict[str, Any]:
     if data is None:
         data = core.get_cached_data()
@@ -41,6 +53,8 @@ def get_ticket_config(guild_id: int | str, data: Optional[dict] = None) -> Dict[
         for k, v in raw.items():
             if v is not None:
                 cfg[k] = v
+    for id_key in ("panel_channel_id", "staff_role_id", "category_id", "log_channel_id"):
+        cfg[id_key] = _safe_optional_id(cfg.get(id_key))
     cfg["mode"] = "thread" if cfg.get("mode") == "thread" else "channel"
     try:
         cfg["max_per_user"] = max(1, min(5, int(cfg.get("max_per_user", 2) or 2)))
@@ -65,6 +79,8 @@ def update_ticket_config(guild_id: int | str, **updates) -> Dict[str, Any]:
                     cur[k] = "thread" if v == "thread" else "channel"
                 elif k == "max_per_user":
                     cur[k] = max(1, min(5, int(v or 2)))
+                elif k in ("panel_channel_id", "staff_role_id", "category_id", "log_channel_id"):
+                    cur[k] = _safe_optional_id(v)
                 else:
                     cur[k] = v
         t_cfgs[g_key] = cur
