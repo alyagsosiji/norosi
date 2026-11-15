@@ -1542,8 +1542,6 @@ class LoggerCog(commands.Cog):
             b_cat = f"`{before.category.name}`" if getattr(before, "category", None) else "(카테고리 없음)"
             a_cat = f"`{after.category.name}`" if getattr(after, "category", None) else "(카테고리 없음)"
             changes.append(f"• **상위 카테고리:** {b_cat} ➡️ {a_cat}")
-        if getattr(before, "position", 0) != getattr(after, "position", 0):
-            changes.append(f"• **채널 위치(순서):** `{before.position}` ➡️ `{after.position}`")
         if getattr(before, "slowmode_delay", 0) != getattr(after, "slowmode_delay", 0):
             changes.append(f"• **슬로우 모드(느린 모드):** `{getattr(before, 'slowmode_delay', 0)}초` ➡️ `{getattr(after, 'slowmode_delay', 0)}초`")
         if getattr(before, "nsfw", False) != getattr(after, "nsfw", False):
