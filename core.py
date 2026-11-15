@@ -4524,6 +4524,9 @@ def normalize_data(data):
             if not isinstance(fu.get("owned_reels"), list):
                 reels = [str(r) for r in coerce_list_like(fu.get("owned_reels")) if r]
                 fu["owned_reels"] = reels if reels else ["basic_reel"]
+            if not isinstance(fu.get("owned_nets"), list):
+                nets = [str(n) for n in coerce_list_like(fu.get("owned_nets")) if n]
+                fu["owned_nets"] = nets
             dq = fu.get("daily_quests")
             if isinstance(dq, dict) and not isinstance(dq.get("items"), list):
                 dq["items"] = [q for q in coerce_list_like(dq.get("items")) if isinstance(q, dict)]

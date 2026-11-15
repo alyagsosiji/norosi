@@ -267,6 +267,69 @@ REELS: Dict[str, Dict[str, Any]] = {
     },
 }
 
+NETS: Dict[str, Dict[str, Any]] = {
+    "cast_net": {
+        "id": "cast_net",
+        "tier": 1,
+        "name": "초보자 투망",
+        "emoji": "🕸️",
+        "price": 550,
+        "min_catch": 2,
+        "max_catch": 3,
+        "rare_bonus": 0.0,
+        "size_bonus": 0.0,
+        "desc": "상점 구매 전용 입문 투망! 1회 출조 시 2~3마리 동시 포획",
+    },
+    "trawl_net": {
+        "id": "trawl_net",
+        "tier": 2,
+        "name": "삼중 자망 그물",
+        "emoji": "🧶",
+        "price": 2200,
+        "min_catch": 2,
+        "max_catch": 5,
+        "rare_bonus": 0.06,
+        "size_bonus": 0.03,
+        "desc": "그물코가 촘촘한 삼중 어망! 1회 2~5마리 포획 · 희귀 +6%",
+    },
+    "silk_net": {
+        "id": "silk_net",
+        "tier": 3,
+        "name": "강화 실크 어망",
+        "emoji": "🧺",
+        "price": 7500,
+        "min_catch": 3,
+        "max_catch": 7,
+        "rare_bonus": 0.14,
+        "size_bonus": 0.06,
+        "desc": "고탄성 실크 어망! 1회 3~7마리 포획 · 희귀 +14% · 크기 +6%",
+    },
+    "deep_trawl": {
+        "id": "deep_trawl",
+        "tier": 4,
+        "name": "심해 대형 트롤망",
+        "emoji": "🚢",
+        "price": 22000,
+        "min_catch": 4,
+        "max_catch": 9,
+        "rare_bonus": 0.24,
+        "size_bonus": 0.10,
+        "desc": "대어 무리를 휩쓰는 트롤망! 1회 4~9마리 포획 · 희귀 +24%",
+    },
+    "poseidon_net": {
+        "id": "poseidon_net",
+        "tier": 5,
+        "name": "만선 황금 대망",
+        "emoji": "🌌",
+        "price": 60000,
+        "min_catch": 5,
+        "max_catch": 10,
+        "rare_bonus": 0.38,
+        "size_bonus": 0.15,
+        "desc": "전설의 황금 대망! 1회 5~10마리 대량 포획 · 희귀 +38% · 크기 +15%",
+    },
+}
+
 BAITS: Dict[str, Dict[str, Any]] = {
     "dough": {
         "id": "dough",
@@ -852,12 +915,18 @@ def ensure_fishing_user(data: dict, guild_id: int | str, user_id: int | str, use
     u["total_gold_earned"] = max(0, _safe_int(u.get("total_gold_earned"), 0))
     u.setdefault("rod_id", "bamboo")
     u.setdefault("reel_id", "basic_reel")
+    u.setdefault("net_id", None)
     if not isinstance(u.get("owned_rods"), list):
         rods = [str(r) for r in core.coerce_list_like(u.get("owned_rods")) if r]
         u["owned_rods"] = rods if rods else ["bamboo"]
     if not isinstance(u.get("owned_reels"), list):
         reels = [str(r) for r in core.coerce_list_like(u.get("owned_reels")) if r]
         u["owned_reels"] = reels if reels else ["basic_reel"]
+    if not isinstance(u.get("owned_nets"), list):
+        nets = [str(n) for n in core.coerce_list_like(u.get("owned_nets")) if n and str(n) in NETS]
+        u["owned_nets"] = list(dict.fromkeys(nets))
+    else:
+        u["owned_nets"] = list(dict.fromkeys(str(n) for n in u["owned_nets"] if n and str(n) in NETS))
     u.setdefault("selected_bait", "dough")
     u.setdefault("selected_habitat", "lake")
     u.setdefault("selected_zone", "all")
@@ -901,6 +970,8 @@ def ensure_fishing_user(data: dict, guild_id: int | str, user_id: int | str, use
         u["rod_id"] = "bamboo"
     if u.get("reel_id") not in REELS:
         u["reel_id"] = "basic_reel"
+    if u.get("net_id") not in NETS or u.get("net_id") not in u["owned_nets"]:
+        u["net_id"] = None
     if u.get("selected_bait") not in BAITS:
         u["selected_bait"] = "dough"
     if u.get("selected_habitat") not in HABITATS:
@@ -984,6 +1055,7 @@ def get_user_fishing_summary(guild_id: int | str, user_id: int | str, user_name:
             "env": env,
             "rod": RODS[u["rod_id"]],
             "reel": REELS[u["reel_id"]],
+            "net": NETS.get(u.get("net_id")),
             "bait": BAITS[u["selected_bait"]],
             "tank_pending": pending_tank,
             "tank_hourly": hourly_tank,
@@ -1028,6 +1100,7 @@ def prepare_cast_parameters(guild_id: int | str, user_id: int | str, user_name: 
         u = ensure_fishing_user(data, guild_id, user_id, user_name)
         rod = RODS[u["rod_id"]]
         reel = REELS[u["reel_id"]]
+        net = NETS.get(u.get("net_id"))
         bait_id = u["selected_bait"]
         if bait_id != "dough" and _safe_int(u["baits"].get(bait_id), 0) <= 0:
             bait_id = "dough"
@@ -1048,6 +1121,7 @@ def prepare_cast_parameters(guild_id: int | str, user_id: int | str, user_name: 
             "bait": bait,
             "rod": rod,
             "reel": reel,
+            "net": net,
             "env": env,
             "wait_sec": wait_sec,
             "window_sec": window_sec,
@@ -1063,13 +1137,15 @@ def _roll_species_weighted(
     env: Dict[str, Any],
     zone_filter: str = "all",
     pokedex_ids: Optional[set] = None,
+    net: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """2단계 성급 정규화 추첨: (1) 장비·미끼·날씨 기반 성급 결정 → (2) 해당 성급 풀 내 수역·시간·한글·신규 도감 가중 추첨"""
     if habitat not in HABITATS:
         habitat = "lake"
     pool = FISH_BY_HABITAT.get(habitat) or FISH_SPECIES_DB
+    net_rare = float((net or {}).get("rare_bonus", 0.0))
     rare_factor = (
-        (1.0 + rod["rare_bonus"])
+        (1.0 + rod["rare_bonus"] + net_rare)
         * bait["rare_mult"]
         * env["weather_rare_mult"]
         * env["feeding_mult"]
@@ -1152,6 +1228,7 @@ def finalize_fish_catch(
 ) -> Dict[str, Any]:
     """
     채집 성공 시 어종·cm·kg·월척·신기록·도감·가방·일일퀘스트·크리스탈 보너스를 단일 락 안에서 원자적으로 저장합니다.
+    그물 장착 시 1회 출조로 2~10마리를 동시 포획합니다.
     """
     with _FISHING_LOCK:
         data = core.load_data()
@@ -1180,208 +1257,301 @@ def finalize_fish_catch(
 
         rod = RODS[u["rod_id"]]
         reel = REELS[u["reel_id"]]
+        net = NETS.get(u.get("net_id"))
         bait = BAITS[use_bait_id]
 
-        pokedex_keys = set(core.as_dict(u.get("pokedex")).keys())
-        sp = _roll_species_weighted(habitat, rod, bait, env, zone_filter=use_zone, pokedex_ids=pokedex_keys)
+        # 그물 장착 시 2~10마리 범위 내 랜덤 포획, 미장착 시 1마리
+        if net:
+            min_c = max(2, min(10, _safe_int(net.get("min_catch"), 2)))
+            max_c = max(min_c, min(10, _safe_int(net.get("max_catch"), 10)))
+            catch_count = max(2, min(10, random.randint(min_c, max_c)))
+        else:
+            catch_count = 1
 
-        # 체장(cm) 계산: 정규분포 중심 + 장비·날씨·반응속도 보정
-        span = sp["max_cm"] - sp["min_cm"]
-        mu_ratio = 0.42 + rod["size_bonus"] * 0.25 + (bait["size_mult"] - 1.0) * 0.25 + (env["weather_size_mult"] - 1.0) * 0.35
-        # 빠른 챔질 보너스 (0.2s~1.5s 내 반응 시 대물 보정)
-        perfect_hook = False
-        if reaction_sec is not None and reaction_sec <= 1.8:
-            mu_ratio += 0.08
-            perfect_hook = True
-        ratio = random.gauss(min(0.78, mu_ratio), 0.20)
-        # 월척 확률 보정 (릴 + 피딩타임)
-        trophy_roll = random.random()
-        if trophy_roll < (0.07 + reel["trophy_bonus"] * 0.20):
-            ratio = random.uniform(0.84, 1.04)
-
-        ratio = max(0.0, min(1.06, ratio))
-        length_cm = round(sp["min_cm"] + span * ratio, 1)
-        is_trophy = length_cm >= (sp["min_cm"] + span * 0.82)
-        weight_kg = _compute_fish_weight_kg(sp, length_cm)
-
-        # 황금/특대 변이 판정 (희귀 이벤트)
-        variant = "normal"
-        if random.random() < 0.025:
-            variant = "golden"
-
-        # 예상 판매 골드 산정
-        size_factor = 0.80 + (ratio * 0.70)
-        gold_val = int(sp["base_gold"] * size_factor * (1.0 + rod["gold_bonus"]))
-        if is_trophy:
-            gold_val = int(gold_val * 1.40)
-        if variant == "golden":
-            gold_val = int(gold_val * 2.00)
-        gold_val = max(10, gold_val)
-
-        # 가방 인스턴스 생성 & 즉시 저장 (증발 방지)
-        uid_hex = uuid.uuid4().hex[:8]
-        caught_at = env["now"].strftime("%Y-%m-%d %H:%M")
-        fish_inst = {
-            "uid": uid_hex,
-            "fish_id": sp["id"],
-            "name": sp["name"],
-            "scientific_name": sp["scientific_name"],
-            "habitat": sp["habitat"],
-            "zone": sp.get("zone") or sp.get("sub_zone", ""),
-            "sub_zone": sp.get("sub_zone") or sp.get("zone", ""),
-            "rarity": sp["rarity"],
-            "emoji": sp["emoji"],
-            "length_cm": length_cm,
-            "weight_kg": weight_kg,
-            "gold": gold_val,
-            "is_trophy": is_trophy,
-            "variant": variant,
-            "locked": sp["rarity"] >= 4 or is_trophy,  # 전설/신화/월척 자동 보호
-            "caught_at": caught_at,
-        }
-
+        pokedex = core.ensure_dict_path(u, "pokedex")
+        pokedex_keys = set(pokedex.keys())
         bag = u.get("bag")
         if not isinstance(bag, list):
             bag = []
             u["bag"] = bag
-        bag.append(fish_inst)
-        # 가방 상한 180마리 초과 시 가장 오래된 미잠금 저등급 1마리 자동 판매 보전
-        auto_sold_msg = None
-        if len(bag) > 180:
-            for idx, old_item in enumerate(bag[:-1]):
-                if isinstance(old_item, dict) and not old_item.get("locked") and _safe_int(old_item.get("rarity"), 1) <= 2:
-                    sold_item = bag.pop(idx)
-                    sold_g = _safe_int(sold_item.get("gold"), 20)
-                    u["gold"] += sold_g
-                    auto_sold_msg = f"가방 초과로 `{sold_item.get('name', '물고기')}` 자동 판매 (+{sold_g}🪙)"
-                    break
 
-        # 도감 업데이트
-        pokedex = core.ensure_dict_path(u, "pokedex")
-        is_first_catch = sp["id"] not in pokedex
-        pd_rec = pokedex.get(sp["id"])
-        is_personal_len_best = False
-        is_personal_wt_best = False
-        if not isinstance(pd_rec, dict):
-            pd_rec = {
-                "count": 1,
-                "max_cm": length_cm,
-                "max_kg": weight_kg,
-                "first_caught": caught_at,
-            }
-            pokedex[sp["id"]] = pd_rec
-            is_personal_len_best = True
-            is_personal_wt_best = True
-        else:
-            pd_rec["count"] = _safe_int(pd_rec.get("count"), 0) + 1
-            if length_cm > _safe_float(pd_rec.get("max_cm"), 0.0):
-                pd_rec["max_cm"] = length_cm
-                is_personal_len_best = True
-            if weight_kg > _safe_float(pd_rec.get("max_kg"), 0.0):
-                pd_rec["max_kg"] = weight_kg
-                is_personal_wt_best = True
-
-        # 서버 신기록 체크 (길이 & 무게 독립 기록)
         g_key = str(guild_id or 0)
         g_rec_map = core.ensure_dict_path(data, "fishing_records", g_key)
-        sp_rec = g_rec_map.get(sp["id"])
-        if not isinstance(sp_rec, dict):
-            sp_rec = {}
-            g_rec_map[sp["id"]] = sp_rec
+        caught_at = env["now"].strftime("%Y-%m-%d %H:%M")
 
-        new_server_len_record = False
-        new_server_wt_record = False
-        prev_len_rec = sp_rec.get("max_cm")
-        if not isinstance(prev_len_rec, dict) or length_cm > _safe_float(prev_len_rec.get("val"), 0.0):
-            sp_rec["max_cm"] = {
-                "val": length_cm,
-                "user_id": str(user_id),
-                "user_name": user_name,
-                "at": caught_at,
+        # 빠른 챔질 보너스 (0.2s~1.8s 내 반응 시 대물 보정)
+        perfect_hook = bool(reaction_sec is not None and reaction_sec <= 1.8)
+        net_size_bonus = float((net or {}).get("size_bonus", 0.0))
+
+        catches: List[Dict[str, Any]] = []
+        just_caught_uids: set = set()
+        total_crystal_bonus = 0
+        all_bonus_reasons: List[str] = []
+        total_gain_exp = 0
+        auto_sold_items: List[Tuple[str, int]] = []
+
+        for _ in range(catch_count):
+            sp = _roll_species_weighted(
+                habitat,
+                rod,
+                bait,
+                env,
+                zone_filter=use_zone,
+                pokedex_ids=pokedex_keys,
+                net=net,
+            )
+
+            # 체장(cm) 계산: 정규분포 중심 + 장비·그물·날씨·반응속도 보정
+            span = sp["max_cm"] - sp["min_cm"]
+            mu_ratio = (
+                0.42
+                + (rod["size_bonus"] + net_size_bonus) * 0.25
+                + (bait["size_mult"] - 1.0) * 0.25
+                + (env["weather_size_mult"] - 1.0) * 0.35
+            )
+            if perfect_hook:
+                mu_ratio += 0.08
+            ratio = random.gauss(min(0.78, mu_ratio), 0.20)
+            if random.random() < (0.07 + reel["trophy_bonus"] * 0.20):
+                ratio = random.uniform(0.84, 1.04)
+
+            ratio = max(0.0, min(1.06, ratio))
+            length_cm = round(sp["min_cm"] + span * ratio, 1)
+            is_trophy = length_cm >= (sp["min_cm"] + span * 0.82)
+            weight_kg = _compute_fish_weight_kg(sp, length_cm)
+
+            # 황금/특대 변이 판정 (희귀 이벤트)
+            variant = "golden" if random.random() < 0.025 else "normal"
+
+            # 예상 판매 골드 산정
+            size_factor = 0.80 + (ratio * 0.70)
+            gold_val = int(sp["base_gold"] * size_factor * (1.0 + rod["gold_bonus"]))
+            if is_trophy:
+                gold_val = int(gold_val * 1.40)
+            if variant == "golden":
+                gold_val = int(gold_val * 2.00)
+            gold_val = max(10, gold_val)
+
+            uid_hex = uuid.uuid4().hex[:8]
+            fish_inst = {
+                "uid": uid_hex,
+                "fish_id": sp["id"],
+                "name": sp["name"],
+                "scientific_name": sp["scientific_name"],
+                "habitat": sp["habitat"],
+                "zone": sp.get("zone") or sp.get("sub_zone", ""),
+                "sub_zone": sp.get("sub_zone") or sp.get("zone", ""),
+                "rarity": sp["rarity"],
+                "emoji": sp["emoji"],
+                "length_cm": length_cm,
+                "weight_kg": weight_kg,
+                "gold": gold_val,
+                "is_trophy": is_trophy,
+                "variant": variant,
+                "locked": sp["rarity"] >= 4 or is_trophy,  # 전설/신화/월척 자동 보호
+                "caught_at": caught_at,
             }
-            new_server_len_record = True
 
-        prev_wt_rec = sp_rec.get("max_kg")
-        if not isinstance(prev_wt_rec, dict) or weight_kg > _safe_float(prev_wt_rec.get("val"), 0.0):
-            sp_rec["max_kg"] = {
-                "val": weight_kg,
-                "user_id": str(user_id),
-                "user_name": user_name,
-                "at": caught_at,
-            }
-            new_server_wt_record = True
+            bag.append(fish_inst)
+            just_caught_uids.add(uid_hex)
 
-        # 마일스톤 크리스탈 보너스 계산 & 지급
-        crystal_bonus = 0
-        bonus_reasons: List[str] = []
-        if is_first_catch:
-            if sp["rarity"] == 5:
-                crystal_bonus += 200
-                bonus_reasons.append("★5 신화 첫 도감(+200💎)")
-            elif sp["rarity"] == 4:
-                crystal_bonus += 100
-                bonus_reasons.append("★4 전설 첫 도감(+100💎)")
-            elif sp["rarity"] == 3:
-                crystal_bonus += 30
-                bonus_reasons.append("★3 희귀 첫 도감(+30💎)")
+            # 도감 업데이트
+            is_first_catch = sp["id"] not in pokedex
+            pokedex_keys.add(sp["id"])
+            pd_rec = pokedex.get(sp["id"])
+            is_personal_len_best = False
+            is_personal_wt_best = False
+            if not isinstance(pd_rec, dict):
+                pd_rec = {
+                    "count": 1,
+                    "max_cm": length_cm,
+                    "max_kg": weight_kg,
+                    "first_caught": caught_at,
+                }
+                pokedex[sp["id"]] = pd_rec
+                is_personal_len_best = True
+                is_personal_wt_best = True
             else:
-                crystal_bonus += 10
-                bonus_reasons.append("신규 도감 등록(+10💎)")
+                pd_rec["count"] = _safe_int(pd_rec.get("count"), 0) + 1
+                if length_cm > _safe_float(pd_rec.get("max_cm"), 0.0):
+                    pd_rec["max_cm"] = length_cm
+                    is_personal_len_best = True
+                if weight_kg > _safe_float(pd_rec.get("max_kg"), 0.0):
+                    pd_rec["max_kg"] = weight_kg
+                    is_personal_wt_best = True
 
-        if new_server_len_record or new_server_wt_record:
-            # 서버 내 최초 등록 외 경쟁 경신일 때도 보너스, 최초도 소액 보너스
-            crystal_bonus += 25 if (prev_len_rec or prev_wt_rec) else 15
-            bonus_reasons.append("🏆 서버 신기록(+25💎)" if (prev_len_rec or prev_wt_rec) else "🏆 서버 첫 기록(+15💎)")
+            # 서버 신기록 체크 (길이 & 무게 독립 기록)
+            sp_rec = g_rec_map.get(sp["id"])
+            if not isinstance(sp_rec, dict):
+                sp_rec = {}
+                g_rec_map[sp["id"]] = sp_rec
 
-        if crystal_bonus > 0:
-            prof["crystals"] = _safe_int(prof.get("crystals"), 0) + crystal_bonus
+            new_server_len_record = False
+            new_server_wt_record = False
+            prev_len_rec = sp_rec.get("max_cm")
+            if not isinstance(prev_len_rec, dict) or length_cm > _safe_float(prev_len_rec.get("val"), 0.0):
+                sp_rec["max_cm"] = {
+                    "val": length_cm,
+                    "user_id": str(user_id),
+                    "user_name": user_name,
+                    "at": caught_at,
+                }
+                new_server_len_record = True
 
-        # EXP 및 통계 갱신
-        gain_exp = 14 + sp["rarity"] * 12 + (18 if is_trophy else 0) + (20 if is_first_catch else 0)
+            prev_wt_rec = sp_rec.get("max_kg")
+            if not isinstance(prev_wt_rec, dict) or weight_kg > _safe_float(prev_wt_rec.get("val"), 0.0):
+                sp_rec["max_kg"] = {
+                    "val": weight_kg,
+                    "user_id": str(user_id),
+                    "user_name": user_name,
+                    "at": caught_at,
+                }
+                new_server_wt_record = True
+
+            # 마일스톤 크리스탈 보너스 계산
+            item_crystal = 0
+            item_reasons: List[str] = []
+            if is_first_catch:
+                if sp["rarity"] == 5:
+                    item_crystal += 200
+                    item_reasons.append("★5 신화 첫 도감(+200💎)")
+                elif sp["rarity"] == 4:
+                    item_crystal += 100
+                    item_reasons.append("★4 전설 첫 도감(+100💎)")
+                elif sp["rarity"] == 3:
+                    item_crystal += 30
+                    item_reasons.append("★3 희귀 첫 도감(+30💎)")
+                else:
+                    item_crystal += 10
+                    item_reasons.append("신규 도감 등록(+10💎)")
+
+            if new_server_len_record or new_server_wt_record:
+                item_crystal += 25 if (prev_len_rec or prev_wt_rec) else 15
+                item_reasons.append("🏆 서버 신기록(+25💎)" if (prev_len_rec or prev_wt_rec) else "🏆 서버 첫 기록(+15💎)")
+
+            total_crystal_bonus += item_crystal
+            for r_txt in item_reasons:
+                if r_txt not in all_bonus_reasons:
+                    all_bonus_reasons.append(r_txt)
+
+            # EXP 및 누적 통계
+            item_exp = 14 + sp["rarity"] * 12 + (18 if is_trophy else 0) + (20 if is_first_catch else 0)
+            total_gain_exp += item_exp
+            u["total_catches"] = _safe_int(u.get("total_catches"), 0) + 1
+            if is_trophy:
+                u["total_trophy"] = _safe_int(u.get("total_trophy"), 0) + 1
+
+            # 일일 의뢰 진행도 갱신
+            for q in (core.as_dict(u.get("daily_quests")).get("items") or []):
+                if not isinstance(q, dict) or q.get("claimed"):
+                    continue
+                qtype = q.get("type")
+                q_tgt = max(1, _safe_int(q.get("target"), 1))
+                if qtype == "catch_total":
+                    q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + 1)
+                elif qtype == f"catch_{habitat}":
+                    q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + 1)
+                elif qtype == "catch_rare3" and sp["rarity"] >= 3:
+                    q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + 1)
+                elif qtype == "catch_trophy" and is_trophy:
+                    q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + 1)
+
+            catches.append({
+                "fish": fish_inst,
+                "species": sp,
+                "is_first_catch": is_first_catch,
+                "is_personal_len_best": is_personal_len_best,
+                "is_personal_wt_best": is_personal_wt_best,
+                "new_server_len_record": new_server_len_record,
+                "new_server_wt_record": new_server_wt_record,
+                "crystal_bonus": item_crystal,
+                "bonus_reasons": item_reasons,
+                "gain_exp": item_exp,
+            })
+
+        # 가방 상한 180마리 초과 시 가장 오래된 미잠금 저등급부터 자동 판매 보전
+        while len(bag) > 180:
+            pop_idx = None
+            for idx, old_item in enumerate(bag):
+                if (
+                    isinstance(old_item, dict)
+                    and old_item.get("uid") not in just_caught_uids
+                    and not old_item.get("locked")
+                    and _safe_int(old_item.get("rarity"), 1) <= 2
+                ):
+                    pop_idx = idx
+                    break
+            if pop_idx is None:
+                for idx, old_item in enumerate(bag):
+                    if (
+                        isinstance(old_item, dict)
+                        and old_item.get("uid") not in just_caught_uids
+                        and not old_item.get("locked")
+                    ):
+                        pop_idx = idx
+                        break
+            if pop_idx is None:
+                break
+            sold_item = bag.pop(pop_idx)
+            sold_g = _safe_int(sold_item.get("gold"), 20)
+            u["gold"] += sold_g
+            auto_sold_items.append((sold_item.get("name", "물고기"), sold_g))
+
+        auto_sold_msg = None
+        if len(auto_sold_items) == 1:
+            auto_sold_msg = f"가방 초과로 `{auto_sold_items[0][0]}` 자동 판매 (+{auto_sold_items[0][1]:,}🪙)"
+        elif len(auto_sold_items) > 1:
+            tot_auto_g = sum(g for _, g in auto_sold_items)
+            auto_sold_msg = f"가방 초과로 기존 물고기 {len(auto_sold_items)}마리 자동 판매 (+{tot_auto_g:,}🪙)"
+
+        if total_crystal_bonus > 0:
+            prof["crystals"] = _safe_int(prof.get("crystals"), 0) + total_crystal_bonus
+
         old_lvl = _safe_int(u.get("level"), 1)
-        u["exp"] = _safe_int(u.get("exp"), 0) + gain_exp
+        u["exp"] = _safe_int(u.get("exp"), 0) + total_gain_exp
         new_lvl, rem_exp, need_exp = _calc_level_from_exp(u["exp"])
         u["level"] = new_lvl
         leveled_up = new_lvl > old_lvl
         if leveled_up:
             u["gold"] += new_lvl * 50
 
-        u["total_catches"] = _safe_int(u.get("total_catches"), 0) + 1
-        if is_trophy:
-            u["total_trophy"] = _safe_int(u.get("total_trophy"), 0) + 1
-
-        # 일일 의뢰 진행도 갱신
-        for q in (core.as_dict(u.get("daily_quests")).get("items") or []):
-            if not isinstance(q, dict) or q.get("claimed"):
-                continue
-            qtype = q.get("type")
-            q_tgt = max(1, _safe_int(q.get("target"), 1))
-            if qtype == "catch_total":
-                q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + 1)
-            elif qtype == f"catch_{habitat}":
-                q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + 1)
-            elif qtype == "catch_rare3" and sp["rarity"] >= 3:
-                q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + 1)
-            elif qtype == "catch_trophy" and is_trophy:
-                q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + 1)
-
         core.save_data(data)
 
+        # 대표 어종 선정 (성급 > 신기록 > 월척 > 황금 > 첫도감 > 골드 > 길이)
+        primary = max(
+            catches,
+            key=lambda c: (
+                c["species"]["rarity"],
+                1 if (c["new_server_len_record"] or c["new_server_wt_record"]) else 0,
+                1 if c["fish"]["is_trophy"] else 0,
+                1 if c["fish"]["variant"] == "golden" else 0,
+                1 if c["is_first_catch"] else 0,
+                c["fish"]["gold"],
+                c["fish"]["length_cm"],
+            ),
+        )
+
         return {
-            "fish": fish_inst,
-            "species": sp,
+            "fish": primary["fish"],
+            "species": primary["species"],
+            "catches": catches,
+            "catch_count": len(catches),
+            "total_gold_value": sum(c["fish"]["gold"] for c in catches),
             "env": env,
             "rod": rod,
             "reel": reel,
+            "net": net,
             "bait": bait,
-            "is_first_catch": is_first_catch,
-            "is_personal_len_best": is_personal_len_best,
-            "is_personal_wt_best": is_personal_wt_best,
-            "new_server_len_record": new_server_len_record,
-            "new_server_wt_record": new_server_wt_record,
-            "crystal_bonus": crystal_bonus,
-            "bonus_reasons": bonus_reasons,
-            "gain_exp": gain_exp,
+            "is_first_catch": primary["is_first_catch"],
+            "is_personal_len_best": primary["is_personal_len_best"],
+            "is_personal_wt_best": primary["is_personal_wt_best"],
+            "new_server_len_record": primary["new_server_len_record"],
+            "new_server_wt_record": primary["new_server_wt_record"],
+            "any_first_catch": any(c["is_first_catch"] for c in catches),
+            "any_server_record": any(c["new_server_len_record"] or c["new_server_wt_record"] for c in catches),
+            "crystal_bonus": total_crystal_bonus,
+            "bonus_reasons": all_bonus_reasons,
+            "gain_exp": total_gain_exp,
             "leveled_up": leveled_up,
             "new_level": new_lvl,
             "perfect_hook": perfect_hook,
@@ -1414,6 +1584,42 @@ def sell_fish_by_uid(guild_id: int | str, user_id: int | str, uid: str) -> Tuple
                 core.save_data(data)
                 return True, f"💰 **{name}**을(를) 판매해 **`+{gold:,}🪙`**을 획득했습니다! (보유: `{u['gold']:,}🪙`)", gold
         return False, "⚠️ 이미 판매되었거나 가방에 없는 개체입니다.", 0
+
+
+def sell_fishes_by_uids(guild_id: int | str, user_id: int | str, uids: List[str]) -> Tuple[bool, str, int, int, List[str]]:
+    target_set = {str(x) for x in (uids or []) if x}
+    if not target_set:
+        return False, "ℹ️ 판매할 물고기가 없습니다.", 0, 0, []
+    with _FISHING_LOCK:
+        data = core.load_data()
+        u = ensure_fishing_user(data, guild_id, user_id)
+        bag = u.get("bag", [])
+        kept = []
+        sold_cnt = 0
+        sold_gold = 0
+        for item in bag:
+            if isinstance(item, dict) and str(item.get("uid") or "") in target_set:
+                sold_cnt += 1
+                sold_gold += _safe_int(item.get("gold"), 15)
+            else:
+                kept.append(item)
+        if sold_cnt == 0:
+            return False, "⚠️ 이미 판매되었거나 가방에 없는 개체들입니다.", 0, 0, []
+        u["bag"] = kept
+        u["gold"] += sold_gold
+        u["total_gold_earned"] = _safe_int(u.get("total_gold_earned"), 0) + sold_gold
+        for q in (core.as_dict(u.get("daily_quests")).get("items") or []):
+            if isinstance(q, dict) and q.get("type") == "sell_gold" and not q.get("claimed"):
+                q_tgt = max(1, _safe_int(q.get("target"), 1))
+                q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + sold_gold)
+        core.save_data(data)
+        return (
+            True,
+            f"💰 방금 잡은 물고기 **`{sold_cnt}마리`**를 일괄 판매해 **`+{sold_gold:,}🪙`**을 획득했습니다! (보유: `{u['gold']:,}🪙`)",
+            sold_cnt,
+            sold_gold,
+            [],
+        )
 
 
 def sell_all_unlocked_bag(
@@ -1482,6 +1688,39 @@ def release_fish_by_uid(guild_id: int | str, user_id: int | str, uid: str) -> Tu
         return False, "⚠️ 이미 처리되었거나 가방에 없는 개체입니다."
 
 
+def release_fishes_by_uids(guild_id: int | str, user_id: int | str, uids: List[str]) -> Tuple[bool, str, int, int, List[str]]:
+    target_set = {str(x) for x in (uids or []) if x}
+    if not target_set:
+        return False, "ℹ️ 방생할 물고기가 없습니다.", 0, 0, []
+    with _FISHING_LOCK:
+        data = core.load_data()
+        u = ensure_fishing_user(data, guild_id, user_id)
+        bag = u.get("bag", [])
+        kept = []
+        rel_cnt = 0
+        bonus_exp = 0
+        for item in bag:
+            if isinstance(item, dict) and str(item.get("uid") or "") in target_set:
+                rel_cnt += 1
+                bonus_exp += 15 + int(item.get("rarity", 1)) * 12
+            else:
+                kept.append(item)
+        if rel_cnt == 0:
+            return False, "⚠️ 이미 처리되었거나 가방에 없는 개체들입니다.", 0, 0, []
+        u["bag"] = kept
+        u["exp"] = int(u.get("exp", 0)) + bonus_exp
+        new_lvl, _, _ = _calc_level_from_exp(u["exp"])
+        u["level"] = new_lvl
+        core.save_data(data)
+        return (
+            True,
+            f"🌊 방금 잡은 물고기 **`{rel_cnt}마리`**를 자연으로 방생했습니다! (`+{bonus_exp:,} EXP`)",
+            rel_cnt,
+            bonus_exp,
+            [],
+        )
+
+
 def move_fish_to_tank(guild_id: int | str, user_id: int | str, uid: str) -> Tuple[bool, str]:
     with _FISHING_LOCK:
         data = core.load_data()
@@ -1501,6 +1740,55 @@ def move_fish_to_tank(guild_id: int | str, user_id: int | str, uid: str) -> Tupl
                 core.save_data(data)
                 return True, f"🐠 **{moved.get('name', '물고기')}** (`{moved.get('length_cm', 0)}cm` · `{moved.get('weight_kg', 0)}kg`)을(를) 개인 수족관에 전시했습니다! (`{len(tank)}/{max_slots}`)"
         return False, "⚠️ 해당 물고기가 가방에 없습니다."
+
+
+def move_fishes_to_tank(guild_id: int | str, user_id: int | str, uids: List[str]) -> Tuple[bool, str, int, List[str]]:
+    ordered_uids = [str(x) for x in (uids or []) if x]
+    if not ordered_uids:
+        return False, "ℹ️ 전시할 물고기가 없습니다.", 0, []
+    with _FISHING_LOCK:
+        data = core.load_data()
+        u = ensure_fishing_user(data, guild_id, user_id)
+        tank = u.get("tank")
+        if not isinstance(tank, list):
+            tank = []
+            u["tank"] = tank
+        max_slots = int(u.get("tank_slots", 4))
+        avail = max(0, max_slots - len(tank))
+        if avail <= 0:
+            return False, f"⚠️ 수족관 전시 슬롯(`{len(tank)}/{max_slots}`)이 가득 찼습니다! 상점에서 수족관을 확장하거나 어종을 꺼내주세요.", 0, ordered_uids
+
+        bag = u.get("bag", [])
+        uid_to_item = {
+            str(it.get("uid")): it for it in bag
+            if isinstance(it, dict) and it.get("uid")
+        }
+        moved_uids: set = set()
+        moved_names: List[str] = []
+        remaining_uids: List[str] = []
+        for uid in ordered_uids:
+            item = uid_to_item.get(uid)
+            if not item:
+                continue
+            if len(moved_uids) < avail:
+                tank.append(item)
+                moved_uids.add(uid)
+                moved_names.append(item.get("name", "물고기"))
+            else:
+                remaining_uids.append(uid)
+
+        if not moved_uids:
+            return False, "⚠️ 가방에 전시할 물고기가 없습니다.", 0, []
+        u["bag"] = [it for it in bag if not (isinstance(it, dict) and str(it.get("uid") or "") in moved_uids)]
+        core.save_data(data)
+        preview = ", ".join(moved_names[:3]) + (f" 외 {len(moved_names) - 3}마리" if len(moved_names) > 3 else "")
+        extra = f" (수족관 만석으로 `{len(remaining_uids)}마리` 가방 유지)" if remaining_uids else ""
+        return (
+            True,
+            f"🐠 **{preview}** 총 **`{len(moved_uids)}마리`**를 개인 수족관에 전시했습니다! (`{len(tank)}/{max_slots}`){extra}",
+            len(moved_uids),
+            remaining_uids,
+        )
 
 
 def remove_fish_from_tank(guild_id: int | str, user_id: int | str, uid: str) -> Tuple[bool, str]:
@@ -1574,6 +1862,28 @@ def purchase_shop_item(guild_id: int | str, user_id: int | str, category: str, i
             u["reel_id"] = item_id
             core.save_data(data)
             return True, f"🎉 {reel['emoji']} **{reel['name']}** 구매 및 장착 완료! (`-{reel['price']:,}🪙`)"
+
+        if category == "net":
+            if item_id == "none":
+                if u.get("net_id") is None:
+                    return False, "ℹ️ 현재 장착 중인 그물이 없습니다. (기본 1마리 낚시 상태)"
+                u["net_id"] = None
+                core.save_data(data)
+                return True, "🚫 그물을 장착 해제했습니다. 이제 기본 1마리씩 정밀 낚시를 진행합니다."
+            net = NETS.get(item_id)
+            if not net:
+                return False, "❌ 존재하지 않는 그물입니다."
+            if item_id in u["owned_nets"]:
+                u["net_id"] = item_id
+                core.save_data(data)
+                return True, f"{net['emoji']} 이미 보유 중인 **{net['name']}**을(를) 즉시 장착했습니다! (1회 `{net['min_catch']}~{net['max_catch']}마리` 포획)"
+            if gold < net["price"]:
+                return False, f"❌ 낚시 골드가 부족합니다! (필요: `{net['price']:,}🪙` / 보유: `{gold:,}🪙`)"
+            u["gold"] -= net["price"]
+            u["owned_nets"].append(item_id)
+            u["net_id"] = item_id
+            core.save_data(data)
+            return True, f"🎉 {net['emoji']} **{net['name']}** 구매 및 장착 완료! (`-{net['price']:,}🪙` · 1회 `{net['min_catch']}~{net['max_catch']}마리` 포획)"
 
         if category == "bait":
             bait = BAITS.get(item_id)
@@ -1751,6 +2061,7 @@ def get_fishing_leaderboard(guild_id: int | str, habitat_filter: str = "all") ->
             cnt = sum(1 for fid in pd if FISH_BY_ID.get(fid, {}).get("habitat") == habitat_filter)
         rod = RODS.get(u_obj.get("rod_id", "bamboo"), RODS["bamboo"])
         reel = REELS.get(u_obj.get("reel_id", "basic_reel"), REELS["basic_reel"])
+        net = NETS.get(u_obj.get("net_id"))
         u_name = u_obj.get("name") or f"User({uid_s[:4]})"
         entry = {
             "user_id": uid_s,
@@ -1765,6 +2076,9 @@ def get_fishing_leaderboard(guild_id: int | str, habitat_filter: str = "all") ->
             "rod_emoji": rod["emoji"],
             "reel_name": reel["name"],
             "reel_emoji": reel["emoji"],
+            "net_name": net["name"] if net else "미장착",
+            "net_emoji": net["emoji"] if net else "🚫",
+            "net_range": f"{net['min_catch']}~{net['max_catch']}마리" if net else "1마리",
             "len_records_held": len_record_counts.get(uid_s, 0),
             "wt_records_held": wt_record_counts.get(uid_s, 0),
         }
@@ -1908,8 +2222,12 @@ def build_catch_card_bytes(catch_res: Dict[str, Any], user_name: str) -> Optiona
         hab_tag = core._sanitize_grid_text(f"[{hab['name']} · {sp['sub_zone']}]  |  {rmeta['name']} ({rmeta['stars']})")
         draw.text((rx, 46), hab_tag, font=font_sm, fill=(175, 215, 255, 240))
 
-        # 특수 도장 (신기록 / 월척 / 첫도감 / 황금변이)
+        # 특수 도장 (그물 다중 포획 / 신기록 / 월척 / 첫도감 / 황금변이)
+        catch_count = max(1, _safe_int(catch_res.get("catch_count"), 1))
+        net_info = catch_res.get("net")
         badges = []
+        if catch_count > 1:
+            badges.append((f"그물 {catch_count}마리!", (14, 165, 233, 255)))
         if catch_res.get("new_server_len_record") or catch_res.get("new_server_wt_record"):
             badges.append(("서버 신기록!", (245, 158, 11, 255)))
         if fish.get("is_trophy"):
@@ -1946,10 +2264,12 @@ def build_catch_card_bytes(catch_res: Dict[str, Any], user_name: str) -> Optiona
         card_y = 178
         box_w = 176
         box_h = 96
+        val_lbl = f"총 가치 ({catch_count}마리)" if catch_count > 1 else "추정 가치"
+        val_gold = _safe_int(catch_res.get("total_gold_value"), fish["gold"]) if catch_count > 1 else _safe_int(fish.get("gold"), 0)
         metrics = [
             ("체장 (Length)", f"{fish['length_cm']:.1f} cm", (56, 189, 248, 255)),
             ("무게 (Weight)", f"{fish['weight_kg']:.2f} kg" if fish['weight_kg'] >= 0.2 else f"{fish['weight_kg']:.3f} kg", (52, 211, 153, 255)),
-            ("추정 가치", f"{fish['gold']:,} G", (250, 204, 21, 255)),
+            (val_lbl, f"{val_gold:,} G", (250, 204, 21, 255)),
         ]
         for idx, (m_lbl, m_val, m_col) in enumerate(metrics):
             mx = rx + idx * (box_w + 14)
@@ -1972,10 +2292,18 @@ def build_catch_card_bytes(catch_res: Dict[str, Any], user_name: str) -> Optiona
         draw.text((rx, 294), desc_clean, font=font_sm, fill=(220, 232, 248, 230))
 
         rod_name = core._sanitize_grid_text(catch_res["rod"]["name"])
+        net_str = f" + {core._sanitize_grid_text(net_info['name'])}" if isinstance(net_info, dict) and catch_count > 1 else ""
         weather_name = core._sanitize_grid_text(env["weather_name"])
         time_txt = "낮" if env["time_phase"] == "day" else "밤"
-        angler = core._sanitize_grid_text(user_name)[:18]
-        footer_txt = core._sanitize_grid_text(f"출조사: {angler}  |  장비: {rod_name}  |  환경: {time_txt} · {weather_name}  |  {fish['caught_at']} KST")
+        angler = core._sanitize_grid_text(user_name)[:16]
+        footer_txt = core._sanitize_grid_text(f"출조사: {angler}  |  장비: {rod_name}{net_str}  |  환경: {time_txt} · {weather_name}  |  {fish['caught_at']} KST")
+        max_footer_w = w - rx - 30
+        if font_sm is not None and footer_txt:
+            raw_ft = footer_txt
+            cut_f = len(raw_ft)
+            while cut_f > 16 and draw.textbbox((0, 0), footer_txt, font=font_sm)[2] > max_footer_w:
+                cut_f -= 1
+                footer_txt = raw_ft[:cut_f].rstrip() + "..."
         draw.text((rx, 352), footer_txt, font=font_sm, fill=(160, 185, 220, 215))
 
         buf = io.BytesIO()
