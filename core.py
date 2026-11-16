@@ -4762,6 +4762,7 @@ def normalize_data(data):
                 act["stats"] = coerce_dict_like(act.get("stats"))
                 act["flags"] = [str(f) for f in coerce_list_like(act.get("flags")) if f]
                 act["chronicle"] = [str(c) for c in coerce_list_like(act.get("chronicle")) if c]
+                act["turning_points"] = [str(t) for t in coerce_list_like(act.get("turning_points")) if t]
             elif act is not None:
                 ou["active_life"] = None
     data["other_life_users"] = ol_users

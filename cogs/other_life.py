@@ -18,6 +18,46 @@ from discord.ext import commands
 
 import core
 import other_life_core
+import other_life_narratives
+
+
+def _fit_lines_block(lines: List[str], max_chars: int = 980, fallback: str = "> (기록 없음)") -> str:
+    kept: List[str] = []
+    total = 0
+    for ln in reversed(lines):
+        item = str(ln)
+        if len(item) > max_chars - 10:
+            item = item[: max_chars - 11] + "…"
+        added = len(item) + (1 if kept else 0)
+        if total + added > max_chars:
+            break
+        kept.append(item)
+        total += added
+    if not kept:
+        return fallback
+    kept.reverse()
+    return "\n".join(kept)
+
+
+def _chunk_text_blocks(blocks: List[str], max_chars: int = 980) -> List[str]:
+    chunks: List[str] = []
+    cur: List[str] = []
+    cur_len = 0
+    for blk in blocks:
+        s = str(blk)
+        if len(s) > max_chars:
+            s = s[: max_chars - 1] + "…"
+        added = len(s) + (1 if cur else 0)
+        if cur and cur_len + added > max_chars:
+            chunks.append("\n".join(cur))
+            cur = [s]
+            cur_len = len(s)
+        else:
+            cur.append(s)
+            cur_len += added
+    if cur:
+        chunks.append("\n".join(cur))
+    return chunks or ["*(선택지 없음)*"]
 
 
 def _stat_bar(val: int) -> str:
@@ -62,21 +102,21 @@ def _next_tick_text(life: Dict[str, Any]) -> str:
 
 
 _UNLOCK_HINTS: Dict[str, str] = {
-    "hidden_star": "유년·학창·중년에 별과 이치의 씨앗을 품고 높은 지성·공감을 유지해 70세 귀향에서 별빛을 마주하세요.",
+    "hidden_star": "유년·학창·중년에 별과 이치의 씨앗을 품고 높은 지성(58+)·공감(54+)을 유지해 70세 귀향에서 별빛을 마주하세요.",
     "flame_39": "체력/건강(근성)을 소진할 만큼 치열하게 살다가 39세 화재의 밤에 온몸을 던져 보세요.",
     "old_promise": "어린 소꿉친구와 18세의 약속을 맺고, 26세 혹은 44세 재회에서 끝내 서로의 손을 잡으세요.",
-    "truth_keeper": "수호·언론인의 길이나 내부고발에서 양심을 꺾지 않고 높은 공감을 지켜내세요.",
-    "master_craft": "예술·학문·장인의 외길을 편법 없이 파고들어 최고 수준의 역량(65+)에 도달하세요.",
-    "unheard_genius": "예술가·학자로서 자산은 적지만 흔들리지 않는 열정과 순수한 작품으로 마지막까지 걸어가세요.",
+    "truth_keeper": "수호·언론인의 길이나 내부고발에서 양심을 꺾지 않고 높은 공감(48+)을 지켜내세요.",
+    "master_craft": "예술·학문·장인의 외길을 편법 없이 파고들어 최고 수준의 역량(62+)에 도달하세요.",
+    "unheard_genius": "예술가·학자로서 자산은 적지만 흔들리지 않는 열정(50+)과 순수한 작품으로 마지막까지 걸어가세요.",
     "healer_hands": "산골 약초방 출신이나 의학·연구의 길에서 생명을 살리는 맹세를 지켜내세요.",
     "broken_crown": "유혹과 편법의 길로 접어든 뒤 끝내 참회하지 않고 욕망의 끝까지 달려가 보세요.",
     "redeemed_spring": "젊은 날의 오만이나 그림자의 과거가 있더라도 50세의 심판 앞에서 진심으로 뉘우쳐 보세요.",
     "masked_shadow": "뒷세계 그림자 브로커로 살아가며 끝까지 가면을 벗지 않아 보세요.",
-    "empire_builder": "사업가의 길이나 막대한 자산(72+)을 일구어 시대의 거물로 우뚝 서 보세요.",
+    "empire_builder": "사업가의 길(자산 58+)이나 막대한 자산(72+)을 일구어 시대의 거물로 우뚝 서 보세요.",
     "horizon_writer": "방랑·기록가의 길을 걷거나 노년에 늦깎이 세계 여행을 떠나 보세요.",
     "noodle_universe": "시장통 국수집 출신으로 장인의 길을 걷거나 30세의 폭풍에서 어머니의 국수집으로 돌아가 보세요.",
     "teacher_bridge": "스승의 유지를 잇거나 50~56세에 다음 세대를 기르는 어른이 되어 보세요.",
-    "village_lantern": "이웃과 지역 사회를 따뜻하게 돌보며 높은 공감의 발자취를 남기세요.",
+    "village_lantern": "이웃과 지역 사회를 따뜻하게 돌보며 높은 공감(50+)의 발자취를 남기세요.",
     "quiet_miracle": "극단으로 치우치지 않고 소박하고 성실하게 백 년의 일상을 채워 보세요.",
 }
 
@@ -392,10 +432,11 @@ class OtherLifeCollectionView(core.SafeView):
             start = self.page * per
             for idx, h in enumerate(hist[start:start + per], start + 1):
                 orig_name = other_life_core.ORIGINS.get(str(h.get("origin_id")), {}).get("place", "알 수 없는 곳")
+                role_lbl = h.get("specialty_label") or h.get("career_label") or "방랑"
                 tail_s = "\n".join(f"  {t}" for t in (h.get("chronicle_tail") or [])[-3:])
                 blocks.append(
                     f"`#{idx}` {h.get('ending_emoji', '📖')} **{h.get('name')}** "
-                    f"({h.get('age', 0)}세 · {h.get('career_label', '방랑')}) — **{h.get('ending_title')}** `[{h.get('score', 0):,}점]`\n"
+                    f"({h.get('age', 0)}세 · {role_lbl}) — **{h.get('ending_title')}** `[{h.get('score', 0):,}점]`\n"
                     f"출신: {orig_name} · {h.get('finished_at', '')}\n{tail_s}"
                 )
 
@@ -440,6 +481,202 @@ class OtherLifeCollectionView(core.SafeView):
         )
         gv = OtherLifeGameView(interaction.user, self.guild_id, user_state=u_state, idle_logs=idle_logs)
         await core.safe_edit_response(interaction, embed=gv.build_embed(), view=gv)
+
+
+# ==========================================
+# 3-B. 현재 생애 전체 일대기 & 전환점 View
+# ==========================================
+class OtherLifeChronicleView(core.SafeView):
+    def __init__(
+        self,
+        user: Optional[discord.abc.User] = None,
+        guild_id: int = 0,
+        user_state: Optional[Dict[str, Any]] = None,
+        parent_view: Optional["OtherLifeGameView"] = None,
+        page: int = 0,
+    ):
+        super().__init__(timeout=300)
+        self.user = user
+        self.guild_id = int(guild_id or 0)
+        if user_state is None:
+            uid = user.id if user else 0
+            uname = user.display_name if user else "여행자"
+            u_state, _, _ = other_life_core.get_other_life_state(self.guild_id, uid, uname)
+            self.user_state = u_state
+        else:
+            self.user_state = user_state
+        self.parent_view = parent_view
+        self.page = max(0, min(self._max_page(), int(page or 0)))
+        self._rebuild()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        if self.user and interaction.user.id != self.user.id:
+            await core.safe_send_response(
+                interaction,
+                f"❌ 이 일대기는 **{self.user.display_name}**님의 기록입니다.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    def _max_page(self) -> int:
+        active = self.user_state.get("active_life")
+        if not isinstance(active, dict):
+            return 0
+        chron = active.get("chronicle") or []
+        if not chron:
+            return 0
+        return max(0, (len(chron) - 1) // 10)
+
+    def _rebuild(self):
+        self.clear_items()
+        max_p = self._max_page()
+
+        btn_prev = discord.ui.Button(
+            label="◀ 이전",
+            style=discord.ButtonStyle.secondary,
+            disabled=(self.page <= 0),
+            row=0,
+            custom_id="norosi:OtherLifeChronicleView:prev",
+        )
+        btn_prev.callback = self._on_prev
+        self.add_item(btn_prev)
+
+        btn_next = discord.ui.Button(
+            label="다음 ▶",
+            style=discord.ButtonStyle.secondary,
+            disabled=(self.page >= max_p),
+            row=0,
+            custom_id="norosi:OtherLifeChronicleView:next",
+        )
+        btn_next.callback = self._on_next
+        self.add_item(btn_next)
+
+        btn_back = discord.ui.Button(
+            label="🎮 이야기로 돌아가기",
+            style=discord.ButtonStyle.success,
+            row=0,
+            custom_id="norosi:OtherLifeChronicleView:back",
+        )
+        btn_back.callback = self._on_back
+        self.add_item(btn_back)
+
+        btn_col = discord.ui.Button(
+            label="📜 엔딩 도감",
+            style=discord.ButtonStyle.secondary,
+            row=0,
+            custom_id="norosi:OtherLifeChronicleView:collection",
+        )
+        btn_col.callback = self._on_collection
+        self.add_item(btn_col)
+
+    def build_embed(self) -> discord.Embed:
+        u = self.user_state
+        uname = self.user.display_name if self.user else u.get("user_name", "플레이어")
+        active = u.get("active_life")
+        if not isinstance(active, dict):
+            embed = discord.Embed(
+                title=f"📖 {uname}님의 타인의 인생 — 전체 일대기",
+                description="*(현재 열람할 인생 기록이 없습니다. 새 인생을 시작해 주세요!)*",
+                color=0x38BDF8,
+                timestamp=datetime.datetime.now(core.KST),
+            )
+            return embed
+
+        role = other_life_core.get_role_context(active)
+        ht = other_life_narratives.get_hometown_meta(active.get("hometown", ""))
+        lore = other_life_narratives.get_origin_lore(active.get("origin_id", "orphanage"))
+        status_tag = "완결" if active.get("finished") else f"제{active.get('beat', 1)}/18장 진행 중"
+
+        tps = [str(t) for t in (active.get("turning_points") or []) if t]
+        tp_text = _fit_lines_block(
+            [f"• {tp}" for tp in tps],
+            max_chars=1450,
+            fallback="• *(아직 분기 전환점이 기록되지 않았습니다)*",
+        )
+
+        partner_txt = f" · 💍 동반자 `{active['partner_name']}`" if active.get("partner_name") else ""
+        embed = discord.Embed(
+            title=f"📖 {active.get('name')} ({active.get('age')}세) — 전체 일대기 [{status_tag}]"[:250],
+            description=(
+                f"**배경:** {ht['city']} · {lore['place']} · **길:** {role['title']}{partner_txt}\n"
+                f"**간직한 유품:** `{lore['item_short']}` · **소꿉친구:** `{active.get('companion_name', '지우')}` · **스승:** `{active.get('mentor_name', '백 선생')}`\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🌟 **삶의 결정적 전환점 ({len(tps)}건)**\n{tp_text}"
+            )[:4000],
+            color=0x6366F1,
+            timestamp=datetime.datetime.now(core.KST),
+        )
+
+        chron = [str(c) for c in (active.get("chronicle") or []) if c]
+        per = 10
+        self.page = max(0, min(self._max_page(), self.page))
+        start = self.page * per
+        slice_rows = chron[start:start + per]
+        if not slice_rows:
+            embed.add_field(
+                name="🕰️ 연대기 기록",
+                value="*(아직 기록된 연대기가 없습니다)*",
+                inline=False,
+            )
+        else:
+            first_half = slice_rows[:5]
+            second_half = slice_rows[5:]
+            embed.add_field(
+                name=f"🕰️ 연대기 ({start + 1}~{start + len(first_half)} / 총 {len(chron)}건)",
+                value=_fit_lines_block([f"> {line}" for line in first_half], max_chars=960),
+                inline=False,
+            )
+            if second_half:
+                embed.add_field(
+                    name=f"🕰️ 연대기 ({start + 6}~{start + len(slice_rows)} / 총 {len(chron)}건)",
+                    value=_fit_lines_block([f"> {line}" for line in second_half], max_chars=960),
+                    inline=False,
+                )
+
+        embed.set_footer(
+            text=f"{uname}님의 일대기 {self.page + 1} / {self._max_page() + 1} 페이지 · 매 선택과 흐른 세월이 보존됩니다"
+        )
+        return embed
+
+    async def _on_prev(self, interaction: discord.Interaction):
+        self.page = max(0, self.page - 1)
+        self._rebuild()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    async def _on_next(self, interaction: discord.Interaction):
+        self.page = min(self._max_page(), self.page + 1)
+        self._rebuild()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    async def _on_back(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        u_state, _, logs = await asyncio.to_thread(
+            other_life_core.get_other_life_state,
+            self.guild_id,
+            interaction.user.id,
+            interaction.user.display_name,
+        )
+        gv = self.parent_view or OtherLifeGameView(interaction.user, self.guild_id, user_state=u_state, idle_logs=logs)
+        gv.user_state = u_state
+        gv.idle_logs = logs
+        gv.mode = "play"
+        gv.status_msg = ""
+        gv._rebuild()
+        await core.safe_edit_response(interaction, embed=gv.build_embed(), view=gv)
+
+    async def _on_collection(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        u_state, _, _ = await asyncio.to_thread(
+            other_life_core.get_other_life_state,
+            self.guild_id,
+            interaction.user.id,
+            interaction.user.display_name,
+        )
+        cv = OtherLifeCollectionView(interaction.user, self.guild_id, user_state=u_state)
+        await core.safe_edit_response(interaction, embed=cv.build_embed(), view=cv)
 
 
 # ==========================================
@@ -613,8 +850,17 @@ class OtherLifeGameView(core.SafeView):
             btn_setup.callback = self._on_goto_setup
             self.add_item(btn_setup)
 
+            btn_chron = discord.ui.Button(
+                label="📖 전체 일대기",
+                style=discord.ButtonStyle.secondary,
+                row=0,
+                custom_id="norosi:OtherLifeGameView:open_chronicle",
+            )
+            btn_chron.callback = self._on_open_chronicle
+            self.add_item(btn_chron)
+
             btn_col = discord.ui.Button(
-                label=f"📜 엔딩 도감 ({unlocked_cnt}/{total_endings})",
+                label=f"📜 도감 ({unlocked_cnt}/{total_endings})",
                 style=discord.ButtonStyle.secondary,
                 row=0,
                 custom_id="norosi:OtherLifeGameView:open_collection",
@@ -623,7 +869,7 @@ class OtherLifeGameView(core.SafeView):
             self.add_item(btn_col)
 
             btn_rank = discord.ui.Button(
-                label="🏆 서버 랭킹",
+                label="🏆 랭킹",
                 style=discord.ButtonStyle.secondary,
                 row=0,
                 custom_id="norosi:OtherLifeGameView:open_ranking",
@@ -644,8 +890,8 @@ class OtherLifeGameView(core.SafeView):
             row = 0 if idx < split_at else 1
             raw_lbl = str(ch["label"]).strip()
             short_lbl = f"{num_emojis[idx]} {raw_lbl}"
-            if len(short_lbl) > 38:
-                short_lbl = short_lbl[:37] + "…"
+            if len(short_lbl) > 44:
+                short_lbl = short_lbl[:43] + "…"
             btn = discord.ui.Button(
                 label=short_lbl,
                 style=discord.ButtonStyle.primary if idx == 0 else discord.ButtonStyle.secondary,
@@ -715,6 +961,16 @@ class OtherLifeGameView(core.SafeView):
             )
         )
 
+        # Row 4: Full Chronicle & Turning Points Viewer
+        btn_chron = discord.ui.Button(
+            label="📖 살아온 전체 일대기 & 전환점 보기",
+            style=discord.ButtonStyle.secondary,
+            row=4,
+            custom_id="norosi:OtherLifeGameView:open_chronicle",
+        )
+        btn_chron.callback = self._on_open_chronicle
+        self.add_item(btn_chron)
+
     def _make_choice_cb(self, choice_id: str):
         async def _cb(interaction: discord.Interaction):
             await core.safe_defer(interaction)
@@ -727,7 +983,8 @@ class OtherLifeGameView(core.SafeView):
             )
             self.user_state = updated_u
             self.idle_logs = []
-            self.status_msg = msg
+            is_fin = bool((updated_u.get("active_life") or {}).get("finished"))
+            self.status_msg = msg if (not ok or is_fin) else ""
             self._rebuild()
             await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
             if not ok:
@@ -758,7 +1015,7 @@ class OtherLifeGameView(core.SafeView):
                 title="📖 타인의 인생 — 새로운 일생의 첫 페이지",
                 description=(
                     f"**{uname}**님, 이름도 배경도 낯선 어느 타인의 0세부터 노년까지를 대신 살아보세요.\n"
-                    f"유년기의 작은 약속, 청소년기의 스승, 서른의 유혹이 노년과 **16종 엔딩**으로 인과를 맺습니다.\n"
+                    f"유년기의 작은 약속, 청소년기의 스승과 유혹, 서른의 선택이 세부 전공과 **16종 엔딩**으로 이어집니다.\n"
                     f"{status_banner}\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                     f"🧬 **선택된 출신 배경**\n{origin_preview}\n\n"
@@ -781,52 +1038,78 @@ class OtherLifeGameView(core.SafeView):
             emeta = other_life_core.ENDINGS.get(eid, other_life_core.ENDINGS["quiet_miracle"])
             c_meta = other_life_core.CAREER_META.get(str(active.get("career") or "none"), other_life_core.CAREER_META["none"])
             orig = other_life_core.ORIGINS.get(str(active.get("origin_id") or "orphanage"), other_life_core.ORIGINS["orphanage"])
-            tail_chronicle = (active.get("chronicle") or [])[-6:]
-            chronicle_txt = "\n".join(f"> {line}" for line in tail_chronicle) if tail_chronicle else "> (기록 없음)"
+            role = other_life_core.get_role_context(active)
+            ht = other_life_narratives.get_hometown_meta(active.get("hometown", ""))
+            lore = other_life_narratives.get_origin_lore(active.get("origin_id", "orphanage"))
 
             reward_line = active.get("reward_note") or "도감 등록 완료"
-            partner_line = f" · 동반자 `{active['partner_name']}`" if active.get("partner_name") else ""
+            partner_line = f" · 💍 동반자 `{active['partner_name']}`" if active.get("partner_name") else ""
 
             embed = discord.Embed(
                 title=f"🎬 [인생 완결] {active.get('name')} ({active.get('age')}세) — {emeta['emoji']} {emeta['title']}"[:250],
                 description=(
                     f"**등급:** `[{emeta['rarity']}]` · **주제:** *{emeta['summary']}*\n"
-                    f"**배경:** {orig['name']} · **길:** {c_meta['emoji']} {c_meta['name']}{partner_line}\n"
+                    f"**배경:** {ht['city']} · {orig['name']} · **길:** {c_meta['emoji']} {role['title']}{partner_line}\n"
+                    f"**유품:** `{lore['item_short']}` · **도감 해금:** `{unlocked_cnt}/{total_endings}종`\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"📜 **생애의 마침표**\n{active.get('ending_epilogue', '')}\n\n"
-                    f"📊 **최종 삶의 결** *(인생 점수 **`{active.get('score', 0):,}점`**)*\n"
-                    f"{_format_stats_block(active.get('stats') or {})}\n\n"
-                    f"💎 **보상 & 도감:** {reward_line} · 해금 **`{unlocked_cnt}/{total_endings}종`**\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"🕰️ **인생 주요 발자취 (최근 기록)**\n{chronicle_txt}"
+                    f"📜 **생애의 마침표**\n{active.get('ending_epilogue', '')}"
                 )[:4000],
                 color=emeta["color"],
                 timestamp=datetime.datetime.now(core.KST),
             )
-            embed.set_footer(text=f"{uname}님의 타인의 인생 기록 · '새 타인의 인생 시작'으로 다른 운명을 체험해 보세요!")
+            embed.add_field(
+                name=f"📊 최종 삶의 결 (인생 점수 {active.get('score', 0):,}점)",
+                value=f"{_format_stats_block(active.get('stats') or {})}\n💎 **보상:** {reward_line}"[:1000],
+                inline=False,
+            )
+            tps = [str(t) for t in (active.get("turning_points") or []) if t]
+            if tps:
+                embed.add_field(
+                    name=f"🌟 결정적 전환점 ({len(tps)}건)",
+                    value=_fit_lines_block([f"• {t}" for t in tps[-4:]], max_chars=960),
+                    inline=False,
+                )
+            tail_chronicle = (active.get("chronicle") or [])[-5:]
+            embed.add_field(
+                name="🕰️ 생애 후반 발자취",
+                value=_fit_lines_block([f"> {line}" for line in tail_chronicle], max_chars=960),
+                inline=False,
+            )
+            embed.set_footer(text=f"{uname}님의 타인의 인생 · '📖 전체 일대기'로 처음부터 끝까지 다시 읽을 수 있습니다")
             return embed
 
         # ── Active Play Embed ──
         cur_age = int(active.get("age", 6) or 6)
         cur_beat = int(active.get("beat", 1) or 1)
-        stage_id, stage_label, stage_desc = other_life_core.get_stage_for_age(cur_age)
+        stage_id, stage_label, _ = other_life_core.get_stage_for_age(cur_age)
         node = other_life_core.build_current_node(active)
         orig = other_life_core.ORIGINS.get(str(active.get("origin_id") or "orphanage"), other_life_core.ORIGINS["orphanage"])
         c_meta = other_life_core.CAREER_META.get(str(active.get("career") or "none"), other_life_core.CAREER_META["none"])
+        role = other_life_core.get_role_context(active)
+        ht = other_life_narratives.get_hometown_meta(active.get("hometown", ""))
+        lore = other_life_narratives.get_origin_lore(active.get("origin_id", "orphanage"))
         scale_id = str(active.get("time_scale") or other_life_core.DEFAULT_TIME_SCALE)
         scale_meta = other_life_core.TIME_SCALES.get(scale_id, other_life_core.TIME_SCALES[other_life_core.DEFAULT_TIME_SCALE])
 
-        rel_bits = [f"고향 `{active.get('hometown', '어느 골목')}`", f"소꿉친구 `{active.get('companion_name', '지우')}`", f"스승 `{active.get('mentor_name', '백 선생')}`"]
+        rel_bits = [f"고향 `{ht['city']}`", f"유품 `{lore['item_short']}`"]
+        if cur_beat >= 2:
+            comp_rel = str(active.get("companion_rel") or "stranger")
+            comp_tag = {
+                "partner": "(동반자)",
+                "reunited_love": "(재회·연인)",
+                "promised": "(약속)",
+                "close": "(절친)",
+                "rival": "(라이벌)",
+                "estranged": "(멀어짐)",
+                "estranged_late": "(멀어짐)",
+                "missed": "(엇갈림)",
+                "parted_warm": "(작별)",
+            }.get(comp_rel, "")
+            rel_bits.append(f"소꿉친구 `{active.get('companion_name', '지우')}`{comp_tag}")
+        if cur_beat >= 5:
+            rel_bits.append(f"스승 `{active.get('mentor_name', '백 선생')}`")
         if active.get("partner_name"):
             rel_bits.append(f"💍 동반자 `{active['partner_name']}`")
-
-        chron_lines = (active.get("chronicle") or [])[-3:]
-        chron_block = "\n".join(f"> {c}" for c in chron_lines)
-
-        num_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣"]
-        choice_lines = []
-        for idx, ch in enumerate(node["choices"]):
-            choice_lines.append(f"{num_emojis[idx]} **{ch['label']}**\n> `{ch['hint']}`")
 
         banner_parts = []
         if self.idle_logs:
@@ -834,6 +1117,9 @@ class OtherLifeGameView(core.SafeView):
         if self.status_msg:
             banner_parts.append(f"💬 {self.status_msg}")
         banner_txt = ("\n".join(banner_parts) + "\n\n") if banner_parts else ""
+
+        last_out = str(active.get("last_outcome") or "").strip()
+        outcome_sec = f"📜 **직전 선택의 여파**\n> {last_out}\n\n" if last_out else ""
 
         stage_colors = {
             "childhood": 0x4ADE80,
@@ -848,22 +1134,43 @@ class OtherLifeGameView(core.SafeView):
             description=(
                 f"{banner_txt}"
                 f"**👤 {active.get('name')}** (`{cur_age}세` · {stage_label} · **Chapter `{cur_beat}/18`**)\n"
-                f"🧬 {orig['name']} · {c_meta['emoji']} {c_meta['name']}\n"
+                f"🧬 {orig['name']} · {c_meta['emoji']} **{role['title']}**\n"
                 f"⏱️ {scale_meta['name']} · {_next_tick_text(active)}\n"
                 f"🤝 {' · '.join(rel_bits)}\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"{_format_stats_block(active.get('stats') or {})}\n\n"
-                f"🕰️ **최근 연대기**\n{chron_block}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"📖 **지금 마주한 순간**\n{node['body']}\n\n"
-                f"🎯 **당신의 선택**\n" + "\n".join(choice_lines)
+                f"{outcome_sec}"
+                f"📖 **지금 마주한 순간**\n{node['body']}"
             )[:4000],
             color=stage_colors.get(stage_id, 0x38BDF8),
             timestamp=datetime.datetime.now(core.KST),
         )
+
+        num_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣"]
+        choice_lines = [
+            f"{num_emojis[idx]} **{ch['label']}**\n> `{ch['hint']}`"
+            for idx, ch in enumerate(node["choices"])
+        ]
+        choice_chunks = _chunk_text_blocks(choice_lines, max_chars=960)
+        for c_idx, chunk in enumerate(choice_chunks):
+            fname = "🎯 당신의 선택" if len(choice_chunks) == 1 else f"🎯 당신의 선택 ({c_idx + 1})"
+            embed.add_field(name=fname, value=chunk, inline=False)
+
+        embed.add_field(
+            name="📊 삶의 결",
+            value=_format_stats_block(active.get("stats") or {}),
+            inline=False,
+        )
+
+        chron_lines = (active.get("chronicle") or [])[-3:]
+        embed.add_field(
+            name="🕰️ 최근 발자취",
+            value=_fit_lines_block([f"> {c}" for c in chron_lines], max_chars=960),
+            inline=False,
+        )
+
         quiet_rem = max(0, 2 - int(active.get("quiet_in_stage", 0) or 0))
         embed.set_footer(
-            text=f"{uname}님의 타인의 인생 · 현재 시기 조용한 1년 {quiet_rem}회 남음 · 아래 드롭다운으로 배율 즉시 변경 가능"
+            text=f"{uname}님의 타인의 인생 · 조용한 1년 {quiet_rem}회 남음 · '전체 일대기'에서 지금까지의 삶 열람"
         )
         return embed
 
@@ -955,6 +1262,18 @@ class OtherLifeGameView(core.SafeView):
         )
         self._rebuild()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    async def _on_open_chronicle(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        u_state, _, _ = await asyncio.to_thread(
+            other_life_core.get_other_life_state,
+            self.guild_id,
+            interaction.user.id,
+            interaction.user.display_name,
+        )
+        self.user_state = u_state
+        cv = OtherLifeChronicleView(interaction.user, self.guild_id, user_state=u_state, parent_view=self)
+        await core.safe_edit_response(interaction, embed=cv.build_embed(), view=cv)
 
     async def _on_open_collection(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
