@@ -1,7 +1,7 @@
 """
 cogs/other_life.py - 「타인의인생」 0세~노년 풀 스토리 인생 시뮬레이션 Cog
-- /타인의인생 플레이 [출신] [시간배율] : 실시간 시간 배율(45초=1년 표준 / 15초 쾌속 / 3분 슬로우 / 턴제) + 능동 분기 선택
-- /타인의인생 도감 : 16종 멀티 엔딩 도감 & 내 과거 인생 전기 아카이브 열람
+- /타인의인생 플레이 [출신] [시간배율] : 실시간 시간 배율(60초=1년 표준 / 30초 쾌속 / 3분 슬로우 / 턴제) + 능동 분기 선택
+- /타인의인생 도감 : 1,000종 멀티 엔딩 도감(필터·검색·요약) & 내 과거 인생 전기 아카이브 열람
 - /타인의인생 랭킹 : 서버 엔딩 수집 · 최고 점수 · 최장 수명 랭킹 보드
 - !타인의인생 / !인생게임 / !타인 : 빠른 접두사 단축어 지원
 """
@@ -18,6 +18,7 @@ from discord.ext import commands
 
 import core
 import other_life_core
+import other_life_endings
 import other_life_narratives
 
 
@@ -87,8 +88,9 @@ def _next_tick_text(life: Dict[str, Any]) -> str:
 
     cur_age = int(life.get("age", 6) or 6)
     ceiling = other_life_core._stage_age_ceiling(int(life.get("beat", 1) or 1), cur_age)
-    if cur_age >= ceiling:
-        return f"⏸️ {cur_age}세 분기점 도달 (선택지 클릭 시 다음 챕터로)"
+    idle_used_beat = int(life.get("idle_years_beat", 0) or 0)
+    if cur_age >= ceiling or idle_used_beat >= other_life_core.MAX_IDLE_YEARS_PER_BEAT:
+        return f"⏸️ {cur_age}세 분기점 숙성 완료 (선택지 클릭 시 다음 챕터로)"
 
     now_f = datetime.datetime.now(core.KST).timestamp()
     last_f = float(life.get("last_tick_at") or now_f)
@@ -101,24 +103,12 @@ def _next_tick_text(life: Dict[str, Any]) -> str:
     return f"⏳ 다음 +1세까지 `{rem}초` *(상한 {ceiling}세 · 즉시 진행 가능)*"
 
 
-_UNLOCK_HINTS: Dict[str, str] = {
-    "hidden_star": "유년·학창·중년에 별과 이치의 씨앗을 품고 높은 지성(58+)·공감(54+)을 유지해 70세 귀향에서 별빛을 마주하세요.",
-    "flame_39": "체력/건강(근성)을 소진할 만큼 치열하게 살다가 39세 화재의 밤에 온몸을 던져 보세요.",
-    "old_promise": "어린 소꿉친구와 18세의 약속을 맺고, 26세 혹은 44세 재회에서 끝내 서로의 손을 잡으세요.",
-    "truth_keeper": "수호·언론인의 길이나 내부고발에서 양심을 꺾지 않고 높은 공감(48+)을 지켜내세요.",
-    "master_craft": "예술·학문·장인의 외길을 편법 없이 파고들어 최고 수준의 역량(62+)에 도달하세요.",
-    "unheard_genius": "예술가·학자로서 자산은 적지만 흔들리지 않는 열정(50+)과 순수한 작품으로 마지막까지 걸어가세요.",
-    "healer_hands": "산골 약초방 출신이나 의학·연구의 길에서 생명을 살리는 맹세를 지켜내세요.",
-    "broken_crown": "유혹과 편법의 길로 접어든 뒤 끝내 참회하지 않고 욕망의 끝까지 달려가 보세요.",
-    "redeemed_spring": "젊은 날의 오만이나 그림자의 과거가 있더라도 50세의 심판 앞에서 진심으로 뉘우쳐 보세요.",
-    "masked_shadow": "뒷세계 그림자 브로커로 살아가며 끝까지 가면을 벗지 않아 보세요.",
-    "empire_builder": "사업가의 길(자산 58+)이나 막대한 자산(72+)을 일구어 시대의 거물로 우뚝 서 보세요.",
-    "horizon_writer": "방랑·기록가의 길을 걷거나 노년에 늦깎이 세계 여행을 떠나 보세요.",
-    "noodle_universe": "시장통 국수집 출신으로 장인의 길을 걷거나 30세의 폭풍에서 어머니의 국수집으로 돌아가 보세요.",
-    "teacher_bridge": "스승의 유지를 잇거나 50~56세에 다음 세대를 기르는 어른이 되어 보세요.",
-    "village_lantern": "이웃과 지역 사회를 따뜻하게 돌보며 높은 공감(50+)의 발자취를 남기세요.",
-    "quiet_miracle": "극단으로 치우치지 않고 소박하고 성실하게 백 년의 일상을 채워 보세요.",
-}
+def _progress_bar_str(cur: int, total: int, width: int = 10) -> str:
+    if total <= 0:
+        return "░" * width + " 0.0%"
+    ratio = max(0.0, min(1.0, cur / total))
+    filled = int(round(ratio * width))
+    return ("█" * filled + "░" * (width - filled)) + f" {cur}/{total} ({ratio * 100:.1f}%)"
 
 
 # ==========================================
@@ -203,6 +193,48 @@ class OtherLifeScaleSelect(discord.ui.Select):
         await core.safe_edit_response(interaction, embed=pv.build_embed(), view=pv)
 
 
+class OtherLifeSpecialtySelect(discord.ui.Select):
+    def __init__(self, parent_view: "OtherLifeGameView", career: str, current_spec: str, row: int = 1):
+        self.parent_view = parent_view
+        allowed = other_life_core.CAREER_SPECIALTIES.get(career, [])
+        opts = []
+        for sid in allowed:
+            smeta = other_life_core.SPECIALTY_CATALOG.get(sid)
+            if not smeta:
+                continue
+            opts.append(discord.SelectOption(
+                label=smeta["title"][:95],
+                value=sid,
+                description=f"무대: {smeta['workplace']}"[:95],
+                emoji=smeta["emoji"],
+                default=(sid == current_spec),
+            ))
+        super().__init__(
+            placeholder="🎯 세부 전공 선택·변경 (22세 첫 무대 전용)...",
+            min_values=1,
+            max_values=1,
+            options=opts[:25],
+            row=row,
+            custom_id="norosi:OtherLifeGameView:specialty_select",
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        pv = self.parent_view
+        await core.safe_defer(interaction)
+        new_spec = self.values[0]
+        ok, msg, updated_u = await asyncio.to_thread(
+            other_life_core.set_life_specialty,
+            pv.guild_id,
+            interaction.user.id,
+            new_spec,
+            interaction.user.display_name,
+        )
+        pv.user_state = updated_u
+        pv.status_msg = msg
+        pv._rebuild()
+        await core.safe_edit_response(interaction, embed=pv.build_embed(), view=pv)
+
+
 # ==========================================
 # 2. 새 인생 시작 확인 View (진행 중 덮어쓰기 방지)
 # ==========================================
@@ -277,8 +309,196 @@ class OtherLifeConfirmResetView(core.SafeView):
 
 
 # ==========================================
-# 3. 도감 & 연대기 View (16종 멀티 엔딩 + 과거 기록)
+# 3. 도감 & 연대기 View (1,000종 멀티 엔딩 도감 · 필터 · 검색 · 수집 요약)
 # ==========================================
+_RARITY_DISPLAY_ORDER = ["신화", "히든", "전설", "희귀", "일반"]
+_RARITY_EMOJIS = {
+    "신화": "🌠",
+    "히든": "🌌",
+    "전설": "🔥",
+    "희귀": "💠",
+    "일반": "🏡",
+}
+
+
+class OtherLifeCollectionSearchModal(core.SafeModal, title="🔍 1,000종 엔딩 도감 검색 & 페이지 이동"):
+    keyword = discord.ui.TextInput(
+        label="검색어 (비워두면 검색 초기화)",
+        placeholder="예: 국수, 별을 건너다, 해송원, 신화, 의학, 39세...",
+        required=False,
+        max_length=50,
+    )
+    page_jump = discord.ui.TextInput(
+        label="바로 이동할 페이지 번호 (선택)",
+        placeholder="숫자만 입력 (예: 12)",
+        required=False,
+        max_length=5,
+    )
+
+    def __init__(self, parent_view: "OtherLifeCollectionView"):
+        super().__init__()
+        self.parent_view = parent_view
+        if parent_view.search_query:
+            self.keyword.default = parent_view.search_query
+
+    async def on_submit(self, interaction: discord.Interaction):
+        pv = self.parent_view
+        kw = (self.keyword.value or "").strip()
+        pj = (self.page_jump.value or "").strip()
+
+        if kw != pv.search_query:
+            pv.search_query = kw
+            pv.page = 0
+            pv.tab = "endings"
+
+        if pj.isdigit():
+            pv.tab = "endings"
+            target_p = max(1, int(pj)) - 1
+            pv.page = min(pv._max_page(), target_p)
+        else:
+            pv.page = max(0, min(pv._max_page(), pv.page))
+
+        pv._rebuild()
+        emb = pv.build_embed()
+        try:
+            await core.safe_edit_response(interaction, embed=emb, view=pv, raise_on_error=True)
+        except Exception:
+            if pv.message is not None:
+                try:
+                    await pv.message.edit(embed=emb, view=pv)
+                except Exception:
+                    pass
+            await core.safe_send_response(interaction, "🔍 검색 및 페이지 필터를 적용했습니다.", ephemeral=True)
+
+
+class OtherLifeCollectionStatusSelect(discord.ui.Select):
+    def __init__(self, parent_view: "OtherLifeCollectionView", current: str):
+        self.parent_view = parent_view
+        options_def = [
+            ("all", "🌐 해금/등급: 전체 보기", "해금 · 미해금 1,000종 전체", "🌐"),
+            ("unlocked", "✅ 해금 완료만 보기", "내가 실제로 도달해 수집한 엔딩만 표시", "✅"),
+            ("locked", "🔒 미해금(미수집)만 보기", "아직 해금하지 못한 엔딩 + 달성 힌트 표시", "🔒"),
+            ("rarity:신화", "🌠 신화 등급만 보기 (4종)", "출신 초월 최상위 신화 엔딩 필터", "🌠"),
+            ("rarity:히든", "🌌 히든 등급만 보기", "별을 건너다 시리즈 히든 엔딩 필터", "🌌"),
+            ("rarity:전설", "🔥 전설 등급만 보기", "거장·약속·회개·진실·그림자 등 전설 엔딩", "🔥"),
+            ("rarity:희귀", "💠 희귀 등급만 보기", "치유자·무명천재·국수우주·제국 등 희귀 엔딩", "💠"),
+            ("rarity:일반", "🏡 일반 등급만 보기", "마을 등불·가정 온기·일상 기적 등 일반 엔딩", "🏡"),
+        ]
+        opts = [
+            discord.SelectOption(
+                label=lbl[:95],
+                value=val,
+                description=desc[:95],
+                emoji=emo,
+                default=(current == val),
+            )
+            for val, lbl, desc, emo in options_def
+        ]
+        super().__init__(
+            placeholder="🔍 해금 여부 · 등급 필터...",
+            min_values=1,
+            max_values=1,
+            options=opts[:25],
+            row=1,
+            custom_id="norosi:OtherLifeCollectionView:status_select",
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        pv = self.parent_view
+        pv.status_filter = self.values[0]
+        pv.page = 0
+        pv._rebuild()
+        await core.safe_edit_response(interaction, embed=pv.build_embed(), view=pv)
+
+
+class OtherLifeCollectionCareerSelect(discord.ui.Select):
+    def __init__(self, parent_view: "OtherLifeCollectionView", current: str):
+        self.parent_view = parent_view
+        options_def = [
+            ("all", "🎯 진로·계열: 전체 보기", "공용(Group A) + 7대 전문직(Group B) + 신화", "🎯"),
+            ("group_a", "🎭 공용 서사 276종 (Group A)", "히든별·서른아홉·오래된약속·회개·타락·고독·지평선", "🎭"),
+            ("artist", "🎨 예술·창작가 계열", "수채화 · 어쿠스틱 작곡 · 소설/희곡 포함", "🎨"),
+            ("scholar", "🔬 학자·연구자 계열", "공공의학 · 천체물리 · 근현대사사료 포함", "🔬"),
+            ("entrepreneur", "💼 사업·개척가 계열", "로컬식품 · 정밀기술벤처 · 해운무역 포함", "💼"),
+            ("artisan", "🌿 장인·생활인 계열", "손멸치국수 · 시계목공 · 약초다원 · 수제공방", "🌿"),
+            ("guardian", "⚖️ 수호·언론인 계열", "탐사보도 · 미제형사 · 공익인권변호 포함", "⚖️"),
+            ("wanderer", "🧭 방랑·기록가 계열", "다큐사진 · 국경구호봉사 포함", "🧭"),
+            ("shadow", "🕶️ 그림자 브로커 계열", "정보브로커 · 지하금융세탁 특화 엔딩", "🕶️"),
+            ("myth", "🌠 출신 초월 신화 (Group C)", "특정 출신에 구애받지 않는 4대 신화 엔딩", "🌠"),
+        ]
+        opts = [
+            discord.SelectOption(
+                label=lbl[:95],
+                value=val,
+                description=desc[:95],
+                emoji=emo,
+                default=(current == val),
+            )
+            for val, lbl, desc, emo in options_def
+        ]
+        super().__init__(
+            placeholder="🎯 진로 · 계열 필터...",
+            min_values=1,
+            max_values=1,
+            options=opts[:25],
+            row=2,
+            custom_id="norosi:OtherLifeCollectionView:career_select",
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        pv = self.parent_view
+        pv.career_filter = self.values[0]
+        pv.page = 0
+        pv._rebuild()
+        await core.safe_edit_response(interaction, embed=pv.build_embed(), view=pv)
+
+
+class OtherLifeCollectionOriginSelect(discord.ui.Select):
+    def __init__(self, parent_view: "OtherLifeCollectionView", current: str):
+        self.parent_view = parent_view
+        opts = [
+            discord.SelectOption(
+                label="🧬 출신 배경: 전체 보기",
+                value="all",
+                description="6대 출신 및 출신 초월 신화 엔딩 전체",
+                emoji="🧬",
+                default=(current == "all"),
+            )
+        ]
+        for oid in other_life_endings.ORIGIN_ORDER:
+            orig = other_life_core.ORIGINS.get(oid)
+            if not orig:
+                continue
+            opts.append(discord.SelectOption(
+                label=orig["name"][:95],
+                value=oid,
+                description=orig["hook"][:95],
+                default=(current == oid),
+            ))
+        opts.append(discord.SelectOption(
+            label="🌠 신화 (출신 초월 4종)",
+            value="myth",
+            description="어느 출신에서든 조건 충족 시 도달 가능한 4대 신화 엔딩",
+            emoji="🌠",
+            default=(current == "myth"),
+        ))
+        super().__init__(
+            placeholder="🧬 출신 배경 필터...",
+            min_values=1,
+            max_values=1,
+            options=opts[:25],
+            row=3,
+            custom_id="norosi:OtherLifeCollectionView:origin_select",
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        pv = self.parent_view
+        pv.origin_filter = self.values[0]
+        pv.page = 0
+        pv._rebuild()
+        await core.safe_edit_response(interaction, embed=pv.build_embed(), view=pv)
+
+
 class OtherLifeCollectionView(core.SafeView):
     def __init__(
         self,
@@ -297,8 +517,12 @@ class OtherLifeCollectionView(core.SafeView):
             self.user_state = u_state
         else:
             self.user_state = user_state
-        self.tab = tab  # "endings" or "history"
+        self.tab = tab if tab in ("endings", "summary", "history") else "endings"
         self.page = 0
+        self.status_filter = "all"
+        self.career_filter = "all"
+        self.origin_filter = "all"
+        self.search_query = ""
         self._rebuild()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -313,10 +537,95 @@ class OtherLifeCollectionView(core.SafeView):
             return False
         return True
 
+    def _slot_tag(self, em: Dict[str, Any]) -> str:
+        oid = str(em.get("origin_id") or "")
+        cid = str(em.get("career") or "")
+        sid = str(em.get("specialty_id") or "")
+        if oid == "myth" or cid == "myth":
+            return "🌠 신화 · 출신 초월"
+        o_lbl = other_life_endings.ORIGIN_MOTIFS.get(oid, {}).get("label", oid)
+        if sid and sid in other_life_core.SPECIALTY_CATALOG:
+            spec_t = other_life_core.SPECIALTY_CATALOG[sid]["title"]
+            return f"{o_lbl} · {spec_t}"
+        c_lbl = other_life_endings.CAREER_LITERARY.get(cid, {}).get("name", cid)
+        return f"{o_lbl} · {c_lbl}"
+
+    def _filtered_ending_ids(self) -> List[str]:
+        unlocked = self.user_state.get("unlocked_endings") or {}
+        q = self.search_query.strip().lower()
+        res: List[str] = []
+        for eid, em in other_life_core.ENDINGS.items():
+            is_unlocked = unlocked.get(eid, 0) > 0
+            if self.status_filter == "unlocked" and not is_unlocked:
+                continue
+            elif self.status_filter == "locked" and is_unlocked:
+                continue
+            elif self.status_filter.startswith("rarity:"):
+                req_r = self.status_filter.split(":", 1)[1]
+                if em.get("rarity") != req_r:
+                    continue
+
+            if self.career_filter == "group_a":
+                if em.get("group") != "A":
+                    continue
+            elif self.career_filter == "myth":
+                if em.get("group") != "C":
+                    continue
+            elif self.career_filter != "all":
+                if em.get("career") != self.career_filter:
+                    continue
+
+            if self.origin_filter != "all":
+                if em.get("origin_id") != self.origin_filter:
+                    continue
+
+            if q:
+                arch_name = other_life_core.ARCHETYPE_META.get(str(em.get("archetype") or ""), {}).get("name", "")
+                slot_tag = self._slot_tag(em)
+                parts = [
+                    slot_tag,
+                    str(em.get("rarity") or ""),
+                    str(em.get("hint") or ""),
+                    arch_name,
+                ]
+                if is_unlocked:
+                    parts.append(str(em.get("title") or ""))
+                    parts.append(str(em.get("summary") or ""))
+                if q not in " ".join(parts).lower():
+                    continue
+
+            res.append(eid)
+        return res
+
+    def _max_page(self) -> int:
+        if self.tab == "endings":
+            filtered = self._filtered_ending_ids()
+            if not filtered:
+                return 0
+            return max(0, (len(filtered) - 1) // 6)
+        if self.tab == "history":
+            hist = self.user_state.get("history") or []
+            if not hist:
+                return 0
+            return max(0, (len(hist) - 1) // 5)
+        return 0
+
     def _rebuild(self):
         self.clear_items()
+        total_endings = len(other_life_core.ENDINGS)
+
+        # Row 0: Navigation (Summary / Endings / History / Play)
+        btn_summary = discord.ui.Button(
+            label="📊 수집 요약",
+            style=discord.ButtonStyle.primary if self.tab == "summary" else discord.ButtonStyle.secondary,
+            row=0,
+            custom_id="norosi:OtherLifeCollectionView:tab_summary",
+        )
+        btn_summary.callback = self._on_tab_summary
+        self.add_item(btn_summary)
+
         btn_endings = discord.ui.Button(
-            label="📚 엔딩 도감 (16종)",
+            label=f"📚 도감 ({total_endings:,}종)",
             style=discord.ButtonStyle.primary if self.tab == "endings" else discord.ButtonStyle.secondary,
             row=0,
             custom_id="norosi:OtherLifeCollectionView:tab_endings",
@@ -325,34 +634,13 @@ class OtherLifeCollectionView(core.SafeView):
         self.add_item(btn_endings)
 
         btn_history = discord.ui.Button(
-            label="📖 최근 전기·연대기",
+            label="📖 전기 기록",
             style=discord.ButtonStyle.primary if self.tab == "history" else discord.ButtonStyle.secondary,
             row=0,
             custom_id="norosi:OtherLifeCollectionView:tab_history",
         )
         btn_history.callback = self._on_tab_history
         self.add_item(btn_history)
-
-        max_p = self._max_page()
-        btn_prev = discord.ui.Button(
-            label="◀ 이전",
-            style=discord.ButtonStyle.secondary,
-            disabled=(self.page <= 0),
-            row=0,
-            custom_id="norosi:OtherLifeCollectionView:prev",
-        )
-        btn_prev.callback = self._on_prev
-        self.add_item(btn_prev)
-
-        btn_next = discord.ui.Button(
-            label="다음 ▶",
-            style=discord.ButtonStyle.secondary,
-            disabled=(self.page >= max_p),
-            row=0,
-            custom_id="norosi:OtherLifeCollectionView:next",
-        )
-        btn_next.callback = self._on_next
-        self.add_item(btn_next)
 
         btn_play = discord.ui.Button(
             label="🎮 인생 플레이로 이동",
@@ -363,13 +651,86 @@ class OtherLifeCollectionView(core.SafeView):
         btn_play.callback = self._on_open_play
         self.add_item(btn_play)
 
-    def _max_page(self) -> int:
+        max_p = self._max_page()
+        self.page = max(0, min(self.page, max_p))
+
         if self.tab == "endings":
-            return 1  # 16 endings / 8 per page = 2 pages (0, 1)
-        hist = self.user_state.get("history") or []
-        if not hist:
-            return 0
-        return max(0, (len(hist) - 1) // 5)
+            # Row 1~3: 3-axis filter Selects
+            self.add_item(OtherLifeCollectionStatusSelect(self, self.status_filter))
+            self.add_item(OtherLifeCollectionCareerSelect(self, self.career_filter))
+            self.add_item(OtherLifeCollectionOriginSelect(self, self.origin_filter))
+
+            # Row 4: -10p / prev / search / next / +10p
+            btn_prev10 = discord.ui.Button(
+                label="⏪ -10p",
+                style=discord.ButtonStyle.secondary,
+                disabled=(self.page <= 0),
+                row=4,
+                custom_id="norosi:OtherLifeCollectionView:prev10",
+            )
+            btn_prev10.callback = self._on_prev10
+            self.add_item(btn_prev10)
+
+            btn_prev = discord.ui.Button(
+                label="◀ 이전",
+                style=discord.ButtonStyle.secondary,
+                disabled=(self.page <= 0),
+                row=4,
+                custom_id="norosi:OtherLifeCollectionView:prev",
+            )
+            btn_prev.callback = self._on_prev
+            self.add_item(btn_prev)
+
+            search_lbl = f"🔍 검색 ({self.search_query[:8]}…)" if len(self.search_query) > 8 else (f"🔍 검색: {self.search_query}" if self.search_query else "🔍 검색/이동")
+            btn_search = discord.ui.Button(
+                label=search_lbl[:45],
+                style=discord.ButtonStyle.primary if self.search_query else discord.ButtonStyle.secondary,
+                row=4,
+                custom_id="norosi:OtherLifeCollectionView:search",
+            )
+            btn_search.callback = self._on_search
+            self.add_item(btn_search)
+
+            btn_next = discord.ui.Button(
+                label="다음 ▶",
+                style=discord.ButtonStyle.secondary,
+                disabled=(self.page >= max_p),
+                row=4,
+                custom_id="norosi:OtherLifeCollectionView:next",
+            )
+            btn_next.callback = self._on_next
+            self.add_item(btn_next)
+
+            btn_next10 = discord.ui.Button(
+                label="⏩ +10p",
+                style=discord.ButtonStyle.secondary,
+                disabled=(self.page >= max_p),
+                row=4,
+                custom_id="norosi:OtherLifeCollectionView:next10",
+            )
+            btn_next10.callback = self._on_next10
+            self.add_item(btn_next10)
+
+        elif self.tab == "history":
+            btn_prev = discord.ui.Button(
+                label="◀ 이전",
+                style=discord.ButtonStyle.secondary,
+                disabled=(self.page <= 0),
+                row=1,
+                custom_id="norosi:OtherLifeCollectionView:prev",
+            )
+            btn_prev.callback = self._on_prev
+            self.add_item(btn_prev)
+
+            btn_next = discord.ui.Button(
+                label="다음 ▶",
+                style=discord.ButtonStyle.secondary,
+                disabled=(self.page >= max_p),
+                row=1,
+                custom_id="norosi:OtherLifeCollectionView:next",
+            )
+            btn_next.callback = self._on_next
+            self.add_item(btn_next)
 
     def build_embed(self) -> discord.Embed:
         u = self.user_state
@@ -378,42 +739,159 @@ class OtherLifeCollectionView(core.SafeView):
         unlocked_cnt = len([k for k in unlocked if k in other_life_core.ENDINGS])
         total_endings = len(other_life_core.ENDINGS)
 
+        # ── Tab 1: 수집 통계 요약 ──
+        if self.tab == "summary":
+            rarity_totals: Dict[str, int] = {r: 0 for r in _RARITY_DISPLAY_ORDER}
+            rarity_unlocked: Dict[str, int] = {r: 0 for r in _RARITY_DISPLAY_ORDER}
+            origin_totals: Dict[str, int] = {oid: 0 for oid in other_life_endings.ORIGIN_ORDER + ["myth"]}
+            origin_unlocked: Dict[str, int] = {oid: 0 for oid in other_life_endings.ORIGIN_ORDER + ["myth"]}
+            career_totals: Dict[str, int] = {c: 0 for c in other_life_endings.ALL_CAREERS + ["myth"]}
+            career_unlocked: Dict[str, int] = {c: 0 for c in other_life_endings.ALL_CAREERS + ["myth"]}
+            group_totals = {"A": 0, "B": 0, "C": 0}
+            group_unlocked = {"A": 0, "B": 0, "C": 0}
+
+            for eid, em in other_life_core.ENDINGS.items():
+                is_u = unlocked.get(eid, 0) > 0
+                r = str(em.get("rarity") or "일반")
+                oid = str(em.get("origin_id") or "orphanage")
+                cid = str(em.get("career") or "artisan")
+                grp = str(em.get("group") or "B")
+                if r in rarity_totals:
+                    rarity_totals[r] += 1
+                    if is_u:
+                        rarity_unlocked[r] += 1
+                if oid in origin_totals:
+                    origin_totals[oid] += 1
+                    if is_u:
+                        origin_unlocked[oid] += 1
+                if cid in career_totals:
+                    career_totals[cid] += 1
+                    if is_u:
+                        career_unlocked[cid] += 1
+                if grp in group_totals:
+                    group_totals[grp] += 1
+                    if is_u:
+                        group_unlocked[grp] += 1
+
+            embed = discord.Embed(
+                title=f"📊 {uname}님의 타인의 인생 수집 요약 ({unlocked_cnt}/{total_endings:,}종)",
+                description=(
+                    f"누적 완결 생애 **`{u.get('lives_completed', 0)}회`** · "
+                    f"최고 점수 **`{u.get('best_score', 0):,}점`** · "
+                    f"최장 수명 **`{u.get('longest_age', 0)}세`**\n\n"
+                    f"**🏆 전체 도감 달성률**\n"
+                    f"`{_progress_bar_str(unlocked_cnt, total_endings, 14)}`\n"
+                    f"• 공용 서사(Group A): **`{group_unlocked['A']}/{group_totals['A']}`** · "
+                    f"세부 전공(Group B): **`{group_unlocked['B']}/{group_totals['B']}`** · "
+                    f"신화(Group C): **`{group_unlocked['C']}/{group_totals['C']}`**"
+                )[:4000],
+                color=0xA855F7,
+                timestamp=datetime.datetime.now(core.KST),
+            )
+
+            rarity_lines = [
+                f"{_RARITY_EMOJIS.get(r, '✨')} **{r}**: `{_progress_bar_str(rarity_unlocked[r], rarity_totals[r], 8)}`"
+                for r in _RARITY_DISPLAY_ORDER
+            ]
+            embed.add_field(
+                name="✨ 등급별 수집 현황",
+                value="\n".join(rarity_lines)[:1024],
+                inline=False,
+            )
+
+            origin_lines = []
+            for oid in other_life_endings.ORIGIN_ORDER:
+                o_name = other_life_core.ORIGINS.get(oid, {}).get("name", oid)
+                origin_lines.append(f"{o_name}: `{_progress_bar_str(origin_unlocked[oid], origin_totals[oid], 8)}`")
+            origin_lines.append(f"🌠 출신 초월(신화): `{_progress_bar_str(origin_unlocked['myth'], origin_totals['myth'], 8)}`")
+            embed.add_field(
+                name="🧬 출신 배경별 수집 현황",
+                value="\n".join(origin_lines)[:1024],
+                inline=False,
+            )
+
+            career_lines = []
+            for cid in other_life_endings.ALL_CAREERS:
+                cm = other_life_core.CAREER_META.get(cid, {"emoji": "🌱", "name": cid})
+                career_lines.append(f"{cm['emoji']} **{cm['name']}**: `{_progress_bar_str(career_unlocked[cid], career_totals[cid], 8)}`")
+            career_lines.append(f"🌠 **출신 초월 신화**: `{_progress_bar_str(career_unlocked['myth'], career_totals['myth'], 8)}`")
+            embed.add_field(
+                name="🎯 진로 계열별 수집 현황",
+                value="\n".join(career_lines)[:1024],
+                inline=False,
+            )
+            embed.set_footer(text="📚 도감 탭에서 미해금 엔딩의 구체적 달성 힌트와 검색 기능을 이용할 수 있습니다")
+            return embed
+
+        # ── Tab 2: 1,000종 엔딩 도감 (필터·검색·힌트) ──
         if self.tab == "endings":
-            all_ids = list(other_life_core.ENDINGS.keys())
-            per = 8
-            self.page = max(0, min(self.page, 1))
-            slice_ids = all_ids[self.page * per:(self.page + 1) * per]
+            filtered_ids = self._filtered_ending_ids()
+            per = 6
+            max_p = self._max_page()
+            self.page = max(0, min(self.page, max_p))
+            slice_ids = filtered_ids[self.page * per:(self.page + 1) * per]
+
             lines = []
             for eid in slice_ids:
                 em = other_life_core.ENDINGS[eid]
                 cnt = unlocked.get(eid, 0)
                 if cnt > 0:
                     lines.append(
-                        f"{em['emoji']} **{em['title']}** `[{em['rarity']} · {cnt}회 달성]` (+{em['base_crystal']}💎)\n"
+                        f"{em['emoji']} **{em['title']}** `[{em['rarity']} · {cnt}회]` (+{em['base_crystal']}💎)\n"
                         f"> {em['summary']}"
                     )
                 else:
-                    hint = _UNLOCK_HINTS.get(eid, "다양한 출신과 선택을 시도해 보세요.")
+                    slot_tag = self._slot_tag(em)
+                    hint = str(em.get("hint") or "다양한 출신과 선택을 시도해 보세요.")
+                    if len(hint) > 150:
+                        hint = hint[:149] + "…"
                     lines.append(
-                        f"🔒 **???** `[{em['rarity']}]` *(미해금 · 초회 +120💎 보너스)*\n"
-                        f"> 💡 힌트: {hint}"
+                        f"🔒 **[{slot_tag}] ???** `[{em['rarity']}]` *(초회 +120💎)*\n"
+                        f"> 💡 {hint}"
                     )
+
+            filter_badges: List[str] = []
+            if self.status_filter != "all":
+                st_label = {
+                    "unlocked": "해금완료",
+                    "locked": "미해금",
+                }.get(self.status_filter, self.status_filter.replace("rarity:", "등급:"))
+                filter_badges.append(st_label)
+            if self.career_filter != "all":
+                c_lbl = (
+                    "공용276" if self.career_filter == "group_a"
+                    else "신화" if self.career_filter == "myth"
+                    else other_life_core.CAREER_META.get(self.career_filter, {}).get("name", self.career_filter)
+                )
+                filter_badges.append(c_lbl)
+            if self.origin_filter != "all":
+                o_lbl = "신화" if self.origin_filter == "myth" else other_life_endings.ORIGIN_MOTIFS.get(self.origin_filter, {}).get("label", self.origin_filter)
+                filter_badges.append(o_lbl)
+            if self.search_query:
+                filter_badges.append(f"검색:'{self.search_query}'")
+
+            filter_line = f"🔎 **적용 필터 ({len(filtered_ids):,}건 일치):** " + " · ".join(filter_badges) + "\n" if filter_badges else f"🔎 **전체 목록:** `{len(filtered_ids):,}건` 표시 중\n"
+            body_txt = "\n\n".join(lines) if lines else "*(선택한 조건·검색어에 해당하는 엔딩이 없습니다. 필터를 완화하거나 검색어를 비워보세요!)*"
+
             embed = discord.Embed(
-                title=f"📚 {uname}님의 타인의 인생 엔딩 도감 ({unlocked_cnt}/{total_endings})",
+                title=f"📚 {uname}님의 타인의 인생 엔딩 도감 ({unlocked_cnt}/{total_endings:,}종)",
                 description=(
-                    f"누적 완결 생애 **`{u.get('lives_completed', 0)}회`** · "
-                    f"최고 점수 **`{u.get('best_score', 0):,}점`** · "
-                    f"최장 수명 **`{u.get('longest_age', 0)}세`**\n"
+                    f"누적 완결 **`{u.get('lives_completed', 0)}회`** · "
+                    f"최고 **`{u.get('best_score', 0):,}점`** · "
+                    f"최장 **`{u.get('longest_age', 0)}세`**\n"
+                    f"{filter_line}"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    + "\n\n".join(lines)
+                    + body_txt
                 )[:4000],
                 color=0x8B5CF6,
                 timestamp=datetime.datetime.now(core.KST),
             )
-            embed.set_footer(text=f"엔딩 도감 {self.page + 1} / 2 페이지  •  엔딩당 초회 해금 시 +120💎 보너스")
+            embed.set_footer(
+                text=f"엔딩 도감 {self.page + 1} / {max_p + 1} 페이지 (필터 {len(filtered_ids):,}종)  •  초회 해금 시 +120💎 보너스"
+            )
             return embed
 
-        # History / Chronicle tab
+        # ── Tab 3: 전기 기록 ──
         hist = u.get("history") or []
         active = u.get("active_life")
         blocks: List[str] = []
@@ -446,8 +924,14 @@ class OtherLifeCollectionView(core.SafeView):
             color=0x0EA5E9,
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_footer(text=f"전기 아카이브 {self.page + 1} / {self._max_page() + 1} 페이지 (최근 30생애 보존)")
+        embed.set_footer(text=f"전기 아카이브 {self.page + 1} / {self._max_page() + 1} 페이지 (최근 50생애 보존)")
         return embed
+
+    async def _on_tab_summary(self, interaction: discord.Interaction):
+        self.tab = "summary"
+        self.page = 0
+        self._rebuild()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     async def _on_tab_endings(self, interaction: discord.Interaction):
         self.tab = "endings"
@@ -461,6 +945,11 @@ class OtherLifeCollectionView(core.SafeView):
         self._rebuild()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
+    async def _on_prev10(self, interaction: discord.Interaction):
+        self.page = max(0, self.page - 10)
+        self._rebuild()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
     async def _on_prev(self, interaction: discord.Interaction):
         self.page = max(0, self.page - 1)
         self._rebuild()
@@ -470,6 +959,14 @@ class OtherLifeCollectionView(core.SafeView):
         self.page = min(self._max_page(), self.page + 1)
         self._rebuild()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    async def _on_next10(self, interaction: discord.Interaction):
+        self.page = min(self._max_page(), self.page + 10)
+        self._rebuild()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    async def _on_search(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(OtherLifeCollectionSearchModal(self))
 
     async def _on_open_play(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
@@ -481,6 +978,7 @@ class OtherLifeCollectionView(core.SafeView):
         )
         gv = OtherLifeGameView(interaction.user, self.guild_id, user_state=u_state, idle_logs=idle_logs)
         await core.safe_edit_response(interaction, embed=gv.build_embed(), view=gv)
+
 
 
 # ==========================================
@@ -883,8 +1381,8 @@ class OtherLifeGameView(core.SafeView):
         # ── Active Play Mode (18개 분기점 플레이) ──
         node = other_life_core.build_current_node(active)
         choices = node["choices"]
-        num_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣"]
-        split_at = 3 if len(choices) > 4 else 4
+        num_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣"]
+        split_at = 4 if (len(choices) <= 4 or len(choices) >= 7) else 3
 
         for idx, ch in enumerate(choices):
             row = 0 if idx < split_at else 1
@@ -901,10 +1399,19 @@ class OtherLifeGameView(core.SafeView):
             btn.callback = self._make_choice_cb(ch["id"])
             self.add_item(btn)
 
+        # Beat 8 (22세): Row 1에 세부 전공 선택 드롭다운 배치 (Row 0에 선택지 <=4개 보장)
+        cur_beat = int(active.get("beat", 1) or 1)
+        career_id = str(active.get("career") or "none")
+        allowed_specs = other_life_core.CAREER_SPECIALTIES.get(career_id, [])
+        if cur_beat == 8 and len(choices) <= 4 and len(allowed_specs) > 1:
+            cur_spec = str(active.get("specialty") or other_life_narratives.resolve_specialty_id(active, career_id))
+            self.add_item(OtherLifeSpecialtySelect(self, career_id, cur_spec, row=1))
+
         # Row 2: Utility actions (5 buttons max)
         cur_age = int(active.get("age", 6) or 6)
-        ceiling = other_life_core._stage_age_ceiling(int(active.get("beat", 1) or 1), cur_age)
-        quiet_disabled = (int(active.get("quiet_in_stage", 0) or 0) >= 2) or (cur_age >= ceiling) or (cur_age >= 95)
+        ceiling = other_life_core._stage_age_ceiling(cur_beat, cur_age)
+        max_q = 3 if cur_beat == 18 else 2
+        quiet_disabled = (int(active.get("quiet_in_stage", 0) or 0) >= max_q) or (cur_age >= ceiling) or (cur_age >= 95)
 
         btn_quiet = discord.ui.Button(
             label="⏳ 1년 조용히",
@@ -1015,13 +1522,13 @@ class OtherLifeGameView(core.SafeView):
                 title="📖 타인의 인생 — 새로운 일생의 첫 페이지",
                 description=(
                     f"**{uname}**님, 이름도 배경도 낯선 어느 타인의 0세부터 노년까지를 대신 살아보세요.\n"
-                    f"유년기의 작은 약속, 청소년기의 스승과 유혹, 서른의 선택이 세부 전공과 **16종 엔딩**으로 이어집니다.\n"
+                    f"유년기의 작은 약속, 청소년기의 스승과 유혹, 서른의 선택이 20개 세부 전공과 **1,000종 멀티 엔딩**으로 이어집니다.\n"
                     f"{status_banner}\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                     f"🧬 **선택된 출신 배경**\n{origin_preview}\n\n"
                     f"⏱️ **선택된 시간 배율:** **{scale_meta['name']}**\n"
                     f"> {scale_meta['desc']}\n\n"
-                    f"📚 **내 수집 기록:** 해금 엔딩 **`{unlocked_cnt}/{total_endings}종`** · "
+                    f"📚 **내 수집 기록:** 해금 엔딩 **`{unlocked_cnt}/{total_endings:,}종`** · "
                     f"완결 생애 `{u.get('lives_completed', 0)}회` · 최고 `{u.get('best_score', 0):,}점`\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                     "👇 아래 드롭다운으로 출신과 시간 배율을 고른 뒤 **`🌱 이 설정으로 인생 시작!`**을 눌러주세요!"
@@ -1034,8 +1541,11 @@ class OtherLifeGameView(core.SafeView):
 
         # ── Finished Ending Embed ──
         if active.get("finished"):
-            eid = str(active.get("ending_id") or "quiet_miracle")
-            emeta = other_life_core.ENDINGS.get(eid, other_life_core.ENDINGS["quiet_miracle"])
+            fallback_eid = other_life_core.LEGACY_ENDING_MAP.get("quiet_miracle", next(iter(other_life_core.ENDINGS)))
+            eid = str(active.get("ending_id") or fallback_eid)
+            if eid not in other_life_core.ENDINGS:
+                eid = other_life_core.migrate_legacy_ending_id(eid) or fallback_eid
+            emeta = other_life_core.ENDINGS.get(eid, other_life_core.ENDINGS[fallback_eid])
             c_meta = other_life_core.CAREER_META.get(str(active.get("career") or "none"), other_life_core.CAREER_META["none"])
             orig = other_life_core.ORIGINS.get(str(active.get("origin_id") or "orphanage"), other_life_core.ORIGINS["orphanage"])
             role = other_life_core.get_role_context(active)
@@ -1050,7 +1560,7 @@ class OtherLifeGameView(core.SafeView):
                 description=(
                     f"**등급:** `[{emeta['rarity']}]` · **주제:** *{emeta['summary']}*\n"
                     f"**배경:** {ht['city']} · {orig['name']} · **길:** {c_meta['emoji']} {role['title']}{partner_line}\n"
-                    f"**유품:** `{lore['item_short']}` · **도감 해금:** `{unlocked_cnt}/{total_endings}종`\n"
+                    f"**유품:** `{lore['item_short']}` · **도감 해금:** `{unlocked_cnt}/{total_endings:,}종`\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                     f"📜 **생애의 마침표**\n{active.get('ending_epilogue', '')}"
                 )[:4000],
@@ -1096,6 +1606,7 @@ class OtherLifeGameView(core.SafeView):
             comp_rel = str(active.get("companion_rel") or "stranger")
             comp_tag = {
                 "partner": "(동반자)",
+                "reunited": "(재회·동반자)",
                 "reunited_love": "(재회·연인)",
                 "promised": "(약속)",
                 "close": "(절친)",
@@ -1121,6 +1632,13 @@ class OtherLifeGameView(core.SafeView):
         last_out = str(active.get("last_outcome") or "").strip()
         outcome_sec = f"📜 **직전 선택의 여파**\n> {last_out}\n\n" if last_out else ""
 
+        allowed_specs = other_life_core.CAREER_SPECIALTIES.get(str(active.get("career") or "none"), [])
+        spec_tip = (
+            "\n\n> 🎯 **세부 전공 변경 가능:** 아래 선택 메뉴에서 세부 전공을 바꾸면 무대와 선택지가 즉시 바뀝니다!"
+            if cur_beat == 8 and len(allowed_specs) > 1
+            else ""
+        )
+
         stage_colors = {
             "childhood": 0x4ADE80,
             "teen": 0x38BDF8,
@@ -1139,13 +1657,13 @@ class OtherLifeGameView(core.SafeView):
                 f"🤝 {' · '.join(rel_bits)}\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"{outcome_sec}"
-                f"📖 **지금 마주한 순간**\n{node['body']}"
+                f"📖 **지금 마주한 순간**\n{node['body']}{spec_tip}"
             )[:4000],
             color=stage_colors.get(stage_id, 0x38BDF8),
             timestamp=datetime.datetime.now(core.KST),
         )
 
-        num_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣"]
+        num_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣"]
         choice_lines = [
             f"{num_emojis[idx]} **{ch['label']}**\n> `{ch['hint']}`"
             for idx, ch in enumerate(node["choices"])
@@ -1168,7 +1686,8 @@ class OtherLifeGameView(core.SafeView):
             inline=False,
         )
 
-        quiet_rem = max(0, 2 - int(active.get("quiet_in_stage", 0) or 0))
+        max_q = 3 if cur_beat == 18 else 2
+        quiet_rem = max(0, max_q - int(active.get("quiet_in_stage", 0) or 0))
         embed.set_footer(
             text=f"{uname}님의 타인의 인생 · 조용한 1년 {quiet_rem}회 남음 · '전체 일대기'에서 지금까지의 삶 열람"
         )
@@ -1318,7 +1837,7 @@ class OtherLifeGameView(core.SafeView):
 class OtherLifeCog(
     commands.GroupCog,
     name="타인의인생",
-    description="📖 0세부터 노년까지 타인의 일생을 살아가는 스토리 시뮬레이션 (시간 배율 · 16종 멀티 엔딩)",
+    description="📖 0세부터 노년까지 타인의 일생을 살아가는 스토리 시뮬레이션 (시간 배율 · 1,000종 멀티 엔딩)",
 ):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -1326,7 +1845,7 @@ class OtherLifeCog(
     @app_commands.command(name="플레이", description="📖 타인의 인생을 시작하거나 진행 중이던 생애를 이어갑니다.")
     @app_commands.describe(
         출신="새 인생 시작 시 고를 출신 환경 (미선택 시 이어하기/랜덤 선택창 표시)",
-        시간배율="인생 세월이 흐르는 시간 배율 (표준 45초=1년 추천 / 쾌속 / 슬로우 / 턴제)",
+        시간배율="인생 세월이 흐르는 시간 배율 (표준 60초=1년 추천 / 쾌속 30초 / 슬로우 3분 / 턴제)",
     )
     @app_commands.choices(
         출신=[
@@ -1339,8 +1858,8 @@ class OtherLifeCog(
             app_commands.Choice(name="⛰️ 안개 낀 산골 약초방", value="mountain_clinic"),
         ],
         시간배율=[
-            app_commands.Choice(name="⚖️ 표준 세월 배율 (45초=1년 · 추천)", value="balanced"),
-            app_commands.Choice(name="⚡ 쾌속 세월 배율 (15초=1년)", value="brisk"),
+            app_commands.Choice(name="⚖️ 표준 세월 배율 (60초=1년 · 추천)", value="balanced"),
+            app_commands.Choice(name="⚡ 쾌속 세월 배율 (30초=1년)", value="brisk"),
             app_commands.Choice(name="🕰️ 슬로우 라이프 (3분=1년)", value="slow"),
             app_commands.Choice(name="📖 턴제 정주행 (대기 없음)", value="turn"),
         ],
@@ -1396,7 +1915,7 @@ class OtherLifeCog(
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         view.message = msg
 
-    @app_commands.command(name="도감", description="📜 해금한 16종 멀티 엔딩 도감과 내가 살아온 인생 전기 아카이브를 봅니다.")
+    @app_commands.command(name="도감", description="📜 해금한 1,000종 멀티 엔딩 도감(필터·검색·수집요약)과 내가 살아온 인생 전기 아카이브를 봅니다.")
     async def collection_cmd(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
         gid = interaction.guild_id or 0
