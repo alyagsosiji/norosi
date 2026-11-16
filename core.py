@@ -3981,6 +3981,7 @@ DEFAULT_CONFIG = {
     "raid_defense_configs": {},
     "relay_novels": {},
     "github_webhook_configs": {},
+    "other_life_users": {},
 }
 
 
@@ -4750,6 +4751,21 @@ def normalize_data(data):
             clean_relays[str(g_key)] = rn_cfg
     data["relay_novels"] = clean_relays
 
+    # 타인의인생 시뮬레이션 유저 데이터 정규화
+    ol_users = _normalize_guild_user_map(data.get("other_life_users"))
+    for g_key, g_map in ol_users.items():
+        for u_key, ou in g_map.items():
+            ou["unlocked_endings"] = coerce_dict_like(ou.get("unlocked_endings"))
+            ou["history"] = [h for h in coerce_list_like(ou.get("history")) if isinstance(h, dict)]
+            act = ou.get("active_life")
+            if isinstance(act, dict):
+                act["stats"] = coerce_dict_like(act.get("stats"))
+                act["flags"] = [str(f) for f in coerce_list_like(act.get("flags")) if f]
+                act["chronicle"] = [str(c) for c in coerce_list_like(act.get("chronicle")) if c]
+            elif act is not None:
+                ou["active_life"] = None
+    data["other_life_users"] = ol_users
+
     raw_meta = coerce_dict_like(data.get("_meta"))
     meta_sections = {str(k): str(v) for k, v in coerce_dict_like(raw_meta.get("sections")).items() if v}
     meta_entries = {}
@@ -4808,6 +4824,7 @@ _TRACKED_GUILD_USER_MAPS = (
     "guild_attendance",
     "ai_usage",
     "life_users",
+    "other_life_users",
     "tickets",
     "sticky_messages",
 )
@@ -5329,7 +5346,7 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
             elif l_ets and (not r_ets or l_ets >= r_ets):
                 rem_map[ek] = copy.deepcopy(lv)
 
-    for gu_key in ("life_users", "tickets", "sticky_messages"):
+    for gu_key in ("life_users", "other_life_users", "tickets", "sticky_messages"):
         for g_key, local_g_map in as_dict(local_norm.get(gu_key)).items():
             if g_key not in merged[gu_key] or not isinstance(merged[gu_key].get(g_key), dict):
                 merged[gu_key][g_key] = copy.deepcopy(local_g_map)

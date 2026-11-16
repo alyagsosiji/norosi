@@ -19,7 +19,8 @@ import economy_core
 import genshin_core
 import hsr_core
 import life_core
-from cogs import dday, gacha, genshin, hsr, music, roles, stats, logger
+import other_life_core
+from cogs import dday, gacha, genshin, hsr, music, other_life, roles, stats, logger
 
 
 # ==========================================
@@ -635,6 +636,10 @@ class MasterDashboardView(core.SafeView):
         btn_remind.callback = self._on_remind_clicked
         self.add_item(btn_remind)
 
+        btn_other_life = discord.ui.Button(label="📖 타인의 인생", style=discord.ButtonStyle.success, row=2, custom_id="norosi:MasterDashboardView:_on_other_life_clicked")
+        btn_other_life.callback = self._on_other_life_clicked
+        self.add_item(btn_other_life)
+
     def _setup_stats_buttons(self):
         btn_sstats = discord.ui.Button(label="📊 서버 실시간 통계", style=discord.ButtonStyle.primary, row=1, custom_id="norosi:MasterDashboardView:_on_server_stats_clicked")
         btn_sstats.callback = self._on_server_stats_clicked
@@ -1056,6 +1061,7 @@ class MasterDashboardView(core.SafeView):
             description=(
                 "서버 멤버들과 함께 즐기는 미니게임 및 스마트 편의성 도구 허브입니다.\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "• **📖 타인의 인생:** 0세~노년 풀 스토리 인생 시뮬레이션 (시간 배율 · 16종 멀티 엔딩)\n"
                 "• **🎮 파티/팀원 모집:** 프로세카, 롤, 발로란트 등 자유 양식 팀원 모집 및 대기열\n"
                 "• **🔤 끝말잇기:** 표준 두음법칙 자동 적용 실시간 단어 대결 (+150💎)\n"
                 "• **🔫 러시안룰렛:** 6연발 실린더 서바이벌 스릴 게임\n"
@@ -1675,6 +1681,24 @@ class MasterDashboardView(core.SafeView):
             await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 알림 예약 허브 로드 중 오류: {e}", ephemeral=True)
+
+    async def _on_other_life_clicked(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            gid = interaction.guild.id if interaction.guild else 0
+            u_state, _, idle_logs = await asyncio.to_thread(
+                other_life_core.get_other_life_state,
+                gid,
+                interaction.user.id,
+                interaction.user.display_name,
+            )
+            view = other_life.OtherLifeGameView(
+                interaction.user, gid, user_state=u_state, idle_logs=idle_logs
+            )
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 타인의 인생 로드 중 오류: {e}", ephemeral=True)
 
     # 통계 관련
     async def _on_server_stats_clicked(self, interaction: discord.Interaction):
