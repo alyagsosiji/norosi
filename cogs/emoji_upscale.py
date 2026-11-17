@@ -25,8 +25,9 @@ import core
 CUSTOM_EMOJI_RE = re.compile(r"<(a?):([a-zA-Z0-9_]{1,64}):(\d{15,22})>")
 
 MAX_EMOJIS_PER_MESSAGE = 3
-STATIC_TARGET_SIZE = 160
-ANIMATED_TARGET_SIZE = 160
+STICKER_TARGET_SIZE = 160  # 디스코드 채팅 내 스티커 표준 렌더링 크기 (160x160px)
+STATIC_TARGET_SIZE = STICKER_TARGET_SIZE
+ANIMATED_TARGET_SIZE = STICKER_TARGET_SIZE
 MAX_UPLOAD_BYTES = 24 * 1024 * 1024  # Discord 25MB 제한 안전 마진
 WEBHOOK_NAME = "norosi-emoji-upscale"
 RESAMPLE_LANCZOS = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.LANCZOS)
@@ -479,37 +480,44 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
             return
 
         # 4. 보낸 사람 프로필 사진 & 닉네임으로 웹훅 전송
+        # (다중 이모지 전송 시 Discord 갤러리 모자이크가 이미지를 270px+ 이상으로 강제 확대하는 현상을 막기 위해
+        #  스티커 크기 160px 그대로 순서대로 개별 전송)
         sender_name = sanitize_webhook_username(message.author.display_name)
         sender_avatar = message.author.display_avatar.url if hasattr(message.author, "display_avatar") else None
-        send_kwargs = {
-            "files": files,
-            "username": sender_name,
-            "avatar_url": sender_avatar,
-            "allowed_mentions": discord.AllowedMentions.none(),
-        }
-        if isinstance(channel, discord.Thread):
-            send_kwargs["thread"] = channel
+        active_webhook = webhook
 
-        try:
-            await webhook.send(**send_kwargs)
-        except discord.NotFound:
-            # 캐시된 웹훅이 삭제된 경우 캐시 무효화 후 1회 재생성 재시도
-            self._webhook_cache.pop(base_channel.id, None)
-            fresh_webhook = await self._get_or_create_webhook(base_channel)
-            if not fresh_webhook:
-                return
+        for f in files:
+            send_kwargs = {
+                "file": f,
+                "username": sender_name,
+                "avatar_url": sender_avatar,
+                "allowed_mentions": discord.AllowedMentions.none(),
+                "wait": True,
+            }
+            if isinstance(channel, discord.Thread):
+                send_kwargs["thread"] = channel
+
             try:
-                # 파일 스트림 포인터 리셋
-                for f in files:
+                await active_webhook.send(**send_kwargs)
+            except discord.NotFound:
+                # 캐시된 웹훅이 삭제된 경우 캐시 무효화 후 1회 재생성 재시도
+                self._webhook_cache.pop(base_channel.id, None)
+                fresh_webhook = await self._get_or_create_webhook(base_channel)
+                if not fresh_webhook:
+                    return
+                active_webhook = fresh_webhook
+                try:
                     try:
                         f.fp.seek(0)
                     except Exception:
                         pass
-                await fresh_webhook.send(**send_kwargs)
-            except Exception as retry_err:
-                print(f"⚠️ [이모지 업스케일 웹훅 재전송 실패] {retry_err}", flush=True)
-        except Exception as send_err:
-            print(f"⚠️ [이모지 업스케일 웹훅 전송 실패] {send_err}", flush=True)
+                    await active_webhook.send(**send_kwargs)
+                except Exception as retry_err:
+                    print(f"⚠️ [이모지 업스케일 웹훅 재전송 실패] {retry_err}", flush=True)
+                    return
+            except Exception as send_err:
+                print(f"⚠️ [이모지 업스케일 웹훅 전송 실패] {send_err}", flush=True)
+                return
 
     @app_commands.command(name="이모지업스케일", description="[서버 관리자 전용] 커스텀 이모지 자동 업스케일 기능을 켜거나 끕니다 (기본값: OFF).")
     @app_commands.guild_only()
