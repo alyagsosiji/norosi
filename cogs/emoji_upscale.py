@@ -2,9 +2,8 @@
 cogs/emoji_upscale.py - 서버별 커스텀 이모지 고품질 업스케일 & 발신자 프로필/닉네임 웹훅 대리 전송 모듈
 - 기본 상태: 모든 서버 OFF (False)
 - 서버 관리자(Administrator / Manage Server) 전용 ON/OFF 및 상태 패널 (/이모지업스케일)
-- 불필요한 원본 투명 여백 제거 후 순수 이모지 모양을 유지한 320px 고화질(PNG / 8-bit 알파 애니메이션 WebP)로 업스케일하고,
-  원본 메시지 삭제 후 발신자의 서버 닉네임·프로필 아바타를 적용한 웹훅의 임베드 썸네일(embed thumbnail) 형태로 재전송하여
-  투명 여백 패딩 없이도 모바일/PC 화면 꽉참 및 비율 왜곡을 방지
+- 정적 PNG/WebP 및 움직이는 GIF(<a:...>) 모두 투명 배경·프레임 손실·깨짐 없이 고해상도로 업스케일 후
+  원본 메시지 삭제 및 발신자의 서버 닉네임·프로필 아바타를 적용한 웹훅으로 재전송
 """
 
 import asyncio
@@ -26,15 +25,17 @@ import core
 CUSTOM_EMOJI_RE = re.compile(r"<(a?):([a-zA-Z0-9_]{1,64}):(\d{15,22})>")
 
 MAX_EMOJIS_PER_MESSAGE = 3
-STICKER_TARGET_SIZE = 320   # 디스코드 기본 스티커 해상도 (최대 변 320px, 투명 패딩 없음)
-DOUBLE_SLOT_SIZE = 272      # build_sticker_strip_bytes 호환용
-TRIPLE_SLOT_SIZE = 184      # build_sticker_strip_bytes 호환용
+STICKER_TARGET_SIZE = 320   # 디스코드 기본 스티커 해상도 (320x320px)
+DOUBLE_SLOT_SIZE = 272      # 2개 연속 전송 시 각 이모지 크기
+TRIPLE_SLOT_SIZE = 184      # 3개 연속 전송 시 각 이모지 크기
+SAFE_CANVAS_WIDTH = 640     # 모바일/PC 가로 꽉참·비율 크롭 방지용 16:9 안전 캔버스 (640x352, ~1.82:1)
+SAFE_CANVAS_HEIGHT = 352    # 320px 이모지 + 상하 16px 모서리 안전 여백(라운딩 잘림 방지)
+SAFE_CORNER_PAD = 16        # 디스코드 첨부 라운딩(border-radius) 잘림 방지 여백
 EMOJI_SLOT_SIZE = STICKER_TARGET_SIZE
 STATIC_TARGET_SIZE = STICKER_TARGET_SIZE
 ANIMATED_TARGET_SIZE = STICKER_TARGET_SIZE
 MAX_UPLOAD_BYTES = 24 * 1024 * 1024  # Discord 25MB 제한 안전 마진
 WEBHOOK_NAME = "norosi-emoji-upscale"
-EMBED_THUMBNAIL_COLOR = discord.Color.from_rgb(43, 45, 49)  # 다크 모드에 자연스럽게 녹아드는 중립 카드 색상
 RESAMPLE_LANCZOS = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.LANCZOS)
 
 try:
@@ -107,7 +108,7 @@ def is_delete_reaction_emoji(emoji: discord.PartialEmoji | discord.Emoji | str |
 
 
 def _compute_scaled_size(width: int, height: int, target_size: int) -> tuple[int, int]:
-    """원본 비율·모양을 그대로 유지하면서 긴 변을 목표 해상도(기본 320px)에 맞춥니다."""
+    """원본 비율·모양을 그대로 유지하면서 긴 변을 디스코드 스티커 표준 크기(기본 320px)에 맞춥니다."""
     if width <= 0 or height <= 0:
         return target_size, target_size
     longest = max(width, height)
@@ -231,16 +232,11 @@ def _paste_sprites_on_sticker_canvas(
     canvas_h: Optional[int] = None,
 ) -> Image.Image:
     """
-    외부 투명 패딩 없이 1~3개의 이모지를 타이트한 경계 크기에 맞춰 배치합니다.
-    (단일 이모지는 여백 0px로 타이트하게 그대로 출력하며, 다중 이모지 합성 시에도 꼭 맞는 폭/높이만 사용합니다.)
+    1~3개의 이모지를 16:9 안전 투명 캔버스(640x352) 좌측에 모서리 안전 여백(16px)과 함께 배치합니다.
+    - 1:1 단일 이미지가 모바일/PC 채팅 화면을 가득 채우는 문제 방지 (모바일 약 170dp 스티커 크기 유지)
+    - 상하좌우 16px 안전 여백 + ~1.82:1 비율로 디스코드 라운딩·비율 크롭(잘림) 완벽 방지
     """
     items = sprites[:MAX_EMOJIS_PER_MESSAGE]
-    if len(items) == 1 and canvas_w is None and canvas_h is None:
-        sp = items[0]
-        if max(sp.width, sp.height) != STICKER_TARGET_SIZE:
-            return _resize_rgba(sp, STICKER_TARGET_SIZE)
-        return sp.copy()
-
     slot_size = _get_slot_size_for_count(len(items))
     fitted: list[Image.Image] = []
     for sp in items:
@@ -250,15 +246,15 @@ def _paste_sprites_on_sticker_canvas(
             fitted.append(sp)
 
     gap = 12 if len(fitted) == 2 else 10
-    total_w = sum(sp.width for sp in fitted) + gap * max(0, len(fitted) - 1)
-    max_h = max(sp.height for sp in fitted)
-    w = canvas_w or max(1, total_w)
-    h = canvas_h or max(1, max_h)
+    w = canvas_w or SAFE_CANVAS_WIDTH
+    h = canvas_h or SAFE_CANVAS_HEIGHT
 
     canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    cur_x = 0
+    cur_x = SAFE_CORNER_PAD
     for sp in fitted:
-        dy = max(0, (h - sp.height) // 2)
+        if cur_x + sp.width > w - SAFE_CORNER_PAD:
+            break
+        dy = max(SAFE_CORNER_PAD, (h - sp.height) // 2)
         canvas.alpha_composite(sp, (cur_x, dy))
         cur_x += sp.width + gap
     return canvas
@@ -277,98 +273,32 @@ def _sample_frame_at_time(frames: list[Image.Image], durations: list[int], t_ms:
     return frames[-1]
 
 
-def _encode_rgba_frames(
-    rgba_frames: list[Image.Image],
-    durations: list[int],
-    loop_count: int,
-) -> tuple[bytes, str]:
-    """정적 프레임은 무손실 PNG, 다중 프레임은 8-bit 알파 Animated WebP(실패 시 투명 GIF 폴백)로 인코딩합니다."""
-    if len(rgba_frames) <= 1:
-        out = io.BytesIO()
-        rgba_frames[0].save(out, format="PNG", optimize=True)
-        return out.getvalue(), "png"
-
-    try:
-        for webp_opts in (
-            {"lossless": True, "method": 4},
-            {"lossless": False, "quality": 92, "method": 4},
-        ):
-            out = io.BytesIO()
-            rgba_frames[0].save(
-                out,
-                format="WEBP",
-                save_all=True,
-                append_images=rgba_frames[1:],
-                duration=durations,
-                loop=loop_count,
-                **webp_opts,
-            )
-            webp_bytes = out.getvalue()
-            if webp_bytes and len(webp_bytes) <= MAX_UPLOAD_BYTES:
-                return webp_bytes, "webp"
-    except Exception:
-        pass
-
-    base_w, base_h = rgba_frames[0].size
-    last_bytes = b""
-    for scale in (1.0, 0.85, 0.75):
-        sw = max(64, int(round(base_w * scale)))
-        sh = max(64, int(round(base_h * scale)))
-        p_frames: list[Image.Image] = []
-        for c_rgba in rgba_frames:
-            fr = c_rgba if scale == 1.0 else c_rgba.resize((sw, sh), RESAMPLE_LANCZOS)
-            p_frames.append(_rgba_frame_to_transparent_gif_frame(fr))
-
-        out = io.BytesIO()
-        p_frames[0].save(
-            out,
-            format="GIF",
-            save_all=True,
-            append_images=p_frames[1:],
-            duration=durations,
-            loop=loop_count,
-            disposal=2,
-            transparency=255,
-            optimize=False,
-        )
-        last_bytes = out.getvalue()
-        if len(last_bytes) <= MAX_UPLOAD_BYTES:
-            return last_bytes, "gif"
-
-    return last_bytes, "gif"
-
-
-def upscale_single_emoji_bytes(raw_bytes: bytes, target_size: int = STICKER_TARGET_SIZE) -> tuple[bytes, str]:
-    """단일 커스텀 이모지를 불필요한 투명 여백 없이 320px 고품질 PNG 또는 Animated WebP로 업스케일합니다."""
-    frames, durations, loop_count = _extract_rgba_frames(raw_bytes, slot_size=target_size)
-    return _encode_rgba_frames(frames, durations, loop_count)
-
-
 def build_sticker_strip_bytes(
     raw_items: list[bytes],
     canvas_w: Optional[int] = None,
     canvas_h: Optional[int] = None,
 ) -> tuple[bytes, str]:
     """
-    1~3개의 커스텀 이모지를 불필요한 투명 여백 없이 업스케일합니다.
-    - 단일 이모지(canvas 미지정): 투명 패딩 0px, 320px 타이트 출력 (PNG / WebP)
-    - 다중 이모지: 여백 없는 타이트 스트립으로 합성 출력
+    1~3개의 커스텀 이모지를 불필요한 원본 여백 제거 + 320x320px 업스케일 후
+    화면 꽉참·모서리 잘림을 방지하는 16:9 안전 투명 캔버스(640x352)로 변환합니다.
+    정적 이모지는 무손실 PNG, 움직이는 이모지는 8-bit 알파를 보존하는 애니메이션 WebP(미지원 시 GIF 폴백)로 출력합니다.
     """
     if not raw_items:
         raise ValueError("empty raw_items")
 
     items = raw_items[:MAX_EMOJIS_PER_MESSAGE]
-    if len(items) == 1 and canvas_w is None and canvas_h is None:
-        return upscale_single_emoji_bytes(items[0], target_size=STICKER_TARGET_SIZE)
-
     slot_size = _get_slot_size_for_count(len(items))
+
     extracted = [_extract_rgba_frames(raw, slot_size=slot_size) for raw in items]
     has_anim = any(len(frames) > 1 for frames, _, _ in extracted)
 
     if not has_anim:
         canvas = _paste_sprites_on_sticker_canvas([frames[0] for frames, _, _ in extracted], canvas_w, canvas_h)
-        return _encode_rgba_frames([canvas], [100], 0)
+        out = io.BytesIO()
+        canvas.save(out, format="PNG", optimize=True)
+        return out.getvalue(), "png"
 
+    # 애니메이션 프레임 타임라인 구성
     anim_entries = [(frames, durs, loop) for frames, durs, loop in extracted if len(frames) > 1]
     if len(anim_entries) == 1:
         base_frames, out_durations, loop_count = anim_entries[0]
@@ -391,17 +321,66 @@ def build_sticker_strip_bytes(
             sprites = [_sample_frame_at_time(frames, durs, t_ms) for frames, durs, _ in extracted]
             canvas_frames_rgba.append(_paste_sprites_on_sticker_canvas(sprites, canvas_w, canvas_h))
 
-    return _encode_rgba_frames(canvas_frames_rgba, out_durations, loop_count)
+    # 1순위: 풀 8-bit 알파·원본 색상을 100% 보존하는 Animated WebP
+    try:
+        for webp_opts in (
+            {"lossless": True, "method": 4},
+            {"lossless": False, "quality": 92, "method": 4},
+        ):
+            out = io.BytesIO()
+            canvas_frames_rgba[0].save(
+                out,
+                format="WEBP",
+                save_all=True,
+                append_images=canvas_frames_rgba[1:],
+                duration=out_durations,
+                loop=loop_count,
+                **webp_opts,
+            )
+            webp_bytes = out.getvalue()
+            if webp_bytes and len(webp_bytes) <= MAX_UPLOAD_BYTES:
+                return webp_bytes, "webp"
+    except Exception:
+        pass
+
+    # 2순위 폴백: 투명 GIF (용량 초과 방지용 단계적 스케일)
+    base_w, base_h = canvas_frames_rgba[0].size
+    last_bytes = b""
+    for scale in (1.0, 0.85, 0.75):
+        sw = max(64, int(round(base_w * scale)))
+        sh = max(64, int(round(base_h * scale)))
+        p_frames: list[Image.Image] = []
+        for c_rgba in canvas_frames_rgba:
+            fr = c_rgba if scale == 1.0 else c_rgba.resize((sw, sh), RESAMPLE_LANCZOS)
+            p_frames.append(_rgba_frame_to_transparent_gif_frame(fr))
+
+        out = io.BytesIO()
+        p_frames[0].save(
+            out,
+            format="GIF",
+            save_all=True,
+            append_images=p_frames[1:],
+            duration=out_durations,
+            loop=loop_count,
+            disposal=2,
+            transparency=255,
+            optimize=False,
+        )
+        last_bytes = out.getvalue()
+        if len(last_bytes) <= MAX_UPLOAD_BYTES:
+            return last_bytes, "gif"
+
+    return last_bytes, "gif"
 
 
 def upscale_static_emoji_bytes(raw_bytes: bytes, target_size: int = STATIC_TARGET_SIZE) -> tuple[bytes, str]:
-    """단일 정적 이모지를 불필요한 여백 없이 target_size(기본 320px PNG)로 변환합니다."""
-    return upscale_single_emoji_bytes(raw_bytes, target_size=target_size)
+    """단일 정적 이모지를 불필요한 여백 없이 디스코드 기본 스티커 크기(320x320 PNG)로 변환합니다."""
+    return build_sticker_strip_bytes([raw_bytes])
 
 
 def upscale_animated_emoji_bytes(raw_bytes: bytes, target_size: int = ANIMATED_TARGET_SIZE) -> tuple[bytes, str]:
-    """단일 움직이는 이모지를 불필요한 여백 없이 target_size(기본 320px WebP)로 변환합니다."""
-    return upscale_single_emoji_bytes(raw_bytes, target_size=target_size)
+    """단일 움직이는 이모지를 불필요한 여백 없이 디스코드 기본 스티커 크기(320x320 WebP)로 변환합니다."""
+    return build_sticker_strip_bytes([raw_bytes])
 
 
 def _is_guild_admin(user: discord.abc.User | discord.Member | None) -> bool:
@@ -426,9 +405,8 @@ def build_emoji_upscale_embed(guild: discord.Guild, channel: Optional[discord.ab
     status_badge = "🟢 **ON (활성화됨)**" if enabled else "🔴 **OFF (비활성화됨 · 기본값)**"
     desc_lines = [
         "커스텀 디스코드 이모지(1~3개)만 포함된 채팅을 보내면 원본 메시지를 삭제한 뒤,",
-        "불필요한 투명 여백을 제거하고 320px 고품질(PNG / 무손실 애니메이션 WebP)로 업스케일하여",
-        "**임베드 썸네일(Thumbnail)** 방식으로 **보낸 사람의 프로필 사진·서버 닉네임**으로 재전송합니다.",
-        "• **✨ 화면 꽉참 방지:** 추가 투명 패딩 없이도 모바일/PC 채팅에서 적당한 스티커 크기로 깔끔하게 표시됩니다.",
+        "이모지를 320×320px 스티커 품질(화면 꽉참·잘림 방지 640×352 투명 캔버스 · PNG / 무손실 애니메이션 WebP)로 변환하여",
+        "**보낸 사람의 프로필 사진과 서버 닉네임**으로 다시 전송합니다.",
         "• **🗑️ 삭제 방법:** 전송된 이모지 메시지에 직접 `:x:`(❌) 반응을 추가하면 즉시 삭제됩니다.",
         "",
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
@@ -570,42 +548,6 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
             except Exception:
                 continue
         return None
-
-    async def _build_thumbnail_files_and_embeds(
-        self,
-        emojis: list[dict],
-    ) -> Optional[tuple[list[discord.File], list[discord.Embed]]]:
-        raw_items: list[tuple[dict, bytes]] = []
-        for em in emojis[:MAX_EMOJIS_PER_MESSAGE]:
-            raw = await self._download_emoji_bytes(em["id"], em["animated"])
-            if not raw:
-                return None
-            raw_items.append((em, raw))
-
-        files: list[discord.File] = []
-        embeds: list[discord.Embed] = []
-        total_bytes = 0
-
-        for idx, (em, raw) in enumerate(raw_items):
-            out_bytes, ext = await asyncio.to_thread(upscale_single_emoji_bytes, raw)
-            if not out_bytes:
-                return None
-            total_bytes += len(out_bytes)
-            if total_bytes > MAX_UPLOAD_BYTES:
-                return None
-
-            safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", em["name"])[:40] or "emoji"
-            filename = f"emoji_{idx + 1}_{safe_name}.{ext}"
-            files.append(discord.File(io.BytesIO(out_bytes), filename=filename))
-
-            # description="\u200b"를 넣어 모바일/PC 디스코드에서 썸네일 전용 임베드가 접히지 않게 유지
-            emb = discord.Embed(description="\u200b", color=EMBED_THUMBNAIL_COLOR)
-            emb.set_thumbnail(url=f"attachment://{filename}")
-            embeds.append(emb)
-
-        if not files or not embeds:
-            return None
-        return files, embeds
 
     async def _build_sticker_strip_file(self, emojis: list[dict]) -> Optional[discord.File]:
         raw_list: list[bytes] = []
@@ -758,12 +700,11 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         if not (perms.manage_messages and perms.manage_webhooks and perms.send_messages and perms.attach_files):
             return
 
-        # 1. 이모지 다운로드 및 투명 여백 없는 320px 업스케일 + 썸네일 임베드 구성 (실패 시 원본 삭제 안 함)
+        # 1. 이모지 다운로드 및 480x160 스티커 스트립 변환 먼저 수행 (실패 시 원본 메시지를 절대 삭제하지 않음)
         try:
-            payload = await self._build_thumbnail_files_and_embeds(emojis)
-            if not payload:
+            sticker_file = await self._build_sticker_strip_file(emojis)
+            if not sticker_file:
                 return
-            emoji_files, emoji_embeds = payload
         except Exception as e:
             print(f"⚠️ [이모지 업스케일 변환 예외] {e}", flush=True)
             return
@@ -779,12 +720,11 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
             return
 
-        # 4. 보낸 사람 프로필 사진 & 닉네임으로 임베드 썸네일 웹훅 전송 (버튼/자동 반응 추가 없이 전송)
+        # 4. 보낸 사람 프로필 사진 & 닉네임으로 웹훅 전송 (버튼/자동 반응 추가 없이 순수 이미지만 전송)
         sender_name = sanitize_webhook_username(message.author.display_name)
         sender_avatar = message.author.display_avatar.url if hasattr(message.author, "display_avatar") else None
         send_kwargs = {
-            "files": emoji_files,
-            "embeds": emoji_embeds,
+            "file": sticker_file,
             "username": sender_name,
             "avatar_url": sender_avatar,
             "allowed_mentions": discord.AllowedMentions.none(),
@@ -803,11 +743,10 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
             if not fresh_webhook:
                 return
             try:
-                for ef in emoji_files:
-                    try:
-                        ef.fp.seek(0)
-                    except Exception:
-                        pass
+                try:
+                    sticker_file.fp.seek(0)
+                except Exception:
+                    pass
                 sent_msg = await fresh_webhook.send(**send_kwargs)
             except Exception as retry_err:
                 print(f"⚠️ [이모지 업스케일 웹훅 재전송 실패] {retry_err}", flush=True)
