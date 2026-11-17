@@ -20,10 +20,15 @@ import threading
 import time
 from collections import OrderedDict
 
-from PIL import Image, ImageDraw
-import requests
-
 import core
+
+try:
+    from PIL import Image, ImageDraw
+except Exception:
+    Image = None
+    ImageDraw = None
+
+requests = core.requests
 
 _HSR_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 HSR_CACHE_FILE = os.path.join(_HSR_BASE_DIR, "hsr_kr_cache.json")
@@ -1198,8 +1203,10 @@ def get_hsr_time_schedule(now_dt: datetime.datetime | None = None) -> dict:
 # ==========================================
 # 은하열차 3종 비주얼 테마 (캐릭터 / 광추 / 유물) 5x2 10연 워프 합성 이미지
 # ==========================================
-def build_hsr_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1", header_tag: str = "") -> io.BytesIO:
+def build_hsr_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1", header_tag: str = "") -> io.BytesIO | None:
     """배너/아이템 종류(캐릭터/광추/유물)와 KST 시각에 맞춰 서로 다른 스타일의 5x2 카드로 렌더링합니다."""
+    if Image is None or ImageDraw is None:
+        return None
     if not drawn:
         drawn = [{"name": "워프 데이터 없음", "rank": 3, "kind": "lc", "id": ""}]
 
