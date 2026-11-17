@@ -1013,7 +1013,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "admin",
         "cat_label": "⚙️ 봇 관리 & 서버 편의",
         "name": "/이모지업스케일",
-        "desc": "[서버 관리자 전용] 커스텀 이모지(1~3개) 전송 시 원본 삭제 후 고화질 업스케일 & 발신자 프로필/닉네임으로 재전송 기능 ON/OFF (기본값: OFF)",
+        "desc": "[서버 관리자 전용] 커스텀 이모지(1~3개) 전송 시 원본 삭제 후 스티커 크기(160px) 고화질 업스케일 & 발신자 프로필/닉네임으로 재전송 ON/OFF (기본값: OFF)",
         "params": "동작: [켜기(ON)/끄기(OFF)/상태확인(선택)]",
         "example": "/이모지업스케일 동작:🟢 켜기 (ON)",
         "source": "cogs/emoji_upscale.py",
