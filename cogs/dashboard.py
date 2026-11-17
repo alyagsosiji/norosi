@@ -99,6 +99,12 @@ class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 등록"
         default="🌠",
         max_length=5
     )
+    d_plus_one = discord.ui.TextInput(
+        label="지나간 날짜 +1일 계산 (날짜가 지난 경우 전용)",
+        placeholder="이미 지난 날짜에 +1일 적용 시 '+1' 또는 '예' 입력 (미입력 시 미적용)",
+        required=False,
+        max_length=10
+    )
 
     def __init__(self, dashboard_view: "MasterDashboardView"):
         super().__init__()
@@ -117,6 +123,8 @@ class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 등록"
         if start_dt > target_dt:
             start_val = min(core.get_today_str(), target_val)
 
+        plus_one_val = core.parse_dday_plus_one_flag(self.d_plus_one.value)
+
         await core.safe_defer(interaction, ephemeral=True, thinking=True)
         name_val = self.d_name.value.strip()
         emoji_val = (self.d_emoji.value.strip() or "🌠")
@@ -128,6 +136,7 @@ class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 등록"
                 data["ddays"][name_val] = {
                     "date": target_val,
                     "repeat": existing.get("repeat", False),
+                    "plus_one": plus_one_val,
                     "start_date": start_val,
                     "emoji": emoji_val,
                     "channel_id": existing.get("channel_id"),
@@ -143,11 +152,17 @@ class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 등록"
             except Exception:
                 pass
 
-        _, diff_str = core.get_dday_info(target_val)
+        diff_val, diff_str = core.get_dday_info(target_val, plus_one=plus_one_val)
+        plus_one_note = ""
+        if plus_one_val:
+            if diff_val < 0:
+                plus_one_note = f"\n• **지나간 날짜 +1일 계산:** ✅ 적용됨 (`D+{abs(diff_val)}` → **`{diff_str}`**)"
+            else:
+                plus_one_note = "\n• **지나간 날짜 +1일 계산:** ⏳ 예약됨 *(날짜가 지나간 이후부터 +1 적용)*"
         await interaction.followup.send(
             f"🎉 **새 D-Day 일정이 성공적으로 등록되었습니다!**\n"
             f"• **일정:** {emoji_val} **`{name_val}`**\n"
-            f"• **목표일:** `{target_val}` (**`{diff_str}`**)\n"
+            f"• **목표일:** `{target_val}` (**`{diff_str}`**){plus_one_note}\n"
             f"• 대시보드의 `[🔄 새로고침]` 버튼을 누르면 현황판에 즉시 반영됩니다.",
             ephemeral=True
         )
@@ -898,7 +913,7 @@ class MasterDashboardView(core.SafeView):
             if not date_val:
                 continue
             try:
-                diff, d_txt = core.get_dday_info(date_val)
+                diff, d_txt = core.get_dday_info(date_val, plus_one=bool(d_info.get("plus_one", False)))
                 if diff >= 0:
                     upcoming.append((diff, d_name, date_val, d_txt))
             except Exception:
@@ -1081,9 +1096,11 @@ class MasterDashboardView(core.SafeView):
         lines = []
         for name, info in list(ddays_dict.items())[:5]:
             d_val = info.get("date")
+            plus_one = bool(info.get("plus_one", False))
             try:
-                _, d_txt = core.get_dday_info(d_val)
-                lines.append(f"• **{name}** (`{d_val}`): **`{d_txt}`**")
+                diff_v, d_txt = core.get_dday_info(d_val, plus_one=plus_one)
+                plus_tag = " `(+1일)`" if (diff_v < 0 and plus_one) else ""
+                lines.append(f"• **{name}** (`{d_val}`): **`{d_txt}`**{plus_tag}")
             except Exception:
                 pass
         dday_summary = "\n".join(lines) if lines else "*(등록된 D-Day 일정이 없습니다)*"
