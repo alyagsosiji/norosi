@@ -1,6 +1,6 @@
 """
 norosi Bot - 올인원 마스터 대시보드 (All-in-One Master Dashboard) Cog
-- 9대 핵심 기능 영역(홈, 프로세카 가챠, 원신, 스타레일, 일정, 음악, 역할·관리, 게임, 통계)을 탭(Tab)으로 자유롭게 오가는 슈퍼 컨트롤 타워
+- 11대 핵심 기능 영역(홈, 프로세카 가챠, 원신, 스타레일, 통합 낚시, 통합 경제·농장·펫·요리, 일정·라이프, 음악, 역할·티켓·비상방어·관리, 게임·타인의인생·릴레이소설, 통계)을 탭(Tab)으로 자유롭게 오가는 슈퍼 컨트롤 타워
 - 모든 상호작용(모달/뷰/슬래시 콜백) 시그니처 불일치 버그 완벽 해결본
 """
 
@@ -15,12 +15,15 @@ from discord import app_commands
 from discord.ext import commands
 
 import core
+import community_core
 import economy_core
+import fishing_core
 import genshin_core
 import hsr_core
 import life_core
 import other_life_core
-from cogs import dday, gacha, genshin, hsr, music, other_life, roles, stats, logger
+import ticket_core
+from cogs import community, dday, fishing, gacha, genshin, hsr, music, other_life, roles, stats, tickets, logger
 
 
 # ==========================================
@@ -229,6 +232,20 @@ class DashboardTabSelect(discord.ui.Select):
                 default=(current_tab == "hsr")
             ),
             discord.SelectOption(
+                label="🎣 통합 낚시·수족관·대물랭킹",
+                value="fishing",
+                description="호수·강·바다 36,700종 출조, 가방·수족관·도감, 낚시 상점, 일일 의뢰, 대물 랭킹",
+                emoji="🎣",
+                default=(current_tab == "fishing")
+            ),
+            discord.SelectOption(
+                label="💳 통합 경제·농장·펫·요리",
+                value="economy",
+                description="통합 프로필카드 PNG, 칭호·송금·로또복권, 농장·공동농장·펫·요리 버프",
+                emoji="💳",
+                default=(current_tab == "economy")
+            ),
+            discord.SelectOption(
                 label="📅 D-Day·생일·집중 대시보드",
                 value="life",
                 description="D-Day 현황, 생일 전광판, 뽀모도로 타이머, 파트너, 미래시",
@@ -243,16 +260,16 @@ class DashboardTabSelect(discord.ui.Select):
                 default=(current_tab == "music")
             ),
             discord.SelectOption(
-                label="🎭 역할버튼·공지·서버관리 대시보드",
+                label="🎭 역할·티켓·비상방어·관리 대시보드",
                 value="admin",
-                description="사진 스타일 역할 버튼 제작, 반응역할 스튜디오, 공지 발송",
+                description="역할 버튼, 반응역할 스튜디오, 공지 발송, 1:1 티켓, 테러 비상방어, 링크 정리",
                 emoji="🎭",
                 default=(current_tab == "admin")
             ),
             discord.SelectOption(
-                label="🎲 미니게임·모집·날씨 대시보드",
+                label="🎲 미니게임·인생·소설·모집 대시보드",
                 value="game",
-                description="파티원 모집, 끝말잇기, 러시안룰렛, 실시간 날씨, 알림 예약",
+                description="타인의 인생, 릴레이 소설, 파티원 모집, 끝말잇기, 러시안룰렛, 실시간 날씨",
                 emoji="🎲",
                 default=(current_tab == "game")
             ),
@@ -262,13 +279,6 @@ class DashboardTabSelect(discord.ui.Select):
                 description="서버 실시간 통계 보드, 내 활동량 정보, 봇 상태, 건의함",
                 emoji="📊",
                 default=(current_tab == "stats")
-            ),
-            discord.SelectOption(
-                label="💳 통합 경제·농장·펫·요리",
-                value="economy",
-                description="통합 프로필카드 PNG, 칭호·송금·로또복권, 농장·공동농장·펫·요리 버프",
-                emoji="💳",
-                default=(current_tab == "economy")
             ),
         ]
         super().__init__(
@@ -296,6 +306,16 @@ class DashboardTabSelect(discord.ui.Select):
 class MasterDashboardView(core.SafeView):
     """norosi 봇의 모든 기능을 통합 제어하는 슈퍼 대시보드 뷰"""
 
+    _TAB_ALIASES = {
+        "proseka": "gacha",
+        "cards": "gacha",
+        "dday": "life",
+        "tickets": "admin",
+        "community": "admin",
+        "other_life": "game",
+        "games": "game",
+    }
+
     def __init__(
         self,
         bot: Optional[commands.Bot] = None,
@@ -309,7 +329,8 @@ class MasterDashboardView(core.SafeView):
         self.user = user
         self.guild = guild
         self.data = data if data is not None else core.get_cached_data()
-        self.current_tab = initial_tab
+        norm_tab = self._TAB_ALIASES.get(str(initial_tab or "home").strip().lower(), str(initial_tab or "home").strip().lower())
+        self.current_tab = norm_tab
         self.refresh_components()
 
     def _find_cog_with_attr(self, attr_name: str):
@@ -376,6 +397,7 @@ class MasterDashboardView(core.SafeView):
         return True
 
     def refresh_components(self):
+        self.current_tab = self._TAB_ALIASES.get(self.current_tab, self.current_tab)
         self.clear_items()
         self.add_item(DashboardTabSelect(self.current_tab))
 
@@ -387,6 +409,8 @@ class MasterDashboardView(core.SafeView):
             self._setup_genshin_buttons()
         elif self.current_tab == "hsr":
             self._setup_hsr_buttons()
+        elif self.current_tab == "fishing":
+            self._setup_fishing_buttons()
         elif self.current_tab == "life":
             self._setup_life_buttons()
         elif self.current_tab == "music":
@@ -598,6 +622,21 @@ class MasterDashboardView(core.SafeView):
         btn_audio.callback = self._on_audio_test_clicked
         self.add_item(btn_audio)
 
+    def _setup_fishing_buttons(self):
+        fish_buttons = [
+            ("🎣 낚시 출조", discord.ButtonStyle.success, 1, "norosi:MasterDashboardView:_on_fish_cast", self._on_fish_cast),
+            ("🎒 낚시 가방", discord.ButtonStyle.primary, 1, "norosi:MasterDashboardView:_on_fish_bag", self._on_fish_bag),
+            ("📖 36,700종 도감", discord.ButtonStyle.secondary, 1, "norosi:MasterDashboardView:_on_fish_pokedex", self._on_fish_pokedex),
+            ("🐠 내 수족관", discord.ButtonStyle.primary, 1, "norosi:MasterDashboardView:_on_fish_aquarium", self._on_fish_aquarium),
+            ("🏪 낚시 상점", discord.ButtonStyle.primary, 2, "norosi:MasterDashboardView:_on_fish_shop", self._on_fish_shop),
+            ("📜 일일 낚시 의뢰", discord.ButtonStyle.secondary, 2, "norosi:MasterDashboardView:_on_fish_quest", self._on_fish_quest),
+            ("🏆 대물 랭킹", discord.ButtonStyle.secondary, 2, "norosi:MasterDashboardView:_on_fish_ranking", self._on_fish_ranking),
+        ]
+        for lbl, st, r, cid, cb in fish_buttons:
+            btn = discord.ui.Button(label=lbl, style=st, row=r, custom_id=cid)
+            btn.callback = cb
+            self.add_item(btn)
+
     def _setup_admin_buttons(self):
         btn_quick_btn = discord.ui.Button(label="🚀 사진 스타일 역할버튼 제작", style=discord.ButtonStyle.primary, emoji="🚀", row=1, custom_id="norosi:MasterDashboardView:_on_quick_role_btn_clicked")
         btn_quick_btn.callback = self._on_quick_role_btn_clicked
@@ -610,6 +649,18 @@ class MasterDashboardView(core.SafeView):
         btn_notice = discord.ui.Button(label="📢 스마트 공지 발송", style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:MasterDashboardView:_on_announcement_clicked")
         btn_notice.callback = self._on_announcement_clicked
         self.add_item(btn_notice)
+
+        btn_ticket = discord.ui.Button(label="🎫 1:1 티켓 설정", style=discord.ButtonStyle.primary, row=2, custom_id="norosi:MasterDashboardView:_on_ticket_config_clicked")
+        btn_ticket.callback = self._on_ticket_config_clicked
+        self.add_item(btn_ticket)
+
+        btn_raid = discord.ui.Button(label="🚨 테러·비상방어 설정", style=discord.ButtonStyle.danger, row=2, custom_id="norosi:MasterDashboardView:_on_raid_defense_clicked")
+        btn_raid.callback = self._on_raid_defense_clicked
+        self.add_item(btn_raid)
+
+        btn_link = discord.ui.Button(label="🔗 링크 미리보기 정리", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:MasterDashboardView:_on_link_preview_clicked")
+        btn_link.callback = self._on_link_preview_clicked
+        self.add_item(btn_link)
 
         btn_audit = discord.ui.Button(label="🛡️ 비활성 유저 감사", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:MasterDashboardView:_on_inactive_audit_clicked")
         btn_audit.callback = self._on_inactive_audit_clicked
@@ -639,6 +690,10 @@ class MasterDashboardView(core.SafeView):
         btn_other_life = discord.ui.Button(label="📖 타인의 인생", style=discord.ButtonStyle.success, row=2, custom_id="norosi:MasterDashboardView:_on_other_life_clicked")
         btn_other_life.callback = self._on_other_life_clicked
         self.add_item(btn_other_life)
+
+        btn_relay = discord.ui.Button(label="📚 릴레이 소설 열람", style=discord.ButtonStyle.primary, row=2, custom_id="norosi:MasterDashboardView:_on_relay_novel_clicked")
+        btn_relay.callback = self._on_relay_novel_clicked
+        self.add_item(btn_relay)
 
     def _setup_stats_buttons(self):
         btn_sstats = discord.ui.Button(label="📊 서버 실시간 통계", style=discord.ButtonStyle.primary, row=1, custom_id="norosi:MasterDashboardView:_on_server_stats_clicked")
@@ -680,27 +735,60 @@ class MasterDashboardView(core.SafeView):
         return self.build_current_embed()
 
     def build_current_embed(self) -> discord.Embed:
-        if self.current_tab == "home":
+        tab = self._TAB_ALIASES.get(self.current_tab, self.current_tab)
+        if tab == "home":
             return self.build_home_embed()
-        elif self.current_tab == "gacha":
+        elif tab == "gacha":
             return self.build_gacha_embed()
-        elif self.current_tab == "genshin":
+        elif tab == "genshin":
             return self.build_genshin_embed()
-        elif self.current_tab == "hsr":
+        elif tab == "hsr":
             return self.build_hsr_embed()
-        elif self.current_tab == "life":
+        elif tab == "fishing":
+            return self.build_fishing_embed()
+        elif tab == "life":
             return self.build_life_embed()
-        elif self.current_tab == "music":
+        elif tab == "music":
             return self.build_music_embed()
-        elif self.current_tab == "admin":
+        elif tab == "admin":
             return self.build_admin_embed()
-        elif self.current_tab == "game":
+        elif tab == "game":
             return self.build_game_embed()
-        elif self.current_tab == "stats":
+        elif tab == "stats":
             return self.build_stats_embed()
-        elif self.current_tab == "economy":
+        elif tab == "economy":
             return self.build_economy_embed()
         return self.build_home_embed()
+
+    def build_fishing_embed(self) -> discord.Embed:
+        g_id = self.guild.id if self.guild else 0
+        u_id = self.user.id if self.user else 0
+        u_name = self.user.display_name if self.user else "강태공"
+        summary = fishing_core.get_user_fishing_summary(g_id, u_id, u_name)
+        env = summary.get("env", {})
+        rod = summary.get("rod", {})
+        reel = summary.get("reel", {})
+        net = summary.get("net", {})
+        bait = summary.get("bait", {})
+        total_sp = len(fishing_core.FISH_SPECIES_DB)
+
+        embed = discord.Embed(
+            title=f"🎣 {u_name}님의 통합 낚시 · 수족관 · 대물 대시보드",
+            description=(
+                f"호수·강·바다 **`{total_sp:,}종`** 실제 어종 DB와 KST 실시간 날씨·피딩타임이 연동된 낚시 관제 보드입니다.\n\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"• **🎖️ 낚시 레벨:** `Lv.{summary.get('level', 1)}` (`{summary.get('title', '초보 강태공')}`)  ·  **🪙 골드:** **`{summary.get('gold', 0):,}🪙`**\n"
+                f"• **🎣 장착 장비:** {rod.get('emoji', '🎋')} `{rod.get('name', '대나무 낚싯대')}` · {reel.get('emoji', '⚙️')} `{reel.get('name', '기본 핸드 릴')}` · {net.get('emoji', '🕸️')} `{net.get('name', '그물 미장착')}`\n"
+                f"• **🪱 현재 미끼:** {bait.get('emoji', '🍡')} `{bait.get('name', '기본 곡물 떡밥')}`  ·  **🎒 가방:** `{summary.get('bag_count', 0)}/{summary.get('bag_capacity', 180)}마리`\n"
+                f"• **📖 도감 해금:** **`{summary.get('pokedex_Unique', 0):,} / {total_sp:,}종`** (`{summary.get('pokedex_rate', 0.0):.2f}%`)  ·  **🐠 수족관:** `{summary.get('aquarium_count', 0)}/{summary.get('aquarium_capacity', 4)}마리` (`+{summary.get('aquarium_hourly_gold', 0):,}🪙/시간`)\n"
+                f"• **🌤️ 실시간 수역 기상 ({env.get('time_label', '낮')}):** {env.get('weather_emoji', '☀️')} `{env.get('weather_name', '맑음')}` · {env.get('feeding_badge', '평상시')}\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            ),
+            color=discord.Color.from_rgb(14, 165, 233),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.set_footer(text="하단 버튼으로 즉시 출조, 가방 정리, 36,700종 도감, 수족관, 상점, 일일 의뢰, 대물 랭킹을 여세요!")
+        return embed
 
     def build_economy_embed(self) -> discord.Embed:
         import economy_core, life_core, ticket_core
@@ -1857,6 +1945,161 @@ class MasterDashboardView(core.SafeView):
             await core.safe_send_response(interaction, f"❌ 요리 주방 열기 오류: {e}", ephemeral=True)
 
 
+    # 통합 낚시 콜백
+    async def _on_fish_cast(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            gid = interaction.guild_id or 0
+            summary = await asyncio.to_thread(
+                fishing_core.get_user_fishing_summary, gid, interaction.user.id, interaction.user.display_name
+            )
+            v = fishing.FishingCastView(interaction.user, guild_id=gid, summary=summary)
+            msg = await interaction.followup.send(embed=v.build_dashboard_embed(), view=v, wait=True)
+            v.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 낚시 출조 화면 열기 오류: {e}", ephemeral=True)
+
+    async def _on_fish_bag(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            gid = interaction.guild_id or 0
+            summary = await asyncio.to_thread(
+                fishing_core.get_user_fishing_summary, gid, interaction.user.id, interaction.user.display_name
+            )
+            v = fishing.FishingBagView(interaction.user, gid, "all", 0, summary=summary)
+            msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+            v.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 낚시 가방 열기 오류: {e}", ephemeral=True)
+
+    async def _on_fish_pokedex(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            gid = interaction.guild_id or 0
+            p_stats = await asyncio.to_thread(fishing_core.get_fishing_pokedex_stats, gid, interaction.user.id)
+            v = fishing.FishingPokedexView(interaction.user, gid, tab="lake", stats=p_stats)
+            msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+            v.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 낚시 도감 열기 오류: {e}", ephemeral=True)
+
+    async def _on_fish_aquarium(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            gid = interaction.guild_id or 0
+            summary = await asyncio.to_thread(
+                fishing_core.get_user_fishing_summary, gid, interaction.user.id, interaction.user.display_name
+            )
+            v = fishing.FishingAquariumView(interaction.user, interaction.user, gid, summary=summary)
+            msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+            v.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 수족관 열기 오류: {e}", ephemeral=True)
+
+    async def _on_fish_shop(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            gid = interaction.guild_id or 0
+            summary = await asyncio.to_thread(
+                fishing_core.get_user_fishing_summary, gid, interaction.user.id, interaction.user.display_name
+            )
+            v = fishing.FishingShopView(interaction.user, gid, category="rod", summary=summary)
+            msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+            v.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 낚시 상점 열기 오류: {e}", ephemeral=True)
+
+    async def _on_fish_quest(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            gid = interaction.guild_id or 0
+            summary = await asyncio.to_thread(
+                fishing_core.get_user_fishing_summary, gid, interaction.user.id, interaction.user.display_name
+            )
+            v = fishing.FishingQuestView(interaction.user, gid, summary=summary)
+            msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+            v.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 낚시 일일 의뢰 열기 오류: {e}", ephemeral=True)
+
+    async def _on_fish_ranking(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            gid = interaction.guild_id or 0
+            v = fishing.FishingRankingView(interaction.user, gid, mode="length", habitat_filter="all")
+            msg = await interaction.followup.send(embed=v.build_embed(interaction.guild), view=v, wait=True)
+            v.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 낚시 대물 랭킹 열기 오류: {e}", ephemeral=True)
+
+    # 티켓 · 커뮤니티 보안 · 릴레이 소설 콜백
+    async def _on_ticket_config_clicked(self, interaction: discord.Interaction):
+        try:
+            if not await self.check_admin_permission(interaction, action_name="1:1 문의 티켓 설정", require_roles_perm=False):
+                return
+            await core.safe_defer(interaction, ephemeral=True)
+            gid = interaction.guild_id or 0
+            data = await asyncio.to_thread(core.load_data)
+            cfg = ticket_core.get_ticket_config(gid, data=data)
+            embed = tickets._build_ticket_config_embed(interaction.guild, cfg)
+            v = tickets.TicketConfigRoleView(guild_id=gid, author_id=interaction.user.id)
+            await interaction.followup.send(embed=embed, view=v, ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 티켓 설정 열기 오류: {e}", ephemeral=True)
+
+    async def _on_raid_defense_clicked(self, interaction: discord.Interaction):
+        try:
+            if not await self.check_admin_permission(interaction, action_name="테러·비상방어 설정", require_roles_perm=False):
+                return
+            await core.safe_defer(interaction, ephemeral=True)
+            data = await asyncio.to_thread(core.load_data)
+            cfg = community_core.get_raid_defense_config(data, interaction.guild_id or 0)
+            v = community.RaidDefenseConfigView(interaction.user.id, interaction.guild, cfg)
+            await interaction.followup.send(embed=v.build_embed(), view=v, ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 비상방어 설정 열기 오류: {e}", ephemeral=True)
+
+    async def _on_link_preview_clicked(self, interaction: discord.Interaction):
+        try:
+            if not await self.check_admin_permission(interaction, action_name="링크 미리보기 정리 설정", require_roles_perm=False):
+                return
+            await core.safe_defer(interaction, ephemeral=True)
+            data = await asyncio.to_thread(core.load_data)
+            cfg = community_core.get_link_preview_config(data, interaction.guild_id or 0)
+            v = community.LinkPreviewConfigView(interaction.user.id, interaction.guild, cfg)
+            await interaction.followup.send(embed=v.build_embed(), view=v, ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 링크 미리보기 설정 열기 오류: {e}", ephemeral=True)
+
+    async def _on_relay_novel_clicked(self, interaction: discord.Interaction):
+        try:
+            if not interaction.guild:
+                await core.safe_send_response(interaction, "❌ 릴레이 소설은 서버 채널에서만 이용할 수 있습니다.", ephemeral=True)
+                return
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            active = community_core.get_active_relay(data, interaction.guild.id)
+            if active:
+                embed = community.build_relay_novel_embed(interaction.guild, active)
+                await interaction.followup.send(embed=embed, view=community.RelayNovelView())
+            else:
+                archives = community_core.get_relay_archives(data, interaction.guild.id)
+                if archives:
+                    v = community.RelayArchiveView(interaction.guild, archives, 0)
+                    await interaction.followup.send(
+                        content="ℹ️ 현재 진행 중인 릴레이 소설이 없어 완결 서재 목록을 표시합니다. 새 소설은 `/릴레이소설 시작`으로 여실 수 있습니다!",
+                        embed=v.build_embed(),
+                        view=v,
+                    )
+                else:
+                    await interaction.followup.send(
+                        "📚 현재 진행 중인 릴레이 소설이 없습니다! `/릴레이소설 시작 제목:[제목] 첫문장:[내용]` 명령어로 첫 문장을 시작해 보세요.",
+                        ephemeral=True,
+                    )
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 릴레이 소설 조회 오류: {e}", ephemeral=True)
+
+
 # ==========================================
 # 🚀 Dashboard Cog 메인 클래스
 # ==========================================
@@ -1866,19 +2109,20 @@ class Dashboard(commands.Cog, name="대시보드"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="대시보드", description="모든 봇 기능(프로세카·원신·스타레일 가챠, 경제·농장·펫, 일정, 음악, 역할, 통계)을 제어하는 올인원 대시보드를 엽니다.")
+    @app_commands.command(name="대시보드", description="모든 봇 기능(프로세카·원신·스타레일·낚시·경제·농장·일정·음악·역할·티켓·게임·통계)을 제어하는 올인원 대시보드를 엽니다.")
     @app_commands.describe(탭="초기에 열람할 기능 대시보드 탭 (기본: 종합 관제)")
     @app_commands.choices(탭=[
         app_commands.Choice(name="🧭 [홈] 종합 관제 대시보드", value="home"),
         app_commands.Choice(name="🎮 [프로세카] 카드·뽑기·덱 대시보드", value="gacha"),
         app_commands.Choice(name="🌠 [원신] 기원·보관함·페이몬상점", value="genshin"),
         app_commands.Choice(name="🚄 [스타레일] 워프·아카이브·별빛상점", value="hsr"),
+        app_commands.Choice(name="🎣 [낚시] 호수·강·바다 36,700종·수족관·랭킹", value="fishing"),
+        app_commands.Choice(name="💳 [경제·생활] 프로필카드·칭호·복권·농장·펫·요리", value="economy"),
         app_commands.Choice(name="📅 [일정] D-Day·생일·집중 대시보드", value="life"),
         app_commands.Choice(name="🎵 [음악] 플레이리스트·사운드 대시보드", value="music"),
-        app_commands.Choice(name="🎭 [역할] 역할버튼·공지 대시보드", value="admin"),
-        app_commands.Choice(name="🎲 [게임] 미니게임·모집·날씨 대시보드", value="game"),
+        app_commands.Choice(name="🎭 [관리] 역할버튼·공지·티켓·비상방어 대시보드", value="admin"),
+        app_commands.Choice(name="🎲 [게임] 타인의인생·릴레이소설·모집·날씨 대시보드", value="game"),
         app_commands.Choice(name="📊 [통계] 서버분석·유저정보 대시보드", value="stats"),
-        app_commands.Choice(name="💳 [경제·생활] 프로필카드·칭호·복권·농장·펫·요리", value="economy"),
     ])
     async def slash_dashboard(self, interaction: discord.Interaction, 탭: Optional[app_commands.Choice[str]] = None):
         await core.safe_defer(interaction)
