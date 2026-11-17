@@ -22,6 +22,56 @@ import core
 
 
 # ==========================================
+# 🛡️ community_core 버전 호환성 자동 보정 (구버전 community_core.py 환경에서도 AttributeError 원천 차단)
+# ==========================================
+def _ensure_community_core_compat() -> None:
+    if not hasattr(community_core, "STICKY_COLOR_MAP"):
+        community_core.STICKY_COLOR_MAP = {
+            "gold": 0xF1C40F,
+            "blue": 0x3498DB,
+            "green": 0x2ECC71,
+            "pink": 0xFF69B4,
+            "purple": 0x9B59B6,
+            "red": 0xE74C3C,
+        }
+    if not hasattr(community_core, "STICKY_COLOR_LABELS"):
+        community_core.STICKY_COLOR_LABELS = {
+            "gold": "🌟 골드 (노랑)",
+            "blue": "💙 블루 (파랑)",
+            "green": "💚 그린 (초록)",
+            "pink": "🩷 핑크 (분홍)",
+            "purple": "💜 퍼플 (보라)",
+            "red": "❤️ 레드 (빨강)",
+        }
+    if not hasattr(community_core, "RAID_ACTION_LABELS"):
+        community_core.RAID_ACTION_LABELS = {
+            "timeout": "⏳ 60분 타임아웃(활동 제한)",
+            "kick": "👢 즉시 추방 (Kick)",
+            "quarantine": "🔒 격리 역할 부여 (신규 격리)",
+        }
+    if not hasattr(community_core, "get_relay_completed_list") and hasattr(community_core, "get_completed_relay_novels"):
+        community_core.get_relay_completed_list = community_core.get_completed_relay_novels
+    if not hasattr(community_core, "get_relay_archives") and hasattr(community_core, "get_completed_relay_novels"):
+        community_core.get_relay_archives = community_core.get_completed_relay_novels
+    if not hasattr(community_core, "get_active_relay") and hasattr(community_core, "get_active_relay_novel"):
+        def _compat_get_active_relay(data: dict, guild_id: int, channel_id: int = 0):
+            if channel_id:
+                st = community_core.get_active_relay_novel(data, guild_id, channel_id)
+                if st:
+                    return st
+            g_root = core.as_dict(core.as_dict(data.get("relay_novels")).get(str(guild_id)))
+            act = core.as_dict(g_root.get("active_channels"))
+            for st in act.values():
+                if isinstance(st, dict):
+                    return st
+            return None
+        community_core.get_active_relay = _compat_get_active_relay
+
+
+_ensure_community_core_compat()
+
+
+# ==========================================
 # 헬퍼: 관리자 권한 & 로그/알림 채널 탐색
 # ==========================================
 def _is_guild_admin(member: discord.abc.User, *, need_admin: bool = False, perm_attr: str = "manage_guild") -> bool:
@@ -112,6 +162,12 @@ def _build_relay_active_embed(story: dict) -> discord.Embed:
     )
     embed.set_footer(text="아래 [✍️ 다음 줄 이어쓰기] 버튼을 눌러 한 줄을 보태 보세요!")
     return embed
+
+
+def build_relay_novel_embed(guild_or_story, story: Optional[dict] = None) -> discord.Embed:
+    """대시보드 및 외부 호출 호환용 헬퍼: (guild, story) 또는 (story,) 모두 지원"""
+    target_story = story if isinstance(story, dict) else (guild_or_story if isinstance(guild_or_story, dict) else {})
+    return _build_relay_active_embed(target_story)
 
 
 def _build_relay_completed_embed(completed: dict) -> discord.Embed:
@@ -946,20 +1002,46 @@ class RelayArchiveSelect(discord.ui.Select):
         view: "RelayArchiveView" = self.view
         await core.safe_defer(interaction)
         if not view.novels and interaction.guild:
-            view.novels = community_core.get_relay_completed_list(core.get_cached_data(), interaction.guild.id)
+            getter = getattr(community_core, "get_completed_relay_novels", getattr(community_core, "get_relay_completed_list", None))
+            if getter:
+                view.novels = getter(core.get_cached_data(), interaction.guild.id)
         idx = int(self.values[0])
         if 0 <= idx < len(view.novels):
+            view.current_idx = idx
             await interaction.edit_original_response(embed=_build_relay_completed_embed(view.novels[idx]), view=view)
 
 
 class RelayArchiveView(core.SafeView):
-    def __init__(self, novels: Optional[list[dict]] = None, guild_id: int = 0):
+    def __init__(self, novels_or_guild=None, guild_id_or_novels=0, initial_idx: int = 0):
         super().__init__(timeout=180)
+        self.current_idx = max(0, int(initial_idx or 0))
+        if isinstance(novels_or_guild, list):
+            novels = novels_or_guild
+            guild_id = int(guild_id_or_novels or 0) if isinstance(guild_id_or_novels, int) else 0
+        elif isinstance(guild_id_or_novels, list):
+            novels = guild_id_or_novels
+            guild_id = getattr(novels_or_guild, "id", 0) or 0
+        else:
+            novels = None
+            guild_id = getattr(novels_or_guild, "id", 0) or (int(guild_id_or_novels or 0) if isinstance(guild_id_or_novels, int) else 0)
+
         if novels is None and guild_id:
-            novels = community_core.get_relay_completed_list(core.get_cached_data(), guild_id)
+            getter = getattr(community_core, "get_completed_relay_novels", getattr(community_core, "get_relay_completed_list", None))
+            if getter:
+                novels = getter(core.get_cached_data(), guild_id)
         self.novels = novels or []
         if self.novels:
             self.add_item(RelayArchiveSelect(self.novels))
+
+    def build_embed(self) -> discord.Embed:
+        if self.novels:
+            idx = min(self.current_idx, len(self.novels) - 1)
+            return _build_relay_completed_embed(self.novels[idx])
+        return discord.Embed(
+            title="📕 완결 릴레이 소설 서재",
+            description="아직 완결된 릴레이 소설이 없습니다. `/릴레이소설 시작`으로 첫 작품을 만들어 보세요!",
+            color=discord.Color.gold(),
+        )
 
 
 # ==========================================
