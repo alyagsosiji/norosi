@@ -25,9 +25,12 @@ import core
 CUSTOM_EMOJI_RE = re.compile(r"<(a?):([a-zA-Z0-9_]{1,64}):(\d{15,22})>")
 
 MAX_EMOJIS_PER_MESSAGE = 3
-STICKER_TARGET_SIZE = 320   # 디스코드 기본 스티커 표준 크기 (320x320px)
-DOUBLE_SLOT_SIZE = 256      # 2개 연속 전송 시 각 이모지 크기
-TRIPLE_SLOT_SIZE = 192      # 3개 연속 전송 시 각 이모지 크기
+STICKER_TARGET_SIZE = 320   # 디스코드 기본 스티커 해상도 (320x320px)
+DOUBLE_SLOT_SIZE = 272      # 2개 연속 전송 시 각 이모지 크기
+TRIPLE_SLOT_SIZE = 184      # 3개 연속 전송 시 각 이모지 크기
+SAFE_CANVAS_WIDTH = 640     # 모바일/PC 가로 꽉참·비율 크롭 방지용 16:9 안전 캔버스 (640x352, ~1.82:1)
+SAFE_CANVAS_HEIGHT = 352    # 320px 이모지 + 상하 16px 모서리 안전 여백(라운딩 잘림 방지)
+SAFE_CORNER_PAD = 16        # 디스코드 첨부 라운딩(border-radius) 잘림 방지 여백
 EMOJI_SLOT_SIZE = STICKER_TARGET_SIZE
 STATIC_TARGET_SIZE = STICKER_TARGET_SIZE
 ANIMATED_TARGET_SIZE = STICKER_TARGET_SIZE
@@ -228,7 +231,11 @@ def _paste_sprites_on_sticker_canvas(
     canvas_w: Optional[int] = None,
     canvas_h: Optional[int] = None,
 ) -> Image.Image:
-    """1~3개의 이모지를 불필요한 투명 여백 없이 디스코드 스티커 크기(320x320 기준)에 딱 맞게 배치합니다."""
+    """
+    1~3개의 이모지를 16:9 안전 투명 캔버스(640x352) 좌측에 모서리 안전 여백(16px)과 함께 배치합니다.
+    - 1:1 단일 이미지가 모바일/PC 채팅 화면을 가득 채우는 문제 방지 (모바일 약 170dp 스티커 크기 유지)
+    - 상하좌우 16px 안전 여백 + ~1.82:1 비율로 디스코드 라운딩·비율 크롭(잘림) 완벽 방지
+    """
     items = sprites[:MAX_EMOJIS_PER_MESSAGE]
     slot_size = _get_slot_size_for_count(len(items))
     fitted: list[Image.Image] = []
@@ -238,19 +245,16 @@ def _paste_sprites_on_sticker_canvas(
         else:
             fitted.append(sp)
 
-    if len(fitted) == 1 and canvas_w is None and canvas_h is None:
-        return fitted[0].copy()
-
-    gap = 8
-    tight_w = sum(sp.width for sp in fitted) + gap * max(0, len(fitted) - 1)
-    tight_h = max(sp.height for sp in fitted)
-    w = canvas_w or tight_w
-    h = canvas_h or tight_h
+    gap = 12 if len(fitted) == 2 else 10
+    w = canvas_w or SAFE_CANVAS_WIDTH
+    h = canvas_h or SAFE_CANVAS_HEIGHT
 
     canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    cur_x = 0
+    cur_x = SAFE_CORNER_PAD
     for sp in fitted:
-        dy = max(0, (h - sp.height) // 2)
+        if cur_x + sp.width > w - SAFE_CORNER_PAD:
+            break
+        dy = max(SAFE_CORNER_PAD, (h - sp.height) // 2)
         canvas.alpha_composite(sp, (cur_x, dy))
         cur_x += sp.width + gap
     return canvas
@@ -275,7 +279,8 @@ def build_sticker_strip_bytes(
     canvas_h: Optional[int] = None,
 ) -> tuple[bytes, str]:
     """
-    1~3개의 커스텀 이모지를 불필요한 투명 여백 없이 디스코드 기본 스티커 표준 크기(320x320px · 2개 256px · 3개 192px)로 맞춥니다.
+    1~3개의 커스텀 이모지를 불필요한 원본 여백 제거 + 320x320px 업스케일 후
+    화면 꽉참·모서리 잘림을 방지하는 16:9 안전 투명 캔버스(640x352)로 변환합니다.
     정적 이모지는 무손실 PNG, 움직이는 이모지는 8-bit 알파를 보존하는 애니메이션 WebP(미지원 시 GIF 폴백)로 출력합니다.
     """
     if not raw_items:
@@ -400,7 +405,7 @@ def build_emoji_upscale_embed(guild: discord.Guild, channel: Optional[discord.ab
     status_badge = "🟢 **ON (활성화됨)**" if enabled else "🔴 **OFF (비활성화됨 · 기본값)**"
     desc_lines = [
         "커스텀 디스코드 이모지(1~3개)만 포함된 채팅을 보내면 원본 메시지를 삭제한 뒤,",
-        "이모지의 불필요한 투명 여백을 제거하고 디스코드 기본 스티커 크기(320×320px · 정적 PNG / 무손실 애니메이션 WebP)로 원본 모양 그대로 변환하여",
+        "이모지를 320×320px 스티커 품질(화면 꽉참·잘림 방지 640×352 투명 캔버스 · PNG / 무손실 애니메이션 WebP)로 변환하여",
         "**보낸 사람의 프로필 사진과 서버 닉네임**으로 다시 전송합니다.",
         "• **🗑️ 삭제 방법:** 전송된 이모지 메시지에 직접 `:x:`(❌) 반응을 추가하면 즉시 삭제됩니다.",
         "",
