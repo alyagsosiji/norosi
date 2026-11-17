@@ -336,7 +336,7 @@ class LinkPreviewConfigView(core.SafeView):
         super().__init__(timeout=300)
         self.author_id = author_id
         self.guild = guild
-        self.cfg = cfg if isinstance(cfg, dict) else community_core.get_link_preview_config({}, getattr(guild, "id", 0))
+        self.cfg = cfg if isinstance(cfg, dict) else community_core.get_link_preview_config(core.get_cached_data(), getattr(guild, "id", 0))
         self.add_item(LinkPreviewChannelIgnoreSelect())
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -656,7 +656,7 @@ class RaidDefenseConfigView(core.SafeView):
         super().__init__(timeout=300)
         self.author_id = author_id
         self.guild = guild
-        self.cfg = cfg if isinstance(cfg, dict) else community_core.get_raid_defense_config({}, getattr(guild, "id", 0))
+        self.cfg = cfg if isinstance(cfg, dict) else community_core.get_raid_defense_config(core.get_cached_data(), getattr(guild, "id", 0))
         self.add_item(RaidActionSelect())
         self.add_item(RaidAlertChannelSelect())
         self.add_item(RaidQuarantineRoleSelect())
@@ -936,19 +936,27 @@ class RelayArchiveSelect(discord.ui.Select):
             )
             for i, n in enumerate(novels[:25], start=1)
         ]
-        super().__init__(placeholder="📚 읽어볼 완결 릴레이 소설을 선택하세요", options=options)
+        super().__init__(
+            placeholder="📚 읽어볼 완결 릴레이 소설을 선택하세요",
+            options=options,
+            custom_id="norosi:RelayArchiveView:select",
+        )
 
     async def callback(self, interaction: discord.Interaction):
         view: "RelayArchiveView" = self.view
         await core.safe_defer(interaction)
+        if not view.novels and interaction.guild:
+            view.novels = community_core.get_relay_completed_list(core.get_cached_data(), interaction.guild.id)
         idx = int(self.values[0])
         if 0 <= idx < len(view.novels):
             await interaction.edit_original_response(embed=_build_relay_completed_embed(view.novels[idx]), view=view)
 
 
 class RelayArchiveView(core.SafeView):
-    def __init__(self, novels: Optional[list[dict]] = None):
+    def __init__(self, novels: Optional[list[dict]] = None, guild_id: int = 0):
         super().__init__(timeout=180)
+        if novels is None and guild_id:
+            novels = community_core.get_relay_completed_list(core.get_cached_data(), guild_id)
         self.novels = novels or []
         if self.novels:
             self.add_item(RelayArchiveSelect(self.novels))
