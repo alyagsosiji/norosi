@@ -452,8 +452,8 @@ class NorosiBot(commands.Bot):
         self.tree.on_error = self.on_app_command_error
 
         if log_mode == "detailed":
-            print("\n------------------------------------------------------------------", flush=True)
-            print("\n🔌 [2/4] 17대 Cogs 확장 모듈 로드 및 명령어 트리 빌드 중...", flush=True)
+            print("------------------------------------------------------------------", flush=True)
+            print("🔌 [2/4] 17대 Cogs 확장 모듈 로드 및 명령어 트리 빌드 중...", flush=True)
         # 서버 배포 파일 뒤바뀜(예: fishing_core.py에 cogs/fishing.py 덮어쓰기, cogs/gacha.py에 cogs/hsr.py 덮어쓰기) 사전 진단
         try:
             base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1515,7 +1515,8 @@ class NorosiBot(commands.Bot):
                 continue
 
             emoji = info.get("emoji", "🌠")
-            new_name = core.format_dday_channel_name(name, info["date"], emoji)
+            plus_one = bool(info.get("plus_one", False))
+            new_name = core.format_dday_channel_name(name, info["date"], emoji, plus_one=plus_one)
             if getattr(channel, "name", None) != new_name:
                 try:
                     await channel.edit(name=new_name)
@@ -1970,8 +1971,9 @@ class NorosiBot(commands.Bot):
             date_str = info.get("date")
             if not date_str:
                 continue
+            plus_one = bool(info.get("plus_one", False))
             try:
-                diff, text = core.get_dday_info(date_str)
+                diff, text = core.get_dday_info(date_str, plus_one=plus_one)
             except Exception:
                 continue
             display_name = f"{name} 🔄" if info.get("repeat") else name
@@ -1981,7 +1983,8 @@ class NorosiBot(commands.Bot):
                 if diff < min_diff:
                     min_diff = diff
             elif diff >= -7:
-                recent_past_lines.append(f"• ~~{display_name} ({date_str})~~ : `{text}`")
+                plus_tag = " `(+1일)`" if plus_one else ""
+                recent_past_lines.append(f"• ~~{display_name} ({date_str})~~ : `{text}`{plus_tag}")
             else:
                 archived_count += 1
 
