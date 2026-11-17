@@ -16,7 +16,10 @@ import random
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
-import aiohttp
+try:
+    import aiohttp
+except Exception:
+    aiohttp = None
 
 import core
 import fishing_core
@@ -974,7 +977,7 @@ async def build_unified_profile_card_bytes(
 
     if avatar_bytes is None:
         av_url = str(getattr(getattr(user, "display_avatar", None), "url", "") or "")
-        if av_url.startswith(("http://", "https://")) and "example.com" not in av_url:
+        if aiohttp is not None and av_url.startswith(("http://", "https://")) and "example.com" not in av_url:
             try:
                 timeout = aiohttp.ClientTimeout(total=2.5)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
