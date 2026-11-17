@@ -4553,6 +4553,7 @@ DEFAULT_CONFIG = {
         "default_category_id": None,
         "terminal_log_channel_id": None,
         "terminal_log_channels": {},
+        "terminal_log_mode": "detailed",
         "github_webhooks": {},
     },
     "guild_settings": {},
@@ -4625,15 +4626,6 @@ DEFAULT_CONFIG = {
     "reminders": [],
     "suggestions": [],
     "reaction_roles": {},
-    "lottery_state": {
-        "round": 1,
-        "jackpot": 1000,
-        "pool": 0,
-        "tickets": [],
-        "last_draw": None,
-        "history": [],
-        "announce_channels": {}
-    },
     "life_users": {},
     "guild_farms": {},
     "ticket_configs": {},
@@ -5087,6 +5079,8 @@ def normalize_data(data):
         data["settings"].setdefault(k, copy.deepcopy(v) if isinstance(v, (dict, list)) else v)
     if not isinstance(data["settings"].get("terminal_log_channels"), dict):
         data["settings"]["terminal_log_channels"] = coerce_dict_like(data["settings"].get("terminal_log_channels"))
+    raw_log_mode = str(data["settings"].get("terminal_log_mode") or os.getenv("NOROSI_LOG_MODE") or "detailed").strip().lower()
+    data["settings"]["terminal_log_mode"] = "summary" if raw_log_mode in ("summary", "요약", "요약버전", "compact", "brief", "short") else "detailed"
     if not isinstance(data["settings"].get("github_webhooks"), dict):
         data["settings"]["github_webhooks"] = coerce_dict_like(data["settings"].get("github_webhooks"))
 
@@ -5322,27 +5316,8 @@ def normalize_data(data):
     data["reaction_roles"] = clean_rr
     data["proseka_accounts"] = coerce_dict_like(data.get("proseka_accounts"))
 
-    # 통합 경제 · 복권 상태 정규화
-    raw_lottery = coerce_dict_like(data.get("lottery_state"))
-    if not raw_lottery:
-        raw_lottery = copy.deepcopy(DEFAULT_CONFIG["lottery_state"])
-    raw_lottery["round"] = max(1, int(raw_lottery.get("round", 1) or 1))
-    raw_lottery["jackpot"] = max(0, int(raw_lottery.get("jackpot", 1000) or 0))
-    raw_lottery["pool"] = max(0, int(raw_lottery.get("pool", 0) or 0))
-    if not isinstance(raw_lottery.get("tickets"), list):
-        raw_lottery["tickets"] = [t for t in coerce_list_like(raw_lottery.get("tickets")) if isinstance(t, dict)]
-    else:
-        raw_lottery["tickets"] = [t for t in raw_lottery["tickets"] if isinstance(t, dict)]
-    if not isinstance(raw_lottery.get("history"), list):
-        raw_lottery["history"] = [h for h in coerce_list_like(raw_lottery.get("history")) if isinstance(h, dict)]
-    else:
-        raw_lottery["history"] = [h for h in raw_lottery["history"] if isinstance(h, dict)]
-    if raw_lottery.get("last_draw") is not None and not isinstance(raw_lottery.get("last_draw"), dict):
-        raw_lottery["last_draw"] = coerce_dict_like(raw_lottery.get("last_draw")) or None
-    raw_lottery["announce_channels"] = {
-        str(k): v for k, v in coerce_dict_like(raw_lottery.get("announce_channels")).items() if v
-    }
-    data["lottery_state"] = raw_lottery
+    # 레거시 복권 데이터 제거
+    data.pop("lottery_state", None)
 
     # 생활 컨텐츠 (개인 농장 · 펫 · 요리 버프) 정규화
     l_users = _normalize_guild_user_map(data.get("life_users"))
@@ -5458,8 +5433,44 @@ _TRACKED_TOP_SECTIONS = (
     "partners",
     "birthdays",
     "reaction_roles",
-    "lottery_state",
 )
+
+
+def normalize_log_mode_value(mode_val) -> str:
+    """무로시 로그 모드 입력값을 'summary' 또는 'detailed'로 표준화합니다."""
+    raw = str(mode_val or "").strip().lower()
+    if raw in ("summary", "요약", "요약버전", "요약모드", "compact", "brief", "short", "간략"):
+        return "summary"
+    if raw in ("detailed", "상세", "상세버전", "상세모드", "detail", "full", "verbose"):
+        return "detailed"
+    env_raw = str(os.getenv("NOROSI_LOG_MODE") or "").strip().lower()
+    if env_raw in ("summary", "요약", "요약버전", "요약모드", "compact", "brief", "short", "간략"):
+        return "summary"
+    return "detailed"
+
+
+def get_terminal_log_mode(data: dict | None = None) -> str:
+    """현재 설정된 무로시 구동/터미널 로그 모드('summary' 또는 'detailed')를 반환합니다."""
+    try:
+        target = data if isinstance(data, dict) else (_MEMORY_CACHE if isinstance(_MEMORY_CACHE, dict) else None)
+        if isinstance(target, dict):
+            settings_d = target.get("settings")
+            if isinstance(settings_d, dict) and settings_d.get("terminal_log_mode"):
+                return normalize_log_mode_value(settings_d.get("terminal_log_mode"))
+    except Exception:
+        pass
+    return normalize_log_mode_value(os.getenv("NOROSI_LOG_MODE", "detailed"))
+
+
+def set_terminal_log_mode(mode_val: str) -> str:
+    """무로시 구동/터미널 로그 모드를 저장하고 표준화된 모드값('summary' 또는 'detailed')을 반환합니다."""
+    norm_mode = normalize_log_mode_value(mode_val)
+    with _DATA_LOCK:
+        data = load_data()
+        settings_d = ensure_dict_path(data, "settings")
+        settings_d["terminal_log_mode"] = norm_mode
+        save_data(data)
+    return norm_mode
 _TRACKED_ENTRY_MAPS = (
     "guild_settings",
     "guild_music_prefs",
@@ -5983,19 +5994,7 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
             if mid_s not in merged_rr:
                 merged_rr[mid_s] = copy.deepcopy(rr_cfg)
 
-    # 13. 통합 복권(lottery_state), 생활 컨텐츠(life_users, guild_farms), 티켓 시스템(ticket_configs, tickets)
-    l_lot_ts, r_lot_ts = _pick_section_ts("lottery_state")
-    l_lot = as_dict(local_norm.get("lottery_state"))
-    r_lot = as_dict(merged.get("lottery_state"))
-    if l_lot_ts and (not r_lot_ts or l_lot_ts >= r_lot_ts):
-        merged["lottery_state"] = copy.deepcopy(l_lot)
-    elif not l_lot_ts and not r_lot_ts:
-        if int(l_lot.get("round", 1) or 1) > int(r_lot.get("round", 1) or 1) or (
-            int(l_lot.get("round", 1) or 1) == int(r_lot.get("round", 1) or 1)
-            and len(l_lot.get("tickets", [])) > len(r_lot.get("tickets", []))
-        ):
-            merged["lottery_state"] = copy.deepcopy(l_lot)
-
+    # 13. 생활 컨텐츠(life_users, guild_farms), 티켓 시스템(ticket_configs, tickets)
     for map_key in ("guild_farms", "ticket_configs", "link_preview_configs", "raid_defense_configs", "relay_novels"):
         l_sec_ts, r_sec_ts = _pick_section_ts(map_key)
         rem_map = ensure_dict_path(merged, map_key)
