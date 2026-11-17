@@ -2965,11 +2965,19 @@ class EventForecastSelect(discord.ui.Select):
         options = []
         for ev in events_list[:25]:
             is_sel = (selected_id == ev["id"])
-            tag = "🌟페스" if ev.get("is_fes") else ("🎀한정" if ev.get("is_limited") else "🎵통상")
+            ev_t = ev.get("eventType", "")
+            tag = (
+                "💎블페" if ev.get("is_fes") else
+                ("🌐월링크" if ev_t == "world_bloom" else
+                 ("🎞️메모리즈" if "Memories" in ev.get("name", "") else
+                  ("🎀한정" if ev.get("is_limited") else "🎵통상")))
+            )
             st_code = ev.get("status_code", "upcoming")
             st_icon = "🟢" if st_code == "ongoing" else ("⏳" if st_code == "upcoming" else "🏁")
             label = f"{st_icon} [{ev['id']}] {ev['name']}"[:95]
-            desc = f"{ev['kr_estimated_start']}~{ev['kr_estimated_end']} · {tag} · {ev.get('unit', '')}"[:98]
+            b_ch = ev.get("banner_chara", "")
+            ch_txt = f" · 배너:{b_ch}" if b_ch else ""
+            desc = f"{ev['kr_estimated_start']}~{ev['kr_estimated_end']} · {tag} · {ev.get('unit', '')}{ch_txt}"[:98]
             options.append(discord.SelectOption(
                 label=label,
                 value=str(ev["id"]),
@@ -3077,6 +3085,10 @@ class EventForecastView(core.SafeView):
         all_list_btn.callback = self.on_show_all_list
         self.add_item(all_list_btn)
 
+        sync_btn = discord.ui.Button(label="🔄 DB 최신화", style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:EventForecastView:on_refresh_db")
+        sync_btn.callback = self.on_refresh_db
+        self.add_item(sync_btn)
+
     def build_embed(self) -> discord.Embed:
         cal_data = core.build_monthly_event_forecast_calendar(self.year, self.month)
         events_in_month = cal_data["events_in_month"]
@@ -3093,7 +3105,7 @@ class EventForecastView(core.SafeView):
 
         embed = discord.Embed(
             title=f"📅 프로세카 한섭 이벤트 미래시 달력 ({cal_data['month_label']})",
-            description=f"🕒 **기준 시각:** `{cal_data.get('today_str', core.get_today_str())}` (한섭 공식 DB + 일섭 마스터 DB 실시간 연동)",
+            description=f"🕒 **기준 시각:** `{cal_data.get('today_str', core.get_today_str())}` · **수록 범위:** `#{all_events[0]['id']}~#{all_events[-1]['id']}` ({len(all_events)}개 이벤트 실시간 연동)",
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST)
         )
@@ -3108,23 +3120,28 @@ class EventForecastView(core.SafeView):
 
         if selected_ev:
             ev_type_label = core.EVENT_TYPE_MAP.get(selected_ev.get("eventType", ""), selected_ev.get("eventType", "이벤트"))
-            tag = "🌟 컬러풀 페스티벌 (컬페한정)" if selected_ev.get("is_fes") else ("🎀 기간 한정 가챠" if selected_ev.get("is_limited") else "🎵 통상 가챠")
+            tag = selected_ev.get("banner_type") or (
+                "💎 블룸 페스티벌 (페스/한정)" if selected_ev.get("is_fes") else
+                ("🌐 월드 링크 (유닛/피날레 한정)" if selected_ev.get("eventType") == "world_bloom" else
+                 ("🎀 기간 한정 (헤어/의상 해금)" if selected_ev.get("is_limited") else "🎵 통상 가챠"))
+            )
             status_badge = selected_ev.get("status_badge") or "⏳ 진행 예정"
+            banner_chara = selected_ev.get("banner_chara") or selected_ev.get("unit", "-")
 
-            cards_lines = []
-            for c in selected_ev.get("featured_cards", []):
-                cards_lines.append(f"  • {c}")
+            cards_lines = [f"  • {c}" for c in selected_ev.get("featured_cards", [])]
             cards_str = "\n".join(cards_lines) if cards_lines else "  • 정보 확인 중"
+
+            reward_list = selected_ev.get("reward_cards") or []
+            reward_str = f"\n• **🎁 이벤트 보상 (★3/★2):** {', '.join(reward_list)}" if reward_list else ""
 
             detail_val = (
                 f"• **진행 상태:** **{status_badge}** (이벤트 `#{selected_ev['id']}`)\n"
-                f"• **이벤트 명:** `{selected_ev['name']}`\n"
-                f"  └ *일섭 원제: {selected_ev.get('jp_name', '-') }*\n"
+                f"• **이벤트 명:** `{selected_ev['name']}` *(원제: {selected_ev.get('jp_name', '-')})*\n"
                 f"• **이벤트 유형:** `{ev_type_label}` · **유닛:** `{selected_ev.get('unit', '-')}` · **속성:** {selected_ev.get('attribute', '-')}\n"
-                f"• **🇰🇷 한섭 기간:** `{selected_ev['kr_estimated_start']}` ~ `{selected_ev['kr_estimated_end']}`\n"
-                f"• **🇯🇵 일섭 원본 기간:** `{selected_ev['jp_start']}` ~ `{selected_ev['jp_end']}` *(약 1년 선행)*\n"
+                f"• **🎯 배너(하코) 중심:** `{banner_chara}`\n"
+                f"• **🇰🇷 한섭 기간:** `{selected_ev['kr_estimated_start']}` ~ `{selected_ev['kr_estimated_end']}` *(🇯🇵 일섭 `{selected_ev['jp_start']}`~`{selected_ev['jp_end']}`)*\n"
                 f"• **🎰 연계 가챠 배너:** `{selected_ev.get('gacha_name', '-')}` (`{tag}`)\n"
-                f"• **🌟 주요 픽업 카드:**\n{cards_str}\n"
+                f"• **🌟 주요 ★4 픽업 카드:**\n{cards_str}{reward_str}\n"
                 f"• **🎵 이벤트 테마곡:** `{selected_ev.get('theme_song', '-')}`"
             )
             embed.add_field(name=f"🏆 [이벤트 상세] #{selected_ev['id']} {selected_ev['name']}", value=detail_val[:1024], inline=False)
@@ -3134,10 +3151,18 @@ class EventForecastView(core.SafeView):
         if events_in_month:
             summary_lines = []
             for ev in events_in_month:
-                tag = "🌟컬페" if ev.get("is_fes") else ("🎀한정" if ev.get("is_limited") else "🎵통상")
+                ev_t = ev.get("eventType", "")
+                tag = (
+                    "💎블페" if ev.get("is_fes") else
+                    ("🌐월링크" if ev_t == "world_bloom" else
+                     ("🎞️메모리즈" if "Memories" in ev.get("name", "") else
+                      ("🎀한정" if ev.get("is_limited") else "🎵통상")))
+                )
                 st_b = ev.get("status_badge", "⏳ 예정")
+                b_ch = ev.get("banner_chara", "")
+                ch_part = f" · 배너:{b_ch}" if b_ch else ""
                 summary_lines.append(
-                    f"• {st_b} `[{ev['kr_estimated_start'][5:]}~{ev['kr_estimated_end'][5:]}]` **#{ev['id']} {ev['name']}** ({ev['unit']} · `{tag}`)"
+                    f"• {st_b} `[{ev['kr_estimated_start'][5:]}~{ev['kr_estimated_end'][5:]}]` **#{ev['id']} {ev['name']}** ({ev['unit']}{ch_part} · `{tag}`)"
                 )
             embed.add_field(name=f"📋 {self.year}년 {self.month:02d}월 이벤트 목록 ({len(events_in_month)}개)", value="\n".join(summary_lines)[:1024], inline=False)
 
@@ -3181,6 +3206,13 @@ class EventForecastView(core.SafeView):
         embed = self.build_embed()
         await core.safe_edit_response(interaction, embed=embed, view=self)
 
+    async def on_refresh_db(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        await asyncio.to_thread(core.get_event_forecast_list, True)
+        self.update_components()
+        embed = self.build_embed()
+        await core.safe_edit_response(interaction, embed=embed, view=self)
+
     async def on_show_all_list(self, interaction: discord.Interaction):
         await core.safe_defer(interaction, ephemeral=True, thinking=True)
         all_events = await asyncio.to_thread(core.get_event_forecast_list)
@@ -3195,11 +3227,18 @@ class EventForecastView(core.SafeView):
         total_chars = len(embed.title) + len(embed.description) + len(core.FORECAST_DISCLAIMER)
         omitted = 0
         for idx, ev in enumerate(upcoming_or_active):
-            tag = "🌟컬페한정" if ev.get("is_fes") else ("🎀한정" if ev.get("is_limited") else "🎵통상")
+            ev_t = ev.get("eventType", "")
+            tag = (
+                "💎블페한정" if ev.get("is_fes") else
+                ("🌐월링크한정" if ev_t == "world_bloom" else
+                 ("🎞️메모리즈" if "Memories" in ev.get("name", "") else
+                  ("🎀한정" if ev.get("is_limited") else "🎵통상")))
+            )
             st_b = "🟢 진행 중" if (ev["kr_estimated_start"] <= today_str <= ev["kr_estimated_end"]) else "⏳ 진행 예정"
+            b_ch = ev.get("banner_chara", "-")
             val = (
                 f"• **상태/기간:** **{st_b}** · `{ev['kr_estimated_start']}` ~ `{ev['kr_estimated_end']}` (일섭 `{ev['jp_start']}`~`{ev['jp_end']}`)\n"
-                f"• **유닛/가챠:** {ev['unit']} · `{ev['gacha_name']}` ({tag})\n"
+                f"• **유닛/배너:** {ev['unit']} (배너: `{b_ch}`) · `{ev['gacha_name']}` ({tag})\n"
                 f"• **대표 픽업:** {', '.join(ev.get('featured_cards', [])[:2])}"
             )[:1024]
             fname = f"🏆 [#{ev['id']}] {ev['name']}"[:256]
