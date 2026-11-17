@@ -1613,6 +1613,8 @@ class CharacterCostumeWardrobeView(core.SafeView):
 
     def update_components(self):
         # 1. Unit select (Row 0)
+        if self.current_unit not in core.UNIT_ORDER:
+            self.current_unit = core.UNIT_ORDER[0]
         unit_opts = []
         for u in core.UNIT_ORDER:
             unit_opts.append(discord.SelectOption(
@@ -1628,7 +1630,9 @@ class CharacterCostumeWardrobeView(core.SafeView):
             (cid, info) for cid, info in core.CHARACTER_MAP.items()
             if info["unit"] == self.current_unit
         ]
-        if not any(cid == self.current_char_id for cid, _ in chars_in_unit):
+        if not chars_in_unit:
+            chars_in_unit = list(core.CHARACTER_MAP.items())
+        if chars_in_unit and not any(cid == self.current_char_id for cid, _ in chars_in_unit):
             self.current_char_id = chars_in_unit[0][0]
 
         char_opts = []
