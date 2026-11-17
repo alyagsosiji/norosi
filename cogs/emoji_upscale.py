@@ -82,6 +82,22 @@ def sanitize_webhook_username(display_name: str | None) -> str:
     return name or "User"
 
 
+def is_delete_reaction_emoji(emoji: discord.PartialEmoji | discord.Emoji | str | None) -> bool:
+    """사용자가 수동으로 단 빨간 엑스(:x:, ❌) 반응인지 판별합니다."""
+    if emoji is None:
+        return False
+    if isinstance(emoji, str):
+        raw_name = emoji
+        emoji_id = None
+    else:
+        emoji_id = getattr(emoji, "id", None)
+        raw_name = getattr(emoji, "name", "") or ""
+    if emoji_id is not None:
+        return False
+    normalized = raw_name.replace("\ufe0f", "").strip()
+    return normalized == "❌"
+
+
 def _compute_scaled_size(width: int, height: int, target_size: int) -> tuple[int, int]:
     """비율을 유지하면서 긴 변을 디스코드 스티커 크기(target_size, 기본 160px)로 맞춥니다."""
     if width <= 0 or height <= 0:
@@ -318,8 +334,9 @@ def build_emoji_upscale_embed(guild: discord.Guild, channel: Optional[discord.ab
     status_badge = "🟢 **ON (활성화됨)**" if enabled else "🔴 **OFF (비활성화됨 · 기본값)**"
     desc_lines = [
         "커스텀 디스코드 이모지(1~3개)만 포함된 채팅을 보내면 원본 메시지를 삭제한 뒤,",
-        "이모지를 디스코드 스티커 크기(160px · 정적 PNG / 움직이는 GIF)로 깨짐 없이 업스케일하여",
+        "이모지를 디스코드 스티커 크기(480×160 투명 캔버스 · 정적 PNG / 움직이는 GIF)로 깨짐 없이 업스케일하여",
         "**보낸 사람의 프로필 사진과 서버 닉네임**으로 다시 전송합니다.",
+        "• **🗑️ 삭제 방법:** 전송된 이모지 메시지에 직접 `:x:`(❌) 반응을 추가하면 즉시 삭제됩니다.",
         "",
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         f"• **🏠 대상 서버:** `{guild.name}`",
@@ -417,6 +434,8 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         self._webhook_cache: dict[int, discord.Webhook] = {}
         self._webhook_locks: dict[int, asyncio.Lock] = {}
         self._processed_msgs: OrderedDict[int, float] = OrderedDict()
+        self._upscaled_messages: OrderedDict[int, int] = OrderedDict()
+        self._deleting_msgs: set[int] = set()
 
     async def cog_unload(self):
         if self._http_session and not self._http_session.closed:
@@ -505,6 +524,72 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
             self._processed_msgs.popitem(last=False)
         return True
 
+    def _record_upscaled_message(self, webhook_msg_id: int, author_id: int):
+        self._upscaled_messages[webhook_msg_id] = author_id
+        while len(self._upscaled_messages) > 1000:
+            self._upscaled_messages.popitem(last=False)
+        rec_fn = getattr(core, "record_emoji_upscale_message", None)
+        if callable(rec_fn):
+            async def _persist():
+                try:
+                    await asyncio.to_thread(rec_fn, webhook_msg_id, author_id)
+                except Exception:
+                    pass
+            try:
+                asyncio.create_task(_persist())
+            except Exception:
+                pass
+
+    def _get_upscaled_author_id(self, message_id: int) -> Optional[int]:
+        if message_id in self._upscaled_messages:
+            return self._upscaled_messages[message_id]
+        get_fn = getattr(core, "get_emoji_upscale_message_author", None)
+        if callable(get_fn):
+            try:
+                uid = get_fn(message_id)
+                if uid is not None:
+                    self._upscaled_messages[message_id] = int(uid)
+                    return int(uid)
+            except Exception:
+                pass
+        return None
+
+    def _forget_upscaled_message(self, message_id: int):
+        self._upscaled_messages.pop(message_id, None)
+        rem_fn = getattr(core, "remove_emoji_upscale_message", None)
+        if callable(rem_fn):
+            async def _cleanup():
+                try:
+                    await asyncio.to_thread(rem_fn, message_id)
+                except Exception:
+                    pass
+            try:
+                asyncio.create_task(_cleanup())
+            except Exception:
+                pass
+
+    async def _is_upscale_webhook_message(
+        self,
+        base_channel: discord.abc.GuildChannel,
+        webhook_id: Optional[int],
+    ) -> bool:
+        if not webhook_id:
+            return False
+        cached = self._webhook_cache.get(base_channel.id)
+        if cached and getattr(cached, "id", None) == webhook_id:
+            return True
+        try:
+            webhooks = await base_channel.webhooks()
+            for w in webhooks:
+                if w.id == webhook_id:
+                    if w.name == WEBHOOK_NAME or (self.bot.user and w.user and w.user.id == self.bot.user.id):
+                        if w.token:
+                            self._webhook_cache[base_channel.id] = w
+                        return True
+        except Exception:
+            pass
+        return False
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         # 봇, 웹훅, DM, 시스템 메시지, 첨부파일·스티커 포함 메시지 즉시 무시
@@ -562,7 +647,7 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
             return
 
-        # 4. 보낸 사람 프로필 사진 & 닉네임으로 웹훅 전송
+        # 4. 보낸 사람 프로필 사진 & 닉네임으로 웹훅 전송 (버튼/자동 반응 추가 없이 순수 이미지만 전송)
         sender_name = sanitize_webhook_username(message.author.display_name)
         sender_avatar = message.author.display_avatar.url if hasattr(message.author, "display_avatar") else None
         send_kwargs = {
@@ -570,12 +655,14 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
             "username": sender_name,
             "avatar_url": sender_avatar,
             "allowed_mentions": discord.AllowedMentions.none(),
+            "wait": True,
         }
         if isinstance(channel, discord.Thread):
             send_kwargs["thread"] = channel
 
+        sent_msg = None
         try:
-            await webhook.send(**send_kwargs)
+            sent_msg = await webhook.send(**send_kwargs)
         except discord.NotFound:
             # 캐시된 웹훅이 삭제된 경우 캐시 무효화 후 1회 재생성 재시도
             self._webhook_cache.pop(base_channel.id, None)
@@ -587,11 +674,120 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
                     sticker_file.fp.seek(0)
                 except Exception:
                     pass
-                await fresh_webhook.send(**send_kwargs)
+                sent_msg = await fresh_webhook.send(**send_kwargs)
             except Exception as retry_err:
                 print(f"⚠️ [이모지 업스케일 웹훅 재전송 실패] {retry_err}", flush=True)
         except Exception as send_err:
             print(f"⚠️ [이모지 업스케일 웹훅 전송 실패] {send_err}", flush=True)
+
+        if sent_msg and getattr(sent_msg, "id", None):
+            self._record_upscaled_message(int(sent_msg.id), int(message.author.id))
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        """사용자가 업스케일된 이모지 메시지에 직접 :x:(❌) 반응을 추가하면 해당 이모지 메시지를 삭제합니다."""
+        if not payload.guild_id:
+            return
+        if self.bot.user and payload.user_id == self.bot.user.id:
+            return
+        if payload.member and getattr(payload.member, "bot", False):
+            return
+        if not is_delete_reaction_emoji(payload.emoji):
+            return
+        if payload.message_id in self._deleting_msgs:
+            return
+
+        guild = self.bot.get_guild(payload.guild_id)
+        if not guild:
+            return
+
+        member = payload.member or guild.get_member(payload.user_id)
+        if member is None:
+            try:
+                member = await guild.fetch_member(payload.user_id)
+            except Exception:
+                member = None
+        if member and getattr(member, "bot", False):
+            return
+
+        is_mod = False
+        if isinstance(member, discord.Member):
+            perms = member.guild_permissions
+            is_mod = bool(perms.administrator or perms.manage_guild or perms.manage_messages)
+        is_owner = False
+        if member and hasattr(self.bot, "is_bot_owner_user"):
+            try:
+                is_owner = await self.bot.is_bot_owner_user(member)
+            except Exception:
+                is_owner = False
+
+        author_id = self._get_upscaled_author_id(payload.message_id)
+
+        channel = self.bot.get_channel(payload.channel_id)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(payload.channel_id)
+            except Exception:
+                return
+        if channel is None:
+            return
+
+        base_channel = channel.parent if isinstance(channel, discord.Thread) else channel
+        if base_channel is None:
+            return
+
+        target_msg = None
+        if author_id is not None:
+            if not (payload.user_id == author_id or is_mod or is_owner):
+                return
+        else:
+            # 재시작 전 등 매핑에 없는 메시지의 경우 업스케일 활성화 서버의 전용 웹훅 메시지인지 확인
+            if not core.is_emoji_upscale_enabled(payload.guild_id):
+                return
+            try:
+                target_msg = await channel.fetch_message(payload.message_id)
+            except Exception:
+                return
+            if not target_msg or target_msg.webhook_id is None:
+                return
+            if not await self._is_upscale_webhook_message(base_channel, target_msg.webhook_id):
+                return
+            same_sender_fallback = bool(
+                member and target_msg.author.display_name == sanitize_webhook_username(member.display_name)
+            )
+            if not (is_mod or is_owner or same_sender_fallback):
+                return
+
+        self._deleting_msgs.add(payload.message_id)
+        try:
+            deleted = False
+            try:
+                if target_msg is not None:
+                    await target_msg.delete()
+                else:
+                    await channel.get_partial_message(payload.message_id).delete()
+                deleted = True
+            except discord.NotFound:
+                deleted = True
+            except (discord.Forbidden, discord.HTTPException):
+                deleted = False
+
+            if not deleted and hasattr(base_channel, "webhooks"):
+                webhook = await self._get_or_create_webhook(base_channel)
+                if webhook:
+                    del_kwargs = {"thread": channel} if isinstance(channel, discord.Thread) else {}
+                    try:
+                        await webhook.delete_message(payload.message_id, **del_kwargs)
+                        deleted = True
+                    except discord.NotFound:
+                        deleted = True
+                    except Exception:
+                        pass
+
+            if deleted:
+                self._forget_upscaled_message(payload.message_id)
+        finally:
+            self._deleting_msgs.discard(payload.message_id)
 
     @app_commands.command(name="이모지업스케일", description="[서버 관리자 전용] 커스텀 이모지 자동 업스케일 기능을 켜거나 끕니다 (기본값: OFF).")
     @app_commands.guild_only()
