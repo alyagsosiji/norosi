@@ -25,8 +25,9 @@ import core
 CUSTOM_EMOJI_RE = re.compile(r"<(a?):([a-zA-Z0-9_]{1,64}):(\d{15,22})>")
 
 MAX_EMOJIS_PER_MESSAGE = 3
-STICKER_TARGET_SIZE = 160   # 디스코드 원본 스티커 표시 크기 (160x160px)
-TRIPLE_SLOT_SIZE = 128      # 3개 연속 전송 시 각 이모지 최대 크기
+STICKER_TARGET_SIZE = 320   # 디스코드 기본 스티커 표준 크기 (320x320px)
+DOUBLE_SLOT_SIZE = 256      # 2개 연속 전송 시 각 이모지 크기
+TRIPLE_SLOT_SIZE = 192      # 3개 연속 전송 시 각 이모지 크기
 EMOJI_SLOT_SIZE = STICKER_TARGET_SIZE
 STATIC_TARGET_SIZE = STICKER_TARGET_SIZE
 ANIMATED_TARGET_SIZE = STICKER_TARGET_SIZE
@@ -104,7 +105,7 @@ def is_delete_reaction_emoji(emoji: discord.PartialEmoji | discord.Emoji | str |
 
 
 def _compute_scaled_size(width: int, height: int, target_size: int) -> tuple[int, int]:
-    """비율을 유지하면서 긴 변을 디스코드 스티커 크기(target_size, 기본 160px)로 맞춥니다."""
+    """원본 비율·모양을 그대로 유지하면서 긴 변을 디스코드 스티커 표준 크기(기본 320px)에 맞춥니다."""
     if width <= 0 or height <= 0:
         return target_size, target_size
     longest = max(width, height)
@@ -116,11 +117,51 @@ def _compute_scaled_size(width: int, height: int, target_size: int) -> tuple[int
 
 
 def _resize_rgba(rgba: Image.Image, target_size: int) -> Image.Image:
-    """원본 이모지 비율·윤곽선·투명도를 변형 없이 그대로 유지하며 target_size로 리사이즈합니다."""
+    """원본 이모지 비율·윤곽선·투명도를 변형 없이 그대로 유지하며 target_size(기본 320px)로 LANCZOS 리사이즈합니다."""
     new_w, new_h = _compute_scaled_size(rgba.width, rgba.height, target_size)
     if (new_w, new_h) == (rgba.width, rgba.height):
         return rgba.copy()
-    return rgba.resize((new_w, new_h), RESAMPLE_LANCZOS)
+    try:
+        return rgba.resize((new_w, new_h), RESAMPLE_LANCZOS, reducing_gap=2.0)
+    except TypeError:
+        return rgba.resize((new_w, new_h), RESAMPLE_LANCZOS)
+
+
+def _trim_transparent_frames(frames: list[Image.Image], alpha_threshold: int = 4) -> list[Image.Image]:
+    """
+    모든 프레임의 공통 알파 바운딩 박스(union bbox)를 계산해 불필요한 투명 외곽 여백만 제거합니다.
+    원본 비율·모양과 애니메이션 프레임 정렬은 100% 그대로 유지됩니다.
+    """
+    if not frames:
+        return frames
+    union_bbox = None
+    for fr in frames:
+        try:
+            alpha = fr.getchannel("A")
+            if alpha_threshold > 0:
+                alpha = alpha.point(lambda a, thr=alpha_threshold: a if a > thr else 0)
+            bbox = alpha.getbbox()
+        except Exception:
+            return frames
+        if bbox:
+            if union_bbox is None:
+                union_bbox = bbox
+            else:
+                union_bbox = (
+                    min(union_bbox[0], bbox[0]),
+                    min(union_bbox[1], bbox[1]),
+                    max(union_bbox[2], bbox[2]),
+                    max(union_bbox[3], bbox[3]),
+                )
+    if not union_bbox:
+        return frames
+    x0, y0, x1, y1 = union_bbox
+    if (x1 - x0) < 4 or (y1 - y0) < 4:
+        return frames
+    base_w, base_h = frames[0].size
+    if (x0, y0, x1, y1) == (0, 0, base_w, base_h):
+        return frames
+    return [fr.crop(union_bbox) for fr in frames]
 
 
 def _rgba_frame_to_transparent_gif_frame(rgba_frame: Image.Image) -> Image.Image:
@@ -143,39 +184,43 @@ def _rgba_frame_to_transparent_gif_frame(rgba_frame: Image.Image) -> Image.Image
 
 
 def _extract_rgba_frames(raw_bytes: bytes, slot_size: int = EMOJI_SLOT_SIZE) -> tuple[list[Image.Image], list[int], int]:
-    """정적 또는 움직이는 이모지 바이트에서 원본 모양 그대로의 RGBA 프레임 리스트·지연시간·반복횟수를 추출합니다."""
+    """정적 또는 움직이는 이모지 바이트에서 투명 여백 제거·원본 모양 보존 RGBA 프레임 리스트를 추출합니다."""
     with Image.open(io.BytesIO(raw_bytes)) as img:
         is_animated = getattr(img, "is_animated", False) and getattr(img, "n_frames", 1) > 1
         if not is_animated:
-            rgba = img.convert("RGBA")
-            return [_resize_rgba(rgba, slot_size)], [100], 0
+            trimmed = _trim_transparent_frames([img.convert("RGBA")])
+            return [_resize_rgba(trimmed[0], slot_size)], [100], 0
 
         loop_count = int(img.info.get("loop", 0) or 0)
-        composited_frames: list[Image.Image] = []
+        raw_frames: list[Image.Image] = []
         durations: list[int] = []
 
         # Pillow ImageSequence.Iterator가 GIF/WebP 프레임 시퀀스 합성을 직접 처리하므로
-        # 이중 alpha_composite 없이 그대로 RGBA 변환하여 원본 형태/모양을 100% 보존합니다.
+        # 이중 alpha_composite 없이 그대로 RGBA 변환해 원본 형태/모양을 보존합니다.
         for frame in ImageSequence.Iterator(img):
             dur = int(frame.info.get("duration", img.info.get("duration", 80)) or 80)
             if dur < 20:
                 dur = 80
-            frame_rgba = frame.convert("RGBA")
-            composited_frames.append(_resize_rgba(frame_rgba, slot_size))
+            raw_frames.append(frame.convert("RGBA"))
             durations.append(dur)
 
-    if not composited_frames:
+    if not raw_frames:
         with Image.open(io.BytesIO(raw_bytes)) as img:
-            rgba = img.convert("RGBA")
-            return [_resize_rgba(rgba, slot_size)], [100], 0
-    return composited_frames, durations, loop_count
+            trimmed = _trim_transparent_frames([img.convert("RGBA")])
+            return [_resize_rgba(trimmed[0], slot_size)], [100], 0
+
+    trimmed_frames = _trim_transparent_frames(raw_frames)
+    resized_frames = [_resize_rgba(fr, slot_size) for fr in trimmed_frames]
+    return resized_frames, durations, loop_count
 
 
 def _get_slot_size_for_count(count: int) -> int:
     """이모지 개수(1~3)에 맞는 각 이모지 목표 크기(px) 반환."""
-    if count >= 3:
-        return TRIPLE_SLOT_SIZE
-    return STICKER_TARGET_SIZE
+    if count <= 1:
+        return STICKER_TARGET_SIZE
+    if count == 2:
+        return DOUBLE_SLOT_SIZE
+    return TRIPLE_SLOT_SIZE
 
 
 def _paste_sprites_on_sticker_canvas(
@@ -183,7 +228,7 @@ def _paste_sprites_on_sticker_canvas(
     canvas_w: Optional[int] = None,
     canvas_h: Optional[int] = None,
 ) -> Image.Image:
-    """1~3개의 이모지를 불필요한 투명 여백 없이 실제 크기(160px 스티커 기준)에 딱 맞게 배치합니다."""
+    """1~3개의 이모지를 불필요한 투명 여백 없이 디스코드 스티커 크기(320x320 기준)에 딱 맞게 배치합니다."""
     items = sprites[:MAX_EMOJIS_PER_MESSAGE]
     slot_size = _get_slot_size_for_count(len(items))
     fitted: list[Image.Image] = []
@@ -230,7 +275,7 @@ def build_sticker_strip_bytes(
     canvas_h: Optional[int] = None,
 ) -> tuple[bytes, str]:
     """
-    1~3개의 커스텀 이모지를 불필요한 투명 여백 없이 실제 크기 자체를 디스코드 스티커 크기(160px / 3개 시 128px)로 맞춥니다.
+    1~3개의 커스텀 이모지를 불필요한 투명 여백 없이 디스코드 기본 스티커 표준 크기(320x320px · 2개 256px · 3개 192px)로 맞춥니다.
     정적 이모지는 무손실 PNG, 움직이는 이모지는 8-bit 알파를 보존하는 애니메이션 WebP(미지원 시 GIF 폴백)로 출력합니다.
     """
     if not raw_items:
@@ -324,12 +369,12 @@ def build_sticker_strip_bytes(
 
 
 def upscale_static_emoji_bytes(raw_bytes: bytes, target_size: int = STATIC_TARGET_SIZE) -> tuple[bytes, str]:
-    """단일 정적 이모지를 실제 160px 스티커 크기로 변환합니다."""
+    """단일 정적 이모지를 불필요한 여백 없이 디스코드 기본 스티커 크기(320x320 PNG)로 변환합니다."""
     return build_sticker_strip_bytes([raw_bytes])
 
 
 def upscale_animated_emoji_bytes(raw_bytes: bytes, target_size: int = ANIMATED_TARGET_SIZE) -> tuple[bytes, str]:
-    """단일 움직이는 이모지를 실제 160px 스티커 크기로 변환합니다."""
+    """단일 움직이는 이모지를 불필요한 여백 없이 디스코드 기본 스티커 크기(320x320 WebP)로 변환합니다."""
     return build_sticker_strip_bytes([raw_bytes])
 
 
@@ -355,7 +400,7 @@ def build_emoji_upscale_embed(guild: discord.Guild, channel: Optional[discord.ab
     status_badge = "🟢 **ON (활성화됨)**" if enabled else "🔴 **OFF (비활성화됨 · 기본값)**"
     desc_lines = [
         "커스텀 디스코드 이모지(1~3개)만 포함된 채팅을 보내면 원본 메시지를 삭제한 뒤,",
-        "이모지를 디스코드 스티커 크기(160px · 정적 PNG / 무손실 애니메이션 WebP)로 원본 모양 그대로 변환하여",
+        "이모지의 불필요한 투명 여백을 제거하고 디스코드 기본 스티커 크기(320×320px · 정적 PNG / 무손실 애니메이션 WebP)로 원본 모양 그대로 변환하여",
         "**보낸 사람의 프로필 사진과 서버 닉네임**으로 다시 전송합니다.",
         "• **🗑️ 삭제 방법:** 전송된 이모지 메시지에 직접 `:x:`(❌) 반응을 추가하면 즉시 삭제됩니다.",
         "",
