@@ -3,22 +3,17 @@ import re
 import sys
 import copy
 import time
-import signal
 import logging
 import asyncio
 import datetime
 import traceback
-try:
-    import aiohttp
-    from aiohttp import web
-except ImportError:
-    aiohttp = None
-    web = None
+import aiohttp
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
-from typing import Optional, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from collections import OrderedDict
+from aiohttp import web
 import core
 from cogs.music import MusicRecommendView
 
@@ -129,7 +124,7 @@ class NorosiBot(commands.Bot):
         self.start_time = datetime.datetime.now(core.KST)
         self._commands_synced = False
         self._web_started = False
-        self._web_runner: Optional[Any] = None
+        self._web_runner: Optional[web.AppRunner] = None
         self._handled_interaction_ids: OrderedDict[int, float] = OrderedDict()
 
         # 터미널 로그 브릿지 상태 변수
@@ -173,7 +168,7 @@ class NorosiBot(commands.Bot):
     async def handle_health_check(self, request):
         return web.Response(text="norosi Bot is running 24/7!")
 
-    async def handle_github_webhook(self, request):
+    async def handle_github_webhook(self, request: web.Request):
         """
         GitHub 저장소 Push 및 GitHub Actions 배포 성공/실패 이벤트를 수신하여
         설정된 디스코드 채널에 '🚀 업데이트 완료: [커밋 메시지]' 임베드를 실시간으로 전송합니다.
@@ -409,51 +404,16 @@ class NorosiBot(commands.Bot):
         await super().add_cog(cog, override=override, **kwargs)
 
     async def setup_hook(self):
-        boot_t0 = time.perf_counter()
         # 0. VM 터미널 로그 실시간 캡처 활성화
         self.setup_terminal_log_capture()
 
-        db_t0 = time.perf_counter()
-        loaded_data = await asyncio.to_thread(core.load_data)
-        db_ms = (time.perf_counter() - db_t0) * 1000.0
-        log_mode = core.get_terminal_log_mode(loaded_data)
-        mode_badge = "요약 버전(SUMMARY)" if log_mode == "summary" else "상세 버전(DETAILED)"
-
-        print("==================================================================", flush=True)
-        if log_mode == "detailed":
-            print(f"📦 [1/4] 로컬 & 하이브리드 데이터 캐시 로드 및 무결성 점검 중... (로그 모드: {mode_badge})", flush=True)
-        try:
-            db_file_kb = os.path.getsize(core.DATA_FILE) / 1024.0 if os.path.exists(core.DATA_FILE) else 0.0
-            u_prof_cnt = len(core.as_dict(loaded_data.get("user_profiles")))
-            gacha_g_cnt = len(core.as_dict(loaded_data.get("gacha_users")))
-            gi_g_cnt = len(core.as_dict(loaded_data.get("genshin_users")))
-            hsr_g_cnt = len(core.as_dict(loaded_data.get("hsr_users")))
-            fish_g_cnt = len(core.as_dict(loaded_data.get("fishing_users")))
-            dday_cnt = len(core.as_dict(loaded_data.get("ddays")))
-            bday_cnt = len(core.as_dict(loaded_data.get("birthdays")))
-            rr_cnt = len(core.as_dict(loaded_data.get("reaction_roles")))
-            fb_mode = "Firebase 클라우드 연동" if core.get_firebase_endpoint() else "로컬 JSON + 인메모리 캐시"
-            if log_mode == "summary":
-                print(
-                    f"📦 [1/4] 데이터 캐시 로드 완료 ({db_ms:.1f}ms | {db_file_kb:,.1f}KB | 유저 {u_prof_cnt:,}명 · D-Day {dday_cnt:,}건 | {fb_mode})",
-                    flush=True,
-                )
-            else:
-                print(
-                    f"   ✓ 데이터 캐시 로드 완료 ({db_ms:.1f}ms | 파일 크기: {db_file_kb:,.1f}KB | 모드: {fb_mode})\n"
-                    f"   ✓ 주요 컬렉션 요약: 유저 프로필 {u_prof_cnt:,}명 · D-Day {dday_cnt:,}건 · 생일 {bday_cnt:,}건 · 반응역할 패널 {rr_cnt:,}개\n"
-                    f"   ✓ 게임별 활성 서버 풀: 프로세카 {gacha_g_cnt}곳 · 원신 {gi_g_cnt}곳 · 스타레일 {hsr_g_cnt}곳 · 낚시 {fish_g_cnt}곳",
-                    flush=True,
-                )
-        except Exception as stat_err:
-            print(f"   ℹ️ 데이터 캐시 통계 요약 생략: {stat_err}", flush=True)
+        print("📦 [1/4] 데이터 캐시 로드 중...", flush=True)
+        await asyncio.to_thread(core.load_data)
 
         # 글로벌 슬래시 커맨드 에러 핸들러 등록 ("명령어 응답 안함" 3초 타임아웃 차단)
         self.tree.on_error = self.on_app_command_error
 
-        if log_mode == "detailed":
-            print("------------------------------------------------------------------", flush=True)
-            print("🔌 [2/4] 17대 Cogs 확장 모듈 로드 및 명령어 트리 빌드 중...", flush=True)
+        print("🔌 [2/4] Cogs 확장 모듈 등록 중 (gacha, genshin, hsr, fishing, music, dday, logger, ai, stats, roles, emoji_upscale, help, dashboard)...", flush=True)
         # 서버 배포 파일 뒤바뀜(예: fishing_core.py에 cogs/fishing.py 덮어쓰기, cogs/gacha.py에 cogs/hsr.py 덮어쓰기) 사전 진단
         try:
             base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -475,65 +435,23 @@ class NorosiBot(commands.Bot):
         except Exception:
             pass
 
-        # 구버전 community_core.py가 서버에 남아있어도 cogs.community / cogs.dashboard 로드 시 AttributeError가 발생하지 않도록 사전 보정
-        try:
-            import community_core as _cc
-            if not hasattr(_cc, "STICKY_COLOR_MAP"):
-                _cc.STICKY_COLOR_MAP = {
-                    "gold": 0xF1C40F,
-                    "blue": 0x3498DB,
-                    "green": 0x2ECC71,
-                    "pink": 0xFF69B4,
-                    "purple": 0x9B59B6,
-                    "red": 0xE74C3C,
-                }
-            if not hasattr(_cc, "STICKY_COLOR_LABELS"):
-                _cc.STICKY_COLOR_LABELS = {
-                    "gold": "🌟 골드 (노랑)",
-                    "blue": "💙 블루 (파랑)",
-                    "green": "💚 그린 (초록)",
-                    "pink": "🩷 핑크 (분홍)",
-                    "purple": "💜 퍼플 (보라)",
-                    "red": "❤️ 레드 (빨강)",
-                }
-            if not hasattr(_cc, "RAID_ACTION_LABELS"):
-                _cc.RAID_ACTION_LABELS = {
-                    "timeout": "⏳ 60분 타임아웃(활동 제한)",
-                    "kick": "👢 즉시 추방 (Kick)",
-                    "quarantine": "🔒 격리 역할 부여 (신규 격리)",
-                }
-            if not hasattr(_cc, "get_relay_completed_list") and hasattr(_cc, "get_completed_relay_novels"):
-                _cc.get_relay_completed_list = _cc.get_completed_relay_novels
-            if not hasattr(_cc, "get_relay_archives") and hasattr(_cc, "get_completed_relay_novels"):
-                _cc.get_relay_archives = _cc.get_completed_relay_novels
-        except Exception:
-            pass
-
         ext_list = [
             "cogs.gacha",
             "cogs.genshin",
             "cogs.hsr",
             "cogs.fishing",
-            "cogs.economy",
-            "cogs.life",
-            "cogs.other_life",
-            "cogs.tickets",
-            "cogs.community",
             "cogs.music",
             "cogs.dday",
             "cogs.logger",
             "cogs.ai",
             "cogs.stats",
             "cogs.roles",
+            "cogs.emoji_upscale",
             "cogs.help",
             "cogs.dashboard",
         ]
         failed_exts = []
-        loaded_exts = []
-        for idx, ext in enumerate(ext_list, start=1):
-            ext_t0 = time.perf_counter()
-            before_slash = len(self.tree.get_commands())
-            before_prefix = len(self.commands)
+        for ext in ext_list:
             try:
                 if ext in self.extensions:
                     try:
@@ -546,17 +464,6 @@ class NorosiBot(commands.Bot):
                         await self.load_extension(ext)
                 else:
                     await self.load_extension(ext)
-                ext_ms = (time.perf_counter() - ext_t0) * 1000.0
-                after_slash = len(self.tree.get_commands())
-                after_prefix = len(self.commands)
-                added_slash = max(0, after_slash - before_slash)
-                added_prefix = max(0, after_prefix - before_prefix)
-                loaded_exts.append(ext)
-                if log_mode == "detailed":
-                    print(
-                        f"   [{idx:02d}/{len(ext_list):02d}] ✓ {ext:<16} 로드 성공 ({ext_ms:6.1f}ms | 슬래시 +{added_slash} · 프리픽스 +{added_prefix})",
-                        flush=True,
-                    )
                 if ext == "cogs.gacha" and self.get_cog("GachaCog") is None:
                     print(
                         "🚨 [파일 동기화 경고] 'cogs.gacha' 로드 후 GachaCog가 등록되지 않았습니다! "
@@ -564,149 +471,45 @@ class NorosiBot(commands.Bot):
                         flush=True,
                     )
             except Exception as e:
-                ext_ms = (time.perf_counter() - ext_t0) * 1000.0
-                print(f"   [{idx:02d}/{len(ext_list):02d}] ⚠️ {ext:<16} 로드 실패 ({ext_ms:6.1f}ms): {e}", flush=True)
+                print(f"⚠️ [{ext}] 확장 모듈 로드 예외: {e}", flush=True)
                 failed_exts.append((ext, e))
         if len(failed_exts) == len(ext_list):
             raise failed_exts[0][1]
 
-        top_cmds = self.tree.get_commands()
-        sub_cmd_cnt = 0
-        for cmd in top_cmds:
-            if isinstance(cmd, app_commands.Group):
-                sub_cmd_cnt += len(cmd.commands)
-            else:
-                sub_cmd_cnt += 1
-        if log_mode == "summary":
-            print(
-                f"🔌 [2/4] Cogs 모듈 {len(loaded_exts)}/{len(ext_list)}개 로드 완료 "
-                f"(슬래시 루트 {len(top_cmds)}개/세부 {sub_cmd_cnt}종 · 프리픽스(!) {len(self.commands)}개 · SafeView {len(core.SAFE_VIEW_REGISTRY)}종)",
-                flush=True,
-            )
-        else:
-            print(
-                f"   📊 [Cogs 요약] 성공: {len(loaded_exts)}/{len(ext_list)}개 모듈 | "
-                f"슬래시 루트: {len(top_cmds)}개 (세부 실행 커맨드: {sub_cmd_cnt}종) | "
-                f"프리픽스(!) 명령어: {len(self.commands)}개 | "
-                f"등록된 SafeView 클래스: {len(core.SAFE_VIEW_REGISTRY)}종",
-                flush=True,
-            )
-
-        self.register_persistent_views()
-
-        if log_mode == "detailed":
-            print("------------------------------------------------------------------", flush=True)
-            print("📚 [3/4] 게임 마스터 DB (프로세카 · 원신 · 스타레일 · 낚시 · 타인의인생) 백그라운드 워밍 시작...", flush=True)
-        asyncio.create_task(self._warm_master_databases(log_mode))
-
-        if log_mode == "detailed":
-            print("------------------------------------------------------------------", flush=True)
-            print("⏰ [4/4] 상주 스케줄러 및 VM 터미널 로그 브릿지 루프 활성화...", flush=True)
-        scheduler_specs = [
-            ("midnight_tasks", self.midnight_tasks, "매일 00:00 KST 자정 DB 갱신 · 반복 D-Day · 생일 축하"),
-            ("morning_music_alert", self.morning_music_alert, "매일 07:00 KST 모닝 추천 음악 자동 발송"),
-            ("morning_text_alert", self.morning_text_alert, "매일 09:00 KST D-Day 브리핑 · 비밀 타임캡슐 DM"),
-            ("custom_music_schedules_loop", self.custom_music_schedules_loop, "30초 주기 맞춤 음악 알람 · 개인 예약 알림(/알림예약)"),
-            ("terminal_log_dispatch_loop", self.terminal_log_dispatch_loop, "3초 주기 VM 터미널 로그 디스코드 브릿지"),
-        ]
-        for loop_name, loop_obj, loop_desc in scheduler_specs:
-            if not loop_obj.is_running():
-                loop_obj.start()
-            if log_mode == "detailed":
-                print(f"   ✓ [{loop_name}] 가동 중 — {loop_desc}", flush=True)
-
-        total_boot_ms = (time.perf_counter() - boot_t0) * 1000.0
-        if log_mode == "summary":
-            print(
-                f"⏰ [4/4] 상주 스케줄러 {len(scheduler_specs)}종 가동 완료 | 초기 부팅 파이프라인 {total_boot_ms:.1f}ms (로그 모드: {mode_badge})",
-                flush=True,
-            )
-        else:
-            print(f"✨ [setup_hook 완료] 초기 부팅 파이프라인 준비 완료 (소요 시간: {total_boot_ms:.1f}ms | 로그 모드: {mode_badge})", flush=True)
-        print("==================================================================", flush=True)
-
-    async def _warm_master_databases(self, log_mode: Optional[str] = None):
-        """프로세카(미래시 포함), 원신, 스타레일, 낚시, 타인의인생 마스터 DB를 백그라운드에서 워밍하고 공개 통계를 로그로 출력합니다."""
-        w_t0 = time.perf_counter()
-        eff_mode = log_mode or core.get_terminal_log_mode()
-        p_cards = p_costumes = p_quotes = fc_cnt = 0
-        g_chars = g_weaps = g_arts = 0
-        h_chars = h_lcs = h_relics = 0
-        fish_total = endings_total = origins_total = specs_total = 0
-
+        # 등록된 반응역할 메시지의 Persistent View 동적 복원 (버튼 상호작용 영구 작동)
         try:
-            await asyncio.to_thread(core.load_proseka_kr_db)
-            p_cards = len(getattr(core, "PROSEKA_CARDS", []) or [])
-            p_costumes = len(getattr(core, "PROSEKA_COSTUMES", []) or [])
-            p_quotes = len(getattr(core, "PROSEKA_QUOTES", []) or [])
-            if eff_mode == "detailed":
-                print(
-                    f"   🎵 [DB 워밍: 프로세카] 한국어 마스터 DB 준비 완료 — 카드 {p_cards:,}장 · 3D 의상 {p_costumes:,}종 · 대사 {p_quotes:,}개",
-                    flush=True,
-                )
-            fc_list = await asyncio.to_thread(core.get_event_forecast_list, True)
-            fc_cnt = len(fc_list or [])
-            if fc_list and eff_mode == "detailed":
-                today_s = datetime.datetime.now(core.KST).strftime("%Y-%m-%d")
-                cur_ev = next((e for e in fc_list if e.get("kr_estimated_start", "") <= today_s <= e.get("kr_estimated_end", "")), None)
-                nxt_ev = next((e for e in fc_list if e.get("kr_estimated_start", "") > today_s), None)
-                ev_target = cur_ev or nxt_ev or fc_list[-1]
-                st_lbl = "진행중" if cur_ev else "차기예정"
-                print(
-                    f"   📅 [DB 워밍: 프세카 미래시] 한섭·일섭 미래시 일정표 준비 완료 — 총 {len(fc_list)}개 이벤트 (#{fc_list[0]['id']}~#{fc_list[-1]['id']}) | "
-                    f"{st_lbl}: #{ev_target['id']} {ev_target['name']} ({ev_target['kr_estimated_start']}~{ev_target['kr_estimated_end']})",
-                    flush=True,
-                )
+            from cogs.roles import PersistentReactionRoleView
+            cached_d = core.get_cached_data()
+            restored_cnt = 0
+            for mid_s, cfg in core.as_dict(cached_d.get("reaction_roles")).items():
+                if not isinstance(cfg, dict):
+                    continue
+                r_list = cfg.get("roles", [])
+                if r_list and str(mid_s).isdigit():
+                    self.add_view(PersistentReactionRoleView(r_list), message_id=int(mid_s))
+                    restored_cnt += 1
+            if restored_cnt > 0:
+                print(f"🎭 반응역할 지속 View {restored_cnt}개 복원 완료", flush=True)
         except Exception as e:
-            print(f"   ⚠️ [DB 워밍: 프로세카] 로드 경고: {e}", flush=True)
+            print(f"ℹ️ 반응역할 지속 View 복원 건너뜀: {e}", flush=True)
 
-        try:
-            import genshin_core
-            await asyncio.to_thread(genshin_core.load_genshin_kr_db)
-            g_chars = len(getattr(genshin_core, "GENSHIN_CHARS", []) or [])
-            g_weaps = len(getattr(genshin_core, "GENSHIN_WEAPONS", []) or [])
-            g_arts = len(getattr(genshin_core, "GENSHIN_ARTIFACTS", []) or [])
-            if eff_mode == "detailed":
-                print(
-                    f"   🌠 [DB 워밍: 원신] 한국어 마스터 DB 준비 완료 — 캐릭터 {g_chars:,}명 · 무기 {g_weaps:,}종 · 성유물 세트 {g_arts:,}종",
-                    flush=True,
-                )
-        except Exception as e:
-            print(f"   ⚠️ [DB 워밍: 원신] 로드 경고: {e}", flush=True)
+        print("📚 [3/4] 프로세카 · 원신 · 스타레일 한국어 DB 백그라운드 캐시 워밍 시작...", flush=True)
+        asyncio.create_task(asyncio.to_thread(core.load_proseka_kr_db))
+        import genshin_core, hsr_core
+        asyncio.create_task(asyncio.to_thread(genshin_core.load_genshin_kr_db))
+        asyncio.create_task(asyncio.to_thread(hsr_core.load_hsr_kr_db))
 
-        try:
-            import hsr_core
-            await asyncio.to_thread(hsr_core.load_hsr_kr_db)
-            h_chars = len(getattr(hsr_core, "HSR_CHARS", []) or [])
-            h_lcs = len(getattr(hsr_core, "HSR_LIGHT_CONES", []) or [])
-            h_relics = len(getattr(hsr_core, "HSR_RELICS", []) or [])
-            if eff_mode == "detailed":
-                print(
-                    f"   🚄 [DB 워밍: 스타레일] 한국어 마스터 DB 준비 완료 — 캐릭터 {h_chars:,}명 · 광추 {h_lcs:,}종 · 유물 세트 {h_relics:,}종",
-                    flush=True,
-                )
-        except Exception as e:
-            print(f"   ⚠️ [DB 워밍: 스타레일] 로드 경고: {e}", flush=True)
-
-        try:
-            import fishing_core, other_life_core
-            fish_total = sum(len(v) for v in getattr(fishing_core, "FISH_BY_HABITAT", {}).values())
-            endings_total = len(getattr(other_life_core, "ENDINGS", {}) or {})
-            origins_total = len(getattr(other_life_core, "ORIGINS", {}) or {})
-            specs_total = len(getattr(other_life_core, "SPECIALTY_CATALOG", {}) or {})
-            w_ms = (time.perf_counter() - w_t0) * 1000.0
-            if eff_mode == "summary":
-                print(
-                    f"📚 [3/4] 마스터 DB 워밍 완료 ({w_ms:.0f}ms | 프세카 {p_cards:,}장·미래시 {fc_cnt}건 · 원신 {g_chars}명 · 스타레일 {h_chars}명 · 어종 {fish_total:,}종 · 엔딩 {endings_total:,}종)",
-                    flush=True,
-                )
-            else:
-                print(
-                    f"   🎣 [DB 워밍: 낚시 & 타인의인생] 어종 DB {fish_total:,}종 · 타인의인생 엔딩 {endings_total:,}종 (출신 {origins_total}종 · 세부전공 {specs_total}종) 확인 완료 (총 {w_ms:.0f}ms)",
-                    flush=True,
-                )
-        except Exception as e:
-            print(f"   ℹ️ [DB 워밍: 보조 DB] 확인 생략: {e}", flush=True)
+        print("⏰ [4/4] 상주 스케줄러 및 VM 터미널 로그 브릿지 루프 활성화...", flush=True)
+        if not self.midnight_tasks.is_running():
+            self.midnight_tasks.start()
+        if not self.morning_music_alert.is_running():
+            self.morning_music_alert.start()
+        if not self.morning_text_alert.is_running():
+            self.morning_text_alert.start()
+        if not self.custom_music_schedules_loop.is_running():
+            self.custom_music_schedules_loop.start()
+        if not self.terminal_log_dispatch_loop.is_running():
+            self.terminal_log_dispatch_loop.start()
 
     @tasks.loop(seconds=3.0)
     async def terminal_log_dispatch_loop(self):
@@ -766,27 +569,6 @@ class NorosiBot(commands.Bot):
 
         # 로그 텍스트 합치기 및 코드블록 특수문자 치환
         full_text = "".join(chunks).replace("```", "'''")
-        log_mode = core.get_terminal_log_mode(data)
-
-        # 요약 버전(summary) 설정 시: 반복적인 하위 상세 라인이나 일반 INFO 트레이스는 생략하고 핵심 단계/경고/오류만 추출
-        if log_mode == "summary":
-            summary_keep_markers = (
-                "🚀", "📦", "🔌", "📚", "⏰", "✨", "✅", "⚠️", "🚨", "❌", "🛑", "🎉", "🔑", "🌐",
-                "[STARTUP", "[READY", "[무로시로그]", "[ERROR]", "[WARNING]", "[CRITICAL]",
-                "Traceback", "Exception", "Error:",
-            )
-            filtered_lines = []
-            for raw_line in full_text.splitlines(keepends=True):
-                stripped = raw_line.strip()
-                if not stripped:
-                    continue
-                if stripped.startswith(("====", "----")):
-                    continue
-                if any(marker in stripped for marker in summary_keep_markers):
-                    filtered_lines.append(raw_line if raw_line.endswith("\n") else raw_line + "\n")
-            full_text = "".join(filtered_lines)
-            if not full_text.strip():
-                return
 
         # 디스코드 2,000자 제한을 준수하도록 ~1,800자 단위 메시지 리스트로 분할
         messages_to_send = []
@@ -929,41 +711,6 @@ class NorosiBot(commands.Bot):
 
             await self.handle_persistent_button_fallback(interaction)
 
-    def register_persistent_views(self):
-        """영구(Persistent) View들을 봇 ViewStore에 등록/재등록합니다 (초기 부팅 및 핫 리로드 시 호출)."""
-        try:
-            from cogs.roles import PersistentReactionRoleView
-            cached_d = core.get_cached_data()
-            restored_cnt = 0
-            for mid_s, cfg in core.as_dict(cached_d.get("reaction_roles")).items():
-                if not isinstance(cfg, dict):
-                    continue
-                r_list = cfg.get("roles", [])
-                if r_list and str(mid_s).isdigit():
-                    self.add_view(PersistentReactionRoleView(r_list), message_id=int(mid_s))
-                    restored_cnt += 1
-            if restored_cnt > 0:
-                print(f"🎭 반응역할 지속 View {restored_cnt}개 복원 완료", flush=True)
-        except Exception as e:
-            print(f"ℹ️ 반응역할 지속 View 복원 건너뜀: {e}", flush=True)
-
-        try:
-            from cogs.tickets import TicketPanelView, TicketControlView
-            self.add_view(TicketPanelView())
-            self.add_view(TicketControlView())
-            print("🎫 1:1 티켓 영구 View (패널/제어) 등록 완료", flush=True)
-        except Exception as e:
-            print(f"ℹ️ 1:1 티켓 영구 View 등록 건너뜀: {e}", flush=True)
-
-        try:
-            from cogs.community import LinkCleanupView, RaidAlertControlView, RelayNovelView
-            self.add_view(LinkCleanupView())
-            self.add_view(RaidAlertControlView())
-            self.add_view(RelayNovelView())
-            print("🛡️ 커뮤니티 영구 View (링크/비상방어/릴레이소설) 등록 완료", flush=True)
-        except Exception as e:
-            print(f"ℹ️ 커뮤니티 영구 View 등록 건너뜀: {e}", flush=True)
-
     async def handle_persistent_button_fallback(self, interaction: discord.Interaction):
         """
         봇 재시작 또는 코드 업데이트로 인해 discord.py의 메모리 ViewStore에서 유실된
@@ -984,93 +731,17 @@ class NorosiBot(commands.Bot):
             except Exception as e:
                 print(f"⚠️ [반응역할 폴백 예외] {e}", flush=True)
 
-        # 1-B. 커뮤니티 및 1:1 티켓 전용 고정 custom_id 폴백
-        non_prefix_view_map = {
-            "link_preview:delete": ("LinkCleanupView",),
-            "raid_defense:unlock": ("RaidAlertControlView",),
-            "raid_defense:logs": ("RaidAlertControlView",),
-            "relay_novel:write": ("RelayNovelView",),
-            "relay_novel:preview": ("RelayNovelView",),
-            "relay_novel:finish": ("RelayNovelView",),
-        }
-        if custom_id in non_prefix_view_map or custom_id.startswith("norosi:Ticket"):
-            try:
-                target_cls_name = non_prefix_view_map.get(custom_id, (None,))[0]
-                if not target_cls_name and custom_id.startswith("norosi:Ticket"):
-                    target_cls_name = custom_id.split(":", 2)[1]
-                v_cls = core.SAFE_VIEW_REGISTRY.get(target_cls_name or "")
-                if v_cls:
-                    v_inst = core.reconstruct_safe_view(v_cls, interaction)
-                    if v_inst:
-                        for ch_item in v_inst.children:
-                            if getattr(ch_item, "custom_id", None) == custom_id and hasattr(ch_item, "callback"):
-                                await ch_item.callback(interaction)
-                                return
-            except Exception as e:
-                print(f"⚠️ [전용 영구 뷰 폴백 예외] {custom_id}: {e}", flush=True)
-
         # 2. 결정론적 커스텀 ID 패턴: norosi:{ViewClassName}:{item_name}
         if custom_id.startswith("norosi:"):
             parts = custom_id.split(":", 2)
             if len(parts) >= 3:
-                raw_view_name = parts[1]
-                legacy_view_aliases = {
-                    "forecast": "EventForecastView",
-                }
-                view_name = legacy_view_aliases.get(raw_view_name, raw_view_name)
+                view_name = parts[1]
                 item_name = parts[2]
-                legacy_item_aliases = {
-                    ("EventForecastView", "prev"): "on_prev_month",
-                    ("EventForecastView", "cur"): "on_current_month",
-                    ("EventForecastView", "next"): "on_next_month",
-                    ("EventForecastView", "all"): "on_show_all_list",
-                }
-                item_name = legacy_item_aliases.get((view_name, item_name), item_name)
                 view_cls = core.SAFE_VIEW_REGISTRY.get(view_name)
                 if view_cls:
                     try:
                         view = core.reconstruct_safe_view(view_cls, interaction)
                         if view:
-                            if view_name == "MasterDashboardView" and msg and msg.embeds:
-                                e_title = (msg.embeds[0].title or "")
-                                if "원신" in e_title:
-                                    view.current_tab = "genshin"
-                                elif "스타레일" in e_title:
-                                    view.current_tab = "hsr"
-                                elif "프로세카" in e_title or "가챠" in e_title:
-                                    view.current_tab = "gacha"
-                                elif "낚시" in e_title:
-                                    view.current_tab = "fishing"
-                                elif "통합 경제" in e_title or "생활 라이프" in e_title or "경제" in e_title:
-                                    view.current_tab = "economy"
-                                elif "D-Day" in e_title or "집중 대시보드" in e_title or "라이프" in e_title:
-                                    view.current_tab = "life"
-                                elif "음악" in e_title or "플레이리스트" in e_title or "DJ" in e_title:
-                                    view.current_tab = "music"
-                                elif "역할" in e_title or "서버 관리" in e_title or "커뮤니티" in e_title:
-                                    view.current_tab = "admin"
-                                elif "미니게임" in e_title or "파티 모집" in e_title or "타인의 인생" in e_title:
-                                    view.current_tab = "game"
-                                elif "통계" in e_title or "호스트" in e_title:
-                                    view.current_tab = "stats"
-                                if hasattr(view, "refresh_components"):
-                                    view.refresh_components()
-                            elif view_name == "OtherLifeCollectionView" and msg and msg.embeds:
-                                e_title = (msg.embeds[0].title or "")
-                                if "수집 요약" in e_title:
-                                    view.tab = "summary"
-                                elif "전기 아카이브" in e_title:
-                                    view.tab = "history"
-                                else:
-                                    view.tab = "endings"
-                                if hasattr(view, "_rebuild"):
-                                    view._rebuild()
-                            elif view_name == "OtherLifeGameView":
-                                if item_name in ("origin_select", "start_life", "resume_life") and getattr(view, "mode", "") != "setup":
-                                    view.mode = "setup"
-                                    if hasattr(view, "_rebuild"):
-                                        view._rebuild()
-
                             target_item = None
                             for child in view.children:
                                 if getattr(child, "custom_id", None) == custom_id:
@@ -1078,26 +749,20 @@ class NorosiBot(commands.Bot):
                                     break
                             if not target_item:
                                 for child in view.children:
-                                    cb_obj = getattr(child, "callback", None)
-                                    inner_cb = getattr(cb_obj, "callback", None)
-                                    cb_names = {
-                                        getattr(cb_obj, "__name__", ""),
-                                        getattr(inner_cb, "__name__", ""),
-                                    }
-                                    if item_name in cb_names or f"_on_{item_name}" in cb_names:
+                                    cb_name = getattr(getattr(child, "callback", None), "__name__", "")
+                                    if cb_name == item_name:
                                         target_item = child
                                         break
                                     if getattr(child, "label", None) == item_name:
                                         target_item = child
                                         break
                             if target_item and hasattr(target_item, "callback"):
-                                if hasattr(view, "interaction_check"):
-                                    try:
-                                        allowed = await view.interaction_check(interaction)
-                                        if not allowed:
-                                            return
-                                    except Exception as chk_err:
-                                        print(f"⚠️ [norosi interaction_check 예외] {chk_err}", flush=True)
+                                try:
+                                    allowed = await view.interaction_check(interaction)
+                                except Exception:
+                                    allowed = True
+                                if not allowed:
+                                    return
                                 if hasattr(target_item, "_refresh_state"):
                                     try:
                                         target_item._refresh_state(interaction, interaction.data)
@@ -1106,39 +771,12 @@ class NorosiBot(commands.Bot):
                                 try:
                                     await target_item.callback(interaction)
                                 except Exception as cb_err:
-                                    print(f"⚠️ [norosi 버튼 콜백 실행 예외] {view_name}.{item_name}: {cb_err}", flush=True)
-                                    try:
-                                        await view.on_error(interaction, cb_err, target_item)
-                                    except Exception:
-                                        pass
-                                if msg:
-                                    self.attach_view_to_message(view, message_id=msg.id)
-                                return
-
-                            # 다른 탭/모드/배너 상태에서 동적으로 생성된 버튼 메서드 직접 호출 폴백
-                            direct_cb = None
-                            if view_name == "OtherLifeGameView" and item_name.startswith("choice:") and hasattr(view, "_make_choice_cb"):
-                                direct_cb = view._make_choice_cb(item_name.split(":", 1)[1])
-                            else:
-                                cand = getattr(view, item_name, None) or getattr(view, f"_on_{item_name}", None)
-                                if callable(cand):
-                                    direct_cb = cand
-                            if direct_cb is not None:
-                                if hasattr(view, "interaction_check"):
-                                    try:
-                                        allowed = await view.interaction_check(interaction)
-                                        if not allowed:
-                                            return
-                                    except Exception as chk_err:
-                                        print(f"⚠️ [norosi interaction_check 예외] {chk_err}", flush=True)
-                                try:
-                                    sig_params = list(inspect.signature(direct_cb).parameters.values())
-                                    if len(sig_params) <= 1:
-                                        await direct_cb(interaction)
-                                    else:
-                                        await direct_cb(interaction, None)
-                                except Exception as cb_err:
-                                    print(f"⚠️ [norosi 직접 메서드 실행 예외] {view_name}.{item_name}: {cb_err}", flush=True)
+                                    print(f"⚠️ [norosi 버튼 콜백 실행 예외] {cb_err}", flush=True)
+                                    await core.safe_send_response(
+                                        interaction,
+                                        f"⚠️ 버튼 처리 중 오류가 발생했습니다: `{cb_err}`",
+                                        ephemeral=True,
+                                    )
                                 if msg:
                                     self.attach_view_to_message(view, message_id=msg.id)
                                 return
@@ -1148,18 +786,18 @@ class NorosiBot(commands.Bot):
         # 3. 코드 반영 전 구버전 메시지(랜덤 hex custom_id) 지능형 매칭 및 복구
         if msg:
             embed_text = ""
-            e_title_only = ""
             if msg.embeds:
                 emb = msg.embeds[0]
-                e_title_only = emb.title or ""
-                embed_text = f"{e_title_only} {emb.description or ''}"
+                embed_text = f"{emb.title or ''} {emb.description or ''}"
 
             clicked_label = ""
+            clicked_emoji = ""
             component_type = interaction.data.get("component_type", 2)
             for row in getattr(msg, "components", []):
                 for child in getattr(row, "children", []):
                     if child.custom_id == custom_id:
                         clicked_label = getattr(child, "label", "") or ""
+                        clicked_emoji = getattr(child, "emoji", "") or ""
                         break
 
             # 3-1. 음성채널 자동재생 대시보드 (리모컨)
@@ -1219,31 +857,12 @@ class NorosiBot(commands.Bot):
                     print(f"⚠️ [음성 플레이어 리모컨 구버전 복구 예외] {e}", flush=True)
 
             # 3-2. 올인원 마스터 대시보드
-            if "대시보드" in e_title_only or "마스터 대시보드" in embed_text or "norosi 통합 제어" in embed_text:
+            if "마스터 대시보드" in embed_text or "norosi 통합 제어" in embed_text:
                 try:
                     from cogs.dashboard import MasterDashboardView
                     data = core.get_cached_data()
                     view = MasterDashboardView(self, interaction.user, interaction.guild, data)
                     view.message = msg
-                    if "원신" in e_title_only:
-                        view.current_tab = "genshin"
-                    elif "스타레일" in e_title_only:
-                        view.current_tab = "hsr"
-                    elif "프로세카" in e_title_only or "가챠" in e_title_only:
-                        view.current_tab = "gacha"
-                    elif "통합 경제" in e_title_only or "생활 라이프" in e_title_only or "경제" in e_title_only:
-                        view.current_tab = "economy"
-                    elif "라이프" in e_title_only or "D-Day" in e_title_only:
-                        view.current_tab = "life"
-                    elif "음악" in e_title_only or "플레이리스트" in e_title_only:
-                        view.current_tab = "music"
-                    elif "역할" in e_title_only or "서버 관리" in e_title_only:
-                        view.current_tab = "admin"
-                    elif "미니게임" in e_title_only or "파티 모집" in e_title_only:
-                        view.current_tab = "game"
-                    elif "통계" in e_title_only or "호스트" in e_title_only:
-                        view.current_tab = "stats"
-                    view.refresh_components()
 
                     if component_type in (3, 5, 6, 7, 8):
                         for child in view.children:
@@ -1345,7 +964,9 @@ class NorosiBot(commands.Bot):
                     view = ServerStatsDashboardView(interaction.guild, data)
                     view.message = msg
                     for child in view.children:
-                        if getattr(child, "label", None) == clicked_label:
+                        if (custom_id and getattr(child, "custom_id", None) == custom_id) or (
+                            clicked_label and getattr(child, "label", None) == clicked_label
+                        ):
                             if hasattr(child, "_refresh_state"):
                                 try:
                                     child._refresh_state(interaction, interaction.data)
@@ -1422,22 +1043,9 @@ class NorosiBot(commands.Bot):
         특정 길드 즉시 반영은 '!동기화' 또는 '!싱크' 명령어로 언제든 수행 가능합니다.
         """
         try:
-            sync_t0 = time.perf_counter()
-            log_mode = core.get_terminal_log_mode()
-            if log_mode == "detailed":
-                print("🌐 [백그라운드 동기화] 글로벌 슬래시 명령어 트리 Discord API 동기화 시작...", flush=True)
+            print("🌐 [백그라운드 동기화] 글로벌 슬래시 명령어 동기화 시작...", flush=True)
             synced_cmds = await self.tree.sync()
-            sync_ms = (time.perf_counter() - sync_t0) * 1000.0
-            if log_mode == "summary":
-                print(f"✅ [동기화 완료] 글로벌 슬래시 명령어 총 {len(synced_cmds)}개 등록 완료 ({sync_ms:.0f}ms)", flush=True)
-            else:
-                cmd_names_preview = ", ".join(f"/{c.name}" for c in synced_cmds[:15])
-                more_tag = f" 외 {len(synced_cmds) - 15}개" if len(synced_cmds) > 15 else ""
-                print(
-                    f"✅ [동기화 완료] 글로벌 슬래시 명령어 총 {len(synced_cmds)}개 등록 완료! ({sync_ms:.0f}ms)\n"
-                    f"   📋 등록 명령어 샘플: {cmd_names_preview}{more_tag}",
-                    flush=True,
-                )
+            print(f"✅ [동기화 완료] 슬래시 명령어 총 {len(synced_cmds)}개 글로벌 등록 완료!", flush=True)
         except discord.HTTPException as e:
             if e.status == 429:
                 print(f"⏳ [동기화 알림] Discord API 속도 제한(429 Rate Limit) 감지: {e}. 백그라운드에서 대기 후 자동 재시도됩니다.", flush=True)
@@ -1447,33 +1055,8 @@ class NorosiBot(commands.Bot):
             print(f"⚠️ [동기화 오류] 백그라운드 명령어 동기화 예외: {e}", flush=True)
 
     async def on_ready(self):
-        fb_status = "연동됨 (Firebase Realtime DB)" if core.get_firebase_endpoint() else "로컬 JSON + 인메모리 캐시 모드"
-        guild_cnt = len(self.guilds)
-        total_members = sum(getattr(g, "member_count", 0) or len(getattr(g, "members", [])) for g in self.guilds)
-        ws_ping_ms = round(self.latency * 1000, 1) if self.latency and self.latency > 0 else 0.0
-        sekai_t = core.get_proseka_sekai_time_theme()
-        data = core.get_cached_data()
-        t_channels = core.as_dict(core.as_dict(data.get("settings")).get("terminal_log_channels"))
-        log_mode = core.get_terminal_log_mode(data)
-        mode_badge = "요약 버전(SUMMARY)" if log_mode == "summary" else "상세 버전(DETAILED)"
-        print("==================================================================", flush=True)
-        if log_mode == "summary":
-            print(
-                f"✅ [READY/요약] {self.user} 준비 완료 (핑 {ws_ping_ms}ms · 서버 {guild_cnt:,}곳/{total_members:,}명 · {fb_status} · 세카이 {sekai_t['hour_str']} · 터미널채널 {len(t_channels)}곳)",
-                flush=True,
-            )
-        else:
-            print(f"✅ [READY] 무로시(norosi) 디스코드 게이트웨이 연결 및 준비 완료! (로그 모드: {mode_badge})", flush=True)
-            print(f"   • 봇 계정     : {self.user} (ID: {self.user.id})", flush=True)
-            print(f"   • 게이트웨이  : WebSocket 핑 {ws_ping_ms}ms | 연결 서버 {guild_cnt:,}곳 (총 멤버 약 {total_members:,}명)", flush=True)
-            print(f"   • 데이터 엔진 : {fb_status} | 터미널 브릿지 연동 채널 {len(t_channels)}곳 | 로그 모드: {mode_badge}", flush=True)
-            print(f"   • 세카이 시각 : {sekai_t['hour_str']} ({sekai_t['phase_name']}) — {sekai_t['unit_label']} / {sekai_t['attr_label']}", flush=True)
-            if self.guilds:
-                guild_summary = ", ".join(f"{g.name}({getattr(g, 'member_count', 0) or 0}명)" for g in self.guilds[:8])
-                if len(self.guilds) > 8:
-                    guild_summary += f" 외 {len(self.guilds) - 8}곳"
-                print(f"   • 접속 서버   : {guild_summary}", flush=True)
-        print("==================================================================", flush=True)
+        fb_status = "연동됨" if core.get_firebase_endpoint() else "로컬 + 인메모리 캐시 모드"
+        print(f"✅ 로그인 완료: {self.user} (이름: norosi | ID: {self.user.id}) | 저장소: {fb_status}", flush=True)
 
         await self.change_presence(
             status=discord.Status.online,
@@ -1515,8 +1098,7 @@ class NorosiBot(commands.Bot):
                 continue
 
             emoji = info.get("emoji", "🌠")
-            plus_one = bool(info.get("plus_one", False))
-            new_name = core.format_dday_channel_name(name, info["date"], emoji, plus_one=plus_one)
+            new_name = core.format_dday_channel_name(name, info["date"], emoji)
             if getattr(channel, "name", None) != new_name:
                 try:
                     await channel.edit(name=new_name)
@@ -1576,16 +1158,15 @@ class NorosiBot(commands.Bot):
     async def midnight_tasks(self):
         import genshin_core, hsr_core
         await asyncio.gather(
-            asyncio.to_thread(core.refresh_proseka_dbs, True),
-            asyncio.to_thread(genshin_core.load_genshin_kr_db, True),
-            asyncio.to_thread(hsr_core.load_hsr_kr_db, True),
+            asyncio.to_thread(core.load_proseka_kr_db),
+            asyncio.to_thread(genshin_core.load_genshin_kr_db),
+            asyncio.to_thread(hsr_core.load_hsr_kr_db),
             return_exceptions=True,
         )
 
         data = await asyncio.to_thread(core.load_data)
         today = datetime.datetime.now(core.KST).date()
-        dday_repeat_updates: Dict[str, tuple[str, str]] = {}
-        bday_celebrated: Dict[str, int] = {}
+        updated = False
 
         for name, info in core.as_dict(data.get("ddays")).items():
             if not isinstance(info, dict):
@@ -1605,10 +1186,9 @@ class NorosiBot(commands.Bot):
                             t_date = t_date.replace(year=t_date.year + 1)
                         except ValueError:
                             t_date += datetime.timedelta(days=365)
-                    new_date_str = t_date.strftime("%Y-%m-%d")
-                    info["date"] = new_date_str
+                    info["date"] = t_date.strftime("%Y-%m-%d")
                     info["start_date"] = old_target_str
-                    dday_repeat_updates[name] = (new_date_str, old_target_str)
+                    updated = True
 
         # 자정(00:00 KST) 멤버 생일 자동 축하 및 +500 크리스탈 지급
         bday_map = core.as_dict(data.get("birthdays"))
@@ -1621,11 +1201,11 @@ class NorosiBot(commands.Bot):
             if b_info.get("month") == today.month and b_info.get("day") == today.day:
                 if b_info.get("last_celebrated_year") != today.year:
                     b_info["last_celebrated_year"] = today.year
-                    bday_celebrated[str(u_key)] = today.year
                     uid = b_info.get("user_id") or int(u_key)
                     uname = b_info.get("user_name", "멤버")
                     prof = core.ensure_user_profile(data, u_key, uname)
                     prof["crystals"] = prof.get("crystals", 0) + 500
+                    updated = True
 
                     bday_embed = discord.Embed(
                         title=f"🎂 Happy Birthday! 오늘은 {uname}님의 생일입니다! 🎉",
@@ -1659,28 +1239,15 @@ class NorosiBot(commands.Bot):
                     except Exception:
                         pass
 
-        if dday_repeat_updates or bday_celebrated:
-            def _commit_midnight_updates():
-                with core._DATA_LOCK:
-                    fresh_data = core.load_data()
-                    changed = False
-                    fresh_ddays = core.ensure_dict_path(fresh_data, "ddays")
-                    for d_name, (new_d, new_s) in dday_repeat_updates.items():
-                        if isinstance(fresh_ddays.get(d_name), dict):
-                            fresh_ddays[d_name]["date"] = new_d
-                            fresh_ddays[d_name]["start_date"] = new_s
-                            changed = True
-                    fresh_bdays = core.ensure_dict_path(fresh_data, "birthdays")
-                    for u_k, yr in bday_celebrated.items():
-                        b_rec = fresh_bdays.get(u_k)
-                        if isinstance(b_rec, dict) and b_rec.get("last_celebrated_year") != yr:
-                            b_rec["last_celebrated_year"] = yr
-                            prof = core.ensure_user_profile(fresh_data, u_k, b_rec.get("user_name", "멤버"))
-                            prof["crystals"] = int(prof.get("crystals", 0) or 0) + 500
-                            changed = True
-                    if changed:
-                        core.save_data(fresh_data)
-            await asyncio.to_thread(_commit_midnight_updates)
+        if updated:
+            fresh_data = await asyncio.to_thread(core.load_data)
+            fresh_data["ddays"] = core.as_dict(data.get("ddays"))
+            fresh_data["birthdays"] = core.as_dict(data.get("birthdays"))
+            fresh_profiles = core.ensure_dict_path(fresh_data, "user_profiles")
+            for u_k, u_prof in core.as_dict(data.get("user_profiles")).items():
+                if isinstance(u_prof, dict) and isinstance(fresh_profiles.get(u_k), dict):
+                    fresh_profiles[u_k]["crystals"] = u_prof.get("crystals", 0)
+            await asyncio.to_thread(core.save_data, fresh_data)
 
         await self.update_all_dday_channels()
 
@@ -1691,43 +1258,27 @@ class NorosiBot(commands.Bot):
     @tasks.loop(time=datetime.time(hour=7, minute=0, tzinfo=core.KST))
     async def morning_music_alert(self):
         data = await asyncio.to_thread(core.load_data)
-        guild_mps = core.as_dict(data.get("guild_music_prefs"))
-        targets = []
-        seen_channels = set()
-        for g_key, g_mp in guild_mps.items():
-            if not isinstance(g_mp, dict):
-                continue
-            ch_id = g_mp.get("channel_id")
-            if ch_id and ch_id not in seen_channels:
-                targets.append((core.get_guild_music_prefs(data, g_key), ch_id))
-                seen_channels.add(ch_id)
+        prefs = core.as_dict(data.get("music_prefs")) or core.DEFAULT_CONFIG["music_prefs"]
+        target_ch_id = prefs.get("channel_id") or core.as_dict(data.get("settings")).get("dday_alert_channel_id")
+        if not target_ch_id:
+            return
 
-        global_mp = core.get_guild_music_prefs(data, 0)
-        fallback_ch_id = global_mp.get("channel_id") or core.as_dict(data.get("settings")).get("dday_alert_channel_id")
-        if fallback_ch_id and fallback_ch_id not in seen_channels:
-            targets.append((None, fallback_ch_id))
-            seen_channels.add(fallback_ch_id)
+        channel = await self.resolve_channel(target_ch_id)
+        if not channel:
+            return
 
-        for prefs, target_ch_id in targets:
-            channel = await self.resolve_channel(target_ch_id)
-            if not channel:
-                continue
-            if prefs is None:
-                ch_gid = getattr(getattr(channel, "guild", None), "id", 0) or 0
-                prefs = core.get_guild_music_prefs(data, ch_gid)
-
-            track_info, error = await core.get_recommended_music(prefs)
-            if error or not track_info:
-                try:
-                    await channel.send(f"🎧 **오늘의 음악 추천 실패:** {error}")
-                except Exception:
-                    pass
-                continue
-            embed, view = self.build_music_embed_and_view(track_info, prefs, is_morning=True)
+        track_info, error = await core.get_recommended_music(prefs)
+        if error or not track_info:
             try:
-                await channel.send("☀️ **좋은 아침입니다! 오늘의 추천 곡을 확인해 보세요.**", embed=embed, view=view)
+                await channel.send(f"🎧 **오늘의 음악 추천 실패:** {error}")
             except Exception:
                 pass
+            return
+        embed, view = self.build_music_embed_and_view(track_info, prefs, is_morning=True)
+        try:
+            await channel.send("☀️ **좋은 아침입니다! 오늘의 추천 곡을 확인해 보세요.**", embed=embed, view=view)
+        except Exception:
+            pass
 
     @morning_music_alert.before_loop
     async def before_morning_music_alert(self):
@@ -1747,11 +1298,8 @@ class NorosiBot(commands.Bot):
         if not schedules and not reminders:
             return
 
-        sent_sched_keys: set[str] = set()
-        fired_rem_ids: set[str] = set()
-
-        def _sched_key(s: dict) -> str:
-            return str(s.get("id") or f"{s.get('time')}|{s.get('channel_id')}|{s.get('name')}")
+        updated = False
+        base_prefs = core.as_dict(data.get("music_prefs")) or core.DEFAULT_CONFIG["music_prefs"]
 
         for sched in schedules:
             if not isinstance(sched, dict):
@@ -1760,8 +1308,7 @@ class NorosiBot(commands.Bot):
                 ch_id = sched.get("channel_id")
                 channel = await self.resolve_channel(ch_id) if ch_id else None
                 if channel:
-                    sched_gid = sched.get("guild_id") or getattr(getattr(channel, "guild", None), "id", 0) or 0
-                    custom_prefs = copy.deepcopy(core.get_guild_music_prefs(data, sched_gid))
+                    custom_prefs = copy.deepcopy(base_prefs)
                     if sched.get("genre"):
                         custom_prefs["genre"] = sched["genre"]
                         custom_prefs["playlist_url"] = None
@@ -1774,16 +1321,16 @@ class NorosiBot(commands.Bot):
                         except Exception:
                             pass
                 sched["last_sent"] = today_str
-                sent_sched_keys.add(_sched_key(sched))
+                updated = True
 
         # /알림예약 개인 알리미 시각 도달 체크 및 발송
         now_ts = time.time()
+        remaining_reminders = []
         for rem in reminders:
             if not isinstance(rem, dict):
                 continue
             if rem.get("trigger_ts", 0) <= now_ts:
-                if rem.get("id") is not None:
-                    fired_rem_ids.add(str(rem.get("id")))
+                updated = True
                 uid = rem.get("user_id")
                 ch_id = rem.get("channel_id")
                 mode = rem.get("mode", "both")
@@ -1819,33 +1366,23 @@ class NorosiBot(commands.Bot):
                                 await ch_obj.send(content=f"🔔 <@{uid}>님, 예약하신 알림이 도착했습니다!", embed=rem_embed)
                             except Exception:
                                 pass
+            else:
+                remaining_reminders.append(rem)
 
-        if sent_sched_keys or fired_rem_ids:
-            def _commit_music_and_rem_updates():
-                with core._DATA_LOCK:
-                    fresh_data = core.load_data()
-                    changed = False
-                    fresh_scheds = fresh_data.get("music_schedules")
-                    if isinstance(fresh_scheds, list) and sent_sched_keys:
-                        for s_item in fresh_scheds:
-                            if isinstance(s_item, dict) and _sched_key(s_item) in sent_sched_keys:
-                                if s_item.get("last_sent") != today_str:
-                                    s_item["last_sent"] = today_str
-                                    changed = True
-                    fresh_raw_reminders = fresh_data.get("reminders")
-                    if isinstance(fresh_raw_reminders, list):
-                        new_rems = [
-                            r for r in fresh_raw_reminders
-                            if isinstance(r, dict)
-                            and str(r.get("id")) not in fired_rem_ids
-                            and r.get("trigger_ts", 0) > now_ts
-                        ]
-                        if len(new_rems) != len(fresh_raw_reminders):
-                            fresh_data["reminders"] = new_rems
-                            changed = True
-                    if changed:
-                        core.save_data(fresh_data)
-            await asyncio.to_thread(_commit_music_and_rem_updates)
+        if len(remaining_reminders) != len(reminders):
+            data["reminders"] = remaining_reminders
+            updated = True
+
+        if updated:
+            fresh_data = await asyncio.to_thread(core.load_data)
+            fresh_data["music_schedules"] = schedules
+            fresh_raw_reminders = fresh_data.get("reminders")
+            fresh_reminders = [
+                r for r in (fresh_raw_reminders if isinstance(fresh_raw_reminders, list) else [])
+                if isinstance(r, dict) and r.get("trigger_ts", 0) > now_ts
+            ]
+            fresh_data["reminders"] = fresh_reminders
+            await asyncio.to_thread(core.save_data, fresh_data)
 
     @custom_music_schedules_loop.before_loop
     async def before_custom_music_loop(self):
@@ -1857,8 +1394,7 @@ class NorosiBot(commands.Bot):
         today_str = core.get_today_str()
 
         # 1. 나만의 비밀 디데이 & 타임캡슐 개인 DM 발송 체크
-        notified_secrets: list[tuple[str, str]] = []
-        notified_partners: list[tuple[str, str]] = []
+        dm_updated = False
         for u_key, p_info in core.as_dict(data.get("user_profiles")).items():
             if not isinstance(p_info, dict):
                 continue
@@ -1886,7 +1422,8 @@ class NorosiBot(commands.Bot):
                                 timestamp=datetime.datetime.now(core.KST)
                             )
                             await target_user.send(embed=dm_embed)
-                            notified_secrets.append((str(u_key), s_name))
+                            s_info["notified_date"] = today_str
+                            dm_updated = True
                     except Exception as e:
                         print(f"⚠️ 비밀 디데이 DM 전송 실패 ({u_key}): {e}", flush=True)
 
@@ -1921,28 +1458,11 @@ class NorosiBot(commands.Bot):
                                 await u_obj.send(embed=p_embed)
                         except Exception:
                             pass
-                    notified_partners.append((str(pair_key), p_dday_name))
+                    p_dday_info["notified_date"] = today_str
+                    dm_updated = True
 
-        if notified_secrets or notified_partners:
-            def _commit_morning_notified():
-                with core._DATA_LOCK:
-                    fresh_data = core.load_data()
-                    changed = False
-                    fresh_profiles = core.as_dict(fresh_data.get("user_profiles"))
-                    for u_k, s_n in notified_secrets:
-                        s_map = core.as_dict(core.as_dict(fresh_profiles.get(u_k)).get("secret_ddays"))
-                        if isinstance(s_map.get(s_n), dict) and s_map[s_n].get("notified_date") != today_str:
-                            s_map[s_n]["notified_date"] = today_str
-                            changed = True
-                    fresh_partners = core.as_dict(fresh_data.get("partners"))
-                    for pk, pdn in notified_partners:
-                        pd_map = core.as_dict(core.as_dict(fresh_partners.get(pk)).get("ddays"))
-                        if isinstance(pd_map.get(pdn), dict) and pd_map[pdn].get("notified_date") != today_str:
-                            pd_map[pdn]["notified_date"] = today_str
-                            changed = True
-                    if changed:
-                        core.save_data(fresh_data)
-            await asyncio.to_thread(_commit_morning_notified)
+        if dm_updated:
+            await asyncio.to_thread(core.save_data, data)
 
         # 3. 서버 공개 오전 9시 D-Day 요약 알림
         alert_ch_id = core.as_dict(data.get("settings")).get("dday_alert_channel_id")
@@ -1971,9 +1491,8 @@ class NorosiBot(commands.Bot):
             date_str = info.get("date")
             if not date_str:
                 continue
-            plus_one = bool(info.get("plus_one", False))
             try:
-                diff, text = core.get_dday_info(date_str, plus_one=plus_one)
+                diff, text = core.get_dday_info(date_str)
             except Exception:
                 continue
             display_name = f"{name} 🔄" if info.get("repeat") else name
@@ -1983,8 +1502,7 @@ class NorosiBot(commands.Bot):
                 if diff < min_diff:
                     min_diff = diff
             elif diff >= -7:
-                plus_tag = " `(+1일)`" if plus_one else ""
-                recent_past_lines.append(f"• ~~{display_name} ({date_str})~~ : `{text}`{plus_tag}")
+                recent_past_lines.append(f"• ~~{display_name} ({date_str})~~ : `{text}`")
             else:
                 archived_count += 1
 
@@ -2022,144 +1540,12 @@ bot = NorosiBot()
 
 
 # ==========================================
-# 🖥️ VM 서버 터미널 로그 수신 채널 & 무로시 로그 모드(요약/상세) 설정
+# 🖥️ VM 서버 터미널 로그 수신 채널 지정 명령어 (/터미널로그채널, !터미널로그)
 # ==========================================
-def build_norosi_log_config_embed(guild: Optional[discord.Guild] = None, status_note: str = "") -> discord.Embed:
-    data = core.get_cached_data()
-    settings_d = core.as_dict(data.get("settings"))
-    t_channels = core.as_dict(settings_d.get("terminal_log_channels"))
-    cur_mode = core.get_terminal_log_mode(data)
-    g_key = str(guild.id) if guild else "global"
-    linked_cid = t_channels.get(g_key) or settings_d.get("terminal_log_channel_id")
-    ch_txt = f"<#{linked_cid}> (`ID: {linked_cid}`)" if linked_cid else "미지정 (`/터미널로그채널 채널:#채널`)"
-
-    mode_title = "📋 요약 버전 (Summary Mode)" if cur_mode == "summary" else "🔍 상세 버전 (Detailed Mode)"
-    color = discord.Color.from_rgb(56, 189, 248) if cur_mode == "summary" else discord.Color.from_rgb(16, 185, 129)
-    note_block = f"\n> {status_note}\n" if status_note else ""
-
-    embed = discord.Embed(
-        title="🪵 무로시(norosi) 구동 & 터미널 브릿지 로그 설정",
-        description=(
-            "봇 부팅 파이프라인(`STARTUP` · `[1/4]~[4/4]` · `READY`)과 디스코드 터미널 로그 채널(`3초 브릿지`)의 출력 상세도를 실시간으로 전환합니다.\n"
-            f"{note_block}\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"• **현재 로그 모드:** **{mode_title}** (`{cur_mode}`)\n"
-            f"• **현재 서버 로그 채널:** {ch_txt} *(전체 연동 서버: `{len(t_channels)}곳`)*\n"
-            "• **보안 필터링:** 토큰·API 키·비밀번호·개인정보는 두 모드 모두 **100% 비노출** 보장\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        ),
-        color=color,
-        timestamp=datetime.datetime.now(core.KST),
-    )
-    embed.add_field(
-        name="📋 요약 버전 (Summary)",
-        value=(
-            "• 부팅 `[STARTUP]` · `[1/4]~[4/4]` · `[READY]` 단계당 **핵심 1줄 요약**만 출력\n"
-            "• 개별 17개 Cog 로드 행 및 일반 `INFO` 트레이스 생략 (경고/오류 발생 시에만 즉시 노출)\n"
-            "• 디스코드 터미널 로그 채널의 메시지 양을 최소화하고 싶을 때 추천"
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="🔍 상세 버전 (Detailed — 기본값)",
-        value=(
-            "• Python/OS/RSS/디스크·확장 모듈 7종 상태·개별 17대 Cogs 로드(`ms`/슬래시/프리픽스 증감) 전체 출력\n"
-            "• 프로세카(미래시 #154~#225)·원신·스타레일·36,700종 어종·1,000종 엔딩 마스터 DB 상세 지표 출력\n"
-            "• 5대 상주 스케줄러 상태 및 접속 길드 요약 포함"
-        ),
-        inline=False,
-    )
-    embed.set_footer(text="하단 버튼 또는 /무로시로그 모드:[요약/상세] · !무로시로그 요약/상세 로 언제든 전환 가능")
-    return embed
-
-
-class NorosiLogConfigView(core.SafeView):
-    """무로시 구동 및 터미널 브릿지 로그의 요약 버전 / 상세 버전을 원클릭 전환하는 뷰"""
-
-    def __init__(self, author: Optional[discord.abc.User] = None, guild: Optional[discord.Guild] = None):
-        super().__init__(timeout=300)
-        self.author = author
-        self.guild = guild
-        self.status_note = ""
-        self._sync_button_styles()
-
-    def _sync_button_styles(self):
-        cur_mode = core.get_terminal_log_mode()
-        self.btn_summary.style = discord.ButtonStyle.primary if cur_mode == "summary" else discord.ButtonStyle.secondary
-        self.btn_detailed.style = discord.ButtonStyle.success if cur_mode == "detailed" else discord.ButtonStyle.secondary
-
-    def build_embed(self) -> discord.Embed:
-        return build_norosi_log_config_embed(self.guild, self.status_note)
-
-    async def _check_perm(self, interaction: discord.Interaction) -> bool:
-        is_owner = await bot.is_bot_owner_user(interaction.user)
-        is_admin = bool(
-            interaction.guild and isinstance(interaction.user, discord.Member)
-            and interaction.user.guild_permissions.administrator
-        )
-        if not (is_owner or is_admin):
-            await core.safe_send_response(
-                interaction,
-                "❌ 로그 모드 변경은 **서버 관리자** 또는 **봇 소유자**만 사용할 수 있습니다.",
-                ephemeral=True,
-            )
-            return False
-        return True
-
-    @discord.ui.button(label="📋 요약 버전으로 설정", style=discord.ButtonStyle.secondary, row=0, custom_id="norosi:NorosiLogConfigView:btn_summary")
-    async def btn_summary(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not await self._check_perm(interaction):
-            return
-        await core.safe_defer(interaction)
-        await asyncio.to_thread(core.set_terminal_log_mode, "summary")
-        self.status_note = "✅ 무로시 로그 모드가 **📋 요약 버전 (Summary)**으로 변경되었습니다!"
-        self._sync_button_styles()
-        print(f"⚙️ [무로시로그] {interaction.user}에 의해 로그 출력 모드가 '요약 버전(summary)'으로 전환되었습니다.", flush=True)
-        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
-
-    @discord.ui.button(label="🔍 상세 버전으로 설정", style=discord.ButtonStyle.success, row=0, custom_id="norosi:NorosiLogConfigView:btn_detailed")
-    async def btn_detailed(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not await self._check_perm(interaction):
-            return
-        await core.safe_defer(interaction)
-        await asyncio.to_thread(core.set_terminal_log_mode, "detailed")
-        self.status_note = "✅ 무로시 로그 모드가 **🔍 상세 버전 (Detailed)**으로 변경되었습니다!"
-        self._sync_button_styles()
-        print(f"⚙️ [무로시로그] {interaction.user}에 의해 로그 출력 모드가 '상세 버전(detailed)'으로 전환되었습니다.", flush=True)
-        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
-
-    @discord.ui.button(label="🧪 현재 모드로 샘플 로그 출력", style=discord.ButtonStyle.secondary, row=0, custom_id="norosi:NorosiLogConfigView:btn_test_log")
-    async def btn_test_log(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not await self._check_perm(interaction):
-            return
-        await core.safe_defer(interaction)
-        cur_mode = core.get_terminal_log_mode()
-        sekai_t = core.get_proseka_sekai_time_theme()
-        ws_ping_ms = round(bot.latency * 1000, 1) if bot.latency and bot.latency > 0 else 0.0
-        if cur_mode == "summary":
-            print(
-                f"✅ [무로시로그/요약 점검] {bot.user} 정상 가동 중 (핑 {ws_ping_ms}ms · 서버 {len(bot.guilds)}곳 · 세카이 {sekai_t['hour_str']})",
-                flush=True,
-            )
-        else:
-            print(
-                f"✅ [무로시로그/상세 점검] {bot.user} 상태 브리핑 — WebSocket {ws_ping_ms}ms | "
-                f"연결 서버 {len(bot.guilds)}곳 | Cogs {len(bot.extensions)}개 | SafeView {len(core.SAFE_VIEW_REGISTRY)}종 | "
-                f"세카이 {sekai_t['hour_str']} ({sekai_t['phase_name']} · {sekai_t['unit_label']})",
-                flush=True,
-            )
-        self.status_note = f"🧪 현재 모드(`{cur_mode}`)로 터미널 콘솔에 샘플 진단 로그를 출력했습니다!"
-        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
-
-
-@bot.tree.command(name="무로시로그", description="[관리자/봇주] 무로시 구동 및 터미널 브릿지 로그를 요약 버전 또는 상세 버전으로 설정합니다.")
-@app_commands.describe(모드="전환할 로그 출력 버전 (미선택 시 현재 설정 패널 열기)")
-@app_commands.choices(모드=[
-    app_commands.Choice(name="📋 요약 버전 (Summary — 핵심 단계·경고·오류만 간결 출력)", value="summary"),
-    app_commands.Choice(name="🔍 상세 버전 (Detailed — 모듈·마스터DB·스케줄러·환경 전체 상세 출력)", value="detailed"),
-])
+@bot.tree.command(name="터미널로그채널", description="[관리자/봇주] VM 서버 터미널(stdout/stderr)로 출력되는 실시간 로그를 기록할 채널을 지정하거나 해제합니다.")
+@app_commands.describe(채널="터미널 로그를 실시간으로 받아볼 텍스트 채널 (비워두면 전송 해제)")
 @app_commands.default_permissions(administrator=True)
-async def norosi_log_mode_slash(interaction: discord.Interaction, 모드: Optional[app_commands.Choice[str]] = None):
+async def set_terminal_log_channel_slash(interaction: discord.Interaction, 채널: Optional[discord.TextChannel] = None):
     is_owner = await bot.is_bot_owner_user(interaction.user)
     is_admin = bool(interaction.guild and isinstance(interaction.user, discord.Member) and interaction.user.guild_permissions.administrator)
     if not (is_owner or is_admin):
@@ -2167,180 +1553,64 @@ async def norosi_log_mode_slash(interaction: discord.Interaction, 모드: Option
         return
 
     await core.safe_defer(interaction, ephemeral=True)
-    view = NorosiLogConfigView(author=interaction.user, guild=interaction.guild)
-    if 모드 is not None:
-        new_mode = await asyncio.to_thread(core.set_terminal_log_mode, 모드.value)
-        mode_kr = "📋 요약 버전 (Summary)" if new_mode == "summary" else "🔍 상세 버전 (Detailed)"
-        view.status_note = f"✅ 무로시 로그 출력 모드가 **{mode_kr}**으로 설정되었습니다!"
-        view._sync_button_styles()
-        print(f"⚙️ [무로시로그] {interaction.user}에 의해 로그 출력 모드가 '{mode_kr}'({new_mode})으로 설정되었습니다.", flush=True)
-    msg = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
-    view.message = msg
+    data = await asyncio.to_thread(core.load_data)
 
-
-@bot.command(name="무로시로그", aliases=["로그모드", "구동로그", "logmode"])
-async def norosi_log_mode_prefix(ctx: commands.Context, 모드: Optional[str] = None):
-    is_owner = await bot.is_bot_owner_user(ctx.author)
-    is_admin = bool(ctx.guild and isinstance(ctx.author, discord.Member) and ctx.author.guild_permissions.administrator)
-    if not (is_owner or is_admin):
-        await ctx.send("❌ 이 명령어는 **봇 소유자** 또는 **서버 관리자**만 사용할 수 있습니다.", delete_after=5)
-        return
-
-    view = NorosiLogConfigView(author=ctx.author, guild=ctx.guild)
-    if 모드:
-        new_mode = await asyncio.to_thread(core.set_terminal_log_mode, 모드)
-        mode_kr = "📋 요약 버전 (Summary)" if new_mode == "summary" else "🔍 상세 버전 (Detailed)"
-        view.status_note = f"✅ 무로시 로그 출력 모드가 **{mode_kr}**으로 설정되었습니다!"
-        view._sync_button_styles()
-        print(f"⚙️ [무로시로그] {ctx.author}에 의해 로그 출력 모드가 '{mode_kr}'({new_mode})으로 설정되었습니다.", flush=True)
-    msg = await ctx.send(embed=view.build_embed(), view=view)
-    view.message = msg
-
-
-@bot.tree.command(name="터미널로그채널", description="[관리자/봇주] VM 서버 터미널 실시간 로그를 기록할 채널 및 로그 버전(요약/상세)을 설정합니다.")
-@app_commands.describe(
-    채널="터미널 로그를 실시간으로 받아볼 텍스트 채널 (비워두면 전송 해제)",
-    모드="무로시 구동 및 터미널 로그 출력 버전 (요약 버전 / 상세 버전, 선택)",
-)
-@app_commands.choices(모드=[
-    app_commands.Choice(name="📋 요약 버전 (Summary — 핵심 단계·경고·오류만 간결 출력)", value="summary"),
-    app_commands.Choice(name="🔍 상세 버전 (Detailed — 모듈·마스터DB·스케줄러·환경 전체 상세 출력)", value="detailed"),
-])
-@app_commands.default_permissions(administrator=True)
-async def set_terminal_log_channel_slash(
-    interaction: discord.Interaction,
-    채널: Optional[discord.TextChannel] = None,
-    모드: Optional[app_commands.Choice[str]] = None,
-):
-    is_owner = await bot.is_bot_owner_user(interaction.user)
-    is_admin = bool(interaction.guild and isinstance(interaction.user, discord.Member) and interaction.user.guild_permissions.administrator)
-    if not (is_owner or is_admin):
-        await core.safe_send_response(interaction, "❌ 이 명령어는 **봇 소유자** 또는 **서버 관리자**만 사용할 수 있습니다.", ephemeral=True)
-        return
-
-    await core.safe_defer(interaction, ephemeral=True)
     g_key = str(interaction.guild_id) if interaction.guild_id else "global"
-    ch_id = 채널.id if 채널 is not None else None
-    chosen_mode = 모드.value if 모드 is not None else None
+    settings_dict = core.ensure_dict_path(data, "settings")
+    t_channels = core.ensure_dict_path(data, "settings", "terminal_log_channels")
 
-    def _update_terminal_ch() -> tuple[int, str]:
-        with core._DATA_LOCK:
-            data = core.load_data()
-            settings_dict = core.ensure_dict_path(data, "settings")
-            t_channels = core.ensure_dict_path(data, "settings", "terminal_log_channels")
-            if chosen_mode is not None:
-                settings_dict["terminal_log_mode"] = core.normalize_log_mode_value(chosen_mode)
-            if ch_id is None and chosen_mode is None:
-                t_channels.pop(g_key, None)
-                if not t_channels:
-                    settings_dict["terminal_log_channel_id"] = None
-            elif ch_id is not None:
-                t_channels[g_key] = ch_id
-                settings_dict["terminal_log_channel_id"] = ch_id
-            core.save_data(data)
-            return len(t_channels), core.get_terminal_log_mode(data)
-
-    total_linked, active_mode = await asyncio.to_thread(_update_terminal_ch)
-    mode_kr = "📋 요약 버전 (Summary)" if active_mode == "summary" else "🔍 상세 버전 (Detailed)"
-    view = NorosiLogConfigView(author=interaction.user, guild=interaction.guild)
-
-    if 채널 is None and chosen_mode is not None:
-        view.status_note = f"✅ 무로시 로그 모드가 **{mode_kr}**으로 변경되었습니다!"
-        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
-        print(f"⚙️ [무로시로그] {interaction.user}에 의해 로그 출력 모드가 '{mode_kr}'({active_mode})으로 변경되었습니다.", flush=True)
-    elif 채널 is None:
-        await interaction.followup.send(
-            f"🛑 **현재 서버({interaction.guild.name if interaction.guild else '글로벌'})의 VM 서버 터미널 로그 채널 전송이 해제되었습니다.** (현재 로그 모드: {mode_kr})",
-            view=view,
-            ephemeral=True,
-        )
+    if 채널 is None:
+        t_channels.pop(g_key, None)
+        if not t_channels:
+            settings_dict["terminal_log_channel_id"] = None
+        await asyncio.to_thread(core.save_data, data)
+        await interaction.followup.send(f"🛑 **현재 서버({interaction.guild.name if interaction.guild else '글로벌'})의 VM 서버 터미널 로그 채널 전송이 해제되었습니다.**", ephemeral=True)
         print(f"ℹ️ [System] {interaction.user}에 의해 {interaction.guild}의 터미널 로그 채널 전송이 비활성화되었습니다.", flush=True)
     else:
+        t_channels[g_key] = 채널.id
+        settings_dict["terminal_log_channel_id"] = 채널.id
+        await asyncio.to_thread(core.save_data, data)
         embed = discord.Embed(
             title="🖥️ VM 서버 터미널 실시간 로그 채널 지정 완료!",
             description=(
-                f"이제부터 VM 서버 터미널(`stdout` / `stderr` / `logging`)로 출력되는 로그가 {채널.mention} 채널에도 실시간으로 기록됩니다.\n\n"
+                f"이제부터 VM 서버 터미널(`stdout` / `stderr` / `logging`)로 출력되는 모든 로그가 {채널.mention} 채널에도 실시간으로 기록됩니다.\n\n"
                 f"• **현재 채널:** {채널.mention} (`#{채널.name}`)\n"
-                f"• **로그 출력 모드:** **{mode_kr}** (`/무로시로그` 또는 아래 버튼으로 요약/상세 즉시 전환)\n"
-                f"• **전체 연동 서버:** 총 {total_linked}개 서버 채널에 실시간 동시 전송 중\n"
+                f"• **전체 연동 서버:** 총 {len(t_channels)}개 서버 채널에 실시간 동시 전송 중\n"
                 "• **전송 주기:** `3초` 단위 버퍼링 묶음 전송 (도배 및 Rate Limit 완벽 방어)\n"
                 "• **해제 방법:** `/터미널로그채널` 명령어를 채널 옵션 없이 실행"
             ),
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST)
         )
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{채널.name} (ID: {채널.id}, 서버: {interaction.guild}, 모드: {active_mode})로 지정되었습니다. (총 {total_linked}개 서버 동시 전송)", flush=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{채널.name} (ID: {채널.id}, 서버: {interaction.guild})로 지정되었습니다. (총 {len(t_channels)}개 서버 동시 전송)", flush=True)
 
 
 @bot.command(name="터미널로그", aliases=["터미널로그채널", "서버터미널", "vm로그", "콘솔로그"])
-async def set_terminal_log_channel_prefix(ctx: commands.Context, arg1: Optional[str] = None, arg2: Optional[str] = None):
+async def set_terminal_log_channel_prefix(ctx: commands.Context, channel: Optional[discord.TextChannel] = None):
     is_owner = await bot.is_bot_owner_user(ctx.author)
     is_admin = bool(ctx.guild and isinstance(ctx.author, discord.Member) and ctx.author.guild_permissions.administrator)
     if not (is_owner or is_admin):
         await ctx.send("❌ 이 명령어는 **봇 소유자** 또는 **서버 관리자**만 사용할 수 있습니다.", delete_after=5)
         return
 
-    # `!터미널로그 요약` 또는 `!터미널로그 상세` 입력 시 로그 모드 즉시 변경
-    mode_keywords = ("요약", "요약버전", "summary", "compact", "상세", "상세버전", "detailed", "detail", "full")
-    if arg1 and arg1.strip().lower() in mode_keywords and not arg2:
-        new_mode = await asyncio.to_thread(core.set_terminal_log_mode, arg1)
-        mode_kr = "📋 요약 버전 (Summary)" if new_mode == "summary" else "🔍 상세 버전 (Detailed)"
-        view = NorosiLogConfigView(author=ctx.author, guild=ctx.guild)
-        view.status_note = f"✅ 무로시 로그 모드가 **{mode_kr}**으로 전환되었습니다!"
-        await ctx.send(embed=view.build_embed(), view=view)
-        print(f"⚙️ [무로시로그] {ctx.author}에 의해 로그 출력 모드가 '{mode_kr}'({new_mode})으로 전환되었습니다.", flush=True)
-        return
-
-    channel: Optional[discord.TextChannel] = None
-    if ctx.message.channel_mentions:
-        channel = ctx.message.channel_mentions[0]
-    elif arg1 and arg1.isdigit() and ctx.guild:
-        ch_cand = ctx.guild.get_channel(int(arg1))
-        if isinstance(ch_cand, discord.TextChannel):
-            channel = ch_cand
-
-    chosen_mode = None
-    for cand in (arg1, arg2):
-        if cand and cand.strip().lower() in mode_keywords:
-            chosen_mode = core.normalize_log_mode_value(cand)
-
+    data = await asyncio.to_thread(core.load_data)
     g_key = str(ctx.guild.id) if ctx.guild else "global"
-    ch_id = channel.id if channel is not None else None
-
-    def _update_terminal_ch_prefix() -> tuple[int, str]:
-        with core._DATA_LOCK:
-            data = core.load_data()
-            settings_dict = core.ensure_dict_path(data, "settings")
-            t_channels = core.ensure_dict_path(data, "settings", "terminal_log_channels")
-            if chosen_mode is not None:
-                settings_dict["terminal_log_mode"] = chosen_mode
-            if ch_id is None:
-                t_channels.pop(g_key, None)
-                if not t_channels:
-                    settings_dict["terminal_log_channel_id"] = None
-            else:
-                t_channels[g_key] = ch_id
-                settings_dict["terminal_log_channel_id"] = ch_id
-            core.save_data(data)
-            return len(t_channels), core.get_terminal_log_mode(data)
-
-    total_linked, active_mode = await asyncio.to_thread(_update_terminal_ch_prefix)
-    mode_kr = "📋 요약 버전 (Summary)" if active_mode == "summary" else "🔍 상세 버전 (Detailed)"
-    view = NorosiLogConfigView(author=ctx.author, guild=ctx.guild)
+    settings_dict = core.ensure_dict_path(data, "settings")
+    t_channels = core.ensure_dict_path(data, "settings", "terminal_log_channels")
 
     if channel is None:
-        await ctx.send(
-            f"🛑 **현재 서버({ctx.guild.name if ctx.guild else '글로벌'})의 VM 서버 터미널 로그 채널 기록이 비활성화되었습니다.** "
-            f"(특정 채널에 켜려면 `!터미널로그 #채널`, 로그 버전 변경은 `!무로시로그 요약` 또는 `!무로시로그 상세`)",
-            view=view,
-        )
+        t_channels.pop(g_key, None)
+        if not t_channels:
+            settings_dict["terminal_log_channel_id"] = None
+        await asyncio.to_thread(core.save_data, data)
+        await ctx.send(f"🛑 **현재 서버({ctx.guild.name if ctx.guild else '글로벌'})의 VM 서버 터미널 로그 채널 기록이 비활성화되었습니다.** (특정 채널에 켜려면 `!터미널로그 #채널` 입력)")
     else:
-        await ctx.send(
-            f"🖥️ **VM 서버 터미널 로그 채널 지정 완료:** 이제부터 터미널 출력이 {channel.mention} 채널에 **{mode_kr}**으로 실시간 기록됩니다! (총 {total_linked}개 서버 채널 동시 전송)",
-            view=view,
-        )
-        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{channel.name} (ID: {channel.id}, 서버: {ctx.guild}, 모드: {active_mode})로 지정되었습니다. (총 {total_linked}개 서버 동시 전송)", flush=True)
+        t_channels[g_key] = channel.id
+        settings_dict["terminal_log_channel_id"] = channel.id
+        await asyncio.to_thread(core.save_data, data)
+        await ctx.send(f"🖥️ **VM 서버 터미널 로그 채널 지정 완료:** 이제부터 터미널 출력이 {channel.mention} 채널에 실시간으로 기록됩니다! (총 {len(t_channels)}개 서버 채널 동시 전송)")
+        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{channel.name} (ID: {channel.id}, 서버: {ctx.guild})로 지정되었습니다. (총 {len(t_channels)}개 서버 동시 전송)", flush=True)
 
 
 # ==========================================
@@ -2689,7 +1959,6 @@ class SyncControlView(core.SafeView):
                 reloaded.append(ext)
             except Exception as e:
                 failed.append(f"{ext}: {e}")
-        bot.register_persistent_views()
 
         try:
             if self.guild:
@@ -2742,7 +2011,6 @@ async def sync_guild_command(ctx: commands.Context, *args):
                 await bot.reload_extension(ext)
             except Exception as e:
                 print(f"⚠️ [{ext}] 리로드 실패: {e}", flush=True)
-        bot.register_persistent_views()
 
     try:
         app_id = bot.application_id or (bot.application.id if bot.application else bot.user.id)
@@ -2805,7 +2073,7 @@ async def sync_guild_command(ctx: commands.Context, *args):
                 f"{reg_status}\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 "💡 **지금 바로 채팅창에서 `/`를 눌러 사용해 보세요!**\n"
-                "• `/깃허브연동` : GitHub 푸시 및 Actions 알림 채널 연동\n"
+                "• `/깃허브연동` 또는 `/깃허브알림` : GitHub 푸시 및 Actions 알림 채널 연동\n"
                 "• `/터미널로그채널` 또는 `!터미널로그 #채널` : VM 터미널 로그 실시간 채널 기록\n"
                 "• `/반응역할` 또는 `!반응역할` : 이모지 반응역할 스튜디오 호출\n"
                 "• `/플레이리스트` 또는 `!플레이리스트` : 플레이리스트 스튜디오 호출"
@@ -2844,55 +2112,9 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
 # Render 및 GCP VM 크래시 방지용 안전 실행부
 # ==========================================
 async def main():
-    import platform
-    import shutil
-    py_ver = sys.version.split()[0]
-    dpy_ver = getattr(discord, "__version__", "unknown")
-    os_info = f"{platform.system()} {platform.release()} ({platform.machine()})"
-    disk_free_gb = 0.0
-    try:
-        disk_free_gb = shutil.disk_usage(os.path.dirname(os.path.abspath(__file__))).free / (1024 ** 3)
-    except Exception:
-        pass
-    rss_mb = 0.0
-    try:
-        with open("/proc/self/status", "r", encoding="utf-8") as fp:
-            for line in fp:
-                if line.startswith("VmRSS:"):
-                    rss_mb = int(line.split()[1]) / 1024.0
-                    break
-    except Exception:
-        pass
-
-    opt_mods = []
-    for mod_label, mod_name in [
-        ("Pillow", "PIL"),
-        ("aiohttp", "aiohttp"),
-        ("PyNaCl", "nacl"),
-        ("DAVE(davey)", "davey"),
-        ("Gemini(genai)", "google.genai"),
-        ("yt-dlp", "yt_dlp"),
-        ("Spotipy", "spotipy"),
-    ]:
-        try:
-            __import__(mod_name)
-            opt_mods.append(f"{mod_label}:ON")
-        except Exception:
-            opt_mods.append(f"{mod_label}:OFF")
-
-    init_log_mode = core.get_terminal_log_mode()
     print("==================================================================", flush=True)
-    if init_log_mode == "summary":
-        print(
-            f"🚀 [STARTUP/요약] 무로시(norosi) 기동 시작 (PID: {os.getpid()} | Python {py_ver} · discord.py {dpy_ver} | RSS {rss_mb:.1f}MB · Disk {disk_free_gb:.2f}GB)",
-            flush=True,
-        )
-    else:
-        print(f"🚀 [STARTUP] 무로시(norosi) 올인원 봇 엔진 기동 시작 (PID: {os.getpid()} | 로그 모드: 상세 버전)", flush=True)
-        print(f"⏰ 부팅 시각  : {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (서버) / {datetime.datetime.now(core.KST).strftime('%Y-%m-%d %H:%M:%S KST')} (한국)", flush=True)
-        print(f"🖥️ 런타임 환경: Python {py_ver} · discord.py {dpy_ver} · OS: {os_info}", flush=True)
-        print(f"💾 시스템 자원: 초기 메모리 RSS {rss_mb:.1f}MB · 디스크 여유 공간 {disk_free_gb:.2f}GB · CWD: {os.getcwd()}", flush=True)
-        print(f"🧩 확장 모듈  : {' | '.join(opt_mods)}", flush=True)
+    print(f"🚀 [STARTUP] norosi 봇 프로세스 시작 중 (PID: {os.getpid()})", flush=True)
+    print(f"⏰ 현재 시각: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (서버) / {datetime.datetime.now(core.KST).strftime('%Y-%m-%d %H:%M:%S KST')} (한국)", flush=True)
     print("==================================================================", flush=True)
 
     await bot.start_web_server()
@@ -2912,7 +2134,7 @@ async def main():
                 break
 
     core.TOKEN = active_token
-    print(f"🔑 디스코드 게이트웨이 인증 및 연결 시도 중... (토큰 확인됨 · 길이: {len(active_token)}자)", flush=True)
+    print(f"🔑 디스코드 게이트웨이 인증 및 연결 시도 중... (토큰 길이: {len(active_token)})", flush=True)
 
     async def _cleanup_bot_session():
         # 백그라운드 스케줄러 루프가 재시도 대기 중 닫힌 세션을 참조하지 않도록 안전하게 중단
@@ -2980,26 +2202,6 @@ async def main():
 
         await bot.ensure_fresh_http_session()
 
-    loop = asyncio.get_running_loop()
-    main_task = asyncio.current_task()
-    _shutdown_requested = False
-
-    def _request_shutdown(sig_name: str):
-        nonlocal _shutdown_requested
-        if _shutdown_requested:
-            return
-        _shutdown_requested = True
-        print(f"🛑 [SHUTDOWN] {sig_name} 시그널 수신 — 대기 중인 설정 저장 및 Firebase 동기화를 완료한 뒤 안전 종료합니다...", flush=True)
-        if main_task is not None and not main_task.done():
-            main_task.cancel()
-
-    for _sig in (signal.SIGTERM, signal.SIGINT):
-        try:
-            loop.add_signal_handler(_sig, _request_shutdown, _sig.name)
-        except (NotImplementedError, ValueError, RuntimeError):
-            pass
-
-    _cleaned_once = False
     try:
         while True:
             try:
@@ -3018,7 +2220,6 @@ async def main():
                         break
             except asyncio.CancelledError:
                 await _cleanup_bot_session()
-                _cleaned_once = True
                 raise
             except Exception as e:
                 print(f"⚠️ 봇 연결 예외 발생 (15초 후 재시도): {e}", flush=True)
@@ -3028,18 +2229,9 @@ async def main():
             else:
                 # 정상 종료 시 세션 정리 후 루프 탈출
                 await _cleanup_bot_session()
-                _cleaned_once = True
                 break
     finally:
-        if not _cleaned_once:
-            await _cleanup_bot_session()
-        try:
-            await asyncio.to_thread(core.flush_firebase_sync, 4.0)
-        except Exception:
-            try:
-                core.flush_firebase_sync(4.0)
-            except Exception:
-                pass
+        await _cleanup_bot_session()
         if getattr(bot, "_web_runner", None) is not None:
             try:
                 await bot._web_runner.cleanup()
@@ -3052,10 +2244,5 @@ async def main():
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except (KeyboardInterrupt, asyncio.CancelledError):
+    except KeyboardInterrupt:
         pass
-    finally:
-        try:
-            core.flush_firebase_sync(2.0)
-        except Exception:
-            pass
