@@ -7635,7 +7635,26 @@ def execute_partner_gift(guild_id: int, sender_id: int, partner_id: int, card_id
 # ==========================================
 # 5. D-Day 계산, 은하수 게이지 및 음악 추천 보조 함수
 # ==========================================
-def get_dday_info(target_date_str):
+def parse_dday_plus_one_flag(raw_val) -> bool:
+    """모달/문자열/불리언 입력을 '지나간 날짜 +1일 계산' 여부(bool)로 안전하게 변환합니다."""
+    if isinstance(raw_val, bool):
+        return raw_val
+    if isinstance(raw_val, (int, float)):
+        return bool(raw_val)
+    s = str(raw_val or "").strip().lower()
+    if not s:
+        return False
+    return s in {"+1", "1", "y", "yes", "true", "t", "o", "ok", "on", "예", "네", "적용", "사용", "켜기", "플러스1"}
+
+
+def get_dday_info(target_date_str, plus_one: bool = False):
+    """
+    목표일(target_date_str)과 오늘(KST)의 차이를 계산해 (diff, 표시문자열)을 반환합니다.
+    - diff > 0 (미래): D-{diff}
+    - diff == 0 (오늘): D-Day
+    - diff < 0 (이미 지나간 날짜): 기본 D+{abs(diff)}, plus_one=True일 때만 D+{abs(diff) + 1}
+      ※ plus_one 옵션은 '날짜가 이미 지나간 경우(diff < 0)' 전용으로만 +1을 적용합니다.
+    """
     today = datetime.datetime.now(KST).date()
     target_date = datetime.datetime.strptime(target_date_str, "%Y-%m-%d").date()
     diff = (target_date - today).days
@@ -7644,11 +7663,12 @@ def get_dday_info(target_date_str):
     elif diff == 0:
         return 0, "D-Day"
     else:
-        return diff, f"D+{abs(diff)}"
+        passed = abs(diff) + (1 if plus_one else 0)
+        return diff, f"D+{passed}"
 
 
-def format_dday_channel_name(name: str, date_str: str, emoji: str = "🌠"):
-    _, dday_text = get_dday_info(date_str)
+def format_dday_channel_name(name: str, date_str: str, emoji: str = "🌠", plus_one: bool = False):
+    _, dday_text = get_dday_info(date_str, plus_one=plus_one)
     clean_emoji = emoji.strip() if emoji and emoji.strip() else "🌠"
     return f"{clean_emoji}ㅣ{name} / {dday_text}"
 
@@ -7838,8 +7858,9 @@ def build_dday_grass_board_summary(ddays_dict: dict):
     for name, info in sorted(ddays_dict.items(), key=lambda x: x[1].get("date", "9999-12-31")):
         date_str = info.get("date", get_today_str())
         start_str = info.get("start_date", get_today_str())
+        plus_one = bool(info.get("plus_one", False))
         try:
-            diff, dday_text = get_dday_info(date_str)
+            diff, dday_text = get_dday_info(date_str, plus_one=plus_one)
             bar_data = build_dday_galaxy_grass_bar(start_str, date_str, width=12)
         except Exception:
             continue
@@ -7863,6 +7884,7 @@ def build_dday_grass_board_summary(ddays_dict: dict):
             "start_date": start_str,
             "emoji": info.get("emoji", "🌠"),
             "repeat": bool(info.get("repeat", False)),
+            "plus_one": plus_one,
             "channel_id": info.get("channel_id"),
             "diff": diff,
             "dday_text": dday_text,
@@ -9110,7 +9132,15 @@ async def date_autocomplete(interaction: discord.Interaction, current: str) -> l
         return [app_commands.Choice(name=f"예시: {today_str} (오늘 날짜)", value=today_str)]
     if re.match(r"^\d{4}-\d{2}-\d{2}$", current):
         try:
-            _, dday_text = get_dday_info(current)
+            diff, dday_text = get_dday_info(current)
+            if diff < 0:
+                _, plus_one_text = get_dday_info(current, plus_one=True)
+                return [
+                    app_commands.Choice(
+                        name=f"{current} 👉 지난 날짜: 기본 {dday_text} / +1일 계산 시 {plus_one_text}",
+                        value=current,
+                    )
+                ]
             return [app_commands.Choice(name=f"{current} 👉 남은 기간 미리보기: {dday_text}", value=current)]
         except ValueError:
             return [app_commands.Choice(name="❌ 존재하지 않는 날짜입니다", value=current)]
