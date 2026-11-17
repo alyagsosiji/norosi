@@ -653,7 +653,7 @@ class QuickMenuHubView(core.SafeView):
             if not date_val:
                 continue
             try:
-                diff, d_txt = core.get_dday_info(date_val)
+                diff, d_txt = core.get_dday_info(date_val, plus_one=bool(d_info.get("plus_one", False)))
                 if diff >= 0:
                     upcoming.append((diff, d_name, date_val, d_txt))
             except Exception:
@@ -1222,6 +1222,12 @@ class DDayQuickAddModal(core.SafeModal, title="📅 새 D-Day 일정 빠른 등�
         default="🌠",
         max_length=5
     )
+    d_plus_one = discord.ui.TextInput(
+        label="지나간 날짜 +1일 계산 (날짜가 지난 경우 전용)",
+        placeholder="이미 지난 날짜에 +1일 적용 시 '+1' 또는 '예' 입력 (미입력 시 미적용)",
+        required=False,
+        max_length=10
+    )
 
     def __init__(self, board_view):
         super().__init__()
@@ -1241,6 +1247,8 @@ class DDayQuickAddModal(core.SafeModal, title="📅 새 D-Day 일정 빠른 등�
             today_str = core.get_today_str()
             start_val = min(today_str, target_val)
 
+        plus_one_val = core.parse_dday_plus_one_flag(self.d_plus_one.value)
+
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
         name_val = self.d_name.value.strip()
@@ -1250,6 +1258,7 @@ class DDayQuickAddModal(core.SafeModal, title="📅 새 D-Day 일정 빠른 등�
         ddays_map[name_val] = {
             "date": target_val,
             "repeat": existing.get("repeat", False),
+            "plus_one": plus_one_val,
             "start_date": start_val,
             "emoji": emoji_val,
             "channel_id": existing.get("channel_id"),
@@ -1346,7 +1355,8 @@ class DDayListBoardView(core.SafeView):
 
         if recent_past and self.filter_mode == "all":
             past_lines = [
-                f"• ~~{it['emoji']} {it['name']} ({it['date']})~~ — `{it['dday_text']}` 경과\n  └ {it['grass_bar']} `100% 완료`"
+                f"• ~~{it['emoji']} {it['name']} ({it['date']})~~ — `{it['dday_text']}` 경과"
+                f"{' `(+1일 계산)`' if it.get('plus_one') else ''}\n  └ {it['grass_bar']} `100% 완료`"
                 for it in recent_past
             ]
             core.add_chunked_embed_fields(
@@ -1412,6 +1422,12 @@ class SecretDDayAddModal(core.SafeModal, title="🔒 비밀 디데이 & 타임�
         required=False,
         max_length=300
     )
+    s_plus_one = discord.ui.TextInput(
+        label="지나간 날짜 +1일 계산 (날짜가 지난 경우 전용)",
+        placeholder="이미 지난 날짜에 +1일 적용 시 '+1' 또는 '예' 입력 (미입력 시 미적용)",
+        required=False,
+        max_length=10
+    )
 
     def __init__(self, hub_view):
         super().__init__()
@@ -1425,6 +1441,8 @@ class SecretDDayAddModal(core.SafeModal, title="🔒 비밀 디데이 & 타임�
             await core.safe_send_response(interaction, "❌ 날짜 형식은 `YYYY-MM-DD`로 입력해 주세요.", ephemeral=True)
             return
 
+        plus_one_val = core.parse_dday_plus_one_flag(self.s_plus_one.value)
+
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
         u_key = str(self.hub_view.user.id)
@@ -1436,6 +1454,7 @@ class SecretDDayAddModal(core.SafeModal, title="🔒 비밀 디데이 & 타임�
             "date": d_val,
             "memo": self.s_memo.value.strip() if self.s_memo.value else "",
             "start_date": today_str,
+            "plus_one": plus_one_val,
             "notified_date": ""
         }
         await asyncio.to_thread(core.save_data, data)
@@ -1484,10 +1503,12 @@ class SecretDDayHubView(core.SafeView):
             lines = []
             for s_name, s_info in sorted(self.s_ddays.items(), key=lambda x: x[1].get("date", "")):
                 d_str = s_info.get("date", core.get_today_str())
-                _, text = core.get_dday_info(d_str)
+                plus_one = bool(s_info.get("plus_one", False))
+                diff, text = core.get_dday_info(d_str, plus_one=plus_one)
+                plus_tag = " `(+1일)`" if (diff < 0 and plus_one) else ""
                 bar_str = core.get_galaxy_progress_bar(s_info.get("start_date", core.get_today_str()), d_str)
                 memo_preview = f"\n  └ 💌 타임캡슐: `{s_info['memo']}`" if s_info.get("memo") else ""
-                lines.append(f"• **{s_name}** (`{d_str}`) — **`{text}`**\n  └ {bar_str}{memo_preview}")
+                lines.append(f"• **{s_name}** (`{d_str}`) — **`{text}`**{plus_tag}\n  └ {bar_str}{memo_preview}")
             embed.description = "\n\n".join(lines)[:4000]
         embed.set_footer(text="이 메시지는 본인에게만 보입니다 • 목표일 오전 9시 개인 DM으로 타임캡슐이 발송됩니다.")
         return embed
@@ -1524,6 +1545,12 @@ class SecretDDayHubView(core.SafeView):
 class PartnerDDayAddModal(core.SafeModal, title="💖 파트너 공동 D-Day 추가"):
     p_name = discord.ui.TextInput(label="공동 D-Day 일정 이름", placeholder="예: 100일 기념일, 함께 여행 가는 날", required=True, max_length=50)
     p_date = discord.ui.TextInput(label="목표 날짜 (YYYY-MM-DD)", placeholder="예: 2026-12-25", required=True, max_length=10)
+    p_plus_one = discord.ui.TextInput(
+        label="지나간 날짜 +1일 계산 (날짜가 지난 경우 전용)",
+        placeholder="이미 지난 날짜에 +1일 적용 시 '+1' 또는 '예' 입력 (미입력 시 미적용)",
+        required=False,
+        max_length=10
+    )
 
     def __init__(self, hub_view):
         super().__init__()
@@ -1537,6 +1564,8 @@ class PartnerDDayAddModal(core.SafeModal, title="💖 파트너 공동 D-Day 추
             await core.safe_send_response(interaction, "❌ 날짜 형식은 `YYYY-MM-DD`로 입력해 주세요.", ephemeral=True)
             return
 
+        plus_one_val = core.parse_dday_plus_one_flag(self.p_plus_one.value)
+
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
         pair_key = core.get_partner_pair_key(self.hub_view.user.id, self.hub_view.partner_id)
@@ -1549,6 +1578,7 @@ class PartnerDDayAddModal(core.SafeModal, title="💖 파트너 공동 D-Day 추
         p_ddays_map[self.p_name.value.strip()] = {
             "date": d_val,
             "start_date": today_str,
+            "plus_one": plus_one_val,
             "notified_date": ""
         }
         await asyncio.to_thread(core.save_data, data)
@@ -1609,9 +1639,11 @@ class PartnerHubView(core.SafeView):
         lines = []
         for d_name, d_info in sorted(p_ddays.items(), key=lambda x: x[1].get("date", "")):
             d_str = d_info.get("date", core.get_today_str())
-            _, d_text = core.get_dday_info(d_str)
+            plus_one = bool(d_info.get("plus_one", False))
+            diff, d_text = core.get_dday_info(d_str, plus_one=plus_one)
+            plus_tag = " `(+1일)`" if (diff < 0 and plus_one) else ""
             bar_str = core.get_galaxy_progress_bar(d_info.get("start_date", core.get_today_str()), d_str)
-            lines.append(f"• **{d_name}** (`{d_str}`) — **`{d_text}`**\n  └ {bar_str}")
+            lines.append(f"• **{d_name}** (`{d_str}`) — **`{d_text}`**{plus_tag}\n  └ {bar_str}")
 
         core.add_chunked_embed_fields(
             embed,
@@ -1890,7 +1922,8 @@ class DDayCog(commands.Cog):
         이모지: str = "🌠",
         시작일: str = None,
         매년반복: bool = False,
-        채널생성: bool = True
+        채널생성: bool = True,
+        플러스1: bool = False,
     ):
         try:
             datetime.datetime.strptime(날짜, "%Y-%m-%d")
@@ -1908,6 +1941,7 @@ class DDayCog(commands.Cog):
         settings_map = core.ensure_dict_path(data, "settings")
         existing_info = core.as_dict(ddays_map.get(이름))
         existing_ch_id = existing_info.get("channel_id")
+        plus_one_val = bool(플러스1)
 
         target_category = 카테고리
         if not target_category and settings_map.get("default_category_id") and interaction.guild:
@@ -1917,7 +1951,7 @@ class DDayCog(commands.Cog):
         channel_status_msg = "생성 안 함 (`채널생성: False`)"
 
         if 채널생성 and interaction.guild:
-            new_ch_name = core.format_dday_channel_name(이름, 날짜, 이모지)
+            new_ch_name = core.format_dday_channel_name(이름, 날짜, 이모지, plus_one=plus_one_val)
 
             if existing_ch_id:
                 created_channel = interaction.guild.get_channel(int(existing_ch_id))
@@ -1950,6 +1984,7 @@ class DDayCog(commands.Cog):
         ddays_map[이름] = {
             "date": 날짜,
             "repeat": 매년반복,
+            "plus_one": plus_one_val,
             "start_date": actual_start,
             "emoji": 이모지,
             "channel_id": created_channel.id if created_channel else existing_ch_id,
@@ -1958,15 +1993,21 @@ class DDayCog(commands.Cog):
         }
         await asyncio.to_thread(core.save_data, data)
 
-        diff, dday_text = core.get_dday_info(날짜)
+        diff, dday_text = core.get_dday_info(날짜, plus_one=plus_one_val)
         repeat_str = " (매년 반복 🔄)" if 매년반복 else ""
+        plus_one_line = ""
+        if plus_one_val:
+            if diff < 0:
+                plus_one_line = f"\n• **지나간 날짜 +1일 계산:** ✅ 적용됨 (`D+{abs(diff)}` → **`{dday_text}`**)"
+            else:
+                plus_one_line = "\n• **지나간 날짜 +1일 계산:** ⏳ 예약됨 *(미래·당일 날짜에는 미적용, 날짜가 지난 후부터 +1 적용)*"
         bar_str = core.get_galaxy_progress_bar(actual_start, 날짜)
 
         embed = discord.Embed(
             title="✅ 디데이 일정 및 채널 설정 완료",
             description=(
                 f"**{이름}**{repeat_str} 일정이 등록되었습니다!\n"
-                f"• **기간:** `{actual_start}` → `{날짜}` (**`{dday_text}`**)\n"
+                f"• **기간:** `{actual_start}` → `{날짜}` (**`{dday_text}`**){plus_one_line}\n"
                 f"• **전광판 채널:** {channel_status_msg}\n"
                 f"└ {bar_str}"
             ),
@@ -2093,7 +2134,8 @@ class DDayCog(commands.Cog):
         이모지="(선택) 채널 이름 맨 앞에 붙일 이모지 (기본값: 🌠)",
         시작일="(선택) 은하수 진행률 계산 시작일 (미입력 시 오늘부터 계산)",
         매년반복="(선택) 생일/기념일처럼 매년 반복되는 일정인가요? (기본값: False)",
-        채널생성="(선택) 상단 전광판 음성 채널을 함께 생성할까요? (기본값: True)"
+        채널생성="(선택) 상단 전광판 음성 채널을 함께 생성할까요? (기본값: True)",
+        플러스1="(선택) 날짜가 이미 지나간 경우 전용: +1일 계산 적용 (예: 시작 당일을 1일차로 계산, 기본값: False)"
     )
     async def add_dday(
         self,
@@ -2104,7 +2146,8 @@ class DDayCog(commands.Cog):
         이모지: str = "🌠",
         시작일: str = None,
         매년반복: bool = False,
-        채널생성: bool = True
+        채널생성: bool = True,
+        플러스1: bool = False,
     ):
         await self._create_or_update_dday(
             interaction,
@@ -2114,7 +2157,8 @@ class DDayCog(commands.Cog):
             이모지=이모지,
             시작일=시작일,
             매년반복=매년반복,
-            채널생성=채널생성
+            채널생성=채널생성,
+            플러스1=플러스1,
         )
 
     @app_commands.command(name="전광판설정", description="특정 D-Day의 전광판 채널 이모지, 날짜, 카테고리를 변경하고 즉시 반영합니다.")
@@ -2123,7 +2167,8 @@ class DDayCog(commands.Cog):
         이름="전광판에 표시할 일정 이름",
         날짜="목표 날짜 (YYYY-MM-DD 형식)",
         카테고리="(선택) 전광판 채널을 이동시키거나 새로 만들 카테고리",
-        이모지="맨 앞에 붙일 이모지 (기본값: 🌠)"
+        이모지="맨 앞에 붙일 이모지 (기본값: 🌠)",
+        플러스1="(선택) 날짜가 이미 지나간 경우 전용: +1일 계산 적용 (기본값: False)"
     )
     async def set_banner(
         self,
@@ -2131,7 +2176,8 @@ class DDayCog(commands.Cog):
         이름: str,
         날짜: str,
         카테고리: discord.CategoryChannel = None,
-        이모지: str = "🌠"
+        이모지: str = "🌠",
+        플러스1: bool = False,
     ):
         await self._create_or_update_dday(
             interaction,
@@ -2141,7 +2187,8 @@ class DDayCog(commands.Cog):
             이모지=이모지,
             시작일=None,
             매년반복=False,
-            채널생성=True
+            채널생성=True,
+            플러스1=플러스1,
         )
 
     @app_commands.command(name="디데이목록", description="등록된 모든 D-Day 일정의 진행 상황을 남은 기간별 색상이 변하는 '은하수 잔디 막대 그래프'로 확인합니다.")
@@ -2166,12 +2213,14 @@ class DDayCog(commands.Cog):
             date_str = info.get("date")
             if not date_str:
                 continue
+            plus_one = bool(info.get("plus_one", False))
             try:
-                diff, text = core.get_dday_info(date_str)
+                diff, text = core.get_dday_info(date_str, plus_one=plus_one)
             except Exception:
                 continue
             if diff < 0:
-                past_lines.append(f"• **{name}** (`{date_str}`) — `{text}` 경과")
+                plus_badge = " `(+1일 계산)`" if plus_one else ""
+                past_lines.append(f"• **{name}** (`{date_str}`) — `{text}` 경과{plus_badge}")
 
         embed = discord.Embed(
             title="📦 추억 보관소 (지나간 D-Day 목록)",
@@ -2187,7 +2236,8 @@ class DDayCog(commands.Cog):
         동작="(선택) 미선택 시 버튼과 모달로 조작 가능한 비밀 디데이 보드를 엽니다.",
         이름="(추가/삭제 시) 비밀 디데이 일정 이름",
         날짜="(추가 시) 목표 날짜 (YYYY-MM-DD 형식)",
-        타임캡슐메시지="(추가 시) D-Day 당일 오전 9시 개인 DM으로 함께 받을 나만의 메시지"
+        타임캡슐메시지="(추가 시) D-Day 당일 오전 9시 개인 DM으로 함께 받을 나만의 메시지",
+        플러스1="(추가 시·선택) 날짜가 이미 지나간 경우 전용: +1일 계산 적용 (기본값: False)"
     )
     @app_commands.choices(동작=[
         app_commands.Choice(name="🧭 비밀 디데이 인터랙티브 보드 열기", value="hub"),
@@ -2201,7 +2251,8 @@ class DDayCog(commands.Cog):
         동작: app_commands.Choice[str] = None,
         이름: str = None,
         날짜: str = None,
-        타임캡슐메시지: str = None
+        타임캡슐메시지: str = None,
+        플러스1: bool = False,
     ):
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
@@ -2236,6 +2287,7 @@ class DDayCog(commands.Cog):
                 "date": 날짜,
                 "memo": 타임캡슐메시지 or "",
                 "start_date": today_str,
+                "plus_one": bool(플러스1),
                 "notified_date": ""
             }
             await asyncio.to_thread(core.save_data, data)
@@ -2269,7 +2321,8 @@ class DDayCog(commands.Cog):
         동작="(선택) 미선택 시 파트너 스페이스 보드(또는 파트너 신청 안내)를 엽니다.",
         유저="(파트너 신청 시) 파트너를 맺을 디스코드 유저를 선택하세요.",
         이름="(공동 디데이 추가/삭제 시) 공동 D-Day 일정 이름",
-        날짜="(공동 디데이 추가 시) 목표 날짜 (YYYY-MM-DD 형식)"
+        날짜="(공동 디데이 추가 시) 목표 날짜 (YYYY-MM-DD 형식)",
+        플러스1="(공동 디데이 추가 시·선택) 날짜가 이미 지나간 경우 전용: +1일 계산 적용 (기본값: False)"
     )
     @app_commands.choices(동작=[
         app_commands.Choice(name="💑 파트너 스페이스 보드 열기", value="info"),
@@ -2285,7 +2338,8 @@ class DDayCog(commands.Cog):
         동작: app_commands.Choice[str] = None,
         유저: discord.User = None,
         이름: str = None,
-        날짜: str = None
+        날짜: str = None,
+        플러스1: bool = False,
     ):
         if not interaction.response.is_done():
             is_public_mode = (동작 and 동작.value in ("request", "music")) or (not 동작 and 유저 is not None)
@@ -2370,6 +2424,7 @@ class DDayCog(commands.Cog):
             p_ddays_map[이름] = {
                 "date": 날짜,
                 "start_date": today_str,
+                "plus_one": bool(플러스1),
                 "notified_date": ""
             }
             await asyncio.to_thread(core.save_data, data)
