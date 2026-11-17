@@ -644,20 +644,18 @@ def reconstruct_safe_view(view_cls_or_name: Union[type[SafeView], str], interact
             elif name in ("guild_cfg",):
                 gid_s = str(interaction.guild.id if interaction.guild else 0)
                 kwargs[name] = safe_get_dict(_data(), "server_logs", gid_s)
-            elif name in (
-                "card_list", "items", "options", "all_prob_cards", "stats_list", "first_set", "initial_drawn",
-                "liked_music", "matches", "entries", "schedules", "music_list", "inactive_list", "novels",
-            ):
-                kwargs[name] = []
-            elif name in (
-                "stats", "profile", "user_cfg", "config", "game", "card", "pickup_cfg", "preview_info",
-                "hall_of_fame", "req_card", "tgt_card", "req_cards", "tgt_cards", "track_info", "prefs",
-                "playlist_data", "guild_cfg", "weather_info", "track", "ddays", "s_ddays",
-            ):
-                if name == "game" and getattr(view_cls, "__name__", "") == "RecruitLobbyView":
-                    kwargs[name] = "프로세카"
-                else:
-                    kwargs[name] = {}
+            elif name == "profile" and getattr(view_cls, "__name__", "") == "TodoTrackerView":
+                kwargs[name] = get_user_todo_profile(_data(), orig_user.id if orig_user else 0)
+            elif name == "music_list" and getattr(view_cls, "__name__", "") == "MusicLibraryPaginationView":
+                kwargs[name] = list(as_dict(_data().get("liked_music")).get(str(orig_user.id if orig_user else 0), []))
+            elif name == "schedules" and getattr(view_cls, "__name__", "") == "MusicScheduleHubView":
+                kwargs[name] = [s for s in (_data().get("music_schedules") or []) if isinstance(s, dict)]
+            elif name == "entries" and getattr(view_cls, "__name__", "") == "ReactionRoleListView":
+                gid_s = str(interaction.guild.id if interaction.guild else 0)
+                rr_map = safe_get_dict(_data(), "reaction_roles", gid_s)
+                kwargs[name] = [(k, v) for k, v in rr_map.items() if isinstance(v, dict)]
+            elif name == "prefs" and getattr(view_cls, "__name__", "") == "MusicRecommendView":
+                kwargs[name] = get_user_music_prefs(_data(), orig_user.id if orig_user else 0)
             elif name in ("cal_info",):
                 gid = interaction.guild.id if interaction.guild else 0
                 gname = interaction.guild.name if interaction.guild else "개인 메시지(DM)"
@@ -674,21 +672,34 @@ def reconstruct_safe_view(view_cls_or_name: Union[type[SafeView], str], interact
                 kwargs[name] = "파티 모집" if getattr(view_cls, "__name__", "") == "RecruitLobbyView" else 100
             elif name in ("start_word",):
                 kwargs[name] = "세카이"
-            elif name in ("char_key", "title", "content", "description", "mode", "title_str", "query", "playlist_id"):
-                kwargs[name] = ""
             elif name in ("studio_view",):
                 try:
                     import cogs.music
                     kwargs[name] = cogs.music.PlaylistStudioView(interaction.user, interaction.user, get_cached_data())
                 except Exception:
                     kwargs[name] = None
-            elif name in ("ai_cog",):
-                kwargs[name] = None
             elif name in ("player",):
                 import cogs.music
                 kwargs[name] = cogs.music.get_voice_player(interaction.client, interaction.guild)
             elif p.default is not inspect.Parameter.empty:
+                # 기본값(=None 등)이 정의된 파라미터는 뷰 내부 자체 데이터 로딩 로직이 동작하도록 기본값 보존
                 kwargs[name] = p.default
+            elif name in (
+                "card_list", "items", "options", "all_prob_cards", "stats_list", "first_set", "initial_drawn",
+                "liked_music", "matches", "entries", "schedules", "music_list", "inactive_list", "novels",
+            ):
+                kwargs[name] = []
+            elif name in (
+                "stats", "profile", "user_cfg", "config", "game", "card", "pickup_cfg", "preview_info",
+                "hall_of_fame", "req_card", "tgt_card", "req_cards", "tgt_cards", "track_info", "prefs",
+                "playlist_data", "guild_cfg", "weather_info", "track", "ddays", "s_ddays",
+            ):
+                if name == "game" and getattr(view_cls, "__name__", "") == "RecruitLobbyView":
+                    kwargs[name] = "프로세카"
+                else:
+                    kwargs[name] = {}
+            elif name in ("char_key", "title", "content", "description", "mode", "title_str", "query", "playlist_id"):
+                kwargs[name] = ""
             else:
                 kwargs[name] = None
 
