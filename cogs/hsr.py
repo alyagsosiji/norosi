@@ -1448,6 +1448,40 @@ class HSRGuildResetConfirmView(core.SafeView):
         await core.safe_edit_response(interaction, content="취소되었습니다.", embed=None, view=None)
 
 
+async def _fallback_hsr_relic_autocomplete(interaction: discord.Interaction, current: str):
+    load_fn = getattr(hsr_core, "load_hsr_kr_db", None)
+    if callable(load_fn):
+        try:
+            load_fn()
+        except Exception:
+            pass
+    relics = getattr(hsr_core, "HSR_RELICS", []) or []
+    q = (current or "").strip().lower()
+    cands = [r for r in relics if not q or q in str(r.get("name", "")).lower() or q in str(r.get("id", "")).lower()]
+    return [
+        app_commands.Choice(name=f"💿 {r.get('name', '유물 세트')} ({r.get('slot_label', '유물/장신구')})"[:100], value=str(r.get("id", "")))
+        for r in cands[:25] if r.get("id")
+    ]
+
+
+def _make_hsr_autocomplete(attr_name: str, fallback_fn=None):
+    async def _ac(interaction: discord.Interaction, current: str):
+        fn = getattr(hsr_core, attr_name, None)
+        if callable(fn):
+            return await fn(interaction, current)
+        if callable(fallback_fn):
+            return await fallback_fn(interaction, current)
+        return []
+    return _ac
+
+
+_AC_HSR_OWNED_CHAR = _make_hsr_autocomplete("hsr_owned_char_autocomplete")
+_AC_HSR_5STAR_CHAR = _make_hsr_autocomplete("hsr_5star_char_autocomplete")
+_AC_HSR_4STAR_CHAR = _make_hsr_autocomplete("hsr_4star_char_autocomplete")
+_AC_HSR_5STAR_LC = _make_hsr_autocomplete("hsr_5star_lc_autocomplete")
+_AC_HSR_RELIC = _make_hsr_autocomplete("hsr_relic_autocomplete", _fallback_hsr_relic_autocomplete)
+
+
 # ==========================================
 # /스타레일 GroupCog (11 Subcommands + Prefix Shortcuts)
 # ==========================================
@@ -1556,10 +1590,10 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
 
     @app_commands.command(name="파티편성", description="⚔️ 보유 스타레일 동료 4명 편대 구성 및 운명의 길·약점 격파 시너지 계산")
     @app_commands.autocomplete(
-        슬롯1=hsr_core.hsr_owned_char_autocomplete,
-        슬롯2=hsr_core.hsr_owned_char_autocomplete,
-        슬롯3=hsr_core.hsr_owned_char_autocomplete,
-        슬롯4=hsr_core.hsr_owned_char_autocomplete,
+        슬롯1=_AC_HSR_OWNED_CHAR,
+        슬롯2=_AC_HSR_OWNED_CHAR,
+        슬롯3=_AC_HSR_OWNED_CHAR,
+        슬롯4=_AC_HSR_OWNED_CHAR,
     )
     async def party_cmd(
         self,
@@ -1584,7 +1618,7 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
         await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
 
     @app_commands.command(name="프로필", description="🪪 나 또는 다른 개척자의 스타레일 쇼케이스 카드(천장 · 대표캐릭터 · 편대)를 봅니다")
-    @app_commands.autocomplete(대표캐릭터=hsr_core.hsr_owned_char_autocomplete)
+    @app_commands.autocomplete(대표캐릭터=_AC_HSR_OWNED_CHAR)
     async def profile_cmd(
         self,
         interaction: discord.Interaction,
@@ -1664,15 +1698,15 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
         app_commands.Choice(name="🧹 기본값 초기화", value="reset"),
     ])
     @app_commands.autocomplete(
-        캐릭터1=hsr_core.hsr_5star_char_autocomplete,
-        캐릭터2=hsr_core.hsr_5star_char_autocomplete,
-        사성1=hsr_core.hsr_4star_char_autocomplete,
-        사성2=hsr_core.hsr_4star_char_autocomplete,
-        사성3=hsr_core.hsr_4star_char_autocomplete,
-        광추1=hsr_core.hsr_5star_lc_autocomplete,
-        광추2=hsr_core.hsr_5star_lc_autocomplete,
-        유물1=hsr_core.hsr_relic_autocomplete,
-        유물2=hsr_core.hsr_relic_autocomplete,
+        캐릭터1=_AC_HSR_5STAR_CHAR,
+        캐릭터2=_AC_HSR_5STAR_CHAR,
+        사성1=_AC_HSR_4STAR_CHAR,
+        사성2=_AC_HSR_4STAR_CHAR,
+        사성3=_AC_HSR_4STAR_CHAR,
+        광추1=_AC_HSR_5STAR_LC,
+        광추2=_AC_HSR_5STAR_LC,
+        유물1=_AC_HSR_RELIC,
+        유물2=_AC_HSR_RELIC,
     )
     async def setup_pickup_cmd(
         self,
