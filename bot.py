@@ -452,7 +452,7 @@ class NorosiBot(commands.Bot):
         self.tree.on_error = self.on_app_command_error
 
         if log_mode == "detailed":
-            print("------------------------------------------------------------------", flush=True)
+            print("\n------------------------------------------------------------------", flush=True)
             print("🔌 [2/4] 17대 Cogs 확장 모듈 로드 및 명령어 트리 빌드 중...", flush=True)
         # 서버 배포 파일 뒤바뀜(예: fishing_core.py에 cogs/fishing.py 덮어쓰기, cogs/gacha.py에 cogs/hsr.py 덮어쓰기) 사전 진단
         try:
