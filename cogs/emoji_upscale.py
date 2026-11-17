@@ -26,15 +26,10 @@ CUSTOM_EMOJI_RE = re.compile(r"<(a?):([a-zA-Z0-9_]{1,64}):(\d{15,22})>")
 
 MAX_EMOJIS_PER_MESSAGE = 3
 STICKER_TARGET_SIZE = 160   # 디스코드 원본 스티커 표시 크기 (160x160px)
-SINGLE_CANVAS_WIDTH = 320   # 1개: 320x160 (2:1) -> PC 320px/모바일 ~330dp에서도 정확히 160px 스티커 크기로 유지
-DOUBLE_CANVAS_WIDTH = 328   # 2개: 160 + 8 + 160 = 328x160 (PC 최대 400px 이하라 축소 없음)
-TRIPLE_CANVAS_WIDTH = 400   # 3개: 128*3 + 8*2 = 400x160 (3개 나란히 배치)
-TRIPLE_SLOT_SIZE = 128
+TRIPLE_SLOT_SIZE = 128      # 3개 연속 전송 시 각 이모지 최대 크기
 EMOJI_SLOT_SIZE = STICKER_TARGET_SIZE
-STICKER_CANVAS_WIDTH = SINGLE_CANVAS_WIDTH
-STICKER_CANVAS_HEIGHT = STICKER_TARGET_SIZE
-STATIC_TARGET_SIZE = EMOJI_SLOT_SIZE
-ANIMATED_TARGET_SIZE = EMOJI_SLOT_SIZE
+STATIC_TARGET_SIZE = STICKER_TARGET_SIZE
+ANIMATED_TARGET_SIZE = STICKER_TARGET_SIZE
 MAX_UPLOAD_BYTES = 24 * 1024 * 1024  # Discord 25MB 제한 안전 마진
 WEBHOOK_NAME = "norosi-emoji-upscale"
 RESAMPLE_LANCZOS = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.LANCZOS)
@@ -176,36 +171,43 @@ def _extract_rgba_frames(raw_bytes: bytes, slot_size: int = EMOJI_SLOT_SIZE) -> 
     return composited_frames, durations, loop_count
 
 
-def _get_sticker_layout(count: int) -> tuple[int, int, int]:
-    """이모지 개수(1~3)에 맞는 (캔버스 너비, 캔버스 높이, 슬롯 크기) 반환."""
-    if count <= 1:
-        return SINGLE_CANVAS_WIDTH, STICKER_TARGET_SIZE, STICKER_TARGET_SIZE
-    if count == 2:
-        return DOUBLE_CANVAS_WIDTH, STICKER_TARGET_SIZE, STICKER_TARGET_SIZE
-    return TRIPLE_CANVAS_WIDTH, STICKER_TARGET_SIZE, TRIPLE_SLOT_SIZE
+def _get_slot_size_for_count(count: int) -> int:
+    """이모지 개수(1~3)에 맞는 각 이모지 목표 크기(px) 반환."""
+    if count >= 3:
+        return TRIPLE_SLOT_SIZE
+    return STICKER_TARGET_SIZE
 
 
 def _paste_sprites_on_sticker_canvas(
     sprites: list[Image.Image],
     canvas_w: Optional[int] = None,
-    canvas_h: int = STICKER_TARGET_SIZE,
+    canvas_h: Optional[int] = None,
 ) -> Image.Image:
-    """1~3개의 이모지를 디스코드 스티커 크기 비율 투명 캔버스 좌측에 원래 비율/모양 그대로 배치합니다."""
+    """1~3개의 이모지를 불필요한 투명 여백 없이 실제 크기(160px 스티커 기준)에 딱 맞게 배치합니다."""
     items = sprites[:MAX_EMOJIS_PER_MESSAGE]
-    auto_w, auto_h, slot_size = _get_sticker_layout(len(items))
-    w = canvas_w or auto_w
-    h = canvas_h or auto_h
-    canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    slot_size = _get_slot_size_for_count(len(items))
+    fitted: list[Image.Image] = []
+    for sp in items:
+        if sp.width > slot_size or sp.height > slot_size or max(sp.width, sp.height) != slot_size:
+            fitted.append(_resize_rgba(sp, slot_size))
+        else:
+            fitted.append(sp)
+
+    if len(fitted) == 1 and canvas_w is None and canvas_h is None:
+        return fitted[0].copy()
+
     gap = 8
-    pad_y = max(0, (h - slot_size) // 2)
-    for idx, sp in enumerate(items):
-        if sp.width > slot_size or sp.height > slot_size:
-            nw, nh = _compute_scaled_size(sp.width, sp.height, slot_size)
-            sp = sp.resize((nw, nh), RESAMPLE_LANCZOS)
-        slot_x = idx * (slot_size + gap)
-        dx = slot_x + max(0, (slot_size - sp.width) // 2)
-        dy = pad_y + max(0, (slot_size - sp.height) // 2)
-        canvas.alpha_composite(sp, (dx, dy))
+    tight_w = sum(sp.width for sp in fitted) + gap * max(0, len(fitted) - 1)
+    tight_h = max(sp.height for sp in fitted)
+    w = canvas_w or tight_w
+    h = canvas_h or tight_h
+
+    canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    cur_x = 0
+    for sp in fitted:
+        dy = max(0, (h - sp.height) // 2)
+        canvas.alpha_composite(sp, (cur_x, dy))
+        cur_x += sp.width + gap
     return canvas
 
 
@@ -225,25 +227,23 @@ def _sample_frame_at_time(frames: list[Image.Image], durations: list[int], t_ms:
 def build_sticker_strip_bytes(
     raw_items: list[bytes],
     canvas_w: Optional[int] = None,
-    canvas_h: int = STICKER_TARGET_SIZE,
+    canvas_h: Optional[int] = None,
 ) -> tuple[bytes, str]:
     """
-    1~3개의 커스텀 이모지를 디스코드 원본 스티커 크기(1개 320x160 · 2개 328x160 · 3개 400x160 투명 캔버스)로 변환합니다.
+    1~3개의 커스텀 이모지를 불필요한 투명 여백 없이 실제 크기 자체를 디스코드 스티커 크기(160px / 3개 시 128px)로 맞춥니다.
     정적 이모지는 무손실 PNG, 움직이는 이모지는 8-bit 알파를 보존하는 애니메이션 WebP(미지원 시 GIF 폴백)로 출력합니다.
     """
     if not raw_items:
         raise ValueError("empty raw_items")
 
     items = raw_items[:MAX_EMOJIS_PER_MESSAGE]
-    auto_w, auto_h, slot_size = _get_sticker_layout(len(items))
-    target_w = canvas_w or auto_w
-    target_h = canvas_h or auto_h
+    slot_size = _get_slot_size_for_count(len(items))
 
     extracted = [_extract_rgba_frames(raw, slot_size=slot_size) for raw in items]
     has_anim = any(len(frames) > 1 for frames, _, _ in extracted)
 
     if not has_anim:
-        canvas = _paste_sprites_on_sticker_canvas([frames[0] for frames, _, _ in extracted], target_w, target_h)
+        canvas = _paste_sprites_on_sticker_canvas([frames[0] for frames, _, _ in extracted], canvas_w, canvas_h)
         out = io.BytesIO()
         canvas.save(out, format="PNG", optimize=True)
         return out.getvalue(), "png"
@@ -258,7 +258,7 @@ def build_sticker_strip_bytes(
                 frames[idx] if len(frames) > 1 else frames[0]
                 for frames, _, _ in extracted
             ]
-            canvas_frames_rgba.append(_paste_sprites_on_sticker_canvas(sprites, target_w, target_h))
+            canvas_frames_rgba.append(_paste_sprites_on_sticker_canvas(sprites, canvas_w, canvas_h))
     else:
         max_total = max(sum(durs) for _, durs, _ in anim_entries)
         step_ms = max(40, max_total // 48)
@@ -269,7 +269,7 @@ def build_sticker_strip_bytes(
         for step in range(n_steps):
             t_ms = step * step_ms
             sprites = [_sample_frame_at_time(frames, durs, t_ms) for frames, durs, _ in extracted]
-            canvas_frames_rgba.append(_paste_sprites_on_sticker_canvas(sprites, target_w, target_h))
+            canvas_frames_rgba.append(_paste_sprites_on_sticker_canvas(sprites, canvas_w, canvas_h))
 
     # 1순위: 풀 8-bit 알파·원본 색상을 100% 보존하는 Animated WebP
     try:
@@ -294,10 +294,11 @@ def build_sticker_strip_bytes(
         pass
 
     # 2순위 폴백: 투명 GIF (용량 초과 방지용 단계적 스케일)
+    base_w, base_h = canvas_frames_rgba[0].size
     last_bytes = b""
     for scale in (1.0, 0.85, 0.75):
-        sw = max(120, int(round(target_w * scale)))
-        sh = max(64, int(round(target_h * scale)))
+        sw = max(64, int(round(base_w * scale)))
+        sh = max(64, int(round(base_h * scale)))
         p_frames: list[Image.Image] = []
         for c_rgba in canvas_frames_rgba:
             fr = c_rgba if scale == 1.0 else c_rgba.resize((sw, sh), RESAMPLE_LANCZOS)
@@ -323,12 +324,12 @@ def build_sticker_strip_bytes(
 
 
 def upscale_static_emoji_bytes(raw_bytes: bytes, target_size: int = STATIC_TARGET_SIZE) -> tuple[bytes, str]:
-    """단일 정적 이모지를 스티커 크기 투명 캔버스(480x160 PNG)로 변환합니다."""
+    """단일 정적 이모지를 실제 160px 스티커 크기로 변환합니다."""
     return build_sticker_strip_bytes([raw_bytes])
 
 
 def upscale_animated_emoji_bytes(raw_bytes: bytes, target_size: int = ANIMATED_TARGET_SIZE) -> tuple[bytes, str]:
-    """단일 움직이는 이모지를 스티커 크기 투명 캔버스(480x160 GIF)로 변환합니다."""
+    """단일 움직이는 이모지를 실제 160px 스티커 크기로 변환합니다."""
     return build_sticker_strip_bytes([raw_bytes])
 
 
