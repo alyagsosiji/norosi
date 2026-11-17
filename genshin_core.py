@@ -11,7 +11,11 @@ import datetime
 import threading
 from collections import OrderedDict
 
-from PIL import Image, ImageDraw
+try:
+    from PIL import Image, ImageDraw
+except Exception:
+    Image = None
+    ImageDraw = None
 import core
 
 requests = core.requests
