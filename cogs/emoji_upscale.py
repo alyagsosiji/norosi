@@ -17,7 +17,7 @@ import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
-from PIL import Image, ImageFilter, ImageSequence
+from PIL import Image, ImageSequence
 
 import core
 
@@ -25,15 +25,25 @@ import core
 CUSTOM_EMOJI_RE = re.compile(r"<(a?):([a-zA-Z0-9_]{1,64}):(\d{15,22})>")
 
 MAX_EMOJIS_PER_MESSAGE = 3
-STICKER_TARGET_SIZE = 160  # 디스코드 채팅 내 스티커 표준 렌더링 크기 (160x160px)
-EMOJI_SLOT_SIZE = 152      # 4px 모서리 안전 여백을 둔 실제 이모지 크기
-STICKER_CANVAS_WIDTH = 480 # 모바일/데스크톱 채팅 가로 100% 확장 시에도 높이가 ~130~160px 스티커 크기로 유지되는 3:1 투명 캔버스
-STICKER_CANVAS_HEIGHT = 160
+STICKER_TARGET_SIZE = 160   # 디스코드 원본 스티커 표시 크기 (160x160px)
+SINGLE_CANVAS_WIDTH = 320   # 1개: 320x160 (2:1) -> PC 320px/모바일 ~330dp에서도 정확히 160px 스티커 크기로 유지
+DOUBLE_CANVAS_WIDTH = 328   # 2개: 160 + 8 + 160 = 328x160 (PC 최대 400px 이하라 축소 없음)
+TRIPLE_CANVAS_WIDTH = 400   # 3개: 128*3 + 8*2 = 400x160 (3개 나란히 배치)
+TRIPLE_SLOT_SIZE = 128
+EMOJI_SLOT_SIZE = STICKER_TARGET_SIZE
+STICKER_CANVAS_WIDTH = SINGLE_CANVAS_WIDTH
+STICKER_CANVAS_HEIGHT = STICKER_TARGET_SIZE
 STATIC_TARGET_SIZE = EMOJI_SLOT_SIZE
 ANIMATED_TARGET_SIZE = EMOJI_SLOT_SIZE
 MAX_UPLOAD_BYTES = 24 * 1024 * 1024  # Discord 25MB 제한 안전 마진
 WEBHOOK_NAME = "norosi-emoji-upscale"
 RESAMPLE_LANCZOS = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.LANCZOS)
+
+try:
+    from PIL import GifImagePlugin
+    GifImagePlugin.LOADING_STRATEGY = GifImagePlugin.LoadingStrategy.RGB_AFTER_DIFFERENT_PALETTE_ONLY
+except Exception:
+    pass
 
 
 def extract_pure_custom_emojis(content: str, max_count: int = MAX_EMOJIS_PER_MESSAGE) -> list[dict]:
@@ -110,106 +120,89 @@ def _compute_scaled_size(width: int, height: int, target_size: int) -> tuple[int
     return new_w, new_h
 
 
-def _resize_and_sharpen_rgba(rgba: Image.Image, target_size: int, sharpen_pct: int = 35) -> Image.Image:
+def _resize_rgba(rgba: Image.Image, target_size: int) -> Image.Image:
+    """원본 이모지 비율·윤곽선·투명도를 변형 없이 그대로 유지하며 target_size로 리사이즈합니다."""
     new_w, new_h = _compute_scaled_size(rgba.width, rgba.height, target_size)
-    if (new_w, new_h) != (rgba.width, rgba.height):
-        resized = rgba.resize((new_w, new_h), RESAMPLE_LANCZOS)
-    else:
-        resized = rgba.copy()
-
-    # RGB 채널에만 미세 언샤프 마스크 적용(알파 채널은 보존하여 투명 테두리 번짐 방지)
-    try:
-        r, g, b, a = resized.split()
-        rgb = Image.merge("RGB", (r, g, b)).filter(
-            ImageFilter.UnsharpMask(radius=0.65, percent=sharpen_pct, threshold=3)
-        )
-        sr, sg, sb = rgb.split()
-        return Image.merge("RGBA", (sr, sg, sb, a))
-    except Exception:
-        return resized
+    if (new_w, new_h) == (rgba.width, rgba.height):
+        return rgba.copy()
+    return rgba.resize((new_w, new_h), RESAMPLE_LANCZOS)
 
 
 def _rgba_frame_to_transparent_gif_frame(rgba_frame: Image.Image) -> Image.Image:
-    """RGBA 프레임을 투명 배경(Index 255 예약)이 깔끔히 유지되는 팔레트('P') 프레임으로 변환합니다."""
+    """WebP 미지원 환경 폴백용: 투명 배경을 깨짐 없이 보존하는 GIF 팔레트('P') 프레임으로 변환합니다."""
     alpha = rgba_frame.getchannel("A")
-    # 255색(0..254)만 양자화하고 인덱스 255를 완전 투명 마스크로 예약
+    # 완전 투명 영역을 검정(0,0,0) 대신 중립 배경색으로 채워 팔레트 외곽선 번짐 최소화
+    neutral_bg = Image.new("RGBA", rgba_frame.size, (49, 51, 56, 255))
+    neutral_bg.alpha_composite(rgba_frame)
+    rgb = neutral_bg.convert("RGB")
     quant_method = getattr(getattr(Image, "Quantize", Image), "FASTOCTREE", 2)
     dither_none = getattr(getattr(Image, "Dither", Image), "NONE", 0)
-    rgb = rgba_frame.convert("RGB")
     try:
         p_frame = rgb.quantize(colors=255, method=quant_method, dither=dither_none)
     except TypeError:
         p_frame = rgb.quantize(colors=255, method=quant_method)
-    # 반투명 경계 깨짐을 줄이기 위해 alpha >= 96 기준 적용
-    mask = alpha.point(lambda a: 255 if a < 96 else 0)
+    mask = alpha.point(lambda a: 255 if a < 32 else 0)
     p_frame.paste(255, mask=mask)
     p_frame.info["transparency"] = 255
     return p_frame
 
 
 def _extract_rgba_frames(raw_bytes: bytes, slot_size: int = EMOJI_SLOT_SIZE) -> tuple[list[Image.Image], list[int], int]:
-    """정적 또는 움직이는 이모지 바이트에서 합성된 RGBA 프레임 리스트·지연시간·반복횟수를 추출합니다."""
+    """정적 또는 움직이는 이모지 바이트에서 원본 모양 그대로의 RGBA 프레임 리스트·지연시간·반복횟수를 추출합니다."""
     with Image.open(io.BytesIO(raw_bytes)) as img:
         is_animated = getattr(img, "is_animated", False) and getattr(img, "n_frames", 1) > 1
         if not is_animated:
             rgba = img.convert("RGBA")
-            return [_resize_and_sharpen_rgba(rgba, slot_size, sharpen_pct=35)], [100], 0
+            return [_resize_rgba(rgba, slot_size)], [100], 0
 
-        base_w, base_h = img.size
         loop_count = int(img.info.get("loop", 0) or 0)
-        canvas = Image.new("RGBA", (base_w, base_h), (0, 0, 0, 0))
         composited_frames: list[Image.Image] = []
         durations: list[int] = []
 
+        # Pillow ImageSequence.Iterator가 GIF/WebP 프레임 시퀀스 합성을 직접 처리하므로
+        # 이중 alpha_composite 없이 그대로 RGBA 변환하여 원본 형태/모양을 100% 보존합니다.
         for frame in ImageSequence.Iterator(img):
             dur = int(frame.info.get("duration", img.info.get("duration", 80)) or 80)
             if dur < 20:
                 dur = 80
-            disposal = int(getattr(frame, "disposal_method", frame.info.get("disposal", 2)) or 2)
-
-            prev_canvas = canvas.copy() if disposal == 3 else None
             frame_rgba = frame.convert("RGBA")
-            if frame_rgba.size != (base_w, base_h):
-                frame_rgba = frame_rgba.resize((base_w, base_h), RESAMPLE_LANCZOS)
-
-            if disposal == 2:
-                current = frame_rgba
-            else:
-                current = Image.alpha_composite(canvas, frame_rgba)
-
-            composited_frames.append(_resize_and_sharpen_rgba(current, slot_size, sharpen_pct=25))
+            composited_frames.append(_resize_rgba(frame_rgba, slot_size))
             durations.append(dur)
-
-            if disposal == 2:
-                canvas = Image.new("RGBA", (base_w, base_h), (0, 0, 0, 0))
-            elif disposal == 3 and prev_canvas is not None:
-                canvas = prev_canvas
-            else:
-                canvas = current
 
     if not composited_frames:
         with Image.open(io.BytesIO(raw_bytes)) as img:
             rgba = img.convert("RGBA")
-            return [_resize_and_sharpen_rgba(rgba, slot_size, sharpen_pct=35)], [100], 0
+            return [_resize_rgba(rgba, slot_size)], [100], 0
     return composited_frames, durations, loop_count
+
+
+def _get_sticker_layout(count: int) -> tuple[int, int, int]:
+    """이모지 개수(1~3)에 맞는 (캔버스 너비, 캔버스 높이, 슬롯 크기) 반환."""
+    if count <= 1:
+        return SINGLE_CANVAS_WIDTH, STICKER_TARGET_SIZE, STICKER_TARGET_SIZE
+    if count == 2:
+        return DOUBLE_CANVAS_WIDTH, STICKER_TARGET_SIZE, STICKER_TARGET_SIZE
+    return TRIPLE_CANVAS_WIDTH, STICKER_TARGET_SIZE, TRIPLE_SLOT_SIZE
 
 
 def _paste_sprites_on_sticker_canvas(
     sprites: list[Image.Image],
-    canvas_w: int = STICKER_CANVAS_WIDTH,
-    canvas_h: int = STICKER_CANVAS_HEIGHT,
+    canvas_w: Optional[int] = None,
+    canvas_h: int = STICKER_TARGET_SIZE,
 ) -> Image.Image:
-    """1~3개의 이모지를 480x160 투명 캔버스 좌측에 스티커 크기(152x152)로 나란히 배치합니다."""
-    canvas = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
-    pad_y = max(2, (canvas_h - EMOJI_SLOT_SIZE) // 2)
-    slot_size = min(EMOJI_SLOT_SIZE, canvas_h - pad_y * 2)
+    """1~3개의 이모지를 디스코드 스티커 크기 비율 투명 캔버스 좌측에 원래 비율/모양 그대로 배치합니다."""
     items = sprites[:MAX_EMOJIS_PER_MESSAGE]
-    gap = 8 if len(items) <= 2 else 6
+    auto_w, auto_h, slot_size = _get_sticker_layout(len(items))
+    w = canvas_w or auto_w
+    h = canvas_h or auto_h
+    canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    gap = 8
+    pad_y = max(0, (h - slot_size) // 2)
     for idx, sp in enumerate(items):
         if sp.width > slot_size or sp.height > slot_size:
             nw, nh = _compute_scaled_size(sp.width, sp.height, slot_size)
             sp = sp.resize((nw, nh), RESAMPLE_LANCZOS)
-        slot_x = 4 + idx * (slot_size + gap)
+        slot_x = idx * (slot_size + gap)
         dx = slot_x + max(0, (slot_size - sp.width) // 2)
         dy = pad_y + max(0, (slot_size - sp.height) // 2)
         canvas.alpha_composite(sp, (dx, dy))
@@ -231,21 +224,26 @@ def _sample_frame_at_time(frames: list[Image.Image], durations: list[int], t_ms:
 
 def build_sticker_strip_bytes(
     raw_items: list[bytes],
-    canvas_w: int = STICKER_CANVAS_WIDTH,
-    canvas_h: int = STICKER_CANVAS_HEIGHT,
+    canvas_w: Optional[int] = None,
+    canvas_h: int = STICKER_TARGET_SIZE,
 ) -> tuple[bytes, str]:
     """
-    1~3개의 커스텀 이모지를 디스코드 스티커 크기(160px 높이, 480x160 투명 캔버스 좌측 정렬)로 합성합니다.
-    모바일·데스크톱 디스코드가 단일 이미지를 채팅 가로폭(100%)으로 늘리더라도 이모지가 스티커 크기 그대로 표시됩니다.
+    1~3개의 커스텀 이모지를 디스코드 원본 스티커 크기(1개 320x160 · 2개 328x160 · 3개 400x160 투명 캔버스)로 변환합니다.
+    정적 이모지는 무손실 PNG, 움직이는 이모지는 8-bit 알파를 보존하는 애니메이션 WebP(미지원 시 GIF 폴백)로 출력합니다.
     """
     if not raw_items:
         raise ValueError("empty raw_items")
 
-    extracted = [_extract_rgba_frames(raw, slot_size=EMOJI_SLOT_SIZE) for raw in raw_items[:MAX_EMOJIS_PER_MESSAGE]]
+    items = raw_items[:MAX_EMOJIS_PER_MESSAGE]
+    auto_w, auto_h, slot_size = _get_sticker_layout(len(items))
+    target_w = canvas_w or auto_w
+    target_h = canvas_h or auto_h
+
+    extracted = [_extract_rgba_frames(raw, slot_size=slot_size) for raw in items]
     has_anim = any(len(frames) > 1 for frames, _, _ in extracted)
 
     if not has_anim:
-        canvas = _paste_sprites_on_sticker_canvas([frames[0] for frames, _, _ in extracted], canvas_w, canvas_h)
+        canvas = _paste_sprites_on_sticker_canvas([frames[0] for frames, _, _ in extracted], target_w, target_h)
         out = io.BytesIO()
         canvas.save(out, format="PNG", optimize=True)
         return out.getvalue(), "png"
@@ -260,7 +258,7 @@ def build_sticker_strip_bytes(
                 frames[idx] if len(frames) > 1 else frames[0]
                 for frames, _, _ in extracted
             ]
-            canvas_frames_rgba.append(_paste_sprites_on_sticker_canvas(sprites, canvas_w, canvas_h))
+            canvas_frames_rgba.append(_paste_sprites_on_sticker_canvas(sprites, target_w, target_h))
     else:
         max_total = max(sum(durs) for _, durs, _ in anim_entries)
         step_ms = max(40, max_total // 48)
@@ -271,13 +269,35 @@ def build_sticker_strip_bytes(
         for step in range(n_steps):
             t_ms = step * step_ms
             sprites = [_sample_frame_at_time(frames, durs, t_ms) for frames, durs, _ in extracted]
-            canvas_frames_rgba.append(_paste_sprites_on_sticker_canvas(sprites, canvas_w, canvas_h))
+            canvas_frames_rgba.append(_paste_sprites_on_sticker_canvas(sprites, target_w, target_h))
 
-    # 용량 초과 방지용 단계적 스케일(1.0 -> 0.85 -> 0.75)
+    # 1순위: 풀 8-bit 알파·원본 색상을 100% 보존하는 Animated WebP
+    try:
+        for webp_opts in (
+            {"lossless": True, "method": 4},
+            {"lossless": False, "quality": 92, "method": 4},
+        ):
+            out = io.BytesIO()
+            canvas_frames_rgba[0].save(
+                out,
+                format="WEBP",
+                save_all=True,
+                append_images=canvas_frames_rgba[1:],
+                duration=out_durations,
+                loop=loop_count,
+                **webp_opts,
+            )
+            webp_bytes = out.getvalue()
+            if webp_bytes and len(webp_bytes) <= MAX_UPLOAD_BYTES:
+                return webp_bytes, "webp"
+    except Exception:
+        pass
+
+    # 2순위 폴백: 투명 GIF (용량 초과 방지용 단계적 스케일)
     last_bytes = b""
     for scale in (1.0, 0.85, 0.75):
-        sw = max(120, int(round(canvas_w * scale)))
-        sh = max(64, int(round(canvas_h * scale)))
+        sw = max(120, int(round(target_w * scale)))
+        sh = max(64, int(round(target_h * scale)))
         p_frames: list[Image.Image] = []
         for c_rgba in canvas_frames_rgba:
             fr = c_rgba if scale == 1.0 else c_rgba.resize((sw, sh), RESAMPLE_LANCZOS)
@@ -334,7 +354,7 @@ def build_emoji_upscale_embed(guild: discord.Guild, channel: Optional[discord.ab
     status_badge = "🟢 **ON (활성화됨)**" if enabled else "🔴 **OFF (비활성화됨 · 기본값)**"
     desc_lines = [
         "커스텀 디스코드 이모지(1~3개)만 포함된 채팅을 보내면 원본 메시지를 삭제한 뒤,",
-        "이모지를 디스코드 스티커 크기(480×160 투명 캔버스 · 정적 PNG / 움직이는 GIF)로 깨짐 없이 업스케일하여",
+        "이모지를 디스코드 스티커 크기(160px · 정적 PNG / 무손실 애니메이션 WebP)로 원본 모양 그대로 변환하여",
         "**보낸 사람의 프로필 사진과 서버 닉네임**으로 다시 전송합니다.",
         "• **🗑️ 삭제 방법:** 전송된 이모지 메시지에 직접 `:x:`(❌) 반응을 추가하면 즉시 삭제됩니다.",
         "",
@@ -452,10 +472,12 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         session = await self._get_session()
         if animated:
             urls = [
+                f"https://cdn.discordapp.com/emojis/{emoji_id}.webp?size=512&animated=true",
+                f"https://cdn.discordapp.com/emojis/{emoji_id}.webp?size=256&animated=true",
+                f"https://cdn.discordapp.com/emojis/{emoji_id}.webp?size=128&animated=true",
                 f"https://cdn.discordapp.com/emojis/{emoji_id}.gif?size=512&quality=lossless",
                 f"https://cdn.discordapp.com/emojis/{emoji_id}.gif?size=256",
                 f"https://cdn.discordapp.com/emojis/{emoji_id}.gif?size=128",
-                f"https://cdn.discordapp.com/emojis/{emoji_id}.webp?size=512&animated=true",
             ]
         else:
             urls = [
