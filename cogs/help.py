@@ -1,5 +1,5 @@
 """
-cogs/help.py - norosi bot help: 전체 80개 슬래시 명령어(110종 세부 기능 · 10대 카테고리 · 23종 !단축 명령어) 통합 도움말 & 가독성 최적화 가이드
+cogs/help.py - norosi bot help: 전체 83개 슬래시 명령어(129종 세부 기능 · 13대 카테고리 · 27종 !단축 명령어) 통합 도움말 & 가독성 최적화 가이드
 """
 
 import math
@@ -15,7 +15,7 @@ PRIVACY_URL = "https://app.notion.com/p/40f0518d06038048b0c6ea1052ce23e7?source=
 SUPPORT_SERVER_URL = "https://discord.gg/6utpaS7s52"
 
 # ==========================================
-# 전체 80개 슬래시 명령어 (110종 기능) 완벽 카탈로그 (10대 카테고리 분류)
+# 전체 83개 슬래시 명령어 (129종 기능) 완벽 카탈로그 (13대 카테고리 분류)
 # ==========================================
 COMMAND_CATALOG: List[Dict[str, Any]] = [
     # 1. 🎮 출석 & 카드/가챠 (21종)
@@ -1538,7 +1538,7 @@ class HelpCategoryView(core.SafeView):
                 "cards": "gacha",
                 "genshin": "genshin",
                 "hsr": "hsr",
-                "fishing": "economy",
+                "fishing": "fishing",
                 "economy": "economy",
                 "life": "economy",
                 "dday": "life",
