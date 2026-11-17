@@ -8,13 +8,17 @@ import logging
 import asyncio
 import datetime
 import traceback
-import aiohttp
+try:
+    import aiohttp
+    from aiohttp import web
+except ImportError:
+    aiohttp = None
+    web = None
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 from collections import OrderedDict
-from aiohttp import web
 import core
 from cogs.music import MusicRecommendView
 
@@ -125,7 +129,7 @@ class NorosiBot(commands.Bot):
         self.start_time = datetime.datetime.now(core.KST)
         self._commands_synced = False
         self._web_started = False
-        self._web_runner: Optional[web.AppRunner] = None
+        self._web_runner: Optional[Any] = None
         self._handled_interaction_ids: OrderedDict[int, float] = OrderedDict()
 
         # 터미널 로그 브릿지 상태 변수
@@ -169,7 +173,7 @@ class NorosiBot(commands.Bot):
     async def handle_health_check(self, request):
         return web.Response(text="norosi Bot is running 24/7!")
 
-    async def handle_github_webhook(self, request: web.Request):
+    async def handle_github_webhook(self, request):
         """
         GitHub 저장소 Push 및 GitHub Actions 배포 성공/실패 이벤트를 수신하여
         설정된 디스코드 채널에 '🚀 업데이트 완료: [커밋 메시지]' 임베드를 실시간으로 전송합니다.
@@ -405,16 +409,41 @@ class NorosiBot(commands.Bot):
         await super().add_cog(cog, override=override, **kwargs)
 
     async def setup_hook(self):
+        boot_t0 = time.perf_counter()
         # 0. VM 터미널 로그 실시간 캡처 활성화
         self.setup_terminal_log_capture()
 
-        print("📦 [1/4] 데이터 캐시 로드 중...", flush=True)
-        await asyncio.to_thread(core.load_data)
+        print("==================================================================", flush=True)
+        print("📦 [1/4] 로컬 & 하이브리드 데이터 캐시 로드 및 무결성 점검 중...", flush=True)
+        db_t0 = time.perf_counter()
+        loaded_data = await asyncio.to_thread(core.load_data)
+        db_ms = (time.perf_counter() - db_t0) * 1000.0
+        try:
+            db_file_kb = os.path.getsize(core.DATA_FILE) / 1024.0 if os.path.exists(core.DATA_FILE) else 0.0
+            u_prof_cnt = len(core.as_dict(loaded_data.get("user_profiles")))
+            gacha_g_cnt = len(core.as_dict(loaded_data.get("gacha_users")))
+            gi_g_cnt = len(core.as_dict(loaded_data.get("genshin_users")))
+            hsr_g_cnt = len(core.as_dict(loaded_data.get("hsr_users")))
+            fish_g_cnt = len(core.as_dict(loaded_data.get("fishing_users")))
+            dday_cnt = len(core.as_dict(loaded_data.get("ddays")))
+            bday_cnt = len(core.as_dict(loaded_data.get("birthdays")))
+            rr_cnt = len(core.as_dict(loaded_data.get("reaction_roles")))
+            lot_round = core.as_dict(loaded_data.get("lottery_state")).get("round", 1)
+            fb_mode = "Firebase 클라우드 연동" if core.get_firebase_endpoint() else "로컬 JSON + 인메모리 캐시"
+            print(
+                f"   ✓ 데이터 캐시 로드 완료 ({db_ms:.1f}ms | 파일 크기: {db_file_kb:,.1f}KB | 모드: {fb_mode})\n"
+                f"   ✓ 주요 컬렉션 요약: 유저 프로필 {u_prof_cnt:,}명 · D-Day {dday_cnt:,}건 · 생일 {bday_cnt:,}건 · 반응역할 패널 {rr_cnt:,}개 · 주간복권 제{lot_round}회\n"
+                f"   ✓ 게임별 활성 서버 풀: 프로세카 {gacha_g_cnt}곳 · 원신 {gi_g_cnt}곳 · 스타레일 {hsr_g_cnt}곳 · 낚시 {fish_g_cnt}곳",
+                flush=True,
+            )
+        except Exception as stat_err:
+            print(f"   ℹ️ 데이터 캐시 통계 요약 생략: {stat_err}", flush=True)
 
         # 글로벌 슬래시 커맨드 에러 핸들러 등록 ("명령어 응답 안함" 3초 타임아웃 차단)
         self.tree.on_error = self.on_app_command_error
 
-        print("🔌 [2/4] Cogs 확장 모듈 등록 중 (gacha, genshin, hsr, fishing, economy, life, other_life, tickets, music, dday, logger, ai, stats, roles, help, dashboard)...", flush=True)
+        print("------------------------------------------------------------------", flush=True)
+        print("🔌 [2/4] 17대 Cogs 확장 모듈 로드 및 명령어 트리 빌드 중...", flush=True)
         # 서버 배포 파일 뒤바뀜(예: fishing_core.py에 cogs/fishing.py 덮어쓰기, cogs/gacha.py에 cogs/hsr.py 덮어쓰기) 사전 진단
         try:
             base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -456,7 +485,11 @@ class NorosiBot(commands.Bot):
             "cogs.dashboard",
         ]
         failed_exts = []
-        for ext in ext_list:
+        loaded_exts = []
+        for idx, ext in enumerate(ext_list, start=1):
+            ext_t0 = time.perf_counter()
+            before_slash = len(self.tree.get_commands())
+            before_prefix = len(self.commands)
             try:
                 if ext in self.extensions:
                     try:
@@ -469,6 +502,16 @@ class NorosiBot(commands.Bot):
                         await self.load_extension(ext)
                 else:
                     await self.load_extension(ext)
+                ext_ms = (time.perf_counter() - ext_t0) * 1000.0
+                after_slash = len(self.tree.get_commands())
+                after_prefix = len(self.commands)
+                added_slash = max(0, after_slash - before_slash)
+                added_prefix = max(0, after_prefix - before_prefix)
+                loaded_exts.append(ext)
+                print(
+                    f"   [{idx:02d}/{len(ext_list):02d}] ✓ {ext:<16} 로드 성공 ({ext_ms:6.1f}ms | 슬래시 +{added_slash} · 프리픽스 +{added_prefix})",
+                    flush=True,
+                )
                 if ext == "cogs.gacha" and self.get_cog("GachaCog") is None:
                     print(
                         "🚨 [파일 동기화 경고] 'cogs.gacha' 로드 후 GachaCog가 등록되지 않았습니다! "
@@ -476,32 +519,118 @@ class NorosiBot(commands.Bot):
                         flush=True,
                     )
             except Exception as e:
-                print(f"⚠️ [{ext}] 확장 모듈 로드 예외: {e}", flush=True)
+                ext_ms = (time.perf_counter() - ext_t0) * 1000.0
+                print(f"   [{idx:02d}/{len(ext_list):02d}] ⚠️ {ext:<16} 로드 실패 ({ext_ms:6.1f}ms): {e}", flush=True)
                 failed_exts.append((ext, e))
         if len(failed_exts) == len(ext_list):
             raise failed_exts[0][1]
 
+        top_cmds = self.tree.get_commands()
+        sub_cmd_cnt = 0
+        for cmd in top_cmds:
+            if isinstance(cmd, app_commands.Group):
+                sub_cmd_cnt += len(cmd.commands)
+            else:
+                sub_cmd_cnt += 1
+        print(
+            f"   📊 [Cogs 요약] 성공: {len(loaded_exts)}/{len(ext_list)}개 모듈 | "
+            f"슬래시 루트: {len(top_cmds)}개 (세부 실행 커맨드: {sub_cmd_cnt}종) | "
+            f"프리픽스(!) 명령어: {len(self.commands)}개 | "
+            f"등록된 SafeView 클래스: {len(core.SAFE_VIEW_REGISTRY)}종",
+            flush=True,
+        )
+
         self.register_persistent_views()
 
-        print("📚 [3/4] 프로세카 · 원신 · 스타레일 한국어 DB 백그라운드 캐시 워밍 시작...", flush=True)
-        asyncio.create_task(asyncio.to_thread(core.load_proseka_kr_db))
-        import genshin_core, hsr_core
-        asyncio.create_task(asyncio.to_thread(genshin_core.load_genshin_kr_db))
-        asyncio.create_task(asyncio.to_thread(hsr_core.load_hsr_kr_db))
+        print("------------------------------------------------------------------", flush=True)
+        print("📚 [3/4] 게임 마스터 DB (프로세카 · 원신 · 스타레일 · 낚시 · 타인의인생) 백그라운드 워밍 시작...", flush=True)
+        asyncio.create_task(self._warm_master_databases())
 
+        print("------------------------------------------------------------------", flush=True)
         print("⏰ [4/4] 상주 스케줄러 및 VM 터미널 로그 브릿지 루프 활성화...", flush=True)
-        if not self.midnight_tasks.is_running():
-            self.midnight_tasks.start()
-        if not self.morning_music_alert.is_running():
-            self.morning_music_alert.start()
-        if not self.morning_text_alert.is_running():
-            self.morning_text_alert.start()
-        if not self.custom_music_schedules_loop.is_running():
-            self.custom_music_schedules_loop.start()
-        if not self.terminal_log_dispatch_loop.is_running():
-            self.terminal_log_dispatch_loop.start()
-        if not self.weekly_lottery_draw_loop.is_running():
-            self.weekly_lottery_draw_loop.start()
+        scheduler_specs = [
+            ("midnight_tasks", self.midnight_tasks, "매일 00:00 KST 자정 DB 갱신 · 반복 D-Day · 생일 축하"),
+            ("morning_music_alert", self.morning_music_alert, "매일 07:00 KST 모닝 추천 음악 자동 발송"),
+            ("morning_text_alert", self.morning_text_alert, "매일 09:00 KST D-Day 브리핑 · 비밀 타임캡슐 DM"),
+            ("custom_music_schedules_loop", self.custom_music_schedules_loop, "30초 주기 맞춤 음악 알람 · 개인 예약 알림(/알림예약)"),
+            ("weekly_lottery_draw_loop", self.weekly_lottery_draw_loop, "10분 주기 주간 로또(일요일 21시 KST) 자동 추첨"),
+            ("terminal_log_dispatch_loop", self.terminal_log_dispatch_loop, "3초 주기 VM 터미널 로그 디스코드 브릿지"),
+        ]
+        for loop_name, loop_obj, loop_desc in scheduler_specs:
+            if not loop_obj.is_running():
+                loop_obj.start()
+            print(f"   ✓ [{loop_name}] 가동 중 — {loop_desc}", flush=True)
+
+        total_boot_ms = (time.perf_counter() - boot_t0) * 1000.0
+        print(f"✨ [setup_hook 완료] 초기 부팅 파이프라인 준비 완료 (소요 시간: {total_boot_ms:.1f}ms)", flush=True)
+        print("==================================================================", flush=True)
+
+    async def _warm_master_databases(self):
+        """프로세카(미래시 포함), 원신, 스타레일, 낚시, 타인의인생 마스터 DB를 백그라운드에서 워밍하고 공개 통계를 로그로 출력합니다."""
+        w_t0 = time.perf_counter()
+        try:
+            await asyncio.to_thread(core.load_proseka_kr_db)
+            p_cards = len(getattr(core, "PROSEKA_CARDS", []) or [])
+            p_costumes = len(getattr(core, "PROSEKA_COSTUMES", []) or [])
+            p_quotes = len(getattr(core, "PROSEKA_QUOTES", []) or [])
+            print(
+                f"   🎵 [DB 워밍: 프로세카] 한국어 마스터 DB 준비 완료 — 카드 {p_cards:,}장 · 3D 의상 {p_costumes:,}종 · 대사 {p_quotes:,}개",
+                flush=True,
+            )
+            fc_list = await asyncio.to_thread(core.get_event_forecast_list, True)
+            if fc_list:
+                today_s = datetime.datetime.now(core.KST).strftime("%Y-%m-%d")
+                cur_ev = next((e for e in fc_list if e.get("kr_estimated_start", "") <= today_s <= e.get("kr_estimated_end", "")), None)
+                nxt_ev = next((e for e in fc_list if e.get("kr_estimated_start", "") > today_s), None)
+                ev_Target = cur_ev or nxt_ev or fc_list[-1]
+                st_lbl = "진행중" if cur_ev else "차기예정"
+                print(
+                    f"   📅 [DB 워밍: 프세카 미래시] 한섭·일섭 미래시 일정표 준비 완료 — 총 {len(fc_list)}개 이벤트 (#{fc_list[0]['id']}~#{fc_list[-1]['id']}) | "
+                    f"{st_lbl}: #{ev_Target['id']} {ev_Target['name']} ({ev_Target['kr_estimated_start']}~{ev_Target['kr_estimated_end']})",
+                    flush=True,
+                )
+        except Exception as e:
+            print(f"   ⚠️ [DB 워밍: 프로세카] 로드 경고: {e}", flush=True)
+
+        try:
+            import genshin_core
+            await asyncio.to_thread(genshin_core.load_genshin_kr_db)
+            g_chars = len(getattr(genshin_core, "GENSHIN_CHARS", []) or [])
+            g_weaps = len(getattr(genshin_core, "GENSHIN_WEAPONS", []) or [])
+            g_arts = len(getattr(genshin_core, "GENSHIN_ARTIFACTS", []) or [])
+            print(
+                f"   🌠 [DB 워밍: 원신] 한국어 마스터 DB 준비 완료 — 캐릭터 {g_chars:,}명 · 무기 {g_weaps:,}종 · 성유물 세트 {g_arts:,}종",
+                flush=True,
+            )
+        except Exception as e:
+            print(f"   ⚠️ [DB 워밍: 원신] 로드 경고: {e}", flush=True)
+
+        try:
+            import hsr_core
+            await asyncio.to_thread(hsr_core.load_hsr_kr_db)
+            h_chars = len(getattr(hsr_core, "HSR_CHARS", []) or [])
+            h_lcs = len(getattr(hsr_core, "HSR_LIGHT_CONES", []) or [])
+            h_relics = len(getattr(hsr_core, "HSR_RELICS", []) or [])
+            print(
+                f"   🚄 [DB 워밍: 스타레일] 한국어 마스터 DB 준비 완료 — 캐릭터 {h_chars:,}명 · 광추 {h_lcs:,}종 · 유물 세트 {h_relics:,}종",
+                flush=True,
+            )
+        except Exception as e:
+            print(f"   ⚠️ [DB 워밍: 스타레일] 로드 경고: {e}", flush=True)
+
+        try:
+            import fishing_core, other_life_core
+            fish_total = sum(len(v) for v in getattr(fishing_core, "FISH_BY_HABITAT", {}).values())
+            endings_total = len(getattr(other_life_core, "ENDINGS", {}) or {})
+            origins_total = len(getattr(other_life_core, "ORIGINS", {}) or {})
+            specs_total = len(getattr(other_life_core, "SPECIALTY_CATALOG", {}) or {})
+            w_ms = (time.perf_counter() - w_t0) * 1000.0
+            print(
+                f"   🎣 [DB 워밍: 낚시 & 타인의인생] 어종 DB {fish_total:,}종 · 타인의인생 엔딩 {endings_total:,}종 (출신 {origins_total}종 · 세부전공 {specs_total}종) 확인 완료 (총 {w_ms:.0f}ms)",
+                flush=True,
+            )
+        except Exception as e:
+            print(f"   ℹ️ [DB 워밍: 보조 DB] 확인 생략: {e}", flush=True)
 
     @tasks.loop(seconds=3.0)
     async def terminal_log_dispatch_loop(self):
@@ -812,21 +941,21 @@ class NorosiBot(commands.Bot):
                                 elif "스타레일" in e_title:
                                     view.current_tab = "hsr"
                                 elif "프로세카" in e_title or "가챠" in e_title:
-                                    view.current_tab = "proseka"
+                                    view.current_tab = "gacha"
                                 elif "낚시" in e_title:
                                     view.current_tab = "fishing"
-                                elif "타인의 인생" in e_title:
-                                    view.current_tab = "other_life"
-                                elif "D-Day" in e_title or "기념일" in e_title or "투두" in e_title:
-                                    view.current_tab = "dday"
-                                elif "생활 라이프" in e_title or "미니홈피" in e_title or "펫" in e_title or "농장" in e_title:
-                                    view.current_tab = "life"
-                                elif "통합 경제" in e_title or "경제" in e_title:
+                                elif "통합 경제" in e_title or "생활 라이프" in e_title or "경제" in e_title:
                                     view.current_tab = "economy"
+                                elif "D-Day" in e_title or "집중 대시보드" in e_title or "라이프" in e_title:
+                                    view.current_tab = "life"
                                 elif "음악" in e_title or "플레이리스트" in e_title or "DJ" in e_title:
                                     view.current_tab = "music"
-                                elif "커뮤니티" in e_title or "티켓" in e_title or "역할" in e_title or "서버 관리" in e_title:
-                                    view.current_tab = "community"
+                                elif "역할" in e_title or "서버 관리" in e_title or "커뮤니티" in e_title:
+                                    view.current_tab = "admin"
+                                elif "미니게임" in e_title or "파티 모집" in e_title or "타인의 인생" in e_title:
+                                    view.current_tab = "game"
+                                elif "통계" in e_title or "호스트" in e_title:
+                                    view.current_tab = "stats"
                                 if hasattr(view, "refresh_components"):
                                     view.refresh_components()
                             elif view_name == "OtherLifeCollectionView" and msg and msg.embeds:
@@ -1196,9 +1325,17 @@ class NorosiBot(commands.Bot):
         특정 길드 즉시 반영은 '!동기화' 또는 '!싱크' 명령어로 언제든 수행 가능합니다.
         """
         try:
-            print("🌐 [백그라운드 동기화] 글로벌 슬래시 명령어 동기화 시작...", flush=True)
+            sync_t0 = time.perf_counter()
+            print("🌐 [백그라운드 동기화] 글로벌 슬래시 명령어 트리 Discord API 동기화 시작...", flush=True)
             synced_cmds = await self.tree.sync()
-            print(f"✅ [동기화 완료] 슬래시 명령어 총 {len(synced_cmds)}개 글로벌 등록 완료!", flush=True)
+            sync_ms = (time.perf_counter() - sync_t0) * 1000.0
+            cmd_names_preview = ", ".join(f"/{c.name}" for c in synced_cmds[:15])
+            more_tag = f" 외 {len(synced_cmds) - 15}개" if len(synced_cmds) > 15 else ""
+            print(
+                f"✅ [동기화 완료] 글로벌 슬래시 명령어 총 {len(synced_cmds)}개 등록 완료! ({sync_ms:.0f}ms)\n"
+                f"   📋 등록 명령어 샘플: {cmd_names_preview}{more_tag}",
+                flush=True,
+            )
         except discord.HTTPException as e:
             if e.status == 429:
                 print(f"⏳ [동기화 알림] Discord API 속도 제한(429 Rate Limit) 감지: {e}. 백그라운드에서 대기 후 자동 재시도됩니다.", flush=True)
@@ -1208,8 +1345,25 @@ class NorosiBot(commands.Bot):
             print(f"⚠️ [동기화 오류] 백그라운드 명령어 동기화 예외: {e}", flush=True)
 
     async def on_ready(self):
-        fb_status = "연동됨" if core.get_firebase_endpoint() else "로컬 + 인메모리 캐시 모드"
-        print(f"✅ 로그인 완료: {self.user} (이름: norosi | ID: {self.user.id}) | 저장소: {fb_status}", flush=True)
+        fb_status = "연동됨 (Firebase Realtime DB)" if core.get_firebase_endpoint() else "로컬 JSON + 인메모리 캐시 모드"
+        guild_cnt = len(self.guilds)
+        total_members = sum(getattr(g, "member_count", 0) or len(getattr(g, "members", [])) for g in self.guilds)
+        ws_ping_ms = round(self.latency * 1000, 1) if self.latency and self.latency > 0 else 0.0
+        sekai_t = core.get_proseka_sekai_time_theme()
+        data = core.get_cached_data()
+        t_channels = core.as_dict(core.as_dict(data.get("settings")).get("terminal_log_channels"))
+        print("==================================================================", flush=True)
+        print(f"✅ [READY] 무로시(norosi) 디스코드 게이트웨이 연결 및 준비 완료!", flush=True)
+        print(f"   • 봇 계정     : {self.user} (ID: {self.user.id})", flush=True)
+        print(f"   • 게이트웨이  : WebSocket 핑 {ws_ping_ms}ms | 연결 서버 {guild_cnt:,}곳 (총 멤버 약 {total_members:,}명)", flush=True)
+        print(f"   • 데이터 엔진 : {fb_status} | 터미널 브릿지 연동 채널 {len(t_channels)}곳", flush=True)
+        print(f"   • 세카이 시각 : {sekai_t['hour_str']} ({sekai_t['phase_name']}) — {sekai_t['unit_label']} / {sekai_t['attr_label']}", flush=True)
+        if self.guilds:
+            guild_summary = ", ".join(f"{g.name}({getattr(g, 'member_count', 0) or 0}명)" for g in self.guilds[:8])
+            if len(self.guilds) > 8:
+                guild_summary += f" 외 {len(self.guilds) - 8}곳"
+            print(f"   • 접속 서버   : {guild_summary}", flush=True)
+        print("==================================================================", flush=True)
 
         await self.change_presence(
             status=discord.Status.online,
@@ -2375,9 +2529,48 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
 # Render 및 GCP VM 크래시 방지용 안전 실행부
 # ==========================================
 async def main():
+    import platform
+    import shutil
+    py_ver = sys.version.split()[0]
+    dpy_ver = getattr(discord, "__version__", "unknown")
+    os_info = f"{platform.system()} {platform.release()} ({platform.machine()})"
+    disk_free_gb = 0.0
+    try:
+        disk_free_gb = shutil.disk_usage(os.path.dirname(os.path.abspath(__file__))).free / (1024 ** 3)
+    except Exception:
+        pass
+    rss_mb = 0.0
+    try:
+        with open("/proc/self/status", "r", encoding="utf-8") as fp:
+            for line in fp:
+                if line.startswith("VmRSS:"):
+                    rss_mb = int(line.split()[1]) / 1024.0
+                    break
+    except Exception:
+        pass
+
+    opt_mods = []
+    for mod_label, mod_name in [
+        ("Pillow", "PIL"),
+        ("aiohttp", "aiohttp"),
+        ("PyNaCl", "nacl"),
+        ("DAVE(davey)", "davey"),
+        ("Gemini(genai)", "google.genai"),
+        ("yt-dlp", "yt_dlp"),
+        ("Spotipy", "spotipy"),
+    ]:
+        try:
+            __import__(mod_name)
+            opt_mods.append(f"{mod_label}:ON")
+        except Exception:
+            opt_mods.append(f"{mod_label}:OFF")
+
     print("==================================================================", flush=True)
-    print(f"🚀 [STARTUP] norosi 봇 프로세스 시작 중 (PID: {os.getpid()})", flush=True)
-    print(f"⏰ 현재 시각: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (서버) / {datetime.datetime.now(core.KST).strftime('%Y-%m-%d %H:%M:%S KST')} (한국)", flush=True)
+    print(f"🚀 [STARTUP] 무로시(norosi) 올인원 봇 엔진 기동 시작 (PID: {os.getpid()})", flush=True)
+    print(f"⏰ 부팅 시각  : {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (서버) / {datetime.datetime.now(core.KST).strftime('%Y-%m-%d %H:%M:%S KST')} (한국)", flush=True)
+    print(f"🖥️ 런타임 환경: Python {py_ver} · discord.py {dpy_ver} · OS: {os_info}", flush=True)
+    print(f"💾 시스템 자원: 초기 메모리 RSS {rss_mb:.1f}MB · 디스크 여유 공간 {disk_free_gb:.2f}GB · CWD: {os.getcwd()}", flush=True)
+    print(f"🧩 확장 모듈  : {' | '.join(opt_mods)}", flush=True)
     print("==================================================================", flush=True)
 
     await bot.start_web_server()
@@ -2397,7 +2590,7 @@ async def main():
                 break
 
     core.TOKEN = active_token
-    print(f"🔑 디스코드 게이트웨이 인증 및 연결 시도 중... (토큰 길이: {len(active_token)})", flush=True)
+    print(f"🔑 디스코드 게이트웨이 인증 및 연결 시도 중... (토큰 확인됨 · 길이: {len(active_token)}자)", flush=True)
 
     async def _cleanup_bot_session():
         # 백그라운드 스케줄러 루프가 재시도 대기 중 닫힌 세션을 참조하지 않도록 안전하게 중단
