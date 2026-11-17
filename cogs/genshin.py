@@ -771,6 +771,19 @@ class GenshinItemDetailView(core.SafeView):
         self.item_key = item_key
         self._build()
 
+    def _resolve_item_key_from_message(self, interaction: discord.Interaction):
+        if self.item_key:
+            return
+        msg = getattr(interaction, "message", None)
+        if msg and getattr(msg, "embeds", None):
+            title = (msg.embeds[0].title or "").replace("🔒", "").replace("★", "").strip()
+            if title:
+                genshin_core.load_genshin_kr_db()
+                for k, v in genshin_core.GENSHIN_ALL_ITEMS.items():
+                    if v.get("name") == title:
+                        self.item_key = k
+                        return
+
     def _build(self):
         self.clear_items()
         data = core.load_data()
@@ -782,16 +795,19 @@ class GenshinItemDetailView(core.SafeView):
             label="🔓 잠금 해제" if locked else "🔒 잠금 설정",
             style=discord.ButtonStyle.secondary if locked else discord.ButtonStyle.primary,
             row=0,
+            custom_id="norosi:GenshinItemDetailView:_on_lock",
         )
         b_lock.callback = self._on_lock
         self.add_item(b_lock)
 
-        if it and it.get("kind") == "char":
+        if (it and it.get("kind") == "char") or not self.item_key or self.item_key.startswith("char:"):
+            lv_val = int(it.get("level", 1)) if it else 1
             b_lv = discord.ui.Button(
-                label=f"⬆️ 레벨업 (+10Lv · 영웅의경험 2권)" if int(it.get("level", 1)) < 90 else "✅ Lv.90 MAX",
+                label=f"⬆️ 레벨업 (+10Lv · 영웅의경험 2권)" if lv_val < 90 else "✅ Lv.90 MAX",
                 style=discord.ButtonStyle.success,
-                disabled=(int(it.get("level", 1)) >= 90),
+                disabled=(lv_val >= 90),
                 row=0,
+                custom_id="norosi:GenshinItemDetailView:_on_lvup",
             )
             b_lv.callback = self._on_lvup
             self.add_item(b_lv)
@@ -841,6 +857,7 @@ class GenshinItemDetailView(core.SafeView):
         self.user = self.user or interaction.user
         gid = self.guild_id or (interaction.guild_id or 0)
         self.guild_id = gid
+        self._resolve_item_key_from_message(interaction)
         await asyncio.to_thread(genshin_core.toggle_genshin_item_lock, gid, interaction.user.id, self.item_key)
         self._build()
         emb, _ = await self.build_embed_and_file()
@@ -852,6 +869,7 @@ class GenshinItemDetailView(core.SafeView):
         self.user = self.user or interaction.user
         gid = self.guild_id or (interaction.guild_id or 0)
         self.guild_id = gid
+        self._resolve_item_key_from_message(interaction)
         ok, msg, _ = await asyncio.to_thread(genshin_core.levelup_genshin_char, gid, interaction.user.id, self.item_key)
         if not ok:
             return await core.safe_send_response(interaction, msg, ephemeral=True)
