@@ -1,7 +1,8 @@
-"""원신 (Genshin Impact) 기원 · 보관함 · 도감 · 페이몬의 상점 · 파티 원소 공명 Cog
+"""원신 (Genshin Impact) 기원 · 성유물 감정 · 보관함 · 도감 · 페이몬의 상점 · 파티 원소 공명 Cog
 
 - 그룹 커맨드 `/원신` (11개 서브커맨드 + `!원신기원` 등 프리픽스 단축어)
 - 티바트 성좌 네이비-골드 스타일 UI · 유성 승격 3.5초 연출 · 공유 가챠 쿨타임 (일반 3.5초 / 스킵 5.0초)
+- 시각별 KST 2시간 자동 로테이션 (캐릭터 · 전용 무기 · 비경 성유물 동시 회전)
 - 봇 주인 전용 `/원신 픽업설정` + 운명의 궤도(1/1) + 포착된 광휘 + 페이몬의 상점 + 4인 원소 공명 파티
 """
 from __future__ import annotations
@@ -24,30 +25,24 @@ _MAX_TOTAL_BYTES = 7_800_000
 
 def _build_genshin_intro_embed(result: dict) -> discord.Embed:
     drawn = result["drawn"]
-    banner_key = result["banner_key"]
-    b_cfg = genshin_core.GENSHIN_BANNER_CONFIGS.get(banner_key, genshin_core.GENSHIN_BANNER_CONFIGS["char1"])
-    sched = result.get("time_schedule") or genshin_core.get_genshin_time_schedule()
+    b_cfg = genshin_core.GENSHIN_BANNER_CONFIGS.get(result["banner_key"], genshin_core.GENSHIN_BANNER_CONFIGS["char1"])
     r5 = [it for it in drawn if it["rank"] == 5]
     r4 = [it for it in drawn if it["rank"] == 4]
 
-    quote_block = (
-        "\n\n🏛️ *고대 비경의 세계수 석판이 공명하며 성유물의 빛을 응축하고 있습니다...*"
-        if banner_key == "artifact"
-        else f"\n\n{sched['emoji']} *[{sched['period_name']}] {sched['desc']}*"
-    )
+    quote_block = "\n\n✨ *밤하늘을 가르는 운명의 별빛이 모이고 있습니다...*"
     if r5:
         top = sorted(r5, key=lambda x: not x.get("is_pickup"))[0]
         is_rad = any(x.get("is_radiance") for x in r5)
-        if banner_key == "artifact":
-            orb = "🏛️ 세계수 제단 개방 ➔ 🌟 **찬란한 5성 금빛 성유물 출현 확정!!**"
-            color = discord.Color.from_rgb(255, 198, 78)
-        elif is_rad:
+        if is_rad:
             orb = "🟣 분홍빛 궤적 ➔ 🌟 **포착된 광휘!! 금빛 유성으로 승격!!**"
             color = discord.Color.from_rgb(255, 130, 210)
+        elif result["banner_key"] == "artifact":
+            orb = "🌳 고목의 비경 ➔ 🌟 **찬란한 금빛 성유물 출현!!**"
+            color = discord.Color.from_rgb(88, 224, 186)
         else:
             orb = "🔵 파란 유성 ➔ 🟣 보라 유성 ➔ 🌟 **찬란한 금빛 유성 강림!!**"
             color = discord.Color.from_rgb(255, 206, 84)
-        det = genshin_core.fetch_genshin_detail_kr(top.get("set_id") or top["id"], top["kind"])
+        det = genshin_core.fetch_genshin_detail_kr(top["id"], top["kind"])
         if top["kind"] == "char":
             c_title = det.get("title") or top.get("region_name", "티바트")
             c_const = det.get("constellation") or ""
@@ -56,10 +51,10 @@ def _build_genshin_intro_embed(result: dict) -> discord.Embed:
             meta = f"*{c_title}" + (f" · {c_const}*" if c_const else "*")
             quote_block = f"\n\n🌠 {meta}" + (f"\n💬 \"{snippet}\"" if snippet else "")
         elif top["kind"] == "artifact":
-            s_name = top.get("set_name") or det.get("name") or top.get("name", "")
-            b4 = top.get("bonus_4pc") or det.get("bonus_4pc") or ""
-            snippet = (b4[:95] + "…") if len(b4) > 95 else b4
-            quote_block = f"\n\n🏛️ *[{s_name}] — {top.get('slot_emoji', '🏺')} {top.get('slot_name', '')} (`{top.get('main_stat', '')}`)*" + (f"\n📜 \"{snippet}\"" if snippet else "")
+            b2 = top.get("bonus_2p") or det.get("bonus_2p") or ""
+            slot_txt = top.get("slot_name", "성유물")
+            main_txt = top.get("main_stat", "")
+            quote_block = f"\n\n🏺 *{top['name']} ({slot_txt} · {main_txt})*" + (f"\n✨ 2세트: \"{b2[:90]}\"" if b2 else "")
         else:
             w_desc = (det.get("description") or "").strip()
             snippet = (w_desc[:95] + "…") if len(w_desc) > 95 else w_desc
@@ -70,21 +65,23 @@ def _build_genshin_intro_embed(result: dict) -> discord.Embed:
         tier_txt = "⚡ **★★★★ 등급 이상 출현!**"
         color = discord.Color.from_rgb(174, 118, 255)
         top = sorted(r4, key=lambda x: (x["kind"] != "char", not x.get("is_pickup")))[0]
-        det = genshin_core.fetch_genshin_detail_kr(top.get("set_id") or top["id"], top["kind"])
+        det = genshin_core.fetch_genshin_detail_kr(top["id"], top["kind"])
         if top["kind"] == "char" and det.get("title"):
             quote_block = f"\n\n✨ *{det['title']}*의 별빛이 반짝입니다..."
+        elif top["kind"] == "artifact":
+            quote_block = f"\n\n🏺 *{top['name']} ({top.get('slot_name', '')})*의 유산이 공명합니다..."
     else:
         orb = "🔵 **푸른 유성이 밤하늘을 스쳐 지나갑니다...**"
         tier_txt = "🗡️ **기원이 진행 중입니다...**"
         color = discord.Color.from_rgb(84, 168, 255)
 
     embed = discord.Embed(
-        title=f"🌠 {b_cfg['name']} ({len(drawn)}회) · {sched['emoji']} {sched['hour']:02d}시 KST",
+        title=f"🌠 {b_cfg['name']} ({len(drawn)}회)",
         description=f"{orb}\n{tier_txt}{quote_block}",
         color=color,
         timestamp=datetime.datetime.now(core.KST),
     )
-    embed.set_footer(text=f"현재 시각 보너스: {sched['bonus_text']} • 3.5초 후 결과판 공개!")
+    embed.set_footer(text="3.5초 후 기원 결과판과 일러스트가 공개됩니다!")
     return embed
 
 
@@ -94,12 +91,12 @@ def _build_genshin_result_embed(result: dict, user: discord.abc.User | None) -> 
     eff = result["eff_pickup"]
     u_state = result["user_state"]
     practice = result["practice"]
-    sched = result.get("time_schedule") or genshin_core.get_genshin_time_schedule()
 
     b_cfg = genshin_core.GENSHIN_BANNER_CONFIGS.get(banner_key, genshin_core.GENSHIN_BANNER_CONFIGS["char1"])
     r5 = [it for it in drawn if it["rank"] == 5]
     r4 = [it for it in drawn if it["rank"] == 4]
-    r3 = [it for it in drawn if it["rank"] == 3]
+    r3 = [it for it in drawn if it["rank"] <= 3]
+    pickups = [it for it in drawn if it.get("is_pickup")]
 
     if r5:
         color = discord.Color.from_rgb(255, 204, 82)
@@ -110,7 +107,7 @@ def _build_genshin_result_embed(result: dict, user: discord.abc.User | None) -> 
 
     lines = []
     for idx, it in enumerate(drawn, start=1):
-        p_mark = "🎯**[명정/픽업]** " if it.get("is_pickup") else ""
+        p_mark = "🎯**[픽업]** " if it.get("is_pickup") else ""
         rad_mark = "🌈**[포착된광휘!]** " if it.get("is_radiance") else ""
         fate_mark = "🧭**[궤도확정!]** " if it.get("is_fate_guaranteed") else ""
         new_mark = "✨**[NEW]** " if it.get("is_new") else ""
@@ -119,9 +116,9 @@ def _build_genshin_result_embed(result: dict, user: discord.abc.User | None) -> 
             dup_txt = f"C{it.get('new_constellation', 0)}"
             tag = f"{it.get('element_emoji', '')}{it.get('element_name', '')} · {it.get('weapon_type_emoji', '')}{it.get('weapon_type_name', '')}"
         elif it["kind"] == "artifact":
-            dup_txt = f"+{it.get('level', 0)} · {it.get('grade', 'A')}급({it.get('cv', 0.0):.1f}CV)"
-            subs_str = " / ".join(f"{s['name']}+{s['value']}{s.get('unit', '')}" for s in (it.get("substats") or [])[:4])
-            tag = f"{it.get('slot_emoji', '🏺')}{it.get('slot_name', '')} | 주옵: {it.get('main_stat', '')} {it.get('main_value', '')} | {subs_str}"
+            dup_txt = f"+{it.get('new_level', 4)}"
+            subs = ", ".join((it.get("sub_stats") or [])[:2])
+            tag = f"{it.get('slot_name', '🏺성유물')} · 주옵: {it.get('main_stat', '-')}" + (f" ({subs})" if subs else "")
         else:
             dup_txt = f"R{it.get('new_refinement', 1)}"
             tag = f"{it.get('weapon_type_emoji', '')}{it.get('weapon_type_name', '')}"
@@ -132,9 +129,6 @@ def _build_genshin_result_embed(result: dict, user: discord.abc.User | None) -> 
             rew.append(f"+{it['gained_starglitter']}✨스타라이트")
         if it.get("gained_stardust"):
             rew.append(f"+{it['gained_stardust']}💠더스트")
-        if it.get("gained_essence") or it.get("gained_sanctifying_essence"):
-            g_ess = it.get("gained_essence", it.get("gained_sanctifying_essence", 0))
-            rew.append(f"+{g_ess}🧪축성정수")
         rew_txt = f" ({', '.join(rew)})" if rew else ""
 
         lines.append(
@@ -158,14 +152,9 @@ def _build_genshin_result_embed(result: dict, user: discord.abc.User | None) -> 
         ft_name = w_obj["name"] if w_obj else "미설정"
         pity_line = f"• **무기 기원 스택:** {p_txt} ({g_txt}) · 🧭 궤도: `{ft_name}` (`{fp}/1`)"
     elif banner_key == "artifact":
-        t_sid = u_state.get("target_artifact_set_id") or u_state.get("artifact_target_set")
-        t_set = genshin_core.get_genshin_artifact_by_id(str(t_sid)) if t_sid else None
-        t_name = t_set["name"] if t_set else (sched["featured_artifact"]["name"] if sched.get("featured_artifact") else "전체 비경 균등")
-        cur_ess = u_state.get("artifact_essence", u_state.get("sanctifying_essence", 0))
-        pity_line = (
-            f"• **비경 천장 스택:** `{u_state.get('pity_artifact', 0)}/10` (10회 내 ★5 확정) · 🎯 명정 세트: `{t_name}`\n"
-            f"• **성유물 재화:** 🧪 축성의 정수 `{cur_ess:,}` · ❄️ 축성의 서리 `{u_state.get('sanctifying_elixir', 0):,}` · 📦 보관 `{len(u_state.get('artifacts', []))}개`"
-        )
+        p_txt = f"`{u_state.get('pity_artifact', 0)}/50`"
+        g_txt = "🔒 **픽업세트확정**" if u_state.get("guaranteed_artifact") else "🎲 **80/20 픽업우대**"
+        pity_line = f"• **성유물 축복 스택:** {p_txt} ({g_txt} · 35스택 소프트 천장)"
     else:
         pity_line = f"• **상시 기원 스택:** `{u_state.get('pity_standard', 0)}/90`"
 
@@ -177,23 +166,21 @@ def _build_genshin_result_embed(result: dict, user: discord.abc.User | None) -> 
         w_names = [w["name"] for w in (eff.get("weapon_1"), eff.get("weapon_2")) if w]
         feat_str = " / ".join(w_names) if w_names else "상시 무기"
     elif banner_key == "artifact":
-        t_sid = u_state.get("target_artifact_set_id") or u_state.get("artifact_target_set")
-        t_set = genshin_core.get_genshin_artifact_by_id(str(t_sid)) if t_sid else sched.get("featured_artifact")
-        feat_str = f"🏛️ {t_set['name']} (65% 집중 드롭)" if t_set else "전체 5성 성유물 비경"
+        a_names = [a["name"] for a in (eff.get("artifact_1"), eff.get("artifact_2")) if a]
+        feat_str = " / ".join(a_names) if a_names else "비경 성유물 세트"
     else:
         feat_str = "상시 5성 캐릭터 & 무기"
 
+    rot_win = eff.get("time_window") or ""
+    rot_tag = f" · ⏰ `{rot_win}`" if rot_win else ""
     mode_banner = "🧪 **[리세마라 연습 모드 — 미저장/천장 미반영]**\n" if practice else ""
-    essence_sum = f" / `+{result.get('total_essence', 0)} 축성정수`" if result.get("total_essence") else ""
-    elixir_sum = f" / `+{result.get('gained_elixir', 0)} 축성의서리❄️`" if result.get("gained_elixir") else ""
     rew_sum = (
-        f" · 💫 **보상:** `+{result['total_glitter']} 스타라이트` / `+{result['total_dust']} 스타더스트`{essence_sum}{elixir_sum}"
+        f" · 💫 **보상:** `+{result['total_glitter']} 스타라이트` / `+{result['total_dust']} 스타더스트`"
         if not practice else ""
     )
-    stat_bar = f"★★★★★ `{len(r5)}` · ★★★★ `{len(r4)}` · ★★★ `{len(r3)}`{rew_sum}"
-    time_line = f"⏰ **KST {sched['hour']:02d}시 [{sched['period_name']}]:** {sched['bonus_text']}"
+    stat_bar = f"★★★★★ `{len(r5)}` · ★★★★ `{len(r4)}` · ★★★ `{len(r3)}` · 🎯픽업 `{len(pickups)}`{rew_sum}"
 
-    header = f"{mode_banner}🎰 **기원:** `{b_cfg['name']}`\n🎯 **현재 픽업:** `{feat_str}`\n{time_line}\n\n"
+    header = f"{mode_banner}🎰 **기원:** `{b_cfg['name']}`{rot_tag}\n🎯 **현재 픽업:** `{feat_str}`\n\n"
     footer_block = f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{stat_bar}\n{pity_line}"
     body = "\n".join(lines)
     max_b = max(200, 4040 - len(header) - len(footer_block))
@@ -208,8 +195,7 @@ def _build_genshin_result_embed(result: dict, user: discord.abc.User | None) -> 
     )
     if user:
         embed.set_author(name=f"{user.display_name}님의 티바트 기원", icon_url=user.display_avatar.url)
-    cur_ess_ft = u_state.get("artifact_essence", u_state.get("sanctifying_essence", 0))
-    embed.set_footer(text=f"보유 스타라이트 {u_state.get('starglitter', 0):,} · 스타더스트 {u_state.get('stardust', 0):,} · 축성정수 {cur_ess_ft:,} | 하단에서 배너/비경 전환")
+    embed.set_footer(text=f"보유 스타라이트 {u_state.get('starglitter', 0):,} · 스타더스트 {u_state.get('stardust', 0):,} | 하단에서 캐릭터·무기·성유물 배너 전환")
 
     high_items = [it for it in drawn if it["rank"] >= 5]
     if not high_items and len(drawn) == 1:
@@ -242,7 +228,7 @@ async def send_genshin_pull_result(
         if splash_targets else _empty_list()
     )
     det_coro = (
-        asyncio.gather(*(asyncio.to_thread(genshin_core.fetch_genshin_detail_kr, it.get("set_id") or it["id"], it["kind"]) for it in splash_targets))
+        asyncio.gather(*(asyncio.to_thread(genshin_core.fetch_genshin_detail_kr, it["id"], it["kind"]) for it in splash_targets))
         if splash_targets else _empty_list()
     )
     tag = "연습 모드" if result["practice"] else f"{result['user_state'].get('total_pulls', 0)}회 누적"
@@ -305,17 +291,16 @@ async def send_genshin_pull_result(
                     d_txt = det["detail"]
                     extra_lines.append(f"• 💬 *\"{d_txt[:140]}{'…' if len(d_txt) > 140 else ''}\"*")
             elif it["kind"] == "artifact":
-                subs_str = " / ".join(f"{s['name']} +{s['value']}{s.get('unit', '')}" for s in (it.get("substats") or []))
                 extra_lines = [
-                    f"• **부위/주옵션:** {it.get('slot_emoji', '🏺')} `{it.get('slot_name', '')}` · **`{it.get('main_stat', '')} {it.get('main_value', '')}`**",
-                    f"• **부옵션 ({it.get('grade', 'A')}급 · {it.get('cv', 0.0):.1f} CV):** `{subs_str}`",
+                    f"• **감정 부위/주옵션:** {it.get('slot_name', '🏺성유물')} · **`{it.get('main_stat', '-')}`**",
+                    f"• **부옵션 감정:** `{', '.join(it.get('sub_stats') or ['-'])}`",
                 ]
-                b2 = it.get("bonus_2pc") or det.get("bonus_2pc")
-                b4 = it.get("bonus_4pc") or det.get("bonus_4pc")
+                b2 = it.get("bonus_2p") or det.get("bonus_2p")
+                b4 = it.get("bonus_4p") or det.get("bonus_4p")
                 if b2:
-                    extra_lines.append(f"• **2세트:** {b2[:110]}")
+                    extra_lines.append(f"• **2세트 효과:** {b2}")
                 if b4:
-                    extra_lines.append(f"• **4세트:** {b4[:130]}{'…' if len(b4) > 130 else ''}")
+                    extra_lines.append(f"• **4세트 효과:** {b4[:120]}{'…' if len(b4) > 120 else ''}")
             else:
                 extra_lines = [
                     f"• **무기군:** {it.get('weapon_type_emoji', '')} {it.get('weapon_type_name', '')} · **부옵션:** `{it.get('special_prop_name', '-')}`"
@@ -368,27 +353,21 @@ async def send_genshin_pull_result(
 class _GenshinBannerSelect(discord.ui.Select):
     def __init__(self, current_banner: str = "char1", eff_pickup: dict | None = None):
         eff = eff_pickup or genshin_core.resolve_effective_genshin_pickup(None)
-        sched = genshin_core.get_genshin_time_schedule()
         c1_name = eff["char1"]["name"] if eff.get("char1") else "픽업 캐릭터 ①"
         c2_name = eff["char2"]["name"] if eff.get("char2") else "픽업 캐릭터 ②"
         w_names = " / ".join(w["name"] for w in (eff.get("weapon_1"), eff.get("weapon_2")) if w) or "픽업 무기"
-        art_name = sched["featured_artifact"]["name"] if sched.get("featured_artifact") else "5성 성유물 비경"
+        a_names = " / ".join(a["name"] for a in (eff.get("artifact_1"), eff.get("artifact_2")) if a) or "비경 성유물"
         options = [
-            discord.SelectOption(label="🌠 캐릭터 이벤트 기원 ①", value="char1", description=f"픽업: {c1_name} ({sched['period_name']})"[:95], default=(current_banner == "char1")),
-            discord.SelectOption(label="🌙 캐릭터 이벤트 기원 ②", value="char2", description=f"픽업: {c2_name} ({sched['period_name']})"[:95], default=(current_banner == "char2")),
+            discord.SelectOption(label="🌠 캐릭터 이벤트 기원 ①", value="char1", description=f"픽업: {c1_name}"[:95], default=(current_banner == "char1")),
+            discord.SelectOption(label="🌙 캐릭터 이벤트 기원 ②", value="char2", description=f"픽업: {c2_name}"[:95], default=(current_banner == "char2")),
             discord.SelectOption(label="⚔️ 신의 주조 (무기 기원)", value="weapon", description=f"픽업: {w_names}"[:95], default=(current_banner == "weapon")),
-            discord.SelectOption(label="🏛️ 축성 비경 (성유물 기원)", value="artifact", description=f"오늘의 비경: {art_name} (10연 ★5 확정)"[:95], default=(current_banner == "artifact")),
-            discord.SelectOption(label="🌌 세상 여행 (상시 기원)", value="standard", description=f"상시 5성 · {sched['bonus_text']}"[:95], default=(current_banner == "standard")),
+            discord.SelectOption(label="🏺 비경 성유물 축복 (성유물 감정)", value="artifact", description=f"픽업 세트: {a_names}"[:95], default=(current_banner == "artifact")),
+            discord.SelectOption(label="🌌 세상 여행 (상시 기원)", value="standard", description="상시 5성 캐릭터·무기 · 초기 4성 포함", default=(current_banner == "standard")),
         ]
-        super().__init__(
-            placeholder="🎰 기원 배너 전환 (캐릭터·무기·성유물·상시)...",
-            options=options,
-            row=0,
-            custom_id="norosi:GenshinPullAgainView:_GenshinBannerSelect",
-        )
+        super().__init__(placeholder="🎰 기원 배너 전환 (캐릭터·무기·성유물·상시)...", options=options, row=0)
 
     async def callback(self, interaction: discord.Interaction):
-        view: GenshinPullAgainView = self.view or GenshinPullAgainView(interaction.user)
+        view: GenshinPullAgainView = self.view
         if not await view._check_owner(interaction):
             return
         view.banner_key = self.values[0]
@@ -419,11 +398,11 @@ class GenshinPullAgainView(core.SafeView):
         eff = genshin_core.resolve_effective_genshin_pickup(data.get("genshin_pickup"))
         self.add_item(_GenshinBannerSelect(self.banner_key, eff))
 
-        b10 = discord.ui.Button(label="🌠 10회 기원", style=discord.ButtonStyle.primary, row=1, custom_id="norosi:GenshinPullAgainView:_on_10")
+        b10 = discord.ui.Button(label="🌠 10회 기원", style=discord.ButtonStyle.primary, row=1)
         b10.callback = self._on_10
         self.add_item(b10)
 
-        b1 = discord.ui.Button(label="✨ 1회 기원", style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:GenshinPullAgainView:_on_1")
+        b1 = discord.ui.Button(label="✨ 1회 기원", style=discord.ButtonStyle.secondary, row=1)
         b1.callback = self._on_1
         self.add_item(b1)
 
@@ -431,34 +410,29 @@ class GenshinPullAgainView(core.SafeView):
             label="⏩ 연출 스킵 ON" if self.skip_anim else "🎬 연출 보기 (3.5초)",
             style=discord.ButtonStyle.success if self.skip_anim else discord.ButtonStyle.secondary,
             row=1,
-            custom_id="norosi:GenshinPullAgainView:_on_toggle_skip",
         )
         bskip.callback = self._on_toggle_skip
         self.add_item(bskip)
 
         if not self.practice:
-            bprac = discord.ui.Button(label="🧪 연습 모드 전환", style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:GenshinPullAgainView:_on_toggle_practice")
+            bprac = discord.ui.Button(label="🧪 연습 모드 전환", style=discord.ButtonStyle.secondary, row=1)
             bprac.callback = self._on_toggle_practice
             self.add_item(bprac)
         else:
-            breal = discord.ui.Button(label="⭐ 실전 모드 전환", style=discord.ButtonStyle.success, row=1, custom_id="norosi:GenshinPullAgainView:_on_toggle_practice")
+            breal = discord.ui.Button(label="⭐ 실전 모드 전환", style=discord.ButtonStyle.success, row=1)
             breal.callback = self._on_toggle_practice
             self.add_item(breal)
 
         if self.banner_key == "weapon":
-            bfate = discord.ui.Button(label="🧭 운명의 궤도 변경", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:GenshinPullAgainView:_on_fate_btn")
+            bfate = discord.ui.Button(label="🧭 운명의 궤도 변경", style=discord.ButtonStyle.secondary, row=2)
             bfate.callback = self._on_fate_btn
             self.add_item(bfate)
 
-        bart = discord.ui.Button(label="🏛️ 성유물 비경·연성", style=discord.ButtonStyle.primary if self.banner_key == "artifact" else discord.ButtonStyle.secondary, row=2, custom_id="norosi:GenshinPullAgainView:_on_artifact_hub")
-        bart.callback = self._on_artifact_hub
-        self.add_item(bart)
-
-        binv = discord.ui.Button(label="🎒 보관함", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:GenshinPullAgainView:_on_inv")
+        binv = discord.ui.Button(label="🎒 보관함", style=discord.ButtonStyle.secondary, row=2)
         binv.callback = self._on_inv
         self.add_item(binv)
 
-        bshop = discord.ui.Button(label="🛍️ 페이몬 상점", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:GenshinPullAgainView:_on_shop")
+        bshop = discord.ui.Button(label="🛍️ 페이몬 상점", style=discord.ButtonStyle.secondary, row=2)
         bshop.callback = self._on_shop
         self.add_item(bshop)
 
@@ -508,25 +482,19 @@ class GenshinPullAgainView(core.SafeView):
             return
         self.skip_anim = not self.skip_anim
         self._build_items()
-        await interaction.response.edit_message(view=self)
+        await core.safe_edit_response(interaction, view=self)
 
     async def _on_toggle_practice(self, interaction: discord.Interaction):
         if not await self._check_owner(interaction):
             return
         self.practice = not self.practice
         self._build_items()
-        await interaction.response.edit_message(view=self)
+        await core.safe_edit_response(interaction, view=self)
 
     async def _on_fate_btn(self, interaction: discord.Interaction):
         if not await self._check_owner(interaction):
             return
         v = GenshinFatePathView(interaction.guild_id or 0, interaction.user)
-        await core.safe_send_response(interaction, embed=v.build_embed(), view=v, ephemeral=True)
-
-    async def _on_artifact_hub(self, interaction: discord.Interaction):
-        if not await self._check_owner(interaction):
-            return
-        v = GenshinArtifactView(interaction.guild_id or 0, interaction.user)
         await core.safe_send_response(interaction, embed=v.build_embed(), view=v, ephemeral=True)
 
     async def _on_inv(self, interaction: discord.Interaction):
@@ -584,13 +552,14 @@ class GenshinFatePathView(core.SafeView):
     async def _select(self, interaction: discord.Interaction, target_id: str):
         if self.user and interaction.user.id != self.user.id:
             return await core.safe_send_response(interaction, "❌ 본인만 궤도를 설정할 수 있습니다.", ephemeral=True)
+        await core.safe_defer(interaction, ephemeral=True)
         if self.user is None:
             self.user = interaction.user
         gid = self.guild_id or (interaction.guild_id or 0)
         self.guild_id = gid
         ok, msg, _ = await asyncio.to_thread(genshin_core.set_genshin_fate_path, gid, interaction.user.id, target_id)
         self._build()
-        await interaction.response.edit_message(content=msg, embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, content=msg, embed=self.build_embed(), view=self)
 
     def build_embed(self) -> discord.Embed:
         data = core.load_data()
@@ -634,18 +603,23 @@ class GenshinInventoryView(core.SafeView):
         data = core.load_data()
         uid = self.user.id if self.user else 0
         u_data = genshin_core.ensure_genshin_user(data, self.guild_id, uid)
-        items = list(u_data.get("items", {}).values())
+        items = [v for v in core.as_dict(u_data.get("items")).values() if isinstance(v, dict) and v.get("kind") and v.get("name")]
         if self.filter_mode == "char":
             items = [it for it in items if it.get("kind") == "char"]
         elif self.filter_mode == "weapon":
             items = [it for it in items if it.get("kind") == "weapon"]
+        elif self.filter_mode == "artifact":
+            items = [it for it in items if it.get("kind") == "artifact"]
         elif self.filter_mode == "r5":
             items = [it for it in items if it.get("rank") == 5]
         elif self.filter_mode == "r4":
             items = [it for it in items if it.get("rank") == 4]
+        elif self.filter_mode == "r3":
+            items = [it for it in items if int(it.get("rank", 3)) <= 3]
         elif self.filter_mode == "locked":
             items = [it for it in items if it.get("locked")]
-        items.sort(key=lambda x: (-int(x.get("rank", 3)), 0 if x.get("kind") == "char" else 1, -int(x.get("level", 1)), -int(x.get("count", 1)), x.get("name", "")))
+        kind_ord = {"char": 0, "weapon": 1, "artifact": 2}
+        items.sort(key=lambda x: (-int(x.get("rank", 3)), kind_ord.get(x.get("kind"), 9), -int(x.get("level", 1)), -int(x.get("count", 1)), x.get("name", "")))
         return u_data, items
 
     def _build(self):
@@ -659,8 +633,10 @@ class GenshinInventoryView(core.SafeView):
             discord.SelectOption(label="📋 전체 보유 목록", value="all", default=(self.filter_mode == "all")),
             discord.SelectOption(label="🧍 캐릭터만 보기", value="char", default=(self.filter_mode == "char")),
             discord.SelectOption(label="⚔️ 무기만 보기", value="weapon", default=(self.filter_mode == "weapon")),
+            discord.SelectOption(label="🏺 성유물만 보기", value="artifact", default=(self.filter_mode == "artifact")),
             discord.SelectOption(label="🌟 5성만 보기", value="r5", default=(self.filter_mode == "r5")),
             discord.SelectOption(label="💜 4성만 보기", value="r4", default=(self.filter_mode == "r4")),
+            discord.SelectOption(label="💙 3성 이하 보기", value="r3", default=(self.filter_mode == "r3")),
             discord.SelectOption(label="🔒 잠금 항목만", value="locked", default=(self.filter_mode == "locked")),
         ]
         sel_f = discord.ui.Select(placeholder="🔍 보관함 필터 선택...", options=f_opts, row=0)
@@ -670,11 +646,17 @@ class GenshinInventoryView(core.SafeView):
         if slice_items:
             d_opts = []
             for it in slice_items:
-                tag = f"C{it.get('constellation', 0)}" if it["kind"] == "char" else f"R{it.get('refinement', 1)}"
+                ikind = it.get("kind")
+                if ikind == "char":
+                    tag = f"C{it.get('constellation', 0)}"
+                elif ikind == "artifact":
+                    tag = f"+{it.get('level', 4)}"
+                else:
+                    tag = f"R{it.get('refinement', 1)}"
                 lock_icon = "🔒 " if it.get("locked") else ""
                 d_opts.append(discord.SelectOption(
-                    label=f"{lock_icon}{it['rarity_label']} {it['name']} ({tag})"[:95],
-                    value=it["item_key"],
+                    label=f"{lock_icon}{it.get('rarity_label', '⭐')} {it.get('name', '알 수 없음')} ({tag})"[:95],
+                    value=str(it.get("item_key") or it.get("id") or it.get("name") or "unknown")[:100],
                     description=f"Lv.{it.get('level', 1)} · 보유 {it.get('count', 1)}회 · 클릭해 스플래시/잠금/레벨업"[:95],
                 ))
             sel_it = discord.ui.Select(placeholder="🖼️ 상세 일러스트 · 🔒잠금 · ⬆️레벨업 선택...", options=d_opts, row=1)
@@ -704,21 +686,21 @@ class GenshinInventoryView(core.SafeView):
         self.filter_mode = interaction.data["values"][0]
         self.page = 0
         self._build()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     async def _on_prev(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
         self.page = max(0, self.page - 1)
         self._build()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     async def _on_next(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
         self.page += 1
         self._build()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     async def _on_select_item(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
@@ -739,23 +721,31 @@ class GenshinInventoryView(core.SafeView):
         lines = []
         for idx, it in enumerate(slice_items, start=self.page * self._per_page + 1):
             lk = "🔒" if it.get("locked") else "🔓"
-            if it["kind"] == "char":
+            ikind = it.get("kind")
+            rlabel = it.get("rarity_label", "⭐")
+            iname = it.get("name", "알 수 없음")
+            if ikind == "char":
                 lines.append(
-                    f"**{idx:02d}.** {lk} **{it['rarity_label']} {it['name']}** `C{it.get('constellation', 0)}` · `Lv.{it.get('level', 1)}`\n"
+                    f"**{idx:02d}.** {lk} **{rlabel} {iname}** `C{it.get('constellation', 0)}` · `Lv.{it.get('level', 1)}`\n"
                     f"└ {it.get('element_emoji', '')}{it.get('element_name', '')} · {it.get('weapon_type_emoji', '')}{it.get('weapon_type_name', '')} · 누적 `{it.get('count', 1)}회`"
+                )
+            elif ikind == "artifact":
+                lines.append(
+                    f"**{idx:02d}.** {lk} **{rlabel} {iname}** `+{it.get('level', 4)}` · 누적 `{it.get('count', 1)}회`\n"
+                    f"└ {it.get('slot_name', '🏺성유물')} · 주옵: `{it.get('main_stat', '-')}` · {it.get('bonus_2p', '')[:36]}"
                 )
             else:
                 lines.append(
-                    f"**{idx:02d}.** {lk} **{it['rarity_label']} {it['name']}** `R{it.get('refinement', 1)}` · 누적 `{it.get('count', 1)}회`\n"
+                    f"**{idx:02d}.** {lk} **{rlabel} {iname}** `R{it.get('refinement', 1)}` · 누적 `{it.get('count', 1)}회`\n"
                     f"└ {it.get('weapon_type_emoji', '')}{it.get('weapon_type_name', '')} · {it.get('special_prop_name', '-')}"
                 )
-        body = "\n".join(lines) if lines else "*(해당 조건에 보유한 캐릭터·무기가 없습니다)*"
+        body = "\n".join(lines) if lines else "*(해당 조건에 보유한 캐릭터·무기·성유물이 없습니다)*"
         owner_name = self.user.display_name if self.user else "여행자"
         return discord.Embed(
             title=f"🎒 {owner_name}님의 원신 보관함 ({len(items)}종)",
             description=(
                 f"✨ 스타라이트 `{u_data.get('starglitter', 0):,}` · 💠 스타더스트 `{u_data.get('stardust', 0):,}` · 📘 영웅의 경험 `{u_data.get('hero_wit', 0):,}권`\n"
-                f"• 캐릭터 스택 `{u_data.get('pity_char', 0)}/90` · 무기 스택 `{u_data.get('pity_weapon', 0)}/80` · 상시 `{u_data.get('pity_standard', 0)}/90`\n\n"
+                f"• 캐릭터 `{u_data.get('pity_char', 0)}/90` · 무기 `{u_data.get('pity_weapon', 0)}/80` · 성유물 `{u_data.get('pity_artifact', 0)}/50` · 상시 `{u_data.get('pity_standard', 0)}/90`\n\n"
                 f"{body}"
             )[:4050],
             color=discord.Color.from_rgb(40, 74, 150),
@@ -771,52 +761,48 @@ class GenshinItemDetailView(core.SafeView):
         self.item_key = item_key
         self._build()
 
-    def _resolve_item_key_from_message(self, interaction: discord.Interaction):
-        if self.item_key:
-            return
-        msg = getattr(interaction, "message", None)
-        if msg and getattr(msg, "embeds", None):
-            title = (msg.embeds[0].title or "").replace("🔒", "").replace("★", "").strip()
-            if title:
-                genshin_core.load_genshin_kr_db()
-                for k, v in genshin_core.GENSHIN_ALL_ITEMS.items():
-                    if v.get("name") == title:
-                        self.item_key = k
-                        return
-
     def _build(self):
         self.clear_items()
         data = core.load_data()
         u_data = genshin_core.ensure_genshin_user(data, self.guild_id, self.user.id if self.user else 0)
-        it = u_data.get("items", {}).get(self.item_key)
+        raw_it = core.as_dict(u_data.get("items")).get(self.item_key)
+        it = raw_it if isinstance(raw_it, dict) else None
         locked = bool(it.get("locked")) if it else False
 
         b_lock = discord.ui.Button(
             label="🔓 잠금 해제" if locked else "🔒 잠금 설정",
             style=discord.ButtonStyle.secondary if locked else discord.ButtonStyle.primary,
             row=0,
-            custom_id="norosi:GenshinItemDetailView:_on_lock",
         )
         b_lock.callback = self._on_lock
         self.add_item(b_lock)
 
-        if (it and it.get("kind") == "char") or not self.item_key or self.item_key.startswith("char:"):
-            lv_val = int(it.get("level", 1)) if it else 1
+        if it and it.get("kind") == "char":
             b_lv = discord.ui.Button(
-                label=f"⬆️ 레벨업 (+10Lv · 영웅의경험 2권)" if lv_val < 90 else "✅ Lv.90 MAX",
+                label=f"⬆️ 레벨업 (+10Lv · 영웅의경험 2권)" if int(it.get("level", 1)) < 90 else "✅ Lv.90 MAX",
                 style=discord.ButtonStyle.success,
-                disabled=(lv_val >= 90),
+                disabled=(int(it.get("level", 1)) >= 90),
                 row=0,
-                custom_id="norosi:GenshinItemDetailView:_on_lvup",
             )
             b_lv.callback = self._on_lvup
             self.add_item(b_lv)
+        elif it and it.get("kind") == "artifact":
+            art_lv = int(it.get("level", 4))
+            b_alv = discord.ui.Button(
+                label="🔨 성유물 강화 (+4강 · 더스트 20)" if art_lv < 20 else "✅ +20강 MAX",
+                style=discord.ButtonStyle.success,
+                disabled=(art_lv >= 20),
+                row=0,
+            )
+            b_alv.callback = self._on_art_lvup
+            self.add_item(b_alv)
 
     async def build_embed_and_file(self) -> tuple[discord.Embed, discord.File | None]:
         genshin_core.load_genshin_kr_db()
         data = core.load_data()
         u_data = genshin_core.ensure_genshin_user(data, self.guild_id, self.user.id if self.user else 0)
-        owned = u_data.get("items", {}).get(self.item_key)
+        raw_owned = core.as_dict(u_data.get("items")).get(self.item_key)
+        owned = raw_owned if isinstance(raw_owned, dict) else None
         master = genshin_core.GENSHIN_ALL_ITEMS.get(self.item_key) or owned or {"id": "", "kind": "char", "name": "정보 없음", "rank": 4, "rarity_label": "★★★★"}
         it = {**master, **(owned or {})}
         det = await asyncio.to_thread(genshin_core.fetch_genshin_detail_kr, it["id"], it["kind"])
@@ -832,16 +818,29 @@ class GenshinItemDetailView(core.SafeView):
                 lines.append(f"• **한국어 성우:** `{det['cv_kr']}`")
             if det.get("detail"):
                 lines.append(f"\n> {det['detail'][:300]}")
+        elif it["kind"] == "artifact":
+            lines.append(f"• **성유물 부위/강화:** {it.get('slot_name', '🏺성유물')} · **`+{it.get('level', 4)}/20`** · 누적 `{it.get('count', 1)}회`")
+            lines.append(f"• **주옵션:** `{it.get('main_stat', '-')}` · **부옵션:** `{', '.join(it.get('sub_stats') or ['-'])}`")
+            if it.get("bonus_2p"):
+                lines.append(f"• **2세트 효과:** {it['bonus_2p']}")
+            if it.get("bonus_4p"):
+                lines.append(f"• **4세트 효과:** {it['bonus_4p'][:250]}")
         else:
             lines.append(f"• **무기군/부옵션:** {it.get('weapon_type_emoji', '')}{it.get('weapon_type_name', '')} · `{it.get('special_prop_name', '-')}`")
             lines.append(f"• **재련 단계:** **`R{it.get('refinement', 1)}/5`** · 누적 `{it.get('count', 1)}회`")
             if det.get("description"):
                 lines.append(f"\n> {det['description'][:300]}")
 
+        rk = int(it.get("rank", 4))
+        emb_color = (
+            discord.Color.from_rgb(255, 204, 82)
+            if rk == 5
+            else (discord.Color.from_rgb(174, 118, 255) if rk == 4 else discord.Color.from_rgb(84, 168, 255))
+        )
         emb = discord.Embed(
             title=f"{'🔒 ' if it.get('locked') else ''}{it.get('rarity_label', '')} {it.get('name', '')}",
             description="\n".join(lines),
-            color=discord.Color.from_rgb(255, 204, 82) if it.get("rank") == 5 else discord.Color.from_rgb(174, 118, 255),
+            color=emb_color,
         )
         file_obj = None
         if img_bytes:
@@ -854,28 +853,42 @@ class GenshinItemDetailView(core.SafeView):
     async def _on_lock(self, interaction: discord.Interaction):
         if self.user and interaction.user.id != self.user.id:
             return await core.safe_send_response(interaction, "❌ 본인 아이템만 잠금할 수 있습니다.", ephemeral=True)
+        await core.safe_defer(interaction)
         self.user = self.user or interaction.user
         gid = self.guild_id or (interaction.guild_id or 0)
         self.guild_id = gid
-        self._resolve_item_key_from_message(interaction)
         await asyncio.to_thread(genshin_core.toggle_genshin_item_lock, gid, interaction.user.id, self.item_key)
         self._build()
         emb, _ = await self.build_embed_and_file()
-        await interaction.response.edit_message(embed=emb, view=self)
+        await core.safe_edit_response(interaction, embed=emb, view=self)
 
     async def _on_lvup(self, interaction: discord.Interaction):
         if self.user and interaction.user.id != self.user.id:
             return await core.safe_send_response(interaction, "❌ 본인 캐릭터만 레벨업할 수 있습니다.", ephemeral=True)
+        await core.safe_defer(interaction)
         self.user = self.user or interaction.user
         gid = self.guild_id or (interaction.guild_id or 0)
         self.guild_id = gid
-        self._resolve_item_key_from_message(interaction)
         ok, msg, _ = await asyncio.to_thread(genshin_core.levelup_genshin_char, gid, interaction.user.id, self.item_key)
         if not ok:
             return await core.safe_send_response(interaction, msg, ephemeral=True)
         self._build()
         emb, _ = await self.build_embed_and_file()
-        await interaction.response.edit_message(content=msg, embed=emb, view=self)
+        await core.safe_edit_response(interaction, content=msg, embed=emb, view=self)
+
+    async def _on_art_lvup(self, interaction: discord.Interaction):
+        if self.user and interaction.user.id != self.user.id:
+            return await core.safe_send_response(interaction, "❌ 본인 성유물만 강화할 수 있습니다.", ephemeral=True)
+        await core.safe_defer(interaction)
+        self.user = self.user or interaction.user
+        gid = self.guild_id or (interaction.guild_id or 0)
+        self.guild_id = gid
+        ok, msg, _ = await asyncio.to_thread(genshin_core.levelup_genshin_artifact, gid, interaction.user.id, self.item_key)
+        if not ok:
+            return await core.safe_send_response(interaction, msg, ephemeral=True)
+        self._build()
+        emb, _ = await self.build_embed_and_file()
+        await core.safe_edit_response(interaction, content=msg, embed=emb, view=self)
 
 
 class GenshinPokedexView(core.SafeView):
@@ -899,7 +912,14 @@ class GenshinPokedexView(core.SafeView):
             raw = [it for it in raw if it["kind"] == "weapon"]
         elif self.kind_filter == "artifact":
             raw = [it for it in raw if it["kind"] == "artifact"]
-        raw.sort(key=lambda x: (-int(x.get("rank", 3)), 0 if x.get("kind") == "char" else (1 if x.get("kind") == "weapon" else 2), x.get("name", "")))
+        elif self.kind_filter == "r5":
+            raw = [it for it in raw if int(it.get("rank", 4)) == 5]
+        elif self.kind_filter == "r4":
+            raw = [it for it in raw if int(it.get("rank", 4)) == 4]
+        elif self.kind_filter == "r3":
+            raw = [it for it in raw if int(it.get("rank", 3)) <= 3]
+        kind_ord = {"char": 0, "weapon": 1, "artifact": 2}
+        raw.sort(key=lambda x: (-int(x.get("rank", 3)), kind_ord.get(x.get("kind"), 9), x.get("name", "")))
         return stats, raw
 
     def _build(self):
@@ -919,12 +939,12 @@ class GenshinPokedexView(core.SafeView):
                 self.tab = t
                 self.page = 0
                 self._build()
-                await interaction.response.edit_message(embed=self.build_embed(), view=self)
+                await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
             b.callback = _cb
             self.add_item(b)
 
-        for lbl, kf in [("전체종류", "all"), ("캐릭터만", "char"), ("무기만", "weapon"), ("🏛️ 성유물 세트", "artifact")]:
+        for lbl, kf in [("전체", "all"), ("캐릭터", "char"), ("무기", "weapon"), ("성유물", "artifact"), ("★5만", "r5")]:
             b = discord.ui.Button(label=lbl, style=discord.ButtonStyle.success if self.kind_filter == kf else discord.ButtonStyle.secondary, row=1)
 
             async def _cb_k(interaction: discord.Interaction, k=kf):
@@ -935,10 +955,26 @@ class GenshinPokedexView(core.SafeView):
                 self.kind_filter = k
                 self.page = 0
                 self._build()
-                await interaction.response.edit_message(embed=self.build_embed(), view=self)
+                await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
             b.callback = _cb_k
             self.add_item(b)
+
+        for lbl, kf in [("★4만", "r4"), ("★3이하", "r3")]:
+            b_rk = discord.ui.Button(label=lbl, style=discord.ButtonStyle.success if self.kind_filter == kf else discord.ButtonStyle.secondary, row=2)
+
+            async def _cb_rk(interaction: discord.Interaction, k=kf):
+                if self.user and interaction.user.id != self.user.id:
+                    return await core.safe_send_response(interaction, "❌ 본인 도감 화면에서만 전환 가능합니다.", ephemeral=True)
+                self.user = self.user or interaction.user
+                self.guild_id = self.guild_id or (interaction.guild_id or 0)
+                self.kind_filter = k if self.kind_filter != k else "all"
+                self.page = 0
+                self._build()
+                await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+            b_rk.callback = _cb_rk
+            self.add_item(b_rk)
 
         b_prev = discord.ui.Button(label="◀ 이전", style=discord.ButtonStyle.secondary, disabled=(self.page <= 0), row=2)
         b_next = discord.ui.Button(label="다음 ▶", style=discord.ButtonStyle.secondary, disabled=(self.page >= max_page), row=2)
@@ -950,7 +986,7 @@ class GenshinPokedexView(core.SafeView):
             self.guild_id = self.guild_id or (interaction.guild_id or 0)
             self.page = max(0, self.page - 1)
             self._build()
-            await interaction.response.edit_message(embed=self.build_embed(), view=self)
+            await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
         async def _next(interaction: discord.Interaction):
             if self.user and interaction.user.id != self.user.id:
@@ -959,7 +995,7 @@ class GenshinPokedexView(core.SafeView):
             self.guild_id = self.guild_id or (interaction.guild_id or 0)
             self.page += 1
             self._build()
-            await interaction.response.edit_message(embed=self.build_embed(), view=self)
+            await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
         b_prev.callback = _prev
         b_next.callback = _next
@@ -976,27 +1012,30 @@ class GenshinPokedexView(core.SafeView):
                 c_txt = f" `C{it['constellation']}`" if "constellation" in it else ""
                 lines.append(f"• {it['rarity_label']} **{it['name']}**{c_txt} ({it.get('element_emoji', '')}{it.get('element_name', '')} · `{it.get('pool_type', '')}`)")
             elif it["kind"] == "artifact":
-                cnt_txt = f" `보유 {it['count']}개`" if it.get("count") else ""
-                b2_short = (it.get("bonus_2pc") or "")[:40]
-                lines.append(f"• 🏛️ {it['rarity_label']} **{it['name']}**{cnt_txt} (`{b2_short}`)")
+                l_txt = f" `+{it['level']}`" if "level" in it else ""
+                lines.append(f"• {it.get('rarity_label', '★★★★★')} 🏺 **{it['name']}**{l_txt} ({it.get('bonus_2p', '비경 성유물')[:36]})")
             else:
                 r_txt = f" `R{it['refinement']}`" if "refinement" in it else ""
                 lines.append(f"• {it['rarity_label']} **{it['name']}**{r_txt} ({it.get('weapon_type_emoji', '')}{it.get('weapon_type_name', '')} · `{it.get('pool_type', '')}`)")
         list_body = "\n".join(lines) if lines else "*(표시할 항목이 없습니다)*"
         owner_n = self.user.display_name if self.user else "여행자"
-        art_stat = stats.get("art5", (0, 0))
+        w3_own, w3_tot = stats.get("w3", (0, 0))
+        w21_own, w21_tot = stats.get("w21", (0, 0))
+        a5_own, a5_tot = stats.get("a5", (0, 0))
+        a4_own, a4_tot = stats.get("a4", (0, 0))
+        a3_own, a3_tot = stats.get("a3", (0, 0))
         return discord.Embed(
-            title=f"📖 {owner_n}님의 원신 티바트 도감",
+            title=f"📖 {owner_n}님의 원신 티바트 도감 (공식 DB 전체 동기화)",
             description=(
                 f"• **기원 도감 수집률:** `{stats['wishable_owned']}/{stats['wishable_total']}` (**`{stats['rate']:.1f}%`**)\n"
                 f"  {stats['bar']}\n"
-                f"• **캐릭터:** ★5 `{stats['c5'][0]}/{stats['c5'][1]}` · ★4 `{stats['c4'][0]}/{stats['c4'][1]}`\n"
-                f"• **기원 무기:** ★5 `{stats['w5'][0]}/{stats['w5'][1]}` · ★4 `{stats['w4'][0]}/{stats['w4'][1]}`\n"
-                f"• **성유물 세트:** ★5 `{art_stat[0]}/{art_stat[1]}세트` 수집\n\n"
+                f"• **캐릭터 (5★·4★):** ★5 `{stats['c5'][0]}/{stats['c5'][1]}` · ★4 `{stats['c4'][0]}/{stats['c4'][1]}`\n"
+                f"• **무기 (5★~1★):** ★5 `{stats['w5'][0]}/{stats['w5'][1]}` · ★4 `{stats['w4'][0]}/{stats['w4'][1]}` · ★3 `{w3_own}/{w3_tot}` · ★2~1 `{w21_own}/{w21_tot}`\n"
+                f"• **성유물 세트 (5★~3★):** ★5 `{a5_own}/{a5_tot}` · ★4 `{a4_own}/{a4_tot}` · ★3 `{a3_own}/{a3_tot}`\n\n"
                 f"{list_body}"
             )[:4050],
             color=discord.Color.from_rgb(244, 198, 92),
-        ).set_footer(text=f"페이지 {self.page + 1}/{max_page} • 전체 DB {stats['total_all']}종 실시간 동기화")
+        ).set_footer(text=f"페이지 {self.page + 1}/{max_page} • 공식 DB 전체 {stats['total_all']}종 동기화 완료")
 
 
 class GenshinShopView(core.SafeView):
@@ -1036,6 +1075,7 @@ class GenshinShopView(core.SafeView):
     async def _on_buy(self, interaction: discord.Interaction):
         if self.user and interaction.user.id != self.user.id:
             return await core.safe_send_response(interaction, "❌ 본인의 페이몬 상점 화면만 사용할 수 있습니다.", ephemeral=True)
+        await core.safe_defer(interaction)
         self.user = self.user or interaction.user
         gid = self.guild_id or (interaction.guild_id or 0)
         self.guild_id = gid
@@ -1043,7 +1083,7 @@ class GenshinShopView(core.SafeView):
         ok, msg, _ = await asyncio.to_thread(genshin_core.purchase_genshin_shop_item, gid, interaction.user.id, offer)
         self._build()
         if ok:
-            await interaction.response.edit_message(content=msg, embed=self.build_embed(), view=self)
+            await core.safe_edit_response(interaction, content=msg, embed=self.build_embed(), view=self)
         else:
             await core.safe_send_response(interaction, f"⚠️ {msg}", ephemeral=True)
 
@@ -1051,7 +1091,7 @@ class GenshinShopView(core.SafeView):
         cat = genshin_core.get_genshin_shop_catalog()
         data = core.load_data()
         u_data = genshin_core.ensure_genshin_user(data, self.guild_id, self.user.id if self.user else 0)
-        monthly = u_data.get("shop_monthly", {})
+        monthly = core.as_dict(u_data.get("shop_monthly"))
         if monthly.get("month_key") != cat["month_key"]:
             di = da = 0
         else:
@@ -1089,7 +1129,7 @@ class GenshinPartyView(core.SafeView):
         self.clear_items()
         data = core.load_data()
         u_data = genshin_core.ensure_genshin_user(data, self.guild_id, self.user.id if self.user else 0)
-        owned_chars = [v for v in u_data.get("items", {}).values() if isinstance(v, dict) and v.get("kind") == "char"]
+        owned_chars = [v for v in core.as_dict(u_data.get("items")).values() if isinstance(v, dict) and v.get("kind") == "char"]
         owned_chars.sort(key=lambda c: (-int(c.get("rank", 4)), -int(c.get("level", 1)), -int(c.get("constellation", 0)), c.get("name", "")))
 
         if owned_chars:
@@ -1132,61 +1172,41 @@ class GenshinPartyView(core.SafeView):
         if not await self._guard(interaction):
             return
         picked = list(interaction.data["values"])[:4]
-        gid = self.guild_id or interaction.guild_id or 0
-        self.guild_id = gid
-
-        def _save():
-            with core._DATA_LOCK:
-                data = core.load_data()
-                u_data = genshin_core.ensure_genshin_user(data, gid, interaction.user.id)
-                u_data["party"] = picked
-                core.save_data(data)
-
-        await asyncio.to_thread(_save)
+        data = core.load_data()
+        u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
+        u_data["party"] = picked
+        core.save_data(data)
         self._build()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     async def _on_auto(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
-        gid = self.guild_id or interaction.guild_id or 0
-        self.guild_id = gid
-
-        def _save():
-            with core._DATA_LOCK:
-                data = core.load_data()
-                u_data = genshin_core.ensure_genshin_user(data, gid, interaction.user.id)
-                chars = [v for v in u_data.get("items", {}).values() if isinstance(v, dict) and v.get("kind") == "char"]
-                chars.sort(key=lambda c: -genshin_core.compute_genshin_char_power(c))
-                u_data["party"] = [c["item_key"] for c in chars[:4]]
-                core.save_data(data)
-
-        await asyncio.to_thread(_save)
+        data = core.load_data()
+        u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
+        chars = [v for v in core.as_dict(u_data.get("items")).values() if isinstance(v, dict) and v.get("kind") == "char"]
+        chars.sort(key=lambda c: -genshin_core.compute_genshin_char_power(c))
+        u_data["party"] = [c["item_key"] for c in chars[:4]]
+        core.save_data(data)
         self._build()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     async def _on_clear(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
-        gid = self.guild_id or interaction.guild_id or 0
-        self.guild_id = gid
-
-        def _save():
-            with core._DATA_LOCK:
-                data = core.load_data()
-                u_data = genshin_core.ensure_genshin_user(data, gid, interaction.user.id)
-                u_data["party"] = []
-                core.save_data(data)
-
-        await asyncio.to_thread(_save)
+        data = core.load_data()
+        u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
+        u_data["party"] = []
+        core.save_data(data)
         self._build()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     def build_embed(self) -> discord.Embed:
         data = core.load_data()
         u_data = genshin_core.ensure_genshin_user(data, self.guild_id, self.user.id if self.user else 0)
-        items = u_data.get("items", {})
-        party_keys = [k for k in (u_data.get("party") or []) if k in items][:4]
+        items = core.as_dict(u_data.get("items"))
+        raw_party = u_data.get("party") if isinstance(u_data.get("party"), list) else []
+        party_keys = [k for k in raw_party if isinstance(items.get(k), dict)][:4]
         party_objs = [items[k] for k in party_keys]
         analysis = genshin_core.analyze_genshin_party(party_objs)
 
@@ -1233,7 +1253,7 @@ class GenshinRankingView(core.SafeView):
                 self.guild_id = self.guild_id or (interaction.guild_id or 0)
                 self.mode = target_m
                 self._build()
-                await interaction.response.edit_message(embed=self.build_embed(interaction.guild), view=self)
+                await core.safe_edit_response(interaction, embed=self.build_embed(interaction.guild), view=self)
 
             b.callback = _cb
             self.add_item(b)
@@ -1241,13 +1261,15 @@ class GenshinRankingView(core.SafeView):
     def build_embed(self, guild: discord.Guild | None = None) -> discord.Embed:
         data = core.load_data()
         g_key = str(self.guild_id or 0)
-        g_users = data.get("genshin_users", {}).get(g_key, {})
+        g_users = core.safe_get_dict(data, "genshin_users", g_key)
 
         if self.mode == "hof":
             hof = genshin_core.get_genshin_hall_of_fame(data, self.guild_id)
             recs = hof["top_records"]
             lines = []
             for idx, r in enumerate(recs[:10], start=1):
+                if not isinstance(r, dict):
+                    continue
                 uid_i = int(r["uid"])
                 mem = guild.get_member(uid_i) if guild else None
                 uname = mem.display_name if mem else f"여행자({uid_i})"
@@ -1260,6 +1282,8 @@ class GenshinRankingView(core.SafeView):
             logs = hof["recent_5_logs"]
             lines = []
             for r in logs[:15]:
+                if not isinstance(r, dict):
+                    continue
                 uid_i = int(r["uid"])
                 mem = guild.get_member(uid_i) if guild else None
                 uname = mem.display_name if mem else f"여행자({uid_i})"
@@ -1272,11 +1296,11 @@ class GenshinRankingView(core.SafeView):
         for uid_s, u_data in g_users.items():
             if not isinstance(u_data, dict):
                 continue
-            items = u_data.get("items", {})
+            items = core.as_dict(u_data.get("items"))
             if not items and not u_data.get("total_pulls"):
                 continue
-            r5_cnt = sum(1 for v in items.values() if v.get("rank") == 5)
-            c6_cnt = sum(1 for v in items.values() if v.get("kind") == "char" and int(v.get("constellation", 0)) >= 6)
+            r5_cnt = sum(1 for v in items.values() if isinstance(v, dict) and v.get("rank") == 5)
+            c6_cnt = sum(1 for v in items.values() if isinstance(v, dict) and v.get("kind") == "char" and int(v.get("constellation", 0)) >= 6)
             uniq_cnt = len(items)
             pulls = int(u_data.get("total_pulls", 0))
             rows.append((r5_cnt, c6_cnt, uniq_cnt, pulls, uid_s))
@@ -1309,7 +1333,7 @@ class GenshinRateView(core.SafeView):
             async def _cb(interaction: discord.Interaction, bk=k):
                 self.banner_key = bk
                 self._build()
-                await interaction.response.edit_message(embed=self.build_embed(), view=self)
+                await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
             b.callback = _cb
             self.add_item(b)
@@ -1318,401 +1342,53 @@ class GenshinRateView(core.SafeView):
         data = core.get_cached_data()
         eff = genshin_core.resolve_effective_genshin_pickup(data.get("genshin_pickup"))
         cfg = genshin_core.GENSHIN_BANNER_CONFIGS.get(self.banner_key, genshin_core.GENSHIN_BANNER_CONFIGS["char1"])
-        sched = genshin_core.get_genshin_time_schedule()
         c4_txt = ", ".join(c["name"] for c in eff["char_4"]) or "-"
         w4_txt = ", ".join(w["name"] for w in eff["weapon_4"]) or "-"
+        rot_win = eff.get("time_window") or "실시간"
 
         if self.banner_key in ("char1", "char2"):
             feat = eff["char1"] if self.banner_key == "char1" else eff["char2"]
             body = (
-                f"• **픽업 ★★★★★ 캐릭터:** **`{feat['name'] if feat else '-'}`** ({feat['element_emoji']}{feat['element_name']} · {feat['weapon_type_name']})\n"
+                f"• **시각별 로테이션:** `⏰ {rot_win}` ({eff.get('banner_name', '')})\n"
+                f"• **픽업 ★★★★★ 캐릭터:** **`{feat['name'] if feat else '-'}`** ({feat['element_emoji'] if feat else ''}{feat['element_name'] if feat else '-'} · {feat['weapon_type_name'] if feat else '-'})\n"
                 f"• **픽업 ★★★★ 캐릭터 (50% 확률업):** `{c4_txt}`\n"
+                f"• **공식 DB 구성:** ★5/★4 캐릭터 · ★4 상시 무기 · ★3 기원 무기 13종 (10회 내 ★4 이상 1회 확정)\n"
                 f"• **기본 5성 확률:** `0.6%` (`74스택`부터 매회 +6% 소프트 천장 · `90스택` 확정)\n"
                 f"• **픽뚫 보정:** 50/50 실패 시 다음 ★5 확정! **포착된 광휘** 시스템 자동 적용 (연속 픽뚫 방지)\n"
-                f"• **⏰ 실시간 KST 시간대 로테이션 ({sched['hour']:02d}시 `{sched['period_name']}`):**\n"
-                f"  └ {sched['bonus_text']} ({sched['desc']})"
+                f"• **공유 규칙:** 캐릭터 이벤트 기원 ①과 ②는 5성 천장·확정·광휘 스택을 공유합니다."
             )
         elif self.banner_key == "weapon":
             w1, w2 = eff.get("weapon_1"), eff.get("weapon_2")
             body = (
+                f"• **시각별 전용 무기 연동:** `⏰ {rot_win}`\n"
                 f"• **픽업 ★★★★★ 무기 ①:** **`{w1['name'] if w1 else '-'}`** ({w1['weapon_type_name'] if w1 else '-'})\n"
                 f"• **픽업 ★★★★★ 무기 ②:** **`{w2['name'] if w2 else '-'}`** ({w2['weapon_type_name'] if w2 else '-'})\n"
                 f"• **픽업 ★★★★ 무기 (75% 확률업):** `{w4_txt}`\n"
+                f"• **공식 DB 구성:** ★5/★4 무기 · ★4 상시 캐릭터 · ★3 기원 무기 13종 (10회 내 ★4 이상 확정)\n"
                 f"• **기본 5성 확률:** `0.7%` (`63스택`부터 매회 +7% 소프트 천장 · `80스택` 확정)\n"
-                f"• **운명의 궤도 (`0/1 ➔ 1/1`):** 원하는 무기 미획득 시 명정 포인트 1 적립, 다음 ★5는 **100% 목표 무기 확정!** (`/원신 운명의궤도`)\n"
-                f"• **⏰ 실시간 KST 시간대 무기군 가중치:** `{sched['weapon_type_name']}` 계열 무기 드롭 가중치 **1.8배**"
+                f"• **운명의 궤도 (`0/1 ➔ 1/1`):** 원하는 무기 미획득 시 명정 포인트 1 적립, 다음 ★5는 **100% 목표 무기 확정!** (`/원신 운명의궤도`)"
             )
         elif self.banner_key == "artifact":
-            f_art = sched.get("featured_artifact")
-            art_name = f_art["name"] if f_art else "전체 5성 성유물 세트"
+            a1, a2 = eff.get("artifact_1"), eff.get("artifact_2")
             body = (
-                f"• **오늘·현재 시각 집중 비경 세트:** 🏛️ **`{art_name}`** (명정 지정 시 **65%** 집중 드롭!)\n"
-                f"• **성유물 비경 확률:** ★★★★★ `12.0%` (`7스택` 소프트 +22% · **최대 10회마다 ★★★★★ 100% 확정!**)\n"
-                f"• **부위/주옵션/부옵션:** 꽃·깃털·시계·성배·왕관 5부위 및 실제 주옵션·부옵션 4줄 자동 부여\n"
-                f"• **강화 & 연성 시스템 (`/원신 성유물`):**\n"
-                f"  - `+4 ➔ +20` 5단계 부옵션 강화 및 **CV(치명타 점수) · SS~B 등급** 자동 판정\n"
-                f"  - **신비한 성유물 상자 (3→1 합성대)** 및 **❄️ 축성의 서리 맞춤 주조** 지원"
+                f"• **시각별 비경 로테이션:** `⏰ {rot_win}`\n"
+                f"• **픽업 ★★★★★ 성유물 세트 ①:** **`{a1['name'] if a1 else '-'}`** ({a1.get('bonus_2p', '-') if a1 else '-'})\n"
+                f"• **픽업 ★★★★★ 성유물 세트 ②:** **`{a2['name'] if a2 else '-'}`** ({a2.get('bonus_2p', '-') if a2 else '-'})\n"
+                f"• **공식 DB 구성:** ★★★★★ · ★★★★ · ★★★ 성유물 세트 (5부위 꽃/깃털/모래/성배/왕관 + 주옵션·부옵션 감정)\n"
+                f"• **기본 5성 확률:** `2.5%` (`35스택` 소프트 · `50스택` 확정 · 픽업 세트 80% 우대)"
             )
         else:
             body = (
                 "• **상시 ★★★★★ 캐릭터(8인):** 진, 다이루크, 치치, 모나, 각청, 타이나리, 데히야, 유메미즈키 미즈키\n"
                 "• **상시 ★★★★★ 무기(10종):** 매의 검, 천공의 검/긍지/마루/두루마리/날개, 늑대의 말로, 화박연, 사풍 원서, 아모스의 활\n"
-                "• **상시 전용 4성 포함:** 엠버 · 케이아 · 리사 획득 가능\n"
-                f"• **확률:** `0.6%` (`74스택` 소프트 · `90스택` 확정 · 현재 시각 `{sched['period_name']}` 보너스 연동)"
+                "• **공식 DB 구성:** ★5/★4 상시 캐릭터 & 무기 (엠버·케이아·리사 포함) · ★3 기원 무기 13종\n"
+                "• **확률:** `0.6%` (`74스택` 소프트 · `90스택` 확정 · 캐릭터/무기 50:50)"
             )
         return discord.Embed(
-            title=f"📊 {cfg['name']} — 상세 확률표 & 시간대 보너스",
+            title=f"📊 {cfg['name']} — 상세 확률표",
             description=body,
             color=discord.Color.from_rgb(*cfg["color"]),
         )
-
-
-class GenshinArtifactCraftView(core.SafeView):
-    """성유물 합성대(3->1) 및 축성의 서리(원하는 부위·주옵션·부옵션 2종 지정) 맞춤 주조 뷰"""
-    def __init__(self, guild_id: int = 0, user: discord.User | None = None, set_id: str = "", slot_key: str = "goblet", main_stat: str = "치명타 피해"):
-        super().__init__(timeout=240)
-        self.guild_id = guild_id
-        self.user = user
-        sets = genshin_core.get_genshin_artifacts()
-        self.set_id = set_id or (sets[0]["id"] if sets else "15035")
-        self.slot_key = slot_key or "goblet"
-        self.main_stat = main_stat or "치명타 피해"
-        self.sub1 = "치명타 확률"
-        self.sub2 = "치명타 피해"
-        self._build_craft_ui()
-
-    def _build_craft_ui(self):
-        self.clear_items()
-        sets = genshin_core.get_genshin_artifacts()
-        if sets:
-            s_opts = [
-                discord.SelectOption(
-                    label=f"🏛️ {s['name']}"[:95],
-                    value=str(s["id"]),
-                    description=(s.get("bonus_2pc") or "5성 성유물 세트")[:95],
-                    default=(str(s["id"]) == str(self.set_id)),
-                )
-                for s in sets[:25]
-            ]
-            sel_set = discord.ui.Select(placeholder="🏛️ 주조/합성할 성유물 세트 선택...", options=s_opts, row=0)
-            sel_set.callback = self._on_pick_set
-            self.add_item(sel_set)
-
-        sl_opts = []
-        for sk, sname, semoji, m_pool in genshin_core.GENSHIN_ARTIFACT_SLOTS:
-            sl_opts.append(discord.SelectOption(
-                label=f"{semoji} {sname}",
-                value=sk,
-                description=f"가능 주옵션: {', '.join(m_pool[:4])}"[:95],
-                default=(sk == self.slot_key),
-            ))
-        sel_slot = discord.ui.Select(placeholder="🏺 부위 선택 (축성의 서리 전용)...", options=sl_opts, row=1)
-        sel_slot.callback = self._on_pick_slot
-        self.add_item(sel_slot)
-
-        slot_entry = next((x for x in genshin_core.GENSHIN_ARTIFACT_SLOTS if x[0] == self.slot_key), genshin_core.GENSHIN_ARTIFACT_SLOTS[3])
-        m_pool = slot_entry[3]
-        if self.main_stat not in m_pool:
-            self.main_stat = m_pool[0]
-        m_opts = [
-            discord.SelectOption(label=f"🎯 주옵션: {m}", value=m, default=(m == self.main_stat))
-            for m in m_pool[:25]
-        ]
-        sel_main = discord.ui.Select(placeholder="🎯 주옵션 지정...", options=m_opts, row=2)
-        sel_main.callback = self._on_pick_main
-        self.add_item(sel_main)
-
-        b_strongbox = discord.ui.Button(label="⚗️ 합성대 연성 (미잠금 ★5 3개 ➔ 1개)", style=discord.ButtonStyle.primary, row=3)
-        b_strongbox.callback = self._on_strongbox
-        self.add_item(b_strongbox)
-
-        b_elixir = discord.ui.Button(label="❄️ 축성의 서리 주조 (서리 1개 · 주옵+쌍치명 확정)", style=discord.ButtonStyle.success, row=3)
-        b_elixir.callback = self._on_elixir
-        self.add_item(b_elixir)
-
-    async def _guard(self, interaction: discord.Interaction) -> bool:
-        if self.user and interaction.user.id != self.user.id:
-            await core.safe_send_response(interaction, "❌ 본인 연성 화면만 조작할 수 있습니다.", ephemeral=True)
-            return False
-        if self.user is None:
-            self.user = interaction.user
-            self.guild_id = interaction.guild_id or self.guild_id
-        return True
-
-    async def _on_pick_set(self, interaction: discord.Interaction):
-        if not await self._guard(interaction):
-            return
-        self.set_id = interaction.data["values"][0]
-        self._build_craft_ui()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
-
-    async def _on_pick_slot(self, interaction: discord.Interaction):
-        if not await self._guard(interaction):
-            return
-        self.slot_key = interaction.data["values"][0]
-        self._build_craft_ui()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
-
-    async def _on_pick_main(self, interaction: discord.Interaction):
-        if not await self._guard(interaction):
-            return
-        self.main_stat = interaction.data["values"][0]
-        self._build_craft_ui()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
-
-    async def _on_strongbox(self, interaction: discord.Interaction):
-        if not await self._guard(interaction):
-            return
-        gid = self.guild_id or interaction.guild_id or 0
-        ok, msg, _ = await asyncio.to_thread(genshin_core.craft_genshin_artifact_strongbox, gid, interaction.user.id, self.set_id)
-        self._build_craft_ui()
-        await interaction.response.edit_message(content=msg, embed=self.build_embed(), view=self)
-
-    async def _on_elixir(self, interaction: discord.Interaction):
-        if not await self._guard(interaction):
-            return
-        gid = self.guild_id or interaction.guild_id or 0
-        ok, msg, _ = await asyncio.to_thread(
-            genshin_core.craft_genshin_artifact_elixir,
-            gid,
-            interaction.user.id,
-            self.set_id,
-            self.slot_key,
-            self.main_stat,
-            self.sub1,
-            self.sub2,
-        )
-        self._build_craft_ui()
-        await interaction.response.edit_message(content=msg, embed=self.build_embed(), view=self)
-
-    def build_embed(self) -> discord.Embed:
-        data = core.load_data()
-        u_data = genshin_core.ensure_genshin_user(data, self.guild_id, self.user.id if self.user else 0)
-        arts = u_data.get("artifacts", [])
-        fodder_cnt = sum(1 for a in arts if isinstance(a, dict) and not a.get("locked") and int(a.get("level", 0)) == 0)
-        s_meta = genshin_core.get_genshin_artifact_by_id(self.set_id) or {"name": "선택 세트", "bonus_2pc": "-", "bonus_4pc": "-"}
-        slot_entry = next((x for x in genshin_core.GENSHIN_ARTIFACT_SLOTS if x[0] == self.slot_key), genshin_core.GENSHIN_ARTIFACT_SLOTS[3])
-        return discord.Embed(
-            title="⚗️ 신비한 성유물 상자 (합성대) & ❄️ 축성의 서리 맞춤 주조",
-            description=(
-                f"• **보유 축성의 서리:** ❄️ **`{u_data.get('sanctifying_elixir', 0):,}개`** · **미잠금 +0 재료 성유물:** `{fodder_cnt}개`\n"
-                f"• **선택 세트:** 🏛️ **`{s_meta['name']}`**\n"
-                f"  - **2세트:** {s_meta.get('bonus_2pc', '-')}\n"
-                f"  - **4세트:** {(s_meta.get('bonus_4pc') or '-')[:120]}\n"
-                f"• **맞춤 주조 설정:** {slot_entry[2]} `{slot_entry[1]}` · 주옵션 **`{self.main_stat}`** + 부옵션 **`치명타 확률 / 치명타 피해`** 초기 4줄 확정!"
-            ),
-            color=discord.Color.from_rgb(235, 182, 78),
-        )
-
-
-class GenshinArtifactView(core.SafeView):
-    """원신 축성 비경 성유물 관리 · +20 강화 · 명정 세트 지정 · 합성대/축성의 서리 통합 뷰"""
-    def __init__(self, guild_id: int = 0, user: discord.User | None = None, page: int = 0, selected_uid: str = ""):
-        super().__init__(timeout=300)
-        self.guild_id = guild_id
-        self.user = user
-        self.page = page
-        self.selected_uid = selected_uid
-        self._per_page = 8
-        self._build_artifact_ui()
-
-    def _get_state(self) -> tuple[dict, list[dict]]:
-        data = core.load_data()
-        uid = self.user.id if self.user else 0
-        u_data = genshin_core.ensure_genshin_user(data, self.guild_id, uid)
-        arts = [a for a in u_data.get("artifacts", []) if isinstance(a, dict)]
-        arts.sort(key=lambda a: (not a.get("locked", False), -int(a.get("level", 0)), -float(a.get("cv", 0.0)), -float(a.get("rv", 0.0))))
-        return u_data, arts
-
-    def _build_artifact_ui(self):
-        self.clear_items()
-        u_data, arts = self._get_state()
-        max_page = max(0, (len(arts) - 1) // self._per_page)
-        self.page = max(0, min(self.page, max_page))
-        sl = arts[self.page * self._per_page:(self.page + 1) * self._per_page]
-        if sl and not any(a.get("uid") == self.selected_uid for a in sl):
-            self.selected_uid = sl[0].get("uid", "")
-
-        sets = genshin_core.get_genshin_artifacts()
-        cur_target = str(u_data.get("target_artifact_set_id") or u_data.get("artifact_target_set") or "")
-        if sets:
-            t_opts = [discord.SelectOption(label="🎲 시간대 로테이션 비경 자동 연동", value="none", default=(not cur_target))]
-            for s in sets[:24]:
-                t_opts.append(discord.SelectOption(
-                    label=f"🎯 [명정] {s['name']}"[:95],
-                    value=str(s["id"]),
-                    description=(s.get("bonus_2pc") or "65% 집중 드롭")[:95],
-                    default=(str(s["id"]) == cur_target),
-                ))
-            sel_t = discord.ui.Select(placeholder="🏛️ 축성 비경 집중 드롭(명정) 세트 지정...", options=t_opts[:25], row=0)
-            sel_t.callback = self._on_pick_target_set
-            self.add_item(sel_t)
-
-        if sl:
-            a_opts = []
-            for a in sl:
-                lk = "🔒 " if a.get("locked") else ""
-                a_opts.append(discord.SelectOption(
-                    label=f"{lk}+{a.get('level', 0)} {a['name']} [{a.get('grade', 'A')}·{a.get('cv', 0.0):.1f}CV]"[:95],
-                    value=a["uid"],
-                    description=f"주옵: {a.get('main_stat', '')} {a.get('main_value', '')} | 고유ID: {a['uid']}"[:95],
-                    default=(a["uid"] == self.selected_uid),
-                ))
-            sel_a = discord.ui.Select(placeholder="🏺 강화하거나 잠글 보유 성유물 선택...", options=a_opts, row=1)
-            sel_a.callback = self._on_pick_artifact
-            self.add_item(sel_a)
-
-        b_p10 = discord.ui.Button(label="🏛️ 비경 10회 기원", style=discord.ButtonStyle.primary, row=2)
-        b_p10.callback = self._on_domain_10
-        self.add_item(b_p10)
-
-        b_enh4 = discord.ui.Button(label="⬆️ +4단계 강화", style=discord.ButtonStyle.success, disabled=(not sl), row=2)
-        b_enh4.callback = self._on_enhance_step
-        self.add_item(b_enh4)
-
-        b_enh20 = discord.ui.Button(label="🔥 +20 MAX 강화", style=discord.ButtonStyle.success, disabled=(not sl), row=2)
-        b_enh20.callback = self._on_enhance_max
-        self.add_item(b_enh20)
-
-        b_lock = discord.ui.Button(label="🔒 잠금 토글", style=discord.ButtonStyle.secondary, disabled=(not sl), row=2)
-        b_lock.callback = self._on_lock_toggle
-        self.add_item(b_lock)
-
-        b_craft = discord.ui.Button(label="⚗️ 합성대 / ❄️ 축성의 서리", style=discord.ButtonStyle.primary, row=3)
-        b_craft.callback = self._on_open_craft
-        self.add_item(b_craft)
-
-        b_salv = discord.ui.Button(label="♻️ 미잠금 +0 일괄 분해", style=discord.ButtonStyle.danger, disabled=(not sl), row=3)
-        b_salv.callback = self._on_salvage
-        self.add_item(b_salv)
-
-        b_prev = discord.ui.Button(label="◀ 이전", style=discord.ButtonStyle.secondary, disabled=(self.page <= 0), row=3)
-        b_prev.callback = self._on_prev
-        self.add_item(b_prev)
-
-        b_next = discord.ui.Button(label="다음 ▶", style=discord.ButtonStyle.secondary, disabled=(self.page >= max_page), row=3)
-        b_next.callback = self._on_next
-        self.add_item(b_next)
-
-    async def _guard(self, interaction: discord.Interaction) -> bool:
-        if self.user and interaction.user.id != self.user.id:
-            await core.safe_send_response(interaction, "❌ 본인 성유물 화면만 조작할 수 있습니다.", ephemeral=True)
-            return False
-        if self.user is None:
-            self.user = interaction.user
-            self.guild_id = interaction.guild_id or self.guild_id
-        return True
-
-    async def _on_pick_target_set(self, interaction: discord.Interaction):
-        if not await self._guard(interaction):
-            return
-        val = interaction.data["values"][0]
-        gid = self.guild_id or interaction.guild_id or 0
-        _, msg, _ = await asyncio.to_thread(genshin_core.set_genshin_artifact_target, gid, interaction.user.id, None if val == "none" else val)
-        self._build_artifact_ui()
-        await interaction.response.edit_message(content=msg, embed=self.build_embed(), view=self)
-
-    async def _on_pick_artifact(self, interaction: discord.Interaction):
-        if not await self._guard(interaction):
-            return
-        self.selected_uid = interaction.data["values"][0]
-        self._build_artifact_ui()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
-
-    async def _on_domain_10(self, interaction: discord.Interaction):
-        if not await self._guard(interaction):
-            return
-        pv = GenshinPullAgainView(interaction.user, banner_key="artifact", skip_anim=False, practice=False, last_count=10)
-        await pv._run_repull_with_cooldown(interaction, 10)
-
-    async def _on_enhance_step(self, interaction: discord.Interaction):
-        if not await self._guard(interaction):
-            return
-        gid = self.guild_id or interaction.guild_id or 0
-        ok, msg, _ = await asyncio.to_thread(genshin_core.enhance_genshin_artifact, gid, interaction.user.id, self.selected_uid, False)
-        self._build_artifact_ui()
-        await interaction.response.edit_message(content=msg, embed=self.build_embed(), view=self)
-
-    async def _on_enhance_max(self, interaction: discord.Interaction):
-        if not await self._guard(interaction):
-            return
-        gid = self.guild_id or interaction.guild_id or 0
-        ok, msg, _ = await asyncio.to_thread(genshin_core.enhance_genshin_artifact, gid, interaction.user.id, self.selected_uid, True)
-        self._build_artifact_ui()
-        await interaction.response.edit_message(content=msg, embed=self.build_embed(), view=self)
-
-    async def _on_lock_toggle(self, interaction: discord.Interaction):
-        if not await self._guard(interaction):
-            return
-        gid = self.guild_id or interaction.guild_id or 0
-        ok, new_locked, target = await asyncio.to_thread(genshin_core.toggle_genshin_artifact_lock, gid, interaction.user.id, self.selected_uid)
-        if not ok or not target:
-            msg = "❌ 보관함에서 해당 성유물을 찾을 수 없습니다."
-        else:
-            msg = f"🔒 **{target['name']}** 성유물을 잠금 처리했습니다." if new_locked else f"🔓 **{target['name']}** 성유물의 잠금을 해제했습니다."
-        self._build_artifact_ui()
-        await interaction.response.edit_message(content=msg, embed=self.build_embed(), view=self)
-
-    async def _on_open_craft(self, interaction: discord.Interaction):
-        if not await self._guard(interaction):
-            return
-        gid = self.guild_id or interaction.guild_id or 0
-        cv = GenshinArtifactCraftView(gid, interaction.user)
-        await core.safe_send_response(interaction, embed=cv.build_embed(), view=cv, ephemeral=True)
-
-    async def _on_salvage(self, interaction: discord.Interaction):
-        if not await self._guard(interaction):
-            return
-        gid = self.guild_id or interaction.guild_id or 0
-        ok, msg, _ = await asyncio.to_thread(genshin_core.salvage_genshin_artifacts, gid, interaction.user.id, 5)
-        self._build_artifact_ui()
-        await interaction.response.edit_message(content=msg, embed=self.build_embed(), view=self)
-
-    async def _on_prev(self, interaction: discord.Interaction):
-        if not await self._guard(interaction):
-            return
-        self.page = max(0, self.page - 1)
-        self._build_artifact_ui()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
-
-    async def _on_next(self, interaction: discord.Interaction):
-        if not await self._guard(interaction):
-            return
-        self.page += 1
-        self._build_artifact_ui()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
-
-    def build_embed(self) -> discord.Embed:
-        u_data, arts = self._get_state()
-        sched = genshin_core.get_genshin_time_schedule()
-        max_page = max(1, (len(arts) + self._per_page - 1) // self._per_page)
-        sl = arts[self.page * self._per_page:(self.page + 1) * self._per_page]
-        t_sid = u_data.get("target_artifact_set_id") or u_data.get("artifact_target_set")
-        t_set = genshin_core.get_genshin_artifact_by_id(str(t_sid)) if t_sid else None
-        t_name = f"🎯 {t_set['name']} (65% 집중)" if t_set else f"⏰ 시간대 자동 ({sched['featured_artifact']['name'] if sched.get('featured_artifact') else '전체'})"
-
-        lines = []
-        for idx, a in enumerate(sl, start=self.page * self._per_page + 1):
-            lk = "🔒" if a.get("locked") else "🔓"
-            sel_mark = "▶️ " if a.get("uid") == self.selected_uid else ""
-            subs = " / ".join(f"{s['name']}+{s['value']}{s.get('unit', '')}" for s in (a.get("substats") or []))
-            lines.append(
-                f"{sel_mark}**{idx:02d}.** {lk} `+{a.get('level', 0)}` **{a['name']}** — **`[{a.get('grade', 'A')}급 · {a.get('cv', 0.0):.1f} CV]`**\n"
-                f"└ {a.get('slot_emoji', '🏺')} 주옵: `{a.get('main_stat', '')} {a.get('main_value', '')}` | 부옵: `{subs}`"
-            )
-        body = "\n".join(lines) if lines else "*(보유한 성유물이 없습니다! `[🏛️ 비경 10회 기원]` 또는 `/원신 기원 배너:축성 비경`으로 획득해 보세요!)*"
-        owner_n = self.user.display_name if self.user else "여행자"
-        cur_ess = u_data.get("artifact_essence", u_data.get("sanctifying_essence", 0))
-        return discord.Embed(
-            title=f"🏛️ {owner_n}님의 원신 성유물 보관함 & 축성 비경 ({len(arts)}개)",
-            description=(
-                f"• **성유물 재화:** 🧪 축성의 정수 **`{cur_ess:,}`** · ❄️ 축성의 서리 **`{u_data.get('sanctifying_elixir', 0):,}`**\n"
-                f"• **현재 비경 명정:** {t_name} · 천장 `{u_data.get('pity_artifact', 0)}/10`\n\n"
-                f"{body}"
-            )[:4050],
-            color=discord.Color.from_rgb(235, 182, 78),
-            timestamp=datetime.datetime.now(core.KST),
-        ).set_footer(text=f"페이지 {self.page + 1}/{max_page} • 성유물을 선택해 +4/+20 강화하거나 합성대·축성의 서리를 이용하세요!")
 
 
 class GenshinGuildResetConfirmView(core.SafeView):
@@ -1725,34 +1401,50 @@ class GenshinGuildResetConfirmView(core.SafeView):
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.caller and interaction.user.id != self.caller.id:
             return await core.safe_send_response(interaction, "❌ 요청한 관리자만 확정할 수 있습니다.", ephemeral=True)
+        data = core.load_data()
         g_key = str(self.guild_id or interaction.guild_id or 0)
-
-        def _reset():
-            with core._DATA_LOCK:
-                data = core.load_data()
-                data.get("genshin_users", {}).pop(g_key, None)
-                data.get("genshin_hall_of_fame", {}).pop(g_key, None)
-                core.save_data(data)
-
-        await asyncio.to_thread(_reset)
-        await interaction.response.edit_message(content="🧹 이 서버의 모든 원신 기원 데이터가 깔끔하게 초기화되었습니다.", embed=None, view=None)
+        core.ensure_dict_path(data, "genshin_users").pop(g_key, None)
+        core.ensure_dict_path(data, "genshin_hall_of_fame").pop(g_key, None)
+        core.save_data(data)
+        await core.safe_edit_response(interaction, content="🧹 이 서버의 모든 원신 기원 데이터가 깔끔하게 초기화되었습니다.", embed=None, view=None)
 
     @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content="취소되었습니다.", embed=None, view=None)
+        await core.safe_edit_response(interaction, content="취소되었습니다.", embed=None, view=None)
 
 
 # ==========================================
-# /원신 GroupCog (12 Subcommands + Prefix Shortcuts)
+# /원신 GroupCog (11 Subcommands + Prefix Shortcuts)
 # ==========================================
-class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠 원신 (Genshin Impact) 기원 · 성유물 비경 · 도감 · 페이몬 상점 · 파티 공명"):
+class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠 원신 (Genshin Impact) 기원 · 성유물 감정 · 도감 · 페이몬 상점 · 파티 공명"):
     def __init__(self, bot: commands.Bot):
         super().__init__()
         self.bot = bot
 
-    @app_commands.command(name="기원", description="🌠 원신 기원 (캐릭터/무기/성유물 비경/상시 · 시간대별 보너스 · 3.5초 연출 · 연습 모드)")
+    async def _handle_wish(
+        self,
+        interaction: discord.Interaction,
+        banner_key: str = "char1",
+        count: int = 10,
+        practice_mode: bool = False,
+        skip_animation: bool = False,
+    ):
+        if not practice_mode:
+            ok, rem = core.check_and_update_gacha_cooldown(interaction.user.id, skip_anim=skip_animation)
+            if not ok:
+                return await core.safe_send_response(
+                    interaction,
+                    f"⏳ 가챠 쿨타임 중입니다! **`{rem:.1f}초`** 후 다시 기원해 주세요. ({'스킵 5.0초' if skip_animation else '기본 3.5초'})",
+                    ephemeral=True,
+                )
+        await core.safe_defer(interaction)
+        res = await asyncio.to_thread(genshin_core.execute_genshin_pull, interaction.guild_id or 0, interaction.user.id, banner_key, count, practice_mode)
+        v = GenshinPullAgainView(interaction.user, banner_key=banner_key, skip_anim=skip_animation, practice=practice_mode, last_count=count)
+        await send_genshin_pull_result(interaction, res, view=v, skip_anim=skip_animation)
+
+    @app_commands.command(name="기원", description="🌠 원신 기원 (캐릭터·무기·성유물·상시 · 시각별 로테이션 · 3.5초 연출)")
     @app_commands.describe(
-        배너="기원을 진행할 배너 종류를 선택하세요 (시간대별 원소/무기/성유물 보너스 자동 적용)",
+        배너="기원을 진행할 배너 종류를 선택하세요 (캐릭터/무기/성유물/상시)",
         횟수="10회 또는 1회 기원",
         연습모드="True 선택 시 쿨타임 없이 가상 뽑기만 테스트합니다 (보관함/천장 미저장)",
         연출스킵="True 선택 시 3.5초 연출을 건너뛰고 바로 결과판을 출력합니다 (쿨타임 5.0초)",
@@ -1762,7 +1454,7 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
             app_commands.Choice(name="🌠 캐릭터 이벤트 기원 ①", value="char1"),
             app_commands.Choice(name="🌙 캐릭터 이벤트 기원 ②", value="char2"),
             app_commands.Choice(name="⚔️ 신의 주조 (무기 기원)", value="weapon"),
-            app_commands.Choice(name="🏛️ 축성 비경 (5성 성유물 기원)", value="artifact"),
+            app_commands.Choice(name="🏺 비경 성유물 축복 (성유물 감정)", value="artifact"),
             app_commands.Choice(name="🌌 세상 여행 (상시 기원)", value="standard"),
         ],
         횟수=[
@@ -1778,48 +1470,34 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
         연습모드: bool = False,
         연출스킵: bool = False,
     ):
-        if not 연습모드:
-            ok, rem = core.check_and_update_gacha_cooldown(interaction.user.id, skip_anim=연출스킵)
-            if not ok:
-                return await core.safe_send_response(
-                    interaction,
-                    f"⏳ 가챠 쿨타임 중입니다! **`{rem:.1f}초`** 후 다시 기원해 주세요. ({'스킵 5.0초' if 연출스킵 else '기본 3.5초'})",
-                    ephemeral=True,
-                )
-        await core.safe_defer(interaction)
-        res = await asyncio.to_thread(genshin_core.execute_genshin_pull, interaction.guild_id or 0, interaction.user.id, 배너, 횟수, 연습모드)
-        v = GenshinPullAgainView(interaction.user, banner_key=배너, skip_anim=연출스킵, practice=연습모드, last_count=횟수)
-        await send_genshin_pull_result(interaction, res, view=v, skip_anim=연출스킵)
-
-    @app_commands.command(name="성유물", description="🏛️ 원신 축성 비경 성유물 관리 · +20 강화(CV 측정) · 합성대(3→1) · 축성의 서리 맞춤 주조")
-    async def artifact_cmd(self, interaction: discord.Interaction):
-        v = GenshinArtifactView(interaction.guild_id or 0, interaction.user)
-        await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
+        await self._handle_wish(interaction, banner_key=배너, count=횟수, practice_mode=연습모드, skip_animation=연출스킵)
 
     @app_commands.command(name="운명의궤도", description="🧭 신의 주조(무기 이벤트 기원) 운명의 궤도 목표 무기를 선택/해제합니다")
     async def fate_path_cmd(self, interaction: discord.Interaction):
         v = GenshinFatePathView(interaction.guild_id or 0, interaction.user)
         await core.safe_send_response(interaction, embed=v.build_embed(), view=v, ephemeral=True)
 
-    @app_commands.command(name="확률", description="📊 현재 원신 픽업 정보와 천장/포착된 광휘/운명의 궤도/성유물 비경 확률표를 확인합니다")
+    @app_commands.command(name="확률", description="📊 현재 원신 시각별 픽업 정보와 캐릭터·무기·성유물 천장 확률표를 확인합니다")
     @app_commands.choices(배너=[
         app_commands.Choice(name="🌠 캐릭터 기원 ①", value="char1"),
         app_commands.Choice(name="🌙 캐릭터 기원 ②", value="char2"),
-        app_commands.Choice(name="⚔️ 신의 주조", value="weapon"),
-        app_commands.Choice(name="🏛️ 축성 비경(성유물)", value="artifact"),
-        app_commands.Choice(name="🌌 세상 여행(상시)", value="standard"),
+        app_commands.Choice(name="⚔️ 신의 주조 (무기)", value="weapon"),
+        app_commands.Choice(name="🏺 비경 성유물 축복", value="artifact"),
+        app_commands.Choice(name="🌌 세상 여행 (상시)", value="standard"),
     ])
     async def rate_cmd(self, interaction: discord.Interaction, 배너: str = "char1"):
         v = GenshinRateView(배너)
         await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
 
-    @app_commands.command(name="보관함", description="🎒 보유 중인 원신 캐릭터(운명의 자리) · 무기(재련) · 잠금 · 레벨업 관리")
+    @app_commands.command(name="보관함", description="🎒 보유 중인 원신 캐릭터(운명의 자리) · 무기(재련) · 성유물(+20) · 잠금 관리")
     @app_commands.choices(필터=[
         app_commands.Choice(name="전체", value="all"),
         app_commands.Choice(name="캐릭터만", value="char"),
         app_commands.Choice(name="무기만", value="weapon"),
+        app_commands.Choice(name="성유물만", value="artifact"),
         app_commands.Choice(name="★5만", value="r5"),
         app_commands.Choice(name="★4만", value="r4"),
+        app_commands.Choice(name="★3이하", value="r3"),
         app_commands.Choice(name="잠금🔒만", value="locked"),
     ])
     async def inventory_cmd(self, interaction: discord.Interaction, 필터: str = "all"):
@@ -1862,18 +1540,12 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
             for k in chosen:
                 if k not in dedup:
                     dedup.append(k)
-            gid = interaction.guild_id or 0
-
-            def _save_party():
-                with core._DATA_LOCK:
-                    data = core.load_data()
-                    u_data = genshin_core.ensure_genshin_user(data, gid, interaction.user.id)
-                    u_items = u_data.get("items", {})
-                    valid = [k for k in dedup if k in u_items and u_items[k].get("kind") == "char"][:4]
-                    u_data["party"] = valid
-                    core.save_data(data)
-
-            await asyncio.to_thread(_save_party)
+            data = core.load_data()
+            u_data = genshin_core.ensure_genshin_user(data, interaction.guild_id or 0, interaction.user.id)
+            u_items = core.as_dict(u_data.get("items"))
+            valid = [k for k in dedup if isinstance(u_items.get(k), dict) and u_items[k].get("kind") == "char"][:4]
+            u_data["party"] = valid
+            core.save_data(data)
         v = GenshinPartyView(interaction.guild_id or 0, interaction.user)
         await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
 
@@ -1890,34 +1562,28 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
         if (대표캐릭터 or 상태문구 is not None) and target.id != interaction.user.id:
             return await core.safe_send_response(interaction, "❌ 대표 캐릭터와 상태 문구는 본인 프로필에서만 수정 가능합니다.", ephemeral=True)
 
-        gid = interaction.guild_id or 0
+        data = core.load_data()
+        u_data = genshin_core.ensure_genshin_user(data, interaction.guild_id or 0, target.id)
+        if target.id == interaction.user.id:
+            changed = False
+            u_items = core.as_dict(u_data.get("items"))
+            if 대표캐릭터 and isinstance(u_items.get(대표캐릭터), dict) and u_items[대표캐릭터].get("kind") == "char":
+                u_data["profile_char"] = 대표캐릭터
+                changed = True
+            if 상태문구 is not None:
+                u_data["profile_note"] = 상태문구.strip()[:80]
+                changed = True
+            if changed:
+                core.save_data(data)
 
-        def _load_and_maybe_save():
-            with core._DATA_LOCK:
-                data = core.load_data()
-                u_data = genshin_core.ensure_genshin_user(data, gid, target.id)
-                if target.id == interaction.user.id:
-                    changed = False
-                    u_items = u_data.get("items", {})
-                    if 대표캐릭터 and 대표캐릭터 in u_items and u_items[대표캐릭터].get("kind") == "char":
-                        u_data["profile_char"] = 대표캐릭터
-                        changed = True
-                    if 상태문구 is not None:
-                        u_data["profile_note"] = 상태문구.strip()[:80]
-                        changed = True
-                    if changed:
-                        core.save_data(data)
-                return dict(u_data)
-
-        u_data = await asyncio.to_thread(_load_and_maybe_save)
-
-        items = u_data.get("items", {})
-        chars = [v for v in items.values() if v.get("kind") == "char"]
+        items = core.as_dict(u_data.get("items"))
+        chars = [v for v in items.values() if isinstance(v, dict) and v.get("kind") == "char"]
         chars.sort(key=lambda c: (-int(c.get("rank", 4)), -int(c.get("constellation", 0)), -int(c.get("level", 1))))
         p_key = u_data.get("profile_char")
-        rep_char = items.get(p_key) if p_key and p_key in items and items[p_key].get("kind") == "char" else (chars[0] if chars else None)
+        rep_char = items.get(p_key) if p_key and isinstance(items.get(p_key), dict) and items[p_key].get("kind") == "char" else (chars[0] if chars else None)
 
-        party_objs = [items[k] for k in (u_data.get("party") or []) if k in items][:4]
+        raw_party = u_data.get("party") if isinstance(u_data.get("party"), list) else []
+        party_objs = [items[k] for k in raw_party if isinstance(items.get(k), dict)][:4]
         party_ana = genshin_core.analyze_genshin_party(party_objs)
         top3 = ", ".join(f"{c['name']}(C{c.get('constellation', 0)})" for c in chars[:3]) or "없음"
         note_str = u_data.get("profile_note") or "티바트 모험 중!"
@@ -1931,9 +1597,9 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
             description=(
                 f"💬 *\"{note_str}\"*\n\n"
                 f"• **대표 캐릭터:** {rep_str}\n"
-                f"• **기원 통계:** 누적 `{u_data.get('total_pulls', 0):,}회` · 고유 수집 `{len(items)}종` · 성유물 `{len(u_data.get('artifacts', []))}개`\n"
-                f"• **현재 천장:** 캐릭터 `{u_data.get('pity_char', 0)}/90` ({'확정' if u_data.get('guaranteed_char') else '반천'}) · 무기 `{u_data.get('pity_weapon', 0)}/80` · 비경 `{u_data.get('pity_artifact', 0)}/10` · 상시 `{u_data.get('pity_standard', 0)}/90`\n"
-                f"• **재화:** ✨ 스타라이트 `{u_data.get('starglitter', 0):,}` · 💠 스타더스트 `{u_data.get('stardust', 0):,}` · 🧪 축성정수 `{u_data.get('artifact_essence', u_data.get('sanctifying_essence', 0)):,}` · ❄️ 축성의서리 `{u_data.get('sanctifying_elixir', 0):,}`\n"
+                f"• **기원 통계:** 누적 `{u_data.get('total_pulls', 0):,}회` · 고유 수집 `{len(items)}종`\n"
+                f"• **현재 천장:** 캐릭터 `{u_data.get('pity_char', 0)}/90` ({'확정' if u_data.get('guaranteed_char') else '반천'}) · 무기 `{u_data.get('pity_weapon', 0)}/80` · 성유물 `{u_data.get('pity_artifact', 0)}/50` · 상시 `{u_data.get('pity_standard', 0)}/90`\n"
+                f"• **재화:** ✨ 스타라이트 `{u_data.get('starglitter', 0):,}` · 💠 스타더스트 `{u_data.get('stardust', 0):,}`\n"
                 f"• **주력 캐릭터:** {top3}\n"
                 f"• **파티 전투력:** `{party_ana['total_power']:,}` (공명 {len(party_ana['resonances'])}개)"
             ),
@@ -1951,10 +1617,12 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
         v = GenshinRankingView(interaction.guild_id or 0, mode="ranking")
         await core.safe_send_response(interaction, embed=v.build_embed(interaction.guild), view=v)
 
-    @app_commands.command(name="픽업설정", description="🔒 [봇 주인 전용] 원신 이벤트 기원 픽업(5성/4성/무기)을 프리셋이나 직접 지정으로 변경합니다")
+    @app_commands.command(name="픽업설정", description="🔒 [봇 주인 전용] 원신 기원 픽업(5성/4성/무기/성유물/시각 로테이션)을 변경합니다")
     @app_commands.choices(프리셋=[
-        app_commands.Choice(name="🌟 최신 캐릭터 자동 연동", value="latest"),
-        app_commands.Choice(name="❄️ 노드크라이·스네즈나야 (콜롬비나 / 바르카)", value="snezhnaya_star"),
+        app_commands.Choice(name="⏰ KST 시각 연동 2시간 자동 로테이션 (권장)", value="time_rotation"),
+        app_commands.Choice(name="🌟 최신 캐릭터 (로엔 / 린네아)", value="latest"),
+        app_commands.Choice(name="❄️ 스네즈나야 (콜롬비나 / 스커크)", value="snezhnaya_star"),
+        app_commands.Choice(name="🌙 노드크라이 (바르카 / 플린스)", value="nodkrai_moon"),
         app_commands.Choice(name="💧 폰타인 (푸리나 / 느비예트)", value="fontaine_archon"),
         app_commands.Choice(name="🔥 나타 (마비카 / 시틀라리)", value="natlan_archon"),
         app_commands.Choice(name="⚡ 이나즈마 (라이덴 쇼군 / 아를레키노)", value="inazuma_thunder"),
@@ -1969,6 +1637,8 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
         사성3=genshin_core.genshin_4star_char_autocomplete,
         무기1=genshin_core.genshin_5star_weapon_autocomplete,
         무기2=genshin_core.genshin_5star_weapon_autocomplete,
+        성유물1=genshin_core.genshin_artifact_autocomplete,
+        성유물2=genshin_core.genshin_artifact_autocomplete,
     )
     async def setup_pickup_cmd(
         self,
@@ -1981,6 +1651,8 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
         사성3: Optional[str] = None,
         무기1: Optional[str] = None,
         무기2: Optional[str] = None,
+        성유물1: Optional[str] = None,
+        성유물2: Optional[str] = None,
         배너이름: Optional[str] = None,
     ):
         if not await self.bot.is_bot_owner_user(interaction.user):
@@ -1991,48 +1663,49 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
             )
 
         await core.safe_defer(interaction, ephemeral=True)
-        if 프리셋 and not any([캐릭터1, 캐릭터2, 사성1, 사성2, 사성3, 무기1, 무기2, 배너이름]):
+        if 프리셋 and not any([캐릭터1, 캐릭터2, 사성1, 사성2, 사성3, 무기1, 무기2, 성유물1, 성유물2, 배너이름]):
             ok, msg, eff = await asyncio.to_thread(genshin_core.apply_genshin_pickup_preset, 프리셋)
         else:
-            def _save_custom_genshin_pickup():
-                chars, weapons = genshin_core.load_genshin_kr_db()
-                by_c = {c["id"]: c for c in chars}
-                by_w = {w["id"]: w for w in weapons}
-                with core._DATA_LOCK:
-                    data = core.load_data()
-                    cfg = dict(data.get("genshin_pickup") or {})
-                    if 프리셋 and 프리셋 != "reset":
-                        pr = genshin_core.GENSHIN_BANNER_PRESETS.get(프리셋, {})
-                        cfg.update({k: pr[k] for k in ("char1", "char2", "char_4_ids", "weapon_1", "weapon_2", "banner_name") if k in pr})
-                    if 캐릭터1 and 캐릭터1 in by_c:
-                        cfg["char1"] = 캐릭터1
-                    if 캐릭터2 and 캐릭터2 in by_c:
-                        cfg["char2"] = 캐릭터2
-                    custom_4s = [x for x in (사성1, 사성2, 사성3) if x and x in by_c]
-                    if custom_4s:
-                        cfg["char_4_ids"] = custom_4s
-                    if 무기1 and 무기1 in by_w:
-                        cfg["weapon_1"] = 무기1
-                    if 무기2 and 무기2 in by_w:
-                        cfg["weapon_2"] = 무기2
-                    if 배너이름:
-                        cfg["banner_name"] = 배너이름.strip()[:60]
-                    cfg["updated_at"] = datetime.datetime.now(core.KST).isoformat()
-                    data["genshin_pickup"] = cfg
-                    core.save_data(data)
-                    return genshin_core.resolve_effective_genshin_pickup(cfg)
-
-            eff = await asyncio.to_thread(_save_custom_genshin_pickup)
+            chars, weapons = genshin_core.load_genshin_kr_db()
+            by_c = {c["id"]: c for c in chars}
+            by_w = {w["id"]: w for w in weapons}
+            by_a = {a["id"]: a for a in genshin_core.GENSHIN_ARTIFACTS}
+            data = core.load_data()
+            cfg = dict(core.as_dict(data.get("genshin_pickup")))
+            if 프리셋 and 프리셋 not in ("reset", "time_rotation"):
+                pr = genshin_core.GENSHIN_BANNER_PRESETS.get(프리셋, {})
+                cfg.update({k: pr[k] for k in ("char1", "char2", "char_4_ids", "weapon_1", "weapon_2", "artifact_1", "artifact_2", "banner_name") if k in pr})
+            if 캐릭터1 and 캐릭터1 in by_c:
+                cfg["char1"] = 캐릭터1
+            if 캐릭터2 and 캐릭터2 in by_c:
+                cfg["char2"] = 캐릭터2
+            custom_4s = [x for x in (사성1, 사성2, 사성3) if x and x in by_c]
+            if custom_4s:
+                cfg["char_4_ids"] = custom_4s
+            if 무기1 and 무기1 in by_w:
+                cfg["weapon_1"] = 무기1
+            if 무기2 and 무기2 in by_w:
+                cfg["weapon_2"] = 무기2
+            if 성유물1 and 성유물1 in by_a:
+                cfg["artifact_1"] = 성유물1
+            if 성유물2 and 성유물2 in by_a:
+                cfg["artifact_2"] = 성유물2
+            if 배너이름:
+                cfg["banner_name"] = 배너이름.strip()[:60]
+            cfg["updated_at"] = datetime.datetime.now(core.KST).isoformat()
+            data["genshin_pickup"] = cfg
+            core.save_data(data)
+            eff = genshin_core.resolve_effective_genshin_pickup(cfg)
             msg = "✅ **원신 커스텀 픽업 설정이 적용되었습니다!**"
 
         emb = discord.Embed(
             title="🎯 원신 이벤트 기원 픽업 적용 완료",
             description=(
                 f"{msg}\n\n"
-                f"• **캐릭터 ①:** `★★★★★ {eff['char1']['name'] if eff.get('char1') else '-'}`\n"
-                f"• **캐릭터 ②:** `★★★★★ {eff['char2']['name'] if eff.get('char2') else '-'}`\n"
+                f"• **캐릭터 ① / ②:** `★★★★★ {eff['char1']['name'] if eff.get('char1') else '-'}` / `★★★★★ {eff['char2']['name'] if eff.get('char2') else '-'}`\n"
                 f"• **픽업 ★★★★:** {', '.join(c['name'] for c in eff['char_4'])}\n"
-                f"• **무기 ① / ②:** `{eff['weapon_1']['name'] if eff.get('weapon_1') else '-'}` / `{eff['weapon_2']['name'] if eff.get('weapon_2') else '-'}`"
+                f"• **무기 ① / ②:** `{eff['weapon_1']['name'] if eff.get('weapon_1') else '-'}` / `{eff['weapon_2']['name'] if eff.get('weapon_2') else '-'}`\n"
+                f"• **성유물 ① / ②:** `{eff['artifact_1']['name'] if eff.get('artifact_1') else '-'}` / `{eff['artifact_2']['name'] if eff.get('artifact_2') else '-'}`"
             ),
             color=discord.Color.gold(),
         )
@@ -2052,10 +1725,10 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
             ephemeral=True,
         )
 
-    # 프리픽스 단축어 (!원신기원 / !원신뽑기 / !원신성유물 / !원신도감)
+    # 프리픽스 단축어 (!원신기원 / !원신뽑기 / !원신도감)
     @commands.command(name="원신기원", aliases=["원신뽑기"])
     async def prefix_wish(self, ctx: commands.Context, banner: str = "char1", count: int = 10):
-        banner_map = {"1": "char1", "2": "char2", "무기": "weapon", "성유물": "artifact", "비경": "artifact", "상시": "standard"}
+        banner_map = {"1": "char1", "2": "char2", "무기": "weapon", "성유물": "artifact", "상시": "standard"}
         bk = banner_map.get(banner, banner if banner in genshin_core.GENSHIN_BANNER_CONFIGS else "char1")
         cnt = 10 if count >= 10 else 1
         ok, rem = core.check_and_update_gacha_cooldown(ctx.author.id, skip_anim=False)
@@ -2077,11 +1750,6 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
                 emb.set_image(url=f"attachment://{sfn}")
         v = GenshinPullAgainView(ctx.author, banner_key=bk, last_count=cnt)
         await ctx.reply(embed=emb, files=files, view=v)
-
-    @commands.command(name="원신성유물", aliases=["축성비경"])
-    async def prefix_artifact(self, ctx: commands.Context):
-        v = GenshinArtifactView(ctx.guild.id if ctx.guild else 0, ctx.author)
-        await ctx.reply(embed=v.build_embed(), view=v)
 
     @commands.command(name="원신도감")
     async def prefix_pokedex(self, ctx: commands.Context):
