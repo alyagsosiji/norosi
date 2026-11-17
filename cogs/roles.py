@@ -353,10 +353,25 @@ class AddRoleMappingModal(core.SafeModal, title="➕ 역할 및 버튼/이모지
             "description": self.m_desc.value.strip()
         })
 
-        await interaction.response.edit_message(
-            embed=self.builder_view.build_builder_embed(),
-            view=self.builder_view
-        )
+        try:
+            await interaction.response.edit_message(
+                embed=self.builder_view.build_builder_embed(),
+                view=self.builder_view
+            )
+        except Exception:
+            if getattr(self.builder_view, "message", None):
+                try:
+                    await self.builder_view.message.edit(
+                        embed=self.builder_view.build_builder_embed(),
+                        view=self.builder_view
+                    )
+                except Exception:
+                    pass
+            await core.safe_send_response(
+                interaction,
+                f"✅ 역할 **`{target_role.name}`** 항목을 빌더에 추가했습니다!",
+                ephemeral=True,
+            )
 
 
 class QuickRoleButtonModal(core.SafeModal, title="🚀 역할 버튼 패널 생성 (사진 스타일)"):
