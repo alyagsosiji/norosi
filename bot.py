@@ -413,11 +413,15 @@ class NorosiBot(commands.Bot):
         # 0. VM 터미널 로그 실시간 캡처 활성화
         self.setup_terminal_log_capture()
 
-        print("==================================================================", flush=True)
-        print("📦 [1/4] 로컬 & 하이브리드 데이터 캐시 로드 및 무결성 점검 중...", flush=True)
         db_t0 = time.perf_counter()
         loaded_data = await asyncio.to_thread(core.load_data)
         db_ms = (time.perf_counter() - db_t0) * 1000.0
+        log_mode = core.get_terminal_log_mode(loaded_data)
+        mode_badge = "요약 버전(SUMMARY)" if log_mode == "summary" else "상세 버전(DETAILED)"
+
+        print("==================================================================", flush=True)
+        if log_mode == "detailed":
+            print(f"📦 [1/4] 로컬 & 하이브리드 데이터 캐시 로드 및 무결성 점검 중... (로그 모드: {mode_badge})", flush=True)
         try:
             db_file_kb = os.path.getsize(core.DATA_FILE) / 1024.0 if os.path.exists(core.DATA_FILE) else 0.0
             u_prof_cnt = len(core.as_dict(loaded_data.get("user_profiles")))
@@ -428,22 +432,28 @@ class NorosiBot(commands.Bot):
             dday_cnt = len(core.as_dict(loaded_data.get("ddays")))
             bday_cnt = len(core.as_dict(loaded_data.get("birthdays")))
             rr_cnt = len(core.as_dict(loaded_data.get("reaction_roles")))
-            lot_round = core.as_dict(loaded_data.get("lottery_state")).get("round", 1)
             fb_mode = "Firebase 클라우드 연동" if core.get_firebase_endpoint() else "로컬 JSON + 인메모리 캐시"
-            print(
-                f"   ✓ 데이터 캐시 로드 완료 ({db_ms:.1f}ms | 파일 크기: {db_file_kb:,.1f}KB | 모드: {fb_mode})\n"
-                f"   ✓ 주요 컬렉션 요약: 유저 프로필 {u_prof_cnt:,}명 · D-Day {dday_cnt:,}건 · 생일 {bday_cnt:,}건 · 반응역할 패널 {rr_cnt:,}개 · 주간복권 제{lot_round}회\n"
-                f"   ✓ 게임별 활성 서버 풀: 프로세카 {gacha_g_cnt}곳 · 원신 {gi_g_cnt}곳 · 스타레일 {hsr_g_cnt}곳 · 낚시 {fish_g_cnt}곳",
-                flush=True,
-            )
+            if log_mode == "summary":
+                print(
+                    f"📦 [1/4] 데이터 캐시 로드 완료 ({db_ms:.1f}ms | {db_file_kb:,.1f}KB | 유저 {u_prof_cnt:,}명 · D-Day {dday_cnt:,}건 | {fb_mode})",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"   ✓ 데이터 캐시 로드 완료 ({db_ms:.1f}ms | 파일 크기: {db_file_kb:,.1f}KB | 모드: {fb_mode})\n"
+                    f"   ✓ 주요 컬렉션 요약: 유저 프로필 {u_prof_cnt:,}명 · D-Day {dday_cnt:,}건 · 생일 {bday_cnt:,}건 · 반응역할 패널 {rr_cnt:,}개\n"
+                    f"   ✓ 게임별 활성 서버 풀: 프로세카 {gacha_g_cnt}곳 · 원신 {gi_g_cnt}곳 · 스타레일 {hsr_g_cnt}곳 · 낚시 {fish_g_cnt}곳",
+                    flush=True,
+                )
         except Exception as stat_err:
             print(f"   ℹ️ 데이터 캐시 통계 요약 생략: {stat_err}", flush=True)
 
         # 글로벌 슬래시 커맨드 에러 핸들러 등록 ("명령어 응답 안함" 3초 타임아웃 차단)
         self.tree.on_error = self.on_app_command_error
 
-        print("------------------------------------------------------------------", flush=True)
-        print("🔌 [2/4] 17대 Cogs 확장 모듈 로드 및 명령어 트리 빌드 중...", flush=True)
+        if log_mode == "detailed":
+            print("------------------------------------------------------------------", flush=True)
+            print("🔌 [2/4] 17대 Cogs 확장 모듈 로드 및 명령어 트리 빌드 중...", flush=True)
         # 서버 배포 파일 뒤바뀜(예: fishing_core.py에 cogs/fishing.py 덮어쓰기, cogs/gacha.py에 cogs/hsr.py 덮어쓰기) 사전 진단
         try:
             base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -508,10 +518,11 @@ class NorosiBot(commands.Bot):
                 added_slash = max(0, after_slash - before_slash)
                 added_prefix = max(0, after_prefix - before_prefix)
                 loaded_exts.append(ext)
-                print(
-                    f"   [{idx:02d}/{len(ext_list):02d}] ✓ {ext:<16} 로드 성공 ({ext_ms:6.1f}ms | 슬래시 +{added_slash} · 프리픽스 +{added_prefix})",
-                    flush=True,
-                )
+                if log_mode == "detailed":
+                    print(
+                        f"   [{idx:02d}/{len(ext_list):02d}] ✓ {ext:<16} 로드 성공 ({ext_ms:6.1f}ms | 슬래시 +{added_slash} · 프리픽스 +{added_prefix})",
+                        flush=True,
+                    )
                 if ext == "cogs.gacha" and self.get_cog("GachaCog") is None:
                     print(
                         "🚨 [파일 동기화 경고] 'cogs.gacha' 로드 후 GachaCog가 등록되지 않았습니다! "
@@ -532,61 +543,84 @@ class NorosiBot(commands.Bot):
                 sub_cmd_cnt += len(cmd.commands)
             else:
                 sub_cmd_cnt += 1
-        print(
-            f"   📊 [Cogs 요약] 성공: {len(loaded_exts)}/{len(ext_list)}개 모듈 | "
-            f"슬래시 루트: {len(top_cmds)}개 (세부 실행 커맨드: {sub_cmd_cnt}종) | "
-            f"프리픽스(!) 명령어: {len(self.commands)}개 | "
-            f"등록된 SafeView 클래스: {len(core.SAFE_VIEW_REGISTRY)}종",
-            flush=True,
-        )
+        if log_mode == "summary":
+            print(
+                f"🔌 [2/4] Cogs 모듈 {len(loaded_exts)}/{len(ext_list)}개 로드 완료 "
+                f"(슬래시 루트 {len(top_cmds)}개/세부 {sub_cmd_cnt}종 · 프리픽스(!) {len(self.commands)}개 · SafeView {len(core.SAFE_VIEW_REGISTRY)}종)",
+                flush=True,
+            )
+        else:
+            print(
+                f"   📊 [Cogs 요약] 성공: {len(loaded_exts)}/{len(ext_list)}개 모듈 | "
+                f"슬래시 루트: {len(top_cmds)}개 (세부 실행 커맨드: {sub_cmd_cnt}종) | "
+                f"프리픽스(!) 명령어: {len(self.commands)}개 | "
+                f"등록된 SafeView 클래스: {len(core.SAFE_VIEW_REGISTRY)}종",
+                flush=True,
+            )
 
         self.register_persistent_views()
 
-        print("------------------------------------------------------------------", flush=True)
-        print("📚 [3/4] 게임 마스터 DB (프로세카 · 원신 · 스타레일 · 낚시 · 타인의인생) 백그라운드 워밍 시작...", flush=True)
-        asyncio.create_task(self._warm_master_databases())
+        if log_mode == "detailed":
+            print("------------------------------------------------------------------", flush=True)
+            print("📚 [3/4] 게임 마스터 DB (프로세카 · 원신 · 스타레일 · 낚시 · 타인의인생) 백그라운드 워밍 시작...", flush=True)
+        asyncio.create_task(self._warm_master_databases(log_mode))
 
-        print("------------------------------------------------------------------", flush=True)
-        print("⏰ [4/4] 상주 스케줄러 및 VM 터미널 로그 브릿지 루프 활성화...", flush=True)
+        if log_mode == "detailed":
+            print("------------------------------------------------------------------", flush=True)
+            print("⏰ [4/4] 상주 스케줄러 및 VM 터미널 로그 브릿지 루프 활성화...", flush=True)
         scheduler_specs = [
             ("midnight_tasks", self.midnight_tasks, "매일 00:00 KST 자정 DB 갱신 · 반복 D-Day · 생일 축하"),
             ("morning_music_alert", self.morning_music_alert, "매일 07:00 KST 모닝 추천 음악 자동 발송"),
             ("morning_text_alert", self.morning_text_alert, "매일 09:00 KST D-Day 브리핑 · 비밀 타임캡슐 DM"),
             ("custom_music_schedules_loop", self.custom_music_schedules_loop, "30초 주기 맞춤 음악 알람 · 개인 예약 알림(/알림예약)"),
-            ("weekly_lottery_draw_loop", self.weekly_lottery_draw_loop, "10분 주기 주간 로또(일요일 21시 KST) 자동 추첨"),
             ("terminal_log_dispatch_loop", self.terminal_log_dispatch_loop, "3초 주기 VM 터미널 로그 디스코드 브릿지"),
         ]
         for loop_name, loop_obj, loop_desc in scheduler_specs:
             if not loop_obj.is_running():
                 loop_obj.start()
-            print(f"   ✓ [{loop_name}] 가동 중 — {loop_desc}", flush=True)
+            if log_mode == "detailed":
+                print(f"   ✓ [{loop_name}] 가동 중 — {loop_desc}", flush=True)
 
         total_boot_ms = (time.perf_counter() - boot_t0) * 1000.0
-        print(f"✨ [setup_hook 완료] 초기 부팅 파이프라인 준비 완료 (소요 시간: {total_boot_ms:.1f}ms)", flush=True)
+        if log_mode == "summary":
+            print(
+                f"⏰ [4/4] 상주 스케줄러 {len(scheduler_specs)}종 가동 완료 | 초기 부팅 파이프라인 {total_boot_ms:.1f}ms (로그 모드: {mode_badge})",
+                flush=True,
+            )
+        else:
+            print(f"✨ [setup_hook 완료] 초기 부팅 파이프라인 준비 완료 (소요 시간: {total_boot_ms:.1f}ms | 로그 모드: {mode_badge})", flush=True)
         print("==================================================================", flush=True)
 
-    async def _warm_master_databases(self):
+    async def _warm_master_databases(self, log_mode: Optional[str] = None):
         """프로세카(미래시 포함), 원신, 스타레일, 낚시, 타인의인생 마스터 DB를 백그라운드에서 워밍하고 공개 통계를 로그로 출력합니다."""
         w_t0 = time.perf_counter()
+        eff_mode = log_mode or core.get_terminal_log_mode()
+        p_cards = p_costumes = p_quotes = fc_cnt = 0
+        g_chars = g_weaps = g_arts = 0
+        h_chars = h_lcs = h_relics = 0
+        fish_total = endings_total = origins_total = specs_total = 0
+
         try:
             await asyncio.to_thread(core.load_proseka_kr_db)
             p_cards = len(getattr(core, "PROSEKA_CARDS", []) or [])
             p_costumes = len(getattr(core, "PROSEKA_COSTUMES", []) or [])
             p_quotes = len(getattr(core, "PROSEKA_QUOTES", []) or [])
-            print(
-                f"   🎵 [DB 워밍: 프로세카] 한국어 마스터 DB 준비 완료 — 카드 {p_cards:,}장 · 3D 의상 {p_costumes:,}종 · 대사 {p_quotes:,}개",
-                flush=True,
-            )
+            if eff_mode == "detailed":
+                print(
+                    f"   🎵 [DB 워밍: 프로세카] 한국어 마스터 DB 준비 완료 — 카드 {p_cards:,}장 · 3D 의상 {p_costumes:,}종 · 대사 {p_quotes:,}개",
+                    flush=True,
+                )
             fc_list = await asyncio.to_thread(core.get_event_forecast_list, True)
-            if fc_list:
+            fc_cnt = len(fc_list or [])
+            if fc_list and eff_mode == "detailed":
                 today_s = datetime.datetime.now(core.KST).strftime("%Y-%m-%d")
                 cur_ev = next((e for e in fc_list if e.get("kr_estimated_start", "") <= today_s <= e.get("kr_estimated_end", "")), None)
                 nxt_ev = next((e for e in fc_list if e.get("kr_estimated_start", "") > today_s), None)
-                ev_Target = cur_ev or nxt_ev or fc_list[-1]
+                ev_target = cur_ev or nxt_ev or fc_list[-1]
                 st_lbl = "진행중" if cur_ev else "차기예정"
                 print(
                     f"   📅 [DB 워밍: 프세카 미래시] 한섭·일섭 미래시 일정표 준비 완료 — 총 {len(fc_list)}개 이벤트 (#{fc_list[0]['id']}~#{fc_list[-1]['id']}) | "
-                    f"{st_lbl}: #{ev_Target['id']} {ev_Target['name']} ({ev_Target['kr_estimated_start']}~{ev_Target['kr_estimated_end']})",
+                    f"{st_lbl}: #{ev_target['id']} {ev_target['name']} ({ev_target['kr_estimated_start']}~{ev_target['kr_estimated_end']})",
                     flush=True,
                 )
         except Exception as e:
@@ -598,10 +632,11 @@ class NorosiBot(commands.Bot):
             g_chars = len(getattr(genshin_core, "GENSHIN_CHARS", []) or [])
             g_weaps = len(getattr(genshin_core, "GENSHIN_WEAPONS", []) or [])
             g_arts = len(getattr(genshin_core, "GENSHIN_ARTIFACTS", []) or [])
-            print(
-                f"   🌠 [DB 워밍: 원신] 한국어 마스터 DB 준비 완료 — 캐릭터 {g_chars:,}명 · 무기 {g_weaps:,}종 · 성유물 세트 {g_arts:,}종",
-                flush=True,
-            )
+            if eff_mode == "detailed":
+                print(
+                    f"   🌠 [DB 워밍: 원신] 한국어 마스터 DB 준비 완료 — 캐릭터 {g_chars:,}명 · 무기 {g_weaps:,}종 · 성유물 세트 {g_arts:,}종",
+                    flush=True,
+                )
         except Exception as e:
             print(f"   ⚠️ [DB 워밍: 원신] 로드 경고: {e}", flush=True)
 
@@ -611,10 +646,11 @@ class NorosiBot(commands.Bot):
             h_chars = len(getattr(hsr_core, "HSR_CHARS", []) or [])
             h_lcs = len(getattr(hsr_core, "HSR_LIGHT_CONES", []) or [])
             h_relics = len(getattr(hsr_core, "HSR_RELICS", []) or [])
-            print(
-                f"   🚄 [DB 워밍: 스타레일] 한국어 마스터 DB 준비 완료 — 캐릭터 {h_chars:,}명 · 광추 {h_lcs:,}종 · 유물 세트 {h_relics:,}종",
-                flush=True,
-            )
+            if eff_mode == "detailed":
+                print(
+                    f"   🚄 [DB 워밍: 스타레일] 한국어 마스터 DB 준비 완료 — 캐릭터 {h_chars:,}명 · 광추 {h_lcs:,}종 · 유물 세트 {h_relics:,}종",
+                    flush=True,
+                )
         except Exception as e:
             print(f"   ⚠️ [DB 워밍: 스타레일] 로드 경고: {e}", flush=True)
 
@@ -625,10 +661,16 @@ class NorosiBot(commands.Bot):
             origins_total = len(getattr(other_life_core, "ORIGINS", {}) or {})
             specs_total = len(getattr(other_life_core, "SPECIALTY_CATALOG", {}) or {})
             w_ms = (time.perf_counter() - w_t0) * 1000.0
-            print(
-                f"   🎣 [DB 워밍: 낚시 & 타인의인생] 어종 DB {fish_total:,}종 · 타인의인생 엔딩 {endings_total:,}종 (출신 {origins_total}종 · 세부전공 {specs_total}종) 확인 완료 (총 {w_ms:.0f}ms)",
-                flush=True,
-            )
+            if eff_mode == "summary":
+                print(
+                    f"📚 [3/4] 마스터 DB 워밍 완료 ({w_ms:.0f}ms | 프세카 {p_cards:,}장·미래시 {fc_cnt}건 · 원신 {g_chars}명 · 스타레일 {h_chars}명 · 어종 {fish_total:,}종 · 엔딩 {endings_total:,}종)",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"   🎣 [DB 워밍: 낚시 & 타인의인생] 어종 DB {fish_total:,}종 · 타인의인생 엔딩 {endings_total:,}종 (출신 {origins_total}종 · 세부전공 {specs_total}종) 확인 완료 (총 {w_ms:.0f}ms)",
+                    flush=True,
+                )
         except Exception as e:
             print(f"   ℹ️ [DB 워밍: 보조 DB] 확인 생략: {e}", flush=True)
 
@@ -690,6 +732,27 @@ class NorosiBot(commands.Bot):
 
         # 로그 텍스트 합치기 및 코드블록 특수문자 치환
         full_text = "".join(chunks).replace("```", "'''")
+        log_mode = core.get_terminal_log_mode(data)
+
+        # 요약 버전(summary) 설정 시: 반복적인 하위 상세 라인이나 일반 INFO 트레이스는 생략하고 핵심 단계/경고/오류만 추출
+        if log_mode == "summary":
+            summary_keep_markers = (
+                "🚀", "📦", "🔌", "📚", "⏰", "✨", "✅", "⚠️", "🚨", "❌", "🛑", "🎉", "🔑", "🌐",
+                "[STARTUP", "[READY", "[무로시로그]", "[ERROR]", "[WARNING]", "[CRITICAL]",
+                "Traceback", "Exception", "Error:",
+            )
+            filtered_lines = []
+            for raw_line in full_text.splitlines(keepends=True):
+                stripped = raw_line.strip()
+                if not stripped:
+                    continue
+                if stripped.startswith(("====", "----")):
+                    continue
+                if any(marker in stripped for marker in summary_keep_markers):
+                    filtered_lines.append(raw_line if raw_line.endswith("\n") else raw_line + "\n")
+            full_text = "".join(filtered_lines)
+            if not full_text.strip():
+                return
 
         # 디스코드 2,000자 제한을 준수하도록 ~1,800자 단위 메시지 리스트로 분할
         messages_to_send = []
@@ -1326,16 +1389,21 @@ class NorosiBot(commands.Bot):
         """
         try:
             sync_t0 = time.perf_counter()
-            print("🌐 [백그라운드 동기화] 글로벌 슬래시 명령어 트리 Discord API 동기화 시작...", flush=True)
+            log_mode = core.get_terminal_log_mode()
+            if log_mode == "detailed":
+                print("🌐 [백그라운드 동기화] 글로벌 슬래시 명령어 트리 Discord API 동기화 시작...", flush=True)
             synced_cmds = await self.tree.sync()
             sync_ms = (time.perf_counter() - sync_t0) * 1000.0
-            cmd_names_preview = ", ".join(f"/{c.name}" for c in synced_cmds[:15])
-            more_tag = f" 외 {len(synced_cmds) - 15}개" if len(synced_cmds) > 15 else ""
-            print(
-                f"✅ [동기화 완료] 글로벌 슬래시 명령어 총 {len(synced_cmds)}개 등록 완료! ({sync_ms:.0f}ms)\n"
-                f"   📋 등록 명령어 샘플: {cmd_names_preview}{more_tag}",
-                flush=True,
-            )
+            if log_mode == "summary":
+                print(f"✅ [동기화 완료] 글로벌 슬래시 명령어 총 {len(synced_cmds)}개 등록 완료 ({sync_ms:.0f}ms)", flush=True)
+            else:
+                cmd_names_preview = ", ".join(f"/{c.name}" for c in synced_cmds[:15])
+                more_tag = f" 외 {len(synced_cmds) - 15}개" if len(synced_cmds) > 15 else ""
+                print(
+                    f"✅ [동기화 완료] 글로벌 슬래시 명령어 총 {len(synced_cmds)}개 등록 완료! ({sync_ms:.0f}ms)\n"
+                    f"   📋 등록 명령어 샘플: {cmd_names_preview}{more_tag}",
+                    flush=True,
+                )
         except discord.HTTPException as e:
             if e.status == 429:
                 print(f"⏳ [동기화 알림] Discord API 속도 제한(429 Rate Limit) 감지: {e}. 백그라운드에서 대기 후 자동 재시도됩니다.", flush=True)
@@ -1352,17 +1420,25 @@ class NorosiBot(commands.Bot):
         sekai_t = core.get_proseka_sekai_time_theme()
         data = core.get_cached_data()
         t_channels = core.as_dict(core.as_dict(data.get("settings")).get("terminal_log_channels"))
+        log_mode = core.get_terminal_log_mode(data)
+        mode_badge = "요약 버전(SUMMARY)" if log_mode == "summary" else "상세 버전(DETAILED)"
         print("==================================================================", flush=True)
-        print(f"✅ [READY] 무로시(norosi) 디스코드 게이트웨이 연결 및 준비 완료!", flush=True)
-        print(f"   • 봇 계정     : {self.user} (ID: {self.user.id})", flush=True)
-        print(f"   • 게이트웨이  : WebSocket 핑 {ws_ping_ms}ms | 연결 서버 {guild_cnt:,}곳 (총 멤버 약 {total_members:,}명)", flush=True)
-        print(f"   • 데이터 엔진 : {fb_status} | 터미널 브릿지 연동 채널 {len(t_channels)}곳", flush=True)
-        print(f"   • 세카이 시각 : {sekai_t['hour_str']} ({sekai_t['phase_name']}) — {sekai_t['unit_label']} / {sekai_t['attr_label']}", flush=True)
-        if self.guilds:
-            guild_summary = ", ".join(f"{g.name}({getattr(g, 'member_count', 0) or 0}명)" for g in self.guilds[:8])
-            if len(self.guilds) > 8:
-                guild_summary += f" 외 {len(self.guilds) - 8}곳"
-            print(f"   • 접속 서버   : {guild_summary}", flush=True)
+        if log_mode == "summary":
+            print(
+                f"✅ [READY/요약] {self.user} 준비 완료 (핑 {ws_ping_ms}ms · 서버 {guild_cnt:,}곳/{total_members:,}명 · {fb_status} · 세카이 {sekai_t['hour_str']} · 터미널채널 {len(t_channels)}곳)",
+                flush=True,
+            )
+        else:
+            print(f"✅ [READY] 무로시(norosi) 디스코드 게이트웨이 연결 및 준비 완료! (로그 모드: {mode_badge})", flush=True)
+            print(f"   • 봇 계정     : {self.user} (ID: {self.user.id})", flush=True)
+            print(f"   • 게이트웨이  : WebSocket 핑 {ws_ping_ms}ms | 연결 서버 {guild_cnt:,}곳 (총 멤버 약 {total_members:,}명)", flush=True)
+            print(f"   • 데이터 엔진 : {fb_status} | 터미널 브릿지 연동 채널 {len(t_channels)}곳 | 로그 모드: {mode_badge}", flush=True)
+            print(f"   • 세카이 시각 : {sekai_t['hour_str']} ({sekai_t['phase_name']}) — {sekai_t['unit_label']} / {sekai_t['attr_label']}", flush=True)
+            if self.guilds:
+                guild_summary = ", ".join(f"{g.name}({getattr(g, 'member_count', 0) or 0}명)" for g in self.guilds[:8])
+                if len(self.guilds) > 8:
+                    guild_summary += f" 외 {len(self.guilds) - 8}곳"
+                print(f"   • 접속 서버   : {guild_summary}", flush=True)
         print("==================================================================", flush=True)
 
         await self.change_presence(
@@ -1575,37 +1651,6 @@ class NorosiBot(commands.Bot):
 
     @midnight_tasks.before_loop
     async def before_midnight_tasks(self):
-        await self.wait_until_ready()
-
-    @tasks.loop(minutes=10)
-    async def weekly_lottery_draw_loop(self):
-        """매주 일요일 21:00~21:59 KST 사이에 주간 로또 복권을 주 1회 자동 추첨·공지합니다."""
-        now = datetime.datetime.now(core.KST)
-        if now.weekday() != 6 or now.hour != 21:
-            return
-        week_key = now.strftime("%Y-W%W")
-        data = await asyncio.to_thread(core.load_data)
-        last_draw = core.as_dict(core.as_dict(data.get("lottery_state")).get("last_draw"))
-        if last_draw.get("week_key") == week_key:
-            return
-
-        import economy_core
-        from cogs.economy import build_lottery_draw_embed
-        draw_res = await asyncio.to_thread(economy_core.execute_lottery_draw, "auto")
-        ann_chs = core.as_dict(draw_res.get("announce_channels"))
-        for gid_s, cid in ann_chs.items():
-            if not cid:
-                continue
-            ch = await self.resolve_channel(cid)
-            if ch and hasattr(ch, "send"):
-                gname = getattr(getattr(ch, "guild", None), "name", "서버")
-                try:
-                    await ch.send(embed=build_lottery_draw_embed(draw_res, gname))
-                except Exception as send_err:
-                    print(f"⚠️ [로또 자동 추첨 공지 예외] 채널 {cid}: {send_err}", flush=True)
-
-    @weekly_lottery_draw_loop.before_loop
-    async def before_weekly_lottery_draw_loop(self):
         await self.wait_until_ready()
 
     @tasks.loop(time=datetime.time(hour=7, minute=0, tzinfo=core.KST))
@@ -1940,12 +1985,196 @@ bot = NorosiBot()
 
 
 # ==========================================
-# 🖥️ VM 서버 터미널 로그 수신 채널 지정 명령어 (/터미널로그채널, !터미널로그)
+# 🖥️ VM 서버 터미널 로그 수신 채널 & 무로시 로그 모드(요약/상세) 설정
 # ==========================================
-@bot.tree.command(name="터미널로그채널", description="[관리자/봇주] VM 서버 터미널(stdout/stderr)로 출력되는 실시간 로그를 기록할 채널을 지정하거나 해제합니다.")
-@app_commands.describe(채널="터미널 로그를 실시간으로 받아볼 텍스트 채널 (비워두면 전송 해제)")
+def build_norosi_log_config_embed(guild: Optional[discord.Guild] = None, status_note: str = "") -> discord.Embed:
+    data = core.get_cached_data()
+    settings_d = core.as_dict(data.get("settings"))
+    t_channels = core.as_dict(settings_d.get("terminal_log_channels"))
+    cur_mode = core.get_terminal_log_mode(data)
+    g_key = str(guild.id) if guild else "global"
+    linked_cid = t_channels.get(g_key) or settings_d.get("terminal_log_channel_id")
+    ch_txt = f"<#{linked_cid}> (`ID: {linked_cid}`)" if linked_cid else "미지정 (`/터미널로그채널 채널:#채널`)"
+
+    mode_title = "📋 요약 버전 (Summary Mode)" if cur_mode == "summary" else "🔍 상세 버전 (Detailed Mode)"
+    color = discord.Color.from_rgb(56, 189, 248) if cur_mode == "summary" else discord.Color.from_rgb(16, 185, 129)
+    note_block = f"\n> {status_note}\n" if status_note else ""
+
+    embed = discord.Embed(
+        title="🪵 무로시(norosi) 구동 & 터미널 브릿지 로그 설정",
+        description=(
+            "봇 부팅 파이프라인(`STARTUP` · `[1/4]~[4/4]` · `READY`)과 디스코드 터미널 로그 채널(`3초 브릿지`)의 출력 상세도를 실시간으로 전환합니다.\n"
+            f"{note_block}\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• **현재 로그 모드:** **{mode_title}** (`{cur_mode}`)\n"
+            f"• **현재 서버 로그 채널:** {ch_txt} *(전체 연동 서버: `{len(t_channels)}곳`)*\n"
+            "• **보안 필터링:** 토큰·API 키·비밀번호·개인정보는 두 모드 모두 **100% 비노출** 보장\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+        color=color,
+        timestamp=datetime.datetime.now(core.KST),
+    )
+    embed.add_field(
+        name="📋 요약 버전 (Summary)",
+        value=(
+            "• 부팅 `[STARTUP]` · `[1/4]~[4/4]` · `[READY]` 단계당 **핵심 1줄 요약**만 출력\n"
+            "• 개별 17개 Cog 로드 행 및 일반 `INFO` 트레이스 생략 (경고/오류 발생 시에만 즉시 노출)\n"
+            "• 디스코드 터미널 로그 채널의 메시지 양을 최소화하고 싶을 때 추천"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="🔍 상세 버전 (Detailed — 기본값)",
+        value=(
+            "• Python/OS/RSS/디스크·확장 모듈 7종 상태·개별 17대 Cogs 로드(`ms`/슬래시/프리픽스 증감) 전체 출력\n"
+            "• 프로세카(미래시 #154~#225)·원신·스타레일·36,700종 어종·1,000종 엔딩 마스터 DB 상세 지표 출력\n"
+            "• 5대 상주 스케줄러 상태 및 접속 길드 요약 포함"
+        ),
+        inline=False,
+    )
+    embed.set_footer(text="하단 버튼 또는 /무로시로그 모드:[요약/상세] · !무로시로그 요약/상세 로 언제든 전환 가능")
+    return embed
+
+
+class NorosiLogConfigView(core.SafeView):
+    """무로시 구동 및 터미널 브릿지 로그의 요약 버전 / 상세 버전을 원클릭 전환하는 뷰"""
+
+    def __init__(self, author: Optional[discord.abc.User] = None, guild: Optional[discord.Guild] = None):
+        super().__init__(timeout=300)
+        self.author = author
+        self.guild = guild
+        self.status_note = ""
+        self._sync_button_styles()
+
+    def _sync_button_styles(self):
+        cur_mode = core.get_terminal_log_mode()
+        self.btn_summary.style = discord.ButtonStyle.primary if cur_mode == "summary" else discord.ButtonStyle.secondary
+        self.btn_detailed.style = discord.ButtonStyle.success if cur_mode == "detailed" else discord.ButtonStyle.secondary
+
+    def build_embed(self) -> discord.Embed:
+        return build_norosi_log_config_embed(self.guild, self.status_note)
+
+    async def _check_perm(self, interaction: discord.Interaction) -> bool:
+        is_owner = await bot.is_bot_owner_user(interaction.user)
+        is_admin = bool(
+            interaction.guild and isinstance(interaction.user, discord.Member)
+            and interaction.user.guild_permissions.administrator
+        )
+        if not (is_owner or is_admin):
+            await core.safe_send_response(
+                interaction,
+                "❌ 로그 모드 변경은 **서버 관리자** 또는 **봇 소유자**만 사용할 수 있습니다.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="📋 요약 버전으로 설정", style=discord.ButtonStyle.secondary, row=0, custom_id="norosi:NorosiLogConfigView:btn_summary")
+    async def btn_summary(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._check_perm(interaction):
+            return
+        await core.safe_defer(interaction)
+        await asyncio.to_thread(core.set_terminal_log_mode, "summary")
+        self.status_note = "✅ 무로시 로그 모드가 **📋 요약 버전 (Summary)**으로 변경되었습니다!"
+        self._sync_button_styles()
+        print(f"⚙️ [무로시로그] {interaction.user}에 의해 로그 출력 모드가 '요약 버전(summary)'으로 전환되었습니다.", flush=True)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🔍 상세 버전으로 설정", style=discord.ButtonStyle.success, row=0, custom_id="norosi:NorosiLogConfigView:btn_detailed")
+    async def btn_detailed(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._check_perm(interaction):
+            return
+        await core.safe_defer(interaction)
+        await asyncio.to_thread(core.set_terminal_log_mode, "detailed")
+        self.status_note = "✅ 무로시 로그 모드가 **🔍 상세 버전 (Detailed)**으로 변경되었습니다!"
+        self._sync_button_styles()
+        print(f"⚙️ [무로시로그] {interaction.user}에 의해 로그 출력 모드가 '상세 버전(detailed)'으로 전환되었습니다.", flush=True)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🧪 현재 모드로 샘플 로그 출력", style=discord.ButtonStyle.secondary, row=0, custom_id="norosi:NorosiLogConfigView:btn_test_log")
+    async def btn_test_log(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._check_perm(interaction):
+            return
+        await core.safe_defer(interaction)
+        cur_mode = core.get_terminal_log_mode()
+        sekai_t = core.get_proseka_sekai_time_theme()
+        ws_ping_ms = round(bot.latency * 1000, 1) if bot.latency and bot.latency > 0 else 0.0
+        if cur_mode == "summary":
+            print(
+                f"✅ [무로시로그/요약 점검] {bot.user} 정상 가동 중 (핑 {ws_ping_ms}ms · 서버 {len(bot.guilds)}곳 · 세카이 {sekai_t['hour_str']})",
+                flush=True,
+            )
+        else:
+            print(
+                f"✅ [무로시로그/상세 점검] {bot.user} 상태 브리핑 — WebSocket {ws_ping_ms}ms | "
+                f"연결 서버 {len(bot.guilds)}곳 | Cogs {len(bot.extensions)}개 | SafeView {len(core.SAFE_VIEW_REGISTRY)}종 | "
+                f"세카이 {sekai_t['hour_str']} ({sekai_t['phase_name']} · {sekai_t['unit_label']})",
+                flush=True,
+            )
+        self.status_note = f"🧪 현재 모드(`{cur_mode}`)로 터미널 콘솔에 샘플 진단 로그를 출력했습니다!"
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+
+@bot.tree.command(name="무로시로그", description="[관리자/봇주] 무로시 구동 및 터미널 브릿지 로그를 요약 버전 또는 상세 버전으로 설정합니다.")
+@app_commands.describe(모드="전환할 로그 출력 버전 (미선택 시 현재 설정 패널 열기)")
+@app_commands.choices(모드=[
+    app_commands.Choice(name="📋 요약 버전 (Summary — 핵심 단계·경고·오류만 간결 출력)", value="summary"),
+    app_commands.Choice(name="🔍 상세 버전 (Detailed — 모듈·마스터DB·스케줄러·환경 전체 상세 출력)", value="detailed"),
+])
 @app_commands.default_permissions(administrator=True)
-async def set_terminal_log_channel_slash(interaction: discord.Interaction, 채널: Optional[discord.TextChannel] = None):
+async def norosi_log_mode_slash(interaction: discord.Interaction, 모드: Optional[app_commands.Choice[str]] = None):
+    is_owner = await bot.is_bot_owner_user(interaction.user)
+    is_admin = bool(interaction.guild and isinstance(interaction.user, discord.Member) and interaction.user.guild_permissions.administrator)
+    if not (is_owner or is_admin):
+        await core.safe_send_response(interaction, "❌ 이 명령어는 **봇 소유자** 또는 **서버 관리자**만 사용할 수 있습니다.", ephemeral=True)
+        return
+
+    await core.safe_defer(interaction, ephemeral=True)
+    view = NorosiLogConfigView(author=interaction.user, guild=interaction.guild)
+    if 모드 is not None:
+        new_mode = await asyncio.to_thread(core.set_terminal_log_mode, 모드.value)
+        mode_kr = "📋 요약 버전 (Summary)" if new_mode == "summary" else "🔍 상세 버전 (Detailed)"
+        view.status_note = f"✅ 무로시 로그 출력 모드가 **{mode_kr}**으로 설정되었습니다!"
+        view._sync_button_styles()
+        print(f"⚙️ [무로시로그] {interaction.user}에 의해 로그 출력 모드가 '{mode_kr}'({new_mode})으로 설정되었습니다.", flush=True)
+    msg = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
+    view.message = msg
+
+
+@bot.command(name="무로시로그", aliases=["로그모드", "구동로그", "logmode"])
+async def norosi_log_mode_prefix(ctx: commands.Context, 모드: Optional[str] = None):
+    is_owner = await bot.is_bot_owner_user(ctx.author)
+    is_admin = bool(ctx.guild and isinstance(ctx.author, discord.Member) and ctx.author.guild_permissions.administrator)
+    if not (is_owner or is_admin):
+        await ctx.send("❌ 이 명령어는 **봇 소유자** 또는 **서버 관리자**만 사용할 수 있습니다.", delete_after=5)
+        return
+
+    view = NorosiLogConfigView(author=ctx.author, guild=ctx.guild)
+    if 모드:
+        new_mode = await asyncio.to_thread(core.set_terminal_log_mode, 모드)
+        mode_kr = "📋 요약 버전 (Summary)" if new_mode == "summary" else "🔍 상세 버전 (Detailed)"
+        view.status_note = f"✅ 무로시 로그 출력 모드가 **{mode_kr}**으로 설정되었습니다!"
+        view._sync_button_styles()
+        print(f"⚙️ [무로시로그] {ctx.author}에 의해 로그 출력 모드가 '{mode_kr}'({new_mode})으로 설정되었습니다.", flush=True)
+    msg = await ctx.send(embed=view.build_embed(), view=view)
+    view.message = msg
+
+
+@bot.tree.command(name="터미널로그채널", description="[관리자/봇주] VM 서버 터미널 실시간 로그를 기록할 채널 및 로그 버전(요약/상세)을 설정합니다.")
+@app_commands.describe(
+    채널="터미널 로그를 실시간으로 받아볼 텍스트 채널 (비워두면 전송 해제)",
+    모드="무로시 구동 및 터미널 로그 출력 버전 (요약 버전 / 상세 버전, 선택)",
+)
+@app_commands.choices(모드=[
+    app_commands.Choice(name="📋 요약 버전 (Summary — 핵심 단계·경고·오류만 간결 출력)", value="summary"),
+    app_commands.Choice(name="🔍 상세 버전 (Detailed — 모듈·마스터DB·스케줄러·환경 전체 상세 출력)", value="detailed"),
+])
+@app_commands.default_permissions(administrator=True)
+async def set_terminal_log_channel_slash(
+    interaction: discord.Interaction,
+    채널: Optional[discord.TextChannel] = None,
+    모드: Optional[app_commands.Choice[str]] = None,
+):
     is_owner = await bot.is_bot_owner_user(interaction.user)
     is_admin = bool(interaction.guild and isinstance(interaction.user, discord.Member) and interaction.user.guild_permissions.administrator)
     if not (is_owner or is_admin):
@@ -1955,33 +2184,47 @@ async def set_terminal_log_channel_slash(interaction: discord.Interaction, 채�
     await core.safe_defer(interaction, ephemeral=True)
     g_key = str(interaction.guild_id) if interaction.guild_id else "global"
     ch_id = 채널.id if 채널 is not None else None
+    chosen_mode = 모드.value if 모드 is not None else None
 
-    def _update_terminal_ch() -> int:
+    def _update_terminal_ch() -> tuple[int, str]:
         with core._DATA_LOCK:
             data = core.load_data()
             settings_dict = core.ensure_dict_path(data, "settings")
             t_channels = core.ensure_dict_path(data, "settings", "terminal_log_channels")
-            if ch_id is None:
+            if chosen_mode is not None:
+                settings_dict["terminal_log_mode"] = core.normalize_log_mode_value(chosen_mode)
+            if ch_id is None and chosen_mode is None:
                 t_channels.pop(g_key, None)
                 if not t_channels:
                     settings_dict["terminal_log_channel_id"] = None
-            else:
+            elif ch_id is not None:
                 t_channels[g_key] = ch_id
                 settings_dict["terminal_log_channel_id"] = ch_id
             core.save_data(data)
-            return len(t_channels)
+            return len(t_channels), core.get_terminal_log_mode(data)
 
-    total_linked = await asyncio.to_thread(_update_terminal_ch)
+    total_linked, active_mode = await asyncio.to_thread(_update_terminal_ch)
+    mode_kr = "📋 요약 버전 (Summary)" if active_mode == "summary" else "🔍 상세 버전 (Detailed)"
+    view = NorosiLogConfigView(author=interaction.user, guild=interaction.guild)
 
-    if 채널 is None:
-        await interaction.followup.send(f"🛑 **현재 서버({interaction.guild.name if interaction.guild else '글로벌'})의 VM 서버 터미널 로그 채널 전송이 해제되었습니다.**", ephemeral=True)
+    if 채널 is None and chosen_mode is not None:
+        view.status_note = f"✅ 무로시 로그 모드가 **{mode_kr}**으로 변경되었습니다!"
+        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+        print(f"⚙️ [무로시로그] {interaction.user}에 의해 로그 출력 모드가 '{mode_kr}'({active_mode})으로 변경되었습니다.", flush=True)
+    elif 채널 is None:
+        await interaction.followup.send(
+            f"🛑 **현재 서버({interaction.guild.name if interaction.guild else '글로벌'})의 VM 서버 터미널 로그 채널 전송이 해제되었습니다.** (현재 로그 모드: {mode_kr})",
+            view=view,
+            ephemeral=True,
+        )
         print(f"ℹ️ [System] {interaction.user}에 의해 {interaction.guild}의 터미널 로그 채널 전송이 비활성화되었습니다.", flush=True)
     else:
         embed = discord.Embed(
             title="🖥️ VM 서버 터미널 실시간 로그 채널 지정 완료!",
             description=(
-                f"이제부터 VM 서버 터미널(`stdout` / `stderr` / `logging`)로 출력되는 모든 로그가 {채널.mention} 채널에도 실시간으로 기록됩니다.\n\n"
+                f"이제부터 VM 서버 터미널(`stdout` / `stderr` / `logging`)로 출력되는 로그가 {채널.mention} 채널에도 실시간으로 기록됩니다.\n\n"
                 f"• **현재 채널:** {채널.mention} (`#{채널.name}`)\n"
+                f"• **로그 출력 모드:** **{mode_kr}** (`/무로시로그` 또는 아래 버튼으로 요약/상세 즉시 전환)\n"
                 f"• **전체 연동 서버:** 총 {total_linked}개 서버 채널에 실시간 동시 전송 중\n"
                 "• **전송 주기:** `3초` 단위 버퍼링 묶음 전송 (도배 및 Rate Limit 완벽 방어)\n"
                 "• **해제 방법:** `/터미널로그채널` 명령어를 채널 옵션 없이 실행"
@@ -1989,26 +2232,52 @@ async def set_terminal_log_channel_slash(interaction: discord.Interaction, 채�
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST)
         )
-        await interaction.followup.send(embed=embed, ephemeral=True)
-        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{채널.name} (ID: {채널.id}, 서버: {interaction.guild})로 지정되었습니다. (총 {total_linked}개 서버 동시 전송)", flush=True)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{채널.name} (ID: {채널.id}, 서버: {interaction.guild}, 모드: {active_mode})로 지정되었습니다. (총 {total_linked}개 서버 동시 전송)", flush=True)
 
 
 @bot.command(name="터미널로그", aliases=["터미널로그채널", "서버터미널", "vm로그", "콘솔로그"])
-async def set_terminal_log_channel_prefix(ctx: commands.Context, channel: Optional[discord.TextChannel] = None):
+async def set_terminal_log_channel_prefix(ctx: commands.Context, arg1: Optional[str] = None, arg2: Optional[str] = None):
     is_owner = await bot.is_bot_owner_user(ctx.author)
     is_admin = bool(ctx.guild and isinstance(ctx.author, discord.Member) and ctx.author.guild_permissions.administrator)
     if not (is_owner or is_admin):
         await ctx.send("❌ 이 명령어는 **봇 소유자** 또는 **서버 관리자**만 사용할 수 있습니다.", delete_after=5)
         return
 
+    # `!터미널로그 요약` 또는 `!터미널로그 상세` 입력 시 로그 모드 즉시 변경
+    mode_keywords = ("요약", "요약버전", "summary", "compact", "상세", "상세버전", "detailed", "detail", "full")
+    if arg1 and arg1.strip().lower() in mode_keywords and not arg2:
+        new_mode = await asyncio.to_thread(core.set_terminal_log_mode, arg1)
+        mode_kr = "📋 요약 버전 (Summary)" if new_mode == "summary" else "🔍 상세 버전 (Detailed)"
+        view = NorosiLogConfigView(author=ctx.author, guild=ctx.guild)
+        view.status_note = f"✅ 무로시 로그 모드가 **{mode_kr}**으로 전환되었습니다!"
+        await ctx.send(embed=view.build_embed(), view=view)
+        print(f"⚙️ [무로시로그] {ctx.author}에 의해 로그 출력 모드가 '{mode_kr}'({new_mode})으로 전환되었습니다.", flush=True)
+        return
+
+    channel: Optional[discord.TextChannel] = None
+    if ctx.message.channel_mentions:
+        channel = ctx.message.channel_mentions[0]
+    elif arg1 and arg1.isdigit() and ctx.guild:
+        ch_cand = ctx.guild.get_channel(int(arg1))
+        if isinstance(ch_cand, discord.TextChannel):
+            channel = ch_cand
+
+    chosen_mode = None
+    for cand in (arg1, arg2):
+        if cand and cand.strip().lower() in mode_keywords:
+            chosen_mode = core.normalize_log_mode_value(cand)
+
     g_key = str(ctx.guild.id) if ctx.guild else "global"
     ch_id = channel.id if channel is not None else None
 
-    def _update_terminal_ch_prefix() -> int:
+    def _update_terminal_ch_prefix() -> tuple[int, str]:
         with core._DATA_LOCK:
             data = core.load_data()
             settings_dict = core.ensure_dict_path(data, "settings")
             t_channels = core.ensure_dict_path(data, "settings", "terminal_log_channels")
+            if chosen_mode is not None:
+                settings_dict["terminal_log_mode"] = chosen_mode
             if ch_id is None:
                 t_channels.pop(g_key, None)
                 if not t_channels:
@@ -2017,15 +2286,24 @@ async def set_terminal_log_channel_prefix(ctx: commands.Context, channel: Option
                 t_channels[g_key] = ch_id
                 settings_dict["terminal_log_channel_id"] = ch_id
             core.save_data(data)
-            return len(t_channels)
+            return len(t_channels), core.get_terminal_log_mode(data)
 
-    total_linked = await asyncio.to_thread(_update_terminal_ch_prefix)
+    total_linked, active_mode = await asyncio.to_thread(_update_terminal_ch_prefix)
+    mode_kr = "📋 요약 버전 (Summary)" if active_mode == "summary" else "🔍 상세 버전 (Detailed)"
+    view = NorosiLogConfigView(author=ctx.author, guild=ctx.guild)
 
     if channel is None:
-        await ctx.send(f"🛑 **현재 서버({ctx.guild.name if ctx.guild else '글로벌'})의 VM 서버 터미널 로그 채널 기록이 비활성화되었습니다.** (특정 채널에 켜려면 `!터미널로그 #채널` 입력)")
+        await ctx.send(
+            f"🛑 **현재 서버({ctx.guild.name if ctx.guild else '글로벌'})의 VM 서버 터미널 로그 채널 기록이 비활성화되었습니다.** "
+            f"(특정 채널에 켜려면 `!터미널로그 #채널`, 로그 버전 변경은 `!무로시로그 요약` 또는 `!무로시로그 상세`)",
+            view=view,
+        )
     else:
-        await ctx.send(f"🖥️ **VM 서버 터미널 로그 채널 지정 완료:** 이제부터 터미널 출력이 {channel.mention} 채널에 실시간으로 기록됩니다! (총 {total_linked}개 서버 채널 동시 전송)")
-        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{channel.name} (ID: {channel.id}, 서버: {ctx.guild})로 지정되었습니다. (총 {total_linked}개 서버 동시 전송)", flush=True)
+        await ctx.send(
+            f"🖥️ **VM 서버 터미널 로그 채널 지정 완료:** 이제부터 터미널 출력이 {channel.mention} 채널에 **{mode_kr}**으로 실시간 기록됩니다! (총 {total_linked}개 서버 채널 동시 전송)",
+            view=view,
+        )
+        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{channel.name} (ID: {channel.id}, 서버: {ctx.guild}, 모드: {active_mode})로 지정되었습니다. (총 {total_linked}개 서버 동시 전송)", flush=True)
 
 
 # ==========================================
@@ -2565,12 +2843,19 @@ async def main():
         except Exception:
             opt_mods.append(f"{mod_label}:OFF")
 
+    init_log_mode = core.get_terminal_log_mode()
     print("==================================================================", flush=True)
-    print(f"🚀 [STARTUP] 무로시(norosi) 올인원 봇 엔진 기동 시작 (PID: {os.getpid()})", flush=True)
-    print(f"⏰ 부팅 시각  : {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (서버) / {datetime.datetime.now(core.KST).strftime('%Y-%m-%d %H:%M:%S KST')} (한국)", flush=True)
-    print(f"🖥️ 런타임 환경: Python {py_ver} · discord.py {dpy_ver} · OS: {os_info}", flush=True)
-    print(f"💾 시스템 자원: 초기 메모리 RSS {rss_mb:.1f}MB · 디스크 여유 공간 {disk_free_gb:.2f}GB · CWD: {os.getcwd()}", flush=True)
-    print(f"🧩 확장 모듈  : {' | '.join(opt_mods)}", flush=True)
+    if init_log_mode == "summary":
+        print(
+            f"🚀 [STARTUP/요약] 무로시(norosi) 기동 시작 (PID: {os.getpid()} | Python {py_ver} · discord.py {dpy_ver} | RSS {rss_mb:.1f}MB · Disk {disk_free_gb:.2f}GB)",
+            flush=True,
+        )
+    else:
+        print(f"🚀 [STARTUP] 무로시(norosi) 올인원 봇 엔진 기동 시작 (PID: {os.getpid()} | 로그 모드: 상세 버전)", flush=True)
+        print(f"⏰ 부팅 시각  : {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (서버) / {datetime.datetime.now(core.KST).strftime('%Y-%m-%d %H:%M:%S KST')} (한국)", flush=True)
+        print(f"🖥️ 런타임 환경: Python {py_ver} · discord.py {dpy_ver} · OS: {os_info}", flush=True)
+        print(f"💾 시스템 자원: 초기 메모리 RSS {rss_mb:.1f}MB · 디스크 여유 공간 {disk_free_gb:.2f}GB · CWD: {os.getcwd()}", flush=True)
+        print(f"🧩 확장 모듈  : {' | '.join(opt_mods)}", flush=True)
     print("==================================================================", flush=True)
 
     await bot.start_web_server()
@@ -2600,7 +2885,6 @@ async def main():
             "morning_text_alert",
             "custom_music_schedules_loop",
             "terminal_log_dispatch_loop",
-            "weekly_lottery_draw_loop",
         ):
             loop_obj = getattr(bot, loop_attr, None)
             if loop_obj is not None:
