@@ -420,11 +420,11 @@ class HSRWarpAgainView(core.SafeView):
 
         lbl10 = "🕳️ 유물 10회 파밍" if self.banner_key == "relic" else "🚆 10회 워프"
         lbl1 = "💠 유물 1회 파밍" if self.banner_key == "relic" else "🎫 1회 워프"
-        b10 = discord.ui.Button(label=lbl10, style=discord.ButtonStyle.primary, row=1)
+        b10 = discord.ui.Button(label=lbl10, style=discord.ButtonStyle.primary, row=1, custom_id="norosi:HSRWarpAgainView:_on_10")
         b10.callback = self._on_10
         self.add_item(b10)
 
-        b1 = discord.ui.Button(label=lbl1, style=discord.ButtonStyle.secondary, row=1)
+        b1 = discord.ui.Button(label=lbl1, style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:HSRWarpAgainView:_on_1")
         b1.callback = self._on_1
         self.add_item(b1)
 
@@ -432,31 +432,32 @@ class HSRWarpAgainView(core.SafeView):
             label="⏩ 연출 스킵 ON" if self.skip_anim else "🎬 연출 보기 (3.5초)",
             style=discord.ButtonStyle.success if self.skip_anim else discord.ButtonStyle.secondary,
             row=1,
+            custom_id="norosi:HSRWarpAgainView:_on_toggle_skip",
         )
         bskip.callback = self._on_toggle_skip
         self.add_item(bskip)
 
         if not self.practice:
-            bp = discord.ui.Button(label="🧪 연습 모드 전환", style=discord.ButtonStyle.secondary, row=1)
+            bp = discord.ui.Button(label="🧪 연습 모드 전환", style=discord.ButtonStyle.secondary, row=1, custom_id="norosi:HSRWarpAgainView:_on_toggle_practice")
         else:
-            bp = discord.ui.Button(label="⭐ 실전 모드 전환", style=discord.ButtonStyle.success, row=1)
+            bp = discord.ui.Button(label="⭐ 실전 모드 전환", style=discord.ButtonStyle.success, row=1, custom_id="norosi:HSRWarpAgainView:_on_toggle_practice")
         bp.callback = self._on_toggle_practice
         self.add_item(bp)
 
-        binv = discord.ui.Button(label="🎒 보관함", style=discord.ButtonStyle.secondary, row=2)
+        binv = discord.ui.Button(label="🎒 보관함", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:HSRWarpAgainView:_on_inv")
         binv.callback = self._on_inv
         self.add_item(binv)
 
-        brel = discord.ui.Button(label="🕳️ 유물 터널·합성기", style=discord.ButtonStyle.primary, row=2)
+        brel = discord.ui.Button(label="🕳️ 유물 터널·합성기", style=discord.ButtonStyle.primary, row=2, custom_id="norosi:HSRWarpAgainView:_on_relic_hub")
         brel.callback = self._on_relic_hub
         self.add_item(brel)
 
-        bshop = discord.ui.Button(label="🛍️ 별빛·헤르타 상점", style=discord.ButtonStyle.secondary, row=2)
+        bshop = discord.ui.Button(label="🛍️ 별빛·헤르타 상점", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:HSRWarpAgainView:_on_shop")
         bshop.callback = self._on_shop
         self.add_item(bshop)
 
         if self.banner_key == "standard":
-            b300 = discord.ui.Button(label="🎁 상시 300 선택", style=discord.ButtonStyle.success, row=2)
+            b300 = discord.ui.Button(label="🎁 상시 300 선택", style=discord.ButtonStyle.success, row=2, custom_id="norosi:HSRWarpAgainView:_on_300")
             b300.callback = self._on_300
             self.add_item(b300)
 
@@ -759,6 +760,19 @@ class HSRItemDetailView(core.SafeView):
         self.item_key = item_key
         self._build()
 
+    def _resolve_item_key_from_message(self, interaction: discord.Interaction):
+        if self.item_key:
+            return
+        msg = getattr(interaction, "message", None)
+        if msg and getattr(msg, "embeds", None):
+            title = (msg.embeds[0].title or "").replace("🔒", "").replace("★", "").strip()
+            if title:
+                hsr_core.load_hsr_kr_db()
+                for k, v in hsr_core.HSR_ALL_ITEMS.items():
+                    if v.get("name") == title:
+                        self.item_key = k
+                        return
+
     def _build(self):
         self.clear_items()
         data = core.load_data()
@@ -766,16 +780,23 @@ class HSRItemDetailView(core.SafeView):
         it = u_data.get("items", {}).get(self.item_key)
         locked = bool(it.get("locked")) if it else False
 
-        b_lk = discord.ui.Button(label="🔓 잠금 해제" if locked else "🔒 잠금 설정", style=discord.ButtonStyle.secondary if locked else discord.ButtonStyle.primary, row=0)
+        b_lk = discord.ui.Button(
+            label="🔓 잠금 해제" if locked else "🔒 잠금 설정",
+            style=discord.ButtonStyle.secondary if locked else discord.ButtonStyle.primary,
+            row=0,
+            custom_id="norosi:HSRItemDetailView:_on_lock",
+        )
         b_lk.callback = self._on_lock
         self.add_item(b_lk)
 
-        if it and it.get("kind") == "char":
+        if (it and it.get("kind") == "char") or not self.item_key or self.item_key.startswith("char:"):
+            lv_val = int(it.get("level", 1)) if it else 1
             b_lv = discord.ui.Button(
-                label="⬆️ 레벨업 (+10Lv · 여행가이드 2권)" if int(it.get("level", 1)) < 80 else "✅ Lv.80 MAX",
+                label="⬆️ 레벨업 (+10Lv · 여행가이드 2권)" if lv_val < 80 else "✅ Lv.80 MAX",
                 style=discord.ButtonStyle.success,
-                disabled=(int(it.get("level", 1)) >= 80),
+                disabled=(lv_val >= 80),
                 row=0,
+                custom_id="norosi:HSRItemDetailView:_on_lvup",
             )
             b_lv.callback = self._on_lvup
             self.add_item(b_lv)
@@ -827,6 +848,7 @@ class HSRItemDetailView(core.SafeView):
         self.user = self.user or interaction.user
         gid = self.guild_id or (interaction.guild_id or 0)
         self.guild_id = gid
+        self._resolve_item_key_from_message(interaction)
         await asyncio.to_thread(hsr_core.toggle_hsr_item_lock, gid, interaction.user.id, self.item_key)
         self._build()
         emb, _ = await self.build_embed_and_file()
@@ -838,6 +860,7 @@ class HSRItemDetailView(core.SafeView):
         self.user = self.user or interaction.user
         gid = self.guild_id or (interaction.guild_id or 0)
         self.guild_id = gid
+        self._resolve_item_key_from_message(interaction)
         ok, msg, _ = await asyncio.to_thread(hsr_core.levelup_hsr_char, gid, interaction.user.id, self.item_key)
         if not ok:
             return await core.safe_send_response(interaction, msg, ephemeral=True)
