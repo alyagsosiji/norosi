@@ -16,6 +16,50 @@ from discord.ext import commands
 
 import core
 import community_core
+
+# 구버전 community_core.py가 서버에 남아있어도 cogs.community / cogs.dashboard 임포트 시 AttributeError가 발생하지 않도록 사전 보정
+if not hasattr(community_core, "STICKY_COLOR_MAP"):
+    community_core.STICKY_COLOR_MAP = {
+        "gold": 0xF1C40F,
+        "blue": 0x3498DB,
+        "green": 0x2ECC71,
+        "pink": 0xFF69B4,
+        "purple": 0x9B59B6,
+        "red": 0xE74C3C,
+    }
+if not hasattr(community_core, "STICKY_COLOR_LABELS"):
+    community_core.STICKY_COLOR_LABELS = {
+        "gold": "🌟 골드 (노랑)",
+        "blue": "💙 블루 (파랑)",
+        "green": "💚 그린 (초록)",
+        "pink": "🩷 핑크 (분홍)",
+        "purple": "💜 퍼플 (보라)",
+        "red": "❤️ 레드 (빨강)",
+    }
+if not hasattr(community_core, "RAID_ACTION_LABELS"):
+    community_core.RAID_ACTION_LABELS = {
+        "timeout": "⏳ 60분 타임아웃(활동 제한)",
+        "kick": "👢 즉시 추방 (Kick)",
+        "quarantine": "🔒 격리 역할 부여 (신규 격리)",
+    }
+if not hasattr(community_core, "get_relay_completed_list") and hasattr(community_core, "get_completed_relay_novels"):
+    community_core.get_relay_completed_list = community_core.get_completed_relay_novels
+if not hasattr(community_core, "get_relay_archives") and hasattr(community_core, "get_completed_relay_novels"):
+    community_core.get_relay_archives = community_core.get_completed_relay_novels
+if not hasattr(community_core, "get_active_relay") and hasattr(community_core, "get_active_relay_novel"):
+    def _dashboard_compat_get_active_relay(data: dict, guild_id: int, channel_id: int = 0):
+        if channel_id:
+            st = community_core.get_active_relay_novel(data, guild_id, channel_id)
+            if st:
+                return st
+        g_root = core.as_dict(core.as_dict(data.get("relay_novels")).get(str(guild_id)))
+        act = core.as_dict(g_root.get("active_channels"))
+        for st in act.values():
+            if isinstance(st, dict):
+                return st
+        return None
+    community_core.get_active_relay = _dashboard_compat_get_active_relay
+
 import economy_core
 import fishing_core
 import genshin_core
@@ -2078,17 +2122,24 @@ class MasterDashboardView(core.SafeView):
                 return
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
-            active = community_core.get_active_relay(data, interaction.guild.id)
+            ch_id = interaction.channel_id or 0
+            if hasattr(community_core, "get_active_relay"):
+                active = community_core.get_active_relay(data, interaction.guild.id, ch_id)
+            else:
+                active = community_core.get_active_relay_novel(data, interaction.guild.id, ch_id)
             if active:
-                embed = community.build_relay_novel_embed(interaction.guild, active)
+                embed_builder = getattr(community, "build_relay_novel_embed", getattr(community, "_build_relay_active_embed", None))
+                embed = embed_builder(active) if embed_builder else discord.Embed(title=active.get("title", "릴레이 소설"))
                 await interaction.followup.send(embed=embed, view=community.RelayNovelView())
             else:
-                archives = community_core.get_relay_archives(data, interaction.guild.id)
+                arch_getter = getattr(community_core, "get_completed_relay_novels", getattr(community_core, "get_relay_archives", None))
+                archives = arch_getter(data, interaction.guild.id) if arch_getter else []
                 if archives:
-                    v = community.RelayArchiveView(interaction.guild, archives, 0)
+                    v = community.RelayArchiveView(archives, interaction.guild.id)
+                    arch_embed = v.build_embed() if hasattr(v, "build_embed") else community._build_relay_completed_embed(archives[0])
                     await interaction.followup.send(
                         content="ℹ️ 현재 진행 중인 릴레이 소설이 없어 완결 서재 목록을 표시합니다. 새 소설은 `/릴레이소설 시작`으로 여실 수 있습니다!",
-                        embed=v.build_embed(),
+                        embed=arch_embed,
                         view=v,
                     )
                 else:
