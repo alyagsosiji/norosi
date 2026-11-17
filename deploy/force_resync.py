@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # ==============================================================================
-# norosi 디스코드 봇 - 슬래시 명령어 74개 강제 재등록 유틸리티 (force_resync.py)
+# norosi 디스코드 봇 - 슬래시 명령어 전체(17대 Cogs · 83개 루트 / 129종 기능) 강제 재등록 유틸리티 (force_resync.py)
 # ==============================================================================
 import os
 import sys
+import time
 import asyncio
 
 # 메인 디렉토리 sys.path 추가
@@ -63,6 +64,27 @@ if not TOKEN or TOKEN == "여기에_디스코드_봇_토큰_입력":
     print("❌ .env 파일에서 유효한 DISCORD_TOKEN을 찾을 수 없습니다. ~/norosi/.env 파일을 확인하세요.")
     sys.exit(1)
 
+ALL_COG_EXTENSIONS = (
+    "cogs.gacha",
+    "cogs.genshin",
+    "cogs.hsr",
+    "cogs.fishing",
+    "cogs.economy",
+    "cogs.life",
+    "cogs.other_life",
+    "cogs.tickets",
+    "cogs.community",
+    "cogs.music",
+    "cogs.dday",
+    "cogs.logger",
+    "cogs.ai",
+    "cogs.stats",
+    "cogs.roles",
+    "cogs.help",
+    "cogs.dashboard",
+)
+
+
 class ForceSyncBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
@@ -76,23 +98,14 @@ class ForceSyncBot(commands.Bot):
         return await self.is_owner(user)
 
     async def setup_hook(self):
-        print("📦 [1/3] 12대 Cogs 모듈 전체 로드 중...", flush=True)
-        for ext in (
-            "cogs.gacha",
-            "cogs.genshin",
-            "cogs.hsr",
-            "cogs.fishing",
-            "cogs.music",
-            "cogs.dday",
-            "cogs.logger",
-            "cogs.ai",
-            "cogs.stats",
-            "cogs.roles",
-            "cogs.help",
-            "cogs.dashboard",
-        ):
+        print(f"📦 [1/3] {len(ALL_COG_EXTENSIONS)}대 Cogs 모듈 전체 로드 중...", flush=True)
+        for idx, ext in enumerate(ALL_COG_EXTENSIONS, start=1):
+            t0 = time.perf_counter()
+            before_cnt = len(self.tree.get_commands())
             await self.load_extension(ext)
-            print(f"   ✓ {ext} 로드 완료")
+            after_cnt = len(self.tree.get_commands())
+            dt_ms = (time.perf_counter() - t0) * 1000.0
+            print(f"   ✓ [{idx:02d}/{len(ALL_COG_EXTENSIONS)}] {ext:<18} 로드 완료 ({dt_ms:6.1f}ms | 슬래시 +{after_cnt - before_cnt}개)")
 
     async def on_ready(self):
         print(f"✅ [2/3] Discord 로그인 성공: {self.user} (ID: {self.user.id})", flush=True)
@@ -111,13 +124,14 @@ class ForceSyncBot(commands.Bot):
 
             # 2. 글로벌 슬래시 명령어 트리 완전 재등록
             synced_cmds = await self.tree.sync()
+            total_sub = sum(len(getattr(c, "options", []) or []) for c in synced_cmds)
             print("====================================================================")
-            print(f"🎉 슬래시 명령어 동기화 성공: 총 {len(synced_cmds)}개 등록 완료!")
-            print(f"   (정리된 서버 수: {cleared_guilds}곳)")
+            print(f"🎉 슬래시 명령어 동기화 성공: 루트 {len(synced_cmds)}개 (세부 옵션/서브커맨드 포함 {total_sub}개) 등록 완료!")
+            print(f"   (정리된 서버 수: {cleared_guilds}곳 / 로드된 Cogs: {len(ALL_COG_EXTENSIONS)}개)")
             print("====================================================================")
             print("📋 등록된 슬래시 명령어 전체 목록:")
             for idx, cmd in enumerate(synced_cmds, start=1):
-                print(f"   [{idx:02d}/{len(synced_cmds)}] /{cmd.name} : {cmd.description[:40]}")
+                print(f"   [{idx:02d}/{len(synced_cmds):02d}] /{cmd.name:<16} : {(cmd.description or '')[:44]}")
             print("====================================================================")
             print("💡 디스코드 앱에서 Ctrl + R (새로고침)을 누르면 즉시 명령어가 나타납니다!")
 
@@ -133,3 +147,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
