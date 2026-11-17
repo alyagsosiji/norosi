@@ -2863,6 +2863,7 @@ DEFAULT_CONFIG = {
         "default_category_id": None,
         "terminal_log_channel_id": None,
         "emoji_upscale_guilds": {},
+        "emoji_upscale_messages": {},
     },
     "ddays": {},
     "music_prefs": {
@@ -3345,6 +3346,8 @@ def normalize_data(data):
         data["settings"]["github_webhooks"] = coerce_dict_like(data["settings"].get("github_webhooks"))
     if not isinstance(data["settings"].get("emoji_upscale_guilds"), dict):
         data["settings"]["emoji_upscale_guilds"] = coerce_dict_like(data["settings"].get("emoji_upscale_guilds"))
+    if not isinstance(data["settings"].get("emoji_upscale_messages"), dict):
+        data["settings"]["emoji_upscale_messages"] = coerce_dict_like(data["settings"].get("emoji_upscale_messages"))
 
     if "ddays" not in data or not isinstance(data["ddays"], dict):
         data["ddays"] = coerce_dict_like(data.get("ddays"))
@@ -3862,6 +3865,51 @@ def set_emoji_upscale_enabled(guild_id: int | str, enabled: bool) -> bool:
         guilds_map[str(guild_id)] = bool(enabled)
         save_data(data)
         return bool(enabled)
+
+
+def record_emoji_upscale_message(message_id: int | str, author_id: int | str, max_entries: int = 400):
+    """업스케일 웹훅 메시지 ID와 원 발신자 ID 매핑을 영구 저장(:x: 반응 삭제 권한 검증용)"""
+    if not message_id or not author_id:
+        return
+    with _DATA_LOCK:
+        data = load_data()
+        msg_map = ensure_dict_path(data, "settings", "emoji_upscale_messages")
+        key = str(message_id)
+        if key in msg_map:
+            del msg_map[key]
+        msg_map[key] = str(author_id)
+        while len(msg_map) > max_entries:
+            oldest_key = next(iter(msg_map))
+            del msg_map[oldest_key]
+        save_data(data)
+
+
+def get_emoji_upscale_message_author(message_id: int | str | None, data: dict | None = None) -> Optional[int]:
+    """업스케일 웹훅 메시지 ID에 매핑된 원 발신자 유저 ID 조회"""
+    if not message_id:
+        return None
+    d = data if data is not None else get_cached_data()
+    msg_map = safe_get_dict(d, "settings", "emoji_upscale_messages")
+    raw_uid = msg_map.get(str(message_id))
+    if raw_uid is None:
+        return None
+    try:
+        return int(raw_uid)
+    except (TypeError, ValueError):
+        return None
+
+
+def remove_emoji_upscale_message(message_id: int | str | None):
+    """삭제된 업스케일 웹훅 메시지 매핑 정리"""
+    if not message_id:
+        return
+    with _DATA_LOCK:
+        data = load_data()
+        msg_map = ensure_dict_path(data, "settings", "emoji_upscale_messages")
+        key = str(message_id)
+        if key in msg_map:
+            del msg_map[key]
+            save_data(data)
 
 
 
