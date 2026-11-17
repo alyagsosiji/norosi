@@ -25,8 +25,8 @@ import core
 CUSTOM_EMOJI_RE = re.compile(r"<(a?):([a-zA-Z0-9_]{1,64}):(\d{15,22})>")
 
 MAX_EMOJIS_PER_MESSAGE = 3
-STATIC_TARGET_SIZE = 320
-ANIMATED_TARGET_SIZE = 256
+STATIC_TARGET_SIZE = 160
+ANIMATED_TARGET_SIZE = 160
 MAX_UPLOAD_BYTES = 24 * 1024 * 1024  # Discord 25MB 제한 안전 마진
 WEBHOOK_NAME = "norosi-emoji-upscale"
 RESAMPLE_LANCZOS = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.LANCZOS)
@@ -79,12 +79,11 @@ def sanitize_webhook_username(display_name: str | None) -> str:
 
 
 def _compute_scaled_size(width: int, height: int, target_size: int) -> tuple[int, int]:
-    """비율을 유지하면서 긴 변을 target_size(원본이 이미 더 크면 최대 512px 유지)로 계산합니다."""
+    """비율을 유지하면서 긴 변을 디스코드 스티커 크기(target_size, 기본 160px)로 맞춥니다."""
     if width <= 0 or height <= 0:
         return target_size, target_size
     longest = max(width, height)
-    final_long = max(longest, target_size)
-    final_long = min(final_long, 512)
+    final_long = max(1, min(target_size, 512))
     scale = final_long / float(longest)
     new_w = max(1, int(round(width * scale)))
     new_h = max(1, int(round(height * scale)))
@@ -180,8 +179,8 @@ def upscale_animated_emoji_bytes(raw_bytes: bytes, target_size: int = ANIMATED_T
     if not composited_frames:
         return upscale_static_emoji_bytes(raw_bytes, target_size=STATIC_TARGET_SIZE)
 
-    # 용량 초과 방지용 단계적 크기 조정 (256 -> 192 -> 160)
-    size_candidates = [target_size, min(target_size, 192), min(target_size, 160)]
+    # 용량 초과 방지용 단계적 크기 조정 (160 -> 144 -> 128)
+    size_candidates = [target_size, min(target_size, 144), min(target_size, 128)]
     last_bytes = b""
     for cand_size in size_candidates:
         new_w, new_h = _compute_scaled_size(base_w, base_h, cand_size)
@@ -231,7 +230,7 @@ def build_emoji_upscale_embed(guild: discord.Guild, channel: Optional[discord.ab
     status_badge = "🟢 **ON (활성화됨)**" if enabled else "🔴 **OFF (비활성화됨 · 기본값)**"
     desc_lines = [
         "커스텀 디스코드 이모지(1~3개)만 포함된 채팅을 보내면 원본 메시지를 삭제한 뒤,",
-        "이모지를 고해상도(정적 PNG `320px` · 움직이는 GIF `256px`)로 깨짐 없이 업스케일하여",
+        "이모지를 디스코드 스티커 크기(160px · 정적 PNG / 움직이는 GIF)로 깨짐 없이 업스케일하여",
         "**보낸 사람의 프로필 사진과 서버 닉네임**으로 다시 전송합니다.",
         "",
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
