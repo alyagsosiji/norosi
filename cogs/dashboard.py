@@ -241,7 +241,7 @@ class DashboardTabSelect(discord.ui.Select):
             discord.SelectOption(
                 label="💳 통합 경제·농장·펫·요리",
                 value="economy",
-                description="통합 프로필카드 PNG, 칭호·송금·로또복권, 농장·공동농장·펫·요리 버프",
+                description="통합 프로필카드 PNG, 칭호·송금·자산랭킹, 농장·공동농장·펫·요리 버프",
                 emoji="💳",
                 default=(current_tab == "economy")
             ),
@@ -262,7 +262,7 @@ class DashboardTabSelect(discord.ui.Select):
             discord.SelectOption(
                 label="🎭 역할·티켓·비상방어·관리 대시보드",
                 value="admin",
-                description="역할 버튼, 반응역할 스튜디오, 공지 발송, 1:1 티켓, 테러 비상방어, 링크 정리",
+                description="역할 버튼, 반응역할 스튜디오, 공지 발송, 1:1 티켓, 테러 비상방어, 무로시로그",
                 emoji="🎭",
                 default=(current_tab == "admin")
             ),
@@ -650,6 +650,10 @@ class MasterDashboardView(core.SafeView):
         btn_notice.callback = self._on_announcement_clicked
         self.add_item(btn_notice)
 
+        btn_log_mode = discord.ui.Button(label="🪵 무로시로그 요약/상세", style=discord.ButtonStyle.success, row=1, custom_id="norosi:MasterDashboardView:_on_norosi_log_mode_clicked")
+        btn_log_mode.callback = self._on_norosi_log_mode_clicked
+        self.add_item(btn_log_mode)
+
         btn_ticket = discord.ui.Button(label="🎫 1:1 티켓 설정", style=discord.ButtonStyle.primary, row=2, custom_id="norosi:MasterDashboardView:_on_ticket_config_clicked")
         btn_ticket.callback = self._on_ticket_config_clicked
         self.add_item(btn_ticket)
@@ -716,7 +720,6 @@ class MasterDashboardView(core.SafeView):
         eco_buttons = [
             ("🪪 프로필 카드 PNG", discord.ButtonStyle.primary, 1, "norosi:MasterDashboardView:_on_eco_profile_card", self._on_eco_profile_card),
             ("🏷️ 칭호 & 배지", discord.ButtonStyle.secondary, 1, "norosi:MasterDashboardView:_on_eco_titles", self._on_eco_titles),
-            ("🎟️ 주간 로또 복권", discord.ButtonStyle.success, 1, "norosi:MasterDashboardView:_on_eco_lottery", self._on_eco_lottery),
             ("🏦 통합 자산 랭킹", discord.ButtonStyle.secondary, 1, "norosi:MasterDashboardView:_on_eco_ranking", self._on_eco_ranking),
             ("🌾 개인 농장", discord.ButtonStyle.success, 2, "norosi:MasterDashboardView:_on_life_farm", self._on_life_farm),
             ("🤝 공동 농장", discord.ButtonStyle.primary, 2, "norosi:MasterDashboardView:_on_life_guild_farm", self._on_life_guild_farm),
@@ -796,7 +799,6 @@ class MasterDashboardView(core.SafeView):
         u_id = self.user.id if self.user else 0
         u_name = self.user.display_name if self.user else "유저"
         st = economy_core.collect_user_unified_stats(self.data, g_id, u_id, u_name)
-        lot = economy_core.get_lottery_overview(u_id)
         buffs = life_core.get_active_life_buffs(g_id, u_id, data=self.data)
         t_cfg = ticket_core.get_ticket_config(g_id, data=self.data)
         t_open = len(ticket_core.list_guild_tickets(g_id, status_filter="open"))
@@ -805,8 +807,7 @@ class MasterDashboardView(core.SafeView):
             title=f"💳 {u_name}님의 통합 경제 · 생활 라이프 · 티켓 대시보드",
             description=(
                 f"• **장착 칭호:** {st['title']['emoji']} **`{st['title']['tag']}`**  ·  **업적 배지:** `{len(st['badges'])}개`\n"
-                f"• **보유 자산:** 💎 **`{st['crystals']:,}💎`**  ·  🪙 **`{st['fish_gold']:,}🪙`**\n"
-                f"• **주간 복권(제 {lot['round']}회):** 예상 총 상금 **`{lot['jackpot'] + lot['pool']:,}💎`** (내 응모 `{len(lot['my_tickets'])}장`)\n"
+                f"• **보유 자산:** 💎 **`{st['crystals']:,}💎`**  ·  🪙 **`{st['fish_gold']:,}🪙`** (`/경제 송금` 지원)\n"
                 f"• **생활 라이프:** 개인 농장 `Lv.{st['fishing_life']['farm_level']}` · 공동 농장 `Lv.{st['fishing_life']['guild_farm_level']}` · 펫 `{st['fishing_life']['pet_label']}`\n"
                 f"• **실시간 버프 합산:** 쿨타임 `-{buffs['cooldown_reduce']:.2f}초` · 희귀 `+{int(buffs['rare_bonus']*100)}%` · 골드 `+{int(buffs['gold_bonus']*100)}%` · 출석 `+{buffs['attendance_total_bonus']}💎`\n"
                 f"• **서버 1:1 티켓:** 현재 열림 `{t_open}건` (유저당 상한 `{t_cfg['max_per_user']}개` · `/티켓 설정`, `/티켓 패널생성`)"
@@ -814,7 +815,7 @@ class MasterDashboardView(core.SafeView):
             color=discord.Color.from_rgb(*st["title"].get("rgb", (56, 189, 248))),
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_footer(text="하단 버튼으로 프로필 카드 PNG, 칭호, 복권, 랭킹, 농장, 펫, 요리를 바로 열 수 있습니다!")
+        embed.set_footer(text="하단 버튼으로 프로필 카드 PNG, 칭호, 랭킹, 농장, 펫, 요리를 바로 열 수 있습니다!")
         return embed
 
     def build_home_embed(self) -> discord.Embed:
@@ -1865,16 +1866,15 @@ class MasterDashboardView(core.SafeView):
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 칭호 상점 열기 오류: {e}", ephemeral=True)
 
-    async def _on_eco_lottery(self, interaction: discord.Interaction):
+    async def _on_norosi_log_mode_clicked(self, interaction: discord.Interaction):
         try:
-            await core.safe_defer(interaction)
-            from cogs.economy import LotteryStudioView
-            ov = await asyncio.to_thread(economy_core.get_lottery_overview, interaction.user.id)
-            v = LotteryStudioView(interaction.user, interaction.guild, overview=ov)
-            msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+            await core.safe_defer(interaction, ephemeral=True)
+            from bot import NorosiLogConfigView
+            v = NorosiLogConfigView(author=interaction.user, guild=interaction.guild)
+            msg = await interaction.followup.send(embed=v.build_embed(), view=v, ephemeral=True, wait=True)
             v.message = msg
         except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 복권 메뉴 열기 오류: {e}", ephemeral=True)
+            await core.safe_send_response(interaction, f"❌ 무로시 로그 설정 메뉴 열기 오류: {e}", ephemeral=True)
 
     async def _on_eco_ranking(self, interaction: discord.Interaction):
         try:
@@ -2117,7 +2117,7 @@ class Dashboard(commands.Cog, name="대시보드"):
         app_commands.Choice(name="🌠 [원신] 기원·보관함·페이몬상점", value="genshin"),
         app_commands.Choice(name="🚄 [스타레일] 워프·아카이브·별빛상점", value="hsr"),
         app_commands.Choice(name="🎣 [낚시] 호수·강·바다 36,700종·수족관·랭킹", value="fishing"),
-        app_commands.Choice(name="💳 [경제·생활] 프로필카드·칭호·복권·농장·펫·요리", value="economy"),
+        app_commands.Choice(name="💳 [경제·생활] 프로필카드·칭호·송금·농장·펫·요리", value="economy"),
         app_commands.Choice(name="📅 [일정] D-Day·생일·집중 대시보드", value="life"),
         app_commands.Choice(name="🎵 [음악] 플레이리스트·사운드 대시보드", value="music"),
         app_commands.Choice(name="🎭 [관리] 역할버튼·공지·티켓·비상방어 대시보드", value="admin"),
