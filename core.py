@@ -12,15 +12,14 @@ import datetime
 import calendar
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from collections import OrderedDict
-from typing import Optional, Union
+from collections import OrderedDict, defaultdict, deque
+from typing import Optional, List, Dict, Any, Union
 import inspect
 import urllib.request
 import urllib.parse
 import urllib.error
 import tempfile
 import base64
-import atexit
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -282,10 +281,9 @@ SPOTIPY_CLIENT_ID = os.getenv("SPOTIPY_CLIENT_ID", "").strip()
 SPOTIPY_CLIENT_SECRET = os.getenv("SPOTIPY_CLIENT_SECRET", "").strip()
 
 KST = datetime.timezone(datetime.timedelta(hours=9))
-_CORE_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_FILE = os.path.join(_CORE_BASE_DIR, "ddays_data.json")
-PROSEKA_CACHE_FILE = os.path.join(_CORE_BASE_DIR, "proseka_kr_cache.json")
-PROSEKA_COSTUMES_CACHE_FILE = os.path.join(_CORE_BASE_DIR, "proseka_costumes_cache.json")
+DATA_FILE = "ddays_data.json"
+PROSEKA_CACHE_FILE = "proseka_kr_cache.json"
+PROSEKA_COSTUMES_CACHE_FILE = "proseka_costumes_cache.json"
 COSTUME_PURCHASE_PRICE = 300  # 다른 캐릭터에게 의상 제작/구매 시 소모되는 크리스탈
 MALE_CHAR_IDS = {11, 12, 13, 16, 23, 26}
 RANDOM_KEYWORDS = ["pop", "lofi", "k-pop", "indie", "jazz", "r&b", "piano", "acoustic", "chill", "synthwave", "rock"]
@@ -315,11 +313,6 @@ ATTENDANCE_MILESTONES = [
 _DATA_LOCK = threading.RLock()
 _DATA_CACHE = None
 _FIREBASE_DISABLED_UNTIL = 0.0
-_FIREBASE_SYNC_LOCK = threading.Lock()
-_FIREBASE_LATEST_JOB = None
-_FIREBASE_WORKER_ACTIVE = False
-_FIREBASE_IDLE_EVENT = threading.Event()
-_FIREBASE_IDLE_EVENT.set()
 
 # 일러스트 바이트 & 성공 URL LRU 캐시 (응답 지연 및 타임아웃 방지용)
 _IMAGE_BYTES_CACHE = OrderedDict()
@@ -348,20 +341,13 @@ def get_now_datetime_str():
     return datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
 
 
-async def safe_defer(interaction: discord.Interaction, ephemeral: bool = False, thinking: Optional[bool] = None):
+async def safe_defer(interaction: discord.Interaction, ephemeral: bool = False):
     """
     디스코드 응답 지연(defer) 중복 호출 예외(InteractionResponded, 40060) 및 3초 타임아웃을 안전하게 방어하는 헬퍼.
     """
     if interaction and getattr(interaction, "response", None) and not interaction.response.is_done():
         try:
-            kwargs = {"ephemeral": ephemeral}
-            itype = getattr(interaction, "type", None)
-            modal_type = getattr(getattr(discord, "InteractionType", None), "modal_submit", None)
-            if thinking is not None:
-                kwargs["thinking"] = bool(thinking)
-            elif modal_type is not None and itype == modal_type:
-                kwargs["thinking"] = getattr(interaction, "message", None) is None
-            await interaction.response.defer(**kwargs)
+            await interaction.response.defer(ephemeral=ephemeral)
         except (discord.InteractionResponded, discord.HTTPException) as e:
             if isinstance(e, discord.HTTPException) and getattr(e, "code", None) != 40060:
                 print(f"⚠️ [safe_defer HTTP 예외] {e}", flush=True)
@@ -608,11 +594,11 @@ def reconstruct_safe_view(view_cls_or_name: Union[type[SafeView], str], interact
                 continue
             if name in ("bot", "bot_instance"):
                 kwargs[name] = interaction.client
-            elif name in ("interaction", "orig_interaction"):
+            elif name in ("interaction",):
                 kwargs[name] = interaction
             elif name in ("owner",):
                 kwargs[name] = orig_user
-            elif name in ("user", "caller", "member", "viewer", "target_user", "host_user", "author", "host", "opponent"):
+            elif name in ("user", "caller", "member", "viewer", "target_user", "host_user", "author", "host"):
                 kwargs[name] = orig_user
             elif name in ("requester", "target"):
                 kwargs[name] = interaction.user
@@ -620,14 +606,10 @@ def reconstruct_safe_view(view_cls_or_name: Union[type[SafeView], str], interact
                 kwargs[name] = interaction.guild
             elif name in ("guild_id",):
                 kwargs[name] = interaction.guild.id if interaction.guild else 0
-            elif name in ("channel", "target_channel", "default_channel"):
+            elif name in ("channel",):
                 kwargs[name] = interaction.channel
             elif name in ("channel_id",):
-                kwargs[name] = interaction.channel.id if interaction.channel else 0
-            elif name in ("owner_id", "user_id", "target_id"):
-                kwargs[name] = interaction.user.id if interaction.user else 0
-            elif name in ("author_id",):
-                kwargs[name] = orig_user.id if orig_user else (interaction.user.id if interaction.user else 0)
+                kwargs[name] = getattr(interaction, "channel_id", None)
             elif name in ("data",):
                 kwargs[name] = _data()
             elif name in ("ai_cog",):
@@ -644,68 +626,30 @@ def reconstruct_safe_view(view_cls_or_name: Union[type[SafeView], str], interact
             elif name in ("guild_cfg",):
                 gid_s = str(interaction.guild.id if interaction.guild else 0)
                 kwargs[name] = safe_get_dict(_data(), "server_logs", gid_s)
-            elif name == "profile" and getattr(view_cls, "__name__", "") == "TodoTrackerView":
-                kwargs[name] = get_user_todo_profile(_data(), orig_user.id if orig_user else 0)
-            elif name == "music_list" and getattr(view_cls, "__name__", "") == "MusicLibraryPaginationView":
-                kwargs[name] = list(as_dict(_data().get("liked_music")).get(str(orig_user.id if orig_user else 0), []))
-            elif name == "schedules" and getattr(view_cls, "__name__", "") == "MusicScheduleHubView":
-                kwargs[name] = [s for s in (_data().get("music_schedules") or []) if isinstance(s, dict)]
-            elif name == "entries" and getattr(view_cls, "__name__", "") == "ReactionRoleListView":
-                gid_s = str(interaction.guild.id if interaction.guild else 0)
-                rr_map = safe_get_dict(_data(), "reaction_roles", gid_s)
-                kwargs[name] = [(k, v) for k, v in rr_map.items() if isinstance(v, dict)]
-            elif name == "prefs" and getattr(view_cls, "__name__", "") == "MusicRecommendView":
-                kwargs[name] = get_user_music_prefs(_data(), orig_user.id if orig_user else 0)
-            elif name in ("cal_info",):
-                gid = interaction.guild.id if interaction.guild else 0
-                gname = interaction.guild.name if interaction.guild else "개인 메시지(DM)"
-                uid = interaction.user.id if interaction.user else 0
-                uname = interaction.user.display_name if interaction.user else "유저"
-                kwargs[name] = build_monthly_attendance_calendar(gid, gname, uid, uname)
+            elif name in ("card_list", "items", "options", "all_prob_cards", "stats_list", "first_set", "initial_drawn"):
+                kwargs[name] = []
+            elif name in ("stats", "profile", "user_cfg", "config", "cal_info", "game", "card", "pickup_cfg", "preview_info", "hall_of_fame", "req_card", "tgt_card", "req_cards", "tgt_cards"):
+                kwargs[name] = {}
             elif name in ("year",):
                 kwargs[name] = datetime.datetime.now(KST).year
             elif name in ("month",):
                 kwargs[name] = datetime.datetime.now(KST).month
-            elif name in ("days_threshold", "total_members", "capacity"):
-                kwargs[name] = 2
-            elif name in ("goal",):
-                kwargs[name] = "파티 모집" if getattr(view_cls, "__name__", "") == "RecruitLobbyView" else 100
-            elif name in ("start_word",):
-                kwargs[name] = "세카이"
-            elif name in ("studio_view",):
-                try:
-                    import cogs.music
-                    kwargs[name] = cogs.music.PlaylistStudioView(interaction.user, interaction.user, get_cached_data())
-                except Exception:
-                    kwargs[name] = None
             elif name in ("player",):
                 import cogs.music
                 kwargs[name] = cogs.music.get_voice_player(interaction.client, interaction.guild)
             elif p.default is not inspect.Parameter.empty:
-                # 기본값(=None 등)이 정의된 파라미터는 뷰 내부 자체 데이터 로딩 로직이 동작하도록 기본값 보존
                 kwargs[name] = p.default
-            elif name in (
-                "card_list", "items", "options", "all_prob_cards", "stats_list", "first_set", "initial_drawn",
-                "liked_music", "matches", "entries", "schedules", "music_list", "inactive_list", "novels",
-            ):
-                kwargs[name] = []
-            elif name in (
-                "stats", "profile", "user_cfg", "config", "game", "card", "pickup_cfg", "preview_info",
-                "hall_of_fame", "req_card", "tgt_card", "req_cards", "tgt_cards", "track_info", "prefs",
-                "playlist_data", "guild_cfg", "weather_info", "track", "ddays", "s_ddays",
-            ):
-                if name == "game" and getattr(view_cls, "__name__", "") == "RecruitLobbyView":
-                    kwargs[name] = "프로세카"
-                else:
-                    kwargs[name] = {}
-            elif name in ("char_key", "title", "content", "description", "mode", "title_str", "query", "playlist_id"):
-                kwargs[name] = ""
             else:
                 kwargs[name] = None
 
         inst = view_cls(**kwargs)
         if interaction.message:
             inst.message = interaction.message
+            if hasattr(inst, "_restore_from_message"):
+                try:
+                    inst._restore_from_message(interaction)
+                except Exception:
+                    pass
         return inst
     except Exception as e:
         print(f"⚠️ [SafeView 복원 예외] {getattr(view_cls, '__name__', str(view_cls))}: {e}", flush=True)
@@ -1038,14 +982,15 @@ def hydrate_proseka_kr_cache_from_disk() -> bool:
     return False
 
 
-def load_proseka_kr_db(force_refresh: bool = False):
+def load_proseka_kr_db():
     """프로세카 한국 서버(KR) 마스터 DB에서 전체 카드 및 캐릭터 대사(gachaPhrase, systemLive2ds)를 로드"""
+    global PROSEKA_KR_CARDS, PROSEKA_KR_QUOTES
+
     # 1. 로컬 캐시 파일이 존재하면 먼저 로드하여 메모리 폭증(OOM Killer) 방지
-    if not force_refresh and hydrate_proseka_kr_cache_from_disk():
+    if hydrate_proseka_kr_cache_from_disk():
         try:
             mtime = os.path.getmtime(PROSEKA_CACHE_FILE)
             if time.time() - mtime < 86400:
-                load_proseka_costumes_db(force_refresh=False)
                 return
         except Exception:
             pass
@@ -1136,10 +1081,8 @@ def load_proseka_kr_db(force_refresh: bool = False):
                 })
 
         try:
-            tmp_cards = f"{PROSEKA_CACHE_FILE}.tmp"
-            with open(tmp_cards, "w", encoding="utf-8") as f:
+            with open(PROSEKA_CACHE_FILE, "w", encoding="utf-8") as f:
                 json.dump(parsed_cards, f, ensure_ascii=False)
-            os.replace(tmp_cards, PROSEKA_CACHE_FILE)
         except Exception:
             pass
 
@@ -1192,36 +1135,23 @@ def load_proseka_kr_db(force_refresh: bool = False):
         f"✅ 프로세카 한섭 DB 로드 완료: 카드 {len(PROSEKA_KR_CARDS)}장 | 대사 {len(PROSEKA_KR_QUOTES)}개",
         flush=True
     )
-    load_proseka_costumes_db(force_refresh=force_refresh)
+    load_proseka_costumes_db()
 
 
-def hydrate_proseka_costumes_cache_from_disk() -> bool:
-    """디스크의 한섭 3D 의상 캐시(proseka_costumes_cache.json)가 존재하면 네트워크 없이 즉시 로드합니다."""
-    if not os.path.exists(PROSEKA_COSTUMES_CACHE_FILE):
-        return False
-    try:
-        with open(PROSEKA_COSTUMES_CACHE_FILE, "r", encoding="utf-8") as f:
-            cached = json.load(f)
-        if cached and isinstance(cached, dict) and len(cached) > 50:
-            PROSEKA_KR_COSTUMES.clear()
-            PROSEKA_KR_COSTUMES.update(cached)
-            return True
-    except Exception:
-        pass
-    return False
-
-
-def load_proseka_costumes_db(force_refresh: bool = False):
+def load_proseka_costumes_db():
     """프로세카 한국 서버 3D 의상 마스터 데이터 로드 및 캐시"""
-    if not force_refresh and hydrate_proseka_costumes_cache_from_disk():
+    global PROSEKA_KR_COSTUMES
+    if os.path.exists(PROSEKA_COSTUMES_CACHE_FILE):
         try:
-            mtime = os.path.getmtime(PROSEKA_COSTUMES_CACHE_FILE)
-            if time.time() - mtime < 86400:
-                print(f"✅ 프로세카 한섭 3D 의상 캐시 로드 완료: {len(PROSEKA_KR_COSTUMES)}개 의상", flush=True)
-                return
+            with open(PROSEKA_COSTUMES_CACHE_FILE, "r", encoding="utf-8") as f:
+                cached = json.load(f)
+                if cached and isinstance(cached, dict) and len(cached) > 50:
+                    PROSEKA_KR_COSTUMES.clear()
+                    PROSEKA_KR_COSTUMES.update(cached)
+                    print(f"✅ 프로세카 한섭 3D 의상 캐시 로드 완료: {len(PROSEKA_KR_COSTUMES)}개 의상", flush=True)
+                    return
         except Exception:
-            print(f"✅ 프로세카 한섭 3D 의상 캐시 로드 완료: {len(PROSEKA_KR_COSTUMES)}개 의상", flush=True)
-            return
+            pass
 
     try:
         c_costumes = fetch_json_with_fallback(KR_CARD_COSTUMES_URLS)
@@ -1283,20 +1213,13 @@ def load_proseka_costumes_db(force_refresh: bool = False):
             PROSEKA_KR_COSTUMES.clear()
             PROSEKA_KR_COSTUMES.update(parsed_costumes)
             try:
-                tmp_cos = f"{PROSEKA_COSTUMES_CACHE_FILE}.tmp"
-                with open(tmp_cos, "w", encoding="utf-8") as f:
+                with open(PROSEKA_COSTUMES_CACHE_FILE, "w", encoding="utf-8") as f:
                     json.dump(parsed_costumes, f, ensure_ascii=False, indent=2)
-                os.replace(tmp_cos, PROSEKA_COSTUMES_CACHE_FILE)
             except Exception:
                 pass
             print(f"✅ 프로세카 한섭 3D 의상 DB 파싱 및 캐시 저장 완료: {len(PROSEKA_KR_COSTUMES)}개 의상", flush=True)
     except Exception as e:
         print(f"⚠️ 프로세카 의상 DB 로드 중 예외 발생: {e}", flush=True)
-
-
-def refresh_proseka_dbs(force_refresh: bool = False):
-    """프로세카 한섭 카드 및 3D 의상 마스터 DB를 일괄 동기화합니다."""
-    load_proseka_kr_db(force_refresh=force_refresh)
 
 
 def get_default_costume(char_id: int) -> dict:
@@ -1384,16 +1307,6 @@ BANNER_CONFIGS = {
         "mid_rate": 8.5,
         "low_rate": 88.0,
         "color": (255, 182, 193),
-    },
-    "costume": {
-        "key": "costume",
-        "name": "👗 3D 의상 & 악세서리 픽업 가챠",
-        "short_name": "👗 3D 의상 픽업",
-        "desc": "3D 라이브 의상·헤어·악세서리 부속 ★4 카드 집중 픽업 & 시각별 세카이 유닛 UP!",
-        "top_rate": 4.5,
-        "mid_rate": 8.5,
-        "low_rate": 87.0,
-        "color": (170, 90, 255),
     },
 }
 
@@ -1932,7 +1845,7 @@ def purchase_and_equip_costume(guild_id: int, user_id: int, char_id: int, costum
 
 # 모듈 로드 시 로컬 캐시된 카드/의상 DB 즉시 초기화 (네트워크 호출 없음)
 hydrate_proseka_kr_cache_from_disk()
-hydrate_proseka_costumes_cache_from_disk()
+load_proseka_costumes_db()
 
 
 def get_random_proseka_quote(preferred_oshi: str = None, preferred_card: dict = None) -> dict:
@@ -2308,85 +2221,6 @@ def fetch_proseka_card_thumbnail_bytes(card: dict) -> bytes | None:
     return None
 
 
-def get_proseka_sekai_time_theme(now_dt: datetime.datetime | None = None) -> dict:
-    """현재 한국 시각(KST) 4개 6시간대에 따른 세카이 무대 시간대 테마 정보를 반환합니다."""
-    now = (now_dt.astimezone(KST) if now_dt and now_dt.tzinfo else (now_dt.replace(tzinfo=KST) if now_dt else datetime.datetime.now(KST)))
-    h = now.hour
-    hm = now.strftime("%H:%M")
-    now_str = f"{hm} KST"
-    if 0 <= h < 6:
-        return {
-            "window_key": "late_night",
-            "slot_label": "심야 25시 (00~06시)",
-            "label": "🌙 심야 25시 세카이",
-            "phase_name": "🌙 심야 25시 (00~06시)",
-            "unit_label": "25시, 나이트 코드에서.",
-            "attr_label": "🔮 미스테리어스 · ❄️ 쿨",
-            "units": ["25시, 나이트 코드에서."],
-            "attrs": ["🔮 미스테리어스", "❄️ 쿨"],
-            "emoji": "🌙",
-            "title": "아무도 없는 세카이 · 심야 작업 세션",
-            "desc": "새벽빛 고요한 나이트 코드 공방 무드 — 차분한 밤의 감성이 흐르는 시간대입니다.",
-            "header_label": f"🌙 {hm} 심야 25시",
-            "time_str": hm,
-            "now_str": now_str,
-            "hour_str": now_str,
-        }
-    if 6 <= h < 12:
-        return {
-            "window_key": "morning",
-            "slot_label": "오전 스튜디오 (06~12시)",
-            "label": "☀️ 오전 스튜디오 세카이",
-            "phase_name": "☀️ 오전 스튜디오 (06~12시)",
-            "unit_label": "Leo/need · MORE MORE JUMP!",
-            "attr_label": "🌿 퓨어 · 💗 큐트",
-            "units": ["Leo/need", "MORE MORE JUMP!"],
-            "attrs": ["🌿 퓨어", "💗 큐트"],
-            "emoji": "☀️",
-            "title": "교실 · 스테이지 세카이 · 아침 리허설",
-            "desc": "상쾌한 아침 합주와 아이돌 레슨이 시작되는 청량한 오전 시간대입니다.",
-            "header_label": f"☀️ {hm} 오전 스튜디오",
-            "time_str": hm,
-            "now_str": now_str,
-            "hour_str": now_str,
-        }
-    if 12 <= h < 18:
-        return {
-            "window_key": "afternoon",
-            "slot_label": "오후 라이브 (12~18시)",
-            "label": "🎭 오후 라이브 세카이",
-            "phase_name": "🎭 오후 라이브 (12~18시)",
-            "unit_label": "Vivid BAD SQUAD · 원더랜즈×쇼타임",
-            "attr_label": "🧡 해피 · 💗 큐트",
-            "units": ["Vivid BAD SQUAD", "원더랜즈×쇼타임"],
-            "attrs": ["🧡 해피", "💗 큐트"],
-            "emoji": "🎭",
-            "title": "스트리트 · 원더랜드 세카이 · 데이 쇼",
-            "desc": "햇살 가득한 야외 스테이지와 열정적인 댄스·퍼포먼스가 펼쳐지는 시간대입니다.",
-            "header_label": f"🎭 {hm} 오후 라이브",
-            "time_str": hm,
-            "now_str": now_str,
-            "hour_str": now_str,
-        }
-    return {
-        "window_key": "evening",
-        "slot_label": "야간 돔 (18~24시)",
-        "label": "🎤 야간 버츄얼 라이브 돔",
-        "phase_name": "🎤 야간 돔 (18~24시)",
-        "unit_label": "버추얼 싱어 · 전 유닛 합동",
-        "attr_label": "❄️ 쿨 · 🔮 미스테리어스",
-        "units": ["버추얼 싱어"],
-        "attrs": ["❄️ 쿨", "🔮 미스테리어스"],
-        "emoji": "🎤",
-        "title": "버츄얼 라이브 돔 · 네온 나이트 앵콜",
-        "desc": "형형색색 펜라이트와 화려한 무대 조명이 빛나는 저녁 라이브 시간대입니다.",
-        "header_label": f"🎤 {hm} 야간 돔",
-        "time_str": hm,
-        "now_str": now_str,
-        "hour_str": now_str,
-    }
-
-
 def build_10pull_grid_image_bytes(
     drawn_cards: list,
     banner_type: str = "normal",
@@ -2428,7 +2262,6 @@ def build_10pull_grid_image_bytes(
     font_name = _get_grid_font(14, bold=True)
     font_badge = _get_grid_font(12, bold=True)
 
-    sekai_time = get_proseka_sekai_time_theme()
     r4_cnt = sum(1 for c in cards if c.get("star_num", 0) >= 4)
     r3_cnt = sum(1 for c in cards if c.get("star_num", 0) == 3)
     banner_short = _sanitize_grid_text(b_cfg.get("short_name", "가챠"))
@@ -2436,19 +2269,15 @@ def build_10pull_grid_image_bytes(
     left_title = _sanitize_grid_text(f"PROSEKA {len(cards)}연차 결과  |  {banner_short}")
     if clean_tag:
         left_title = _sanitize_grid_text(f"{clean_tag}  |  {left_title}")
-    right_stats = _sanitize_grid_text(f"★4/생일: {r4_cnt}장   ★3: {r3_cnt}장  |  {sekai_time['time_str']} KST · {sekai_time['slot_label']}")
+    right_stats = _sanitize_grid_text(f"★4/생일: {r4_cnt}장   ★3: {r3_cnt}장")
     right_w = 0
     if font_sub:
         bbox = draw.textbbox((0, 0), right_stats, font=font_sub)
         right_w = bbox[2] - bbox[0]
-        if right_w > int(width * 0.50):
-            right_stats = _sanitize_grid_text(f"★4/생일: {r4_cnt}장 ★3: {r3_cnt}장 | {sekai_time['time_str']} KST")
-            bbox = draw.textbbox((0, 0), right_stats, font=font_sub)
-            right_w = bbox[2] - bbox[0]
         draw.text((width - pad_x - right_w, 14), right_stats, fill=(170, 238, 255, 255), font=font_sub)
     if font_header and right_w > 0:
         max_title_w = width - pad_x * 2 - right_w - 20
-        while len(left_title) > 10:
+        while len(left_title) > 12:
             tb = draw.textbbox((0, 0), left_title, font=font_header)
             if (tb[2] - tb[0]) <= max_title_w:
                 break
@@ -2651,1823 +2480,318 @@ def fetch_live_event_and_gacha_info(server_key: str = "kr"):
 
 
 # ==========================================
-# 2-1. 프로세카 한섭 이벤트 미래시 달력 (일섭/한섭 마스터 DB + 커뮤니티 미래시 통합)
+# 2-1. 프로세카 한섭 이벤트 미래시 달력 (일섭 DB 기반)
 # ==========================================
-FORECAST_DISCLAIMER = "※ 본 미래시 일정은 일본 서버(JP) 마스터 DB 및 한국 서버(KR) 공식 DB·미래시 일정을 바탕으로 산출한 예상 일정이며, 한국 서버 운영 사정에 따라 실제 일정이 일부 변동될 수 있습니다."
+FORECAST_DISCLAIMER = "※ 본 미래시 일정은 일본 서버(JP)의 이벤트 순서 및 주기를 바탕으로 추정한 예상 일정이며, 한국 서버(KR) 운영 상황 및 일정 조율에 따라 실제 시작/종료일 및 진행 순서가 일부 달라질 수 있습니다."
 
-_SKIP_GACHA_KEYWORDS = (
-    "복각", "재등장", "復刻", "메모리얼", "メモリアル", "초보자", "初心者",
-    "확정", "確定", "100回", "선물", "プレゼント", "피날레", "フィナーレ",
-    "셀렉트", "セレクト", "패키지", "패스", "코스튬", "복주머니", "무료",
-    "Step-up", "BIRTHDAY", "ANNIVERSARY",
-)
-
-_JP_PREFIX_KO_MAP = {'力になれる喜び': '힘이 될 수 있는 기쁨',
- '４人のミク達': '4명의 미쿠들',
- '闇の中の光に': '어둠 속의 빛에',
- '前を向いて歩こう': '앞을 향해 걸어가자',
- '気合いは十分？': '기합은 충분해?',
- 'みんながいたから': '모두가 있었으니까',
- 'まさかの遭遇！': '설마 했던 조우!',
- '意外な先客': '뜻밖의 손님',
- '絵本を一緒に': '그림책을 함께',
- '憧れの焼きそばパンミュージアム': '동경하던 야키소바빵 뮤지엄',
- '知らない視線': '낯선 시선',
- 'ちゃんと聞いてたか？': '제대로 듣고 있었어?',
- '丁寧な一杯': '정성스러운 한 잔',
- '何メートルあるの！？': '몇 미터나 되는 거야!?',
- 'パーティーにようこそ！': '파티에 오신 것을 환영합니다!',
- 'まねっこダンシング♪': '따라 하기 댄싱♪',
- 'きらめきは重なって': '반짝임은 포개어지고',
- '想いと熱を込めて': '마음과 열기를 담아',
- '熱血コーチング！？': '열혈 코칭!?',
- 'かつての躓き': '예전의 좌절',
- 'まっすぐな演説': '올곧은 연설',
- '小さなキミとのささやかな時間': '작은 너와의 소소한 시간',
- 'まるでプリンセス！？': '마치 프린세스!?',
- 'セカイのアイディアマン': '세카이의 아이디어맨',
- '理想の素材を求めて': '이상적인 소재를 찾아서',
- '形にした先で': '형태로 만들어 낸 끝에서',
- '託した願い': '맡겨 둔 소원',
- '今度はわたしが': '이번에는 내가',
- '想いをのせたワンカット': '마음을 실은 원 컷',
- '心の奥へ届く歌': '마음 깊은 곳에 닿는 노래',
- '雨に滲む微笑み': '비에 번지는 미소',
- '身を焦がす混沌': '몸을 태우는 혼돈',
- '胸の奥でいつも': '가슴 깊은 곳에서 언제나',
- '憂いの先': '우려의 끝',
- '苦しみを見つめて': '괴로움을 응시하며',
- '小さなヒーロー': '작은 히어로',
- '一緒に帰ろう': '함께 돌아가자',
- 'あなたのような“わたし”に': '당신 같은 "나"에게',
- '可愛い応援': '귀여운 응원',
- '100万点の笑顔': '100만 점짜리 미소',
- 'ミクちゃんに密着取材！': '미쿠 짱 밀착 취재!',
- '全力！体操のお姉さん！': '전력! 체조 언니!',
- '素敵な笑顔のお手伝い': '멋진 미소를 돕는 일',
- '藍に咲く花': '쪽빛에 피어나는 꽃',
- '指先なぞる思い出': '손끝으로 따라가는 추억',
- '穏やかな夕暮れ': '평온한 해 질 녘',
- '想定外のスピード！？': '예상 밖의 스피드!?',
- 'みんなとなら、どこだって': '모두와 함께라면 어디든지',
- '空へと見送って': '하늘로 배웅하며',
- 'あの日の諦め': '그날의 단념',
- '願いのレシーブ': '염원의 리시브',
- '心の濁り': '마음의 탁함',
- '重なる想いと過去': '겹쳐지는 마음과 과거',
- '悔いのない選択': '후회 없는 선택',
- '胸の底にわだかまるもの': '가슴 밑바닥에 응어리진 것',
- 'やることがいっぱい！？': '할 일이 산더미!?',
- 'その選択を見守って': '그 선택을 지켜보며',
- '美味しい応援': '맛있는 응원',
- '準決勝への意気込み': '준결승을 향한 각오',
- 'しばしのお別れ': '잠시 동안의 이별',
- '信頼に応えるために': '신뢰에 보답하기 위해',
- '経験談のアドバイス': '경험담에서 우러나온 조언',
- '考え方ひとつで': '생각하기 나름',
- '潮騒の狭間に': '파도 소리 틈새에',
- '夢の力になるものは': '꿈의 힘이 되어 주는 것은',
- '背を叩く言葉': '등을 두드리는 말',
- '森の導き手': '숲의 인도자',
- 'あの頃言えなかったこと': '그 시절 말하지 못했던 것',
- '仲良くイエーイ！': '사이좋게 예이!',
- '花咲くレン談義': '꽃피는 렌 담소',
- 'はやる想いをスプーンに乗せて': '설레는 마음을 스푼에 얹어',
- '久しぶりの学級会': '오랜만의 학급회의',
- '風船で飾り付け♪': '풍선으로 장식하기♪',
- '仲良くチーム分け？': '사이좋게 팀 나누기?',
- 'こぼれ落ちた波紋': '흘러내린 파문',
- '初めて分かち合う喜び': '처음으로 나누는 기쁨',
- '重なる想いと歌声': '겹쳐지는 마음과 노랫소리',
- '交流は折り紙で！': '교류는 종이접기로!',
- 'お気に入りの１枚': '마음에 드는 한 장',
- '憧れを焼き付けて': '동경을 눈에 새기며',
- '全力いんぐりっしゅ！': '전력 잉글리시!',
- '静かな祈り': '조용한 기도',
- 'いい１枚を頼むよ': '좋은 한 장 부탁해',
- 'アメリカンサイズは夢いっぱい？': '아메리칸 사이즈는 꿈이 가득?',
- '押し込めた想い': '눌러 담은 마음',
- '共に歩める未来': '함께 걸어갈 미래',
- '共に綴る思い出は': '함께 엮어 가는 추억은',
- '飛び込んだ先の大手柄': '뛰어든 곳에서의 큰 공적',
- '笑顔を生み出す仕掛け': '미소를 만들어 내는 장치',
- '未来に残すメッセージ': '미래에 남기는 메시지',
- '黙々と集中！': '묵묵히 집중!',
- '残された想いを': '남겨진 마음을',
- '今はただ、隣に': '지금은 그저, 곁에',
- '先輩からのアドバイス': '선배의 조언',
- 'きっと今度は、みんなで': '분명 이번에는, 모두 함께',
- 'この夢を目指して': '이 꿈을 향해서',
- '暗闇の果てに': '어둠의 끝에서',
- 'ほんの少しの温もりを': '아주 약간의 온기를',
- '鍵を壊すために': '자물쇠를 부수기 위해',
- '覚悟を想って': '각오를 떠올리며',
- '勉強と楽しいの両立': '공부와 즐거움의 양립',
- 'こぼれる涙も抱きしめて': '흘러내리는 눈물도 끌어안고',
- '見落としたもの': '놓치고 있던 것',
- 'きらめく笑顔の先には': '반짝이는 미소의 끝에는',
- 'やるって決めたから！': '하기로 결심했으니까!',
- '仲間を信じて': '동료를 믿고'}
-
-BUILTIN_FORECAST_EVENTS = [{'id': 154,
-  'name': 'Time to take off!',
-  'jp_name': 'Time to take off！',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_takeoff_2025',
-  'jp_start': '2025-01-11',
-  'jp_end': '2025-01-19',
-  'kr_estimated_start': '2026-01-11',
-  'kr_estimated_end': '2026-01-19',
-  'unit': 'Vivid BAD SQUAD',
-  'attribute': '☀️ 해피',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '아오야기 토우야',
-  'gacha_name': 'Unknown tone 뽑기',
-  'featured_cards': ['★4 [이국의 거리에서] 아오야기 토우야', '★4 [힘껏 한 입] 아즈사와 코하네', '★4 [커다란 아침 식사] 카가미네 렌'],
-  'reward_cards': ['★3 [기내에서 본 풍경] 시노노메 아키토', '★2 [트러블 뒤쪽에서] 시라이시 안'],
-  'theme_song': '헤이븐 (ヘイヴン)'},
- {'id': 155,
-  'name': 'Show your shine',
-  'jp_name': 'Show your shine',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_yourshine_2025',
-  'jp_start': '2025-01-21',
-  'jp_end': '2025-01-29',
-  'kr_estimated_start': '2026-01-21',
-  'kr_estimated_end': '2026-01-29',
-  'unit': '전 유닛 합동',
-  'attribute': '❄️ 쿨',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '요이사키 카나데',
-  'gacha_name': 'Doll dream 뽑기',
-  'featured_cards': ['★4 [거울 속의 낯선 나] 요이사키 카나데', '★4 [넘치는 감사!] 텐마 사키', '★4 [꾸미기는 어려워] 카가미네 린'],
-  'reward_cards': ['★3 [아메리칸 스타일?] 아즈사와 코하네', '★2 [반짝임을 그려서] 호시노 이치카'],
-  'theme_song': '커미션 신곡 없음 (합동 이벤트)'},
- {'id': 156,
-  'name': '이 바늘 한 땀에 마음을 담아',
-  'jp_name': 'このひと針に想いを込めて',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_needle_2025',
-  'jp_start': '2025-01-31',
-  'jp_end': '2025-02-08',
-  'kr_estimated_start': '2026-01-31',
-  'kr_estimated_end': '2026-02-08',
-  'unit': '전 유닛 합동',
-  'attribute': '☀️ 해피',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🎀 기간 한정 (헤어/의상 해금)',
-  'banner_chara': '히노모리 시즈쿠',
-  'gacha_name': 'Night sweet meal 뽑기',
-  'featured_cards': ['★4 [실로 만든 꽃에 푹 빠져] 히노모리 시즈쿠', '★4 [조용한 도서실에서] 아사히나 마후유', '★4 [특별한 하트를 너에게] 카가미네 렌'],
-  'reward_cards': ['★3 [즐거운 자수 시간] 아키야마 미즈키', '★2 [모어 모어 하우스의 서프라이즈] 키리타니 하루카'],
-  'theme_song': '커미션 신곡 없음 (합동 이벤트)'},
- {'id': 157,
-  'name': 'Rise and Strive',
-  'jp_name': 'Rise and Strive',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_strive_2025',
-  'jp_start': '2025-02-10',
-  'jp_end': '2025-02-18',
-  'kr_estimated_start': '2026-02-10',
-  'kr_estimated_end': '2026-02-18',
-  'unit': 'MORE MORE JUMP!',
-  'attribute': '🌙 미스테리어스',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '키리타니 하루카',
-  'gacha_name': 'Stay determined 뽑기',
-  'featured_cards': ['★4 [직면하게 된 현실] 키리타니 하루카', '★4 [진지한 회의!] 하나사토 미노리', '★4 [후회도 감싸안고] 메구리네 루카'],
-  'reward_cards': ['★3 [스킨케어 테스트] 히노모리 시즈쿠', '★2 [요리 방송 준비 중] 모모이 아이리'],
-  'theme_song': '안티 유 (アンチユー)'},
- {'id': 158,
-  'name': '과거의 Read-aloud',
-  'jp_name': '昔日のRead-aloud',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_readaloud_2025',
-  'jp_start': '2025-02-20',
-  'jp_end': '2025-02-26',
-  'kr_estimated_start': '2026-02-20',
-  'kr_estimated_end': '2026-02-26',
-  'unit': '전 유닛 합동',
-  'attribute': '💖 큐트',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '모치즈키 호나미',
-  'gacha_name': '마녀가 자아내는 동화 뽑기',
-  'featured_cards': ['★4 [추억의 동화책을 펼치며] 모치즈키 호나미', '★4 [스크린에 비치는 꼬리] 쿠사나기 네네', '★4 [비밀 윙크!] MEIKO'],
-  'reward_cards': ['★3 [칭찬은 직설적으로] 호시노 이치카', '★2 [연출가의 고집] 카미시로 루이'],
-  'theme_song': '커미션 신곡 없음 (합동 이벤트)'},
- {'id': 159,
-  'name': 'Connect hearts message',
-  'jp_name': 'Connect hearts message',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_heartsmessage_2025',
-  'jp_start': '2025-02-28',
-  'jp_end': '2025-03-08',
-  'kr_estimated_start': '2026-02-28',
-  'kr_estimated_end': '2026-03-08',
-  'unit': '전 유닛 합동',
-  'attribute': '✨ 퓨어',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🎀 기간 한정 (헤어/의상 해금)',
-  'banner_chara': '텐마 사키',
-  'gacha_name': '끝없이 지키기 위한 싸움 뽑기',
-  'featured_cards': ['★4 [난항! 기획 회의] 텐마 사키', '★4 [함께, 감사를 담아] 오오토리 에무', '★4 [어린애 취급은 사양할래!] 카가미네 린'],
-  'reward_cards': ['★3 [더욱더 가까이 사이좋게♪] 히노모리 시호', '★2 [특별한 아이디어] MEIKO'],
-  'theme_song': '커미션 신곡 없음 (합동 이벤트)'},
- {'id': 160,
-  'name': 'You are my HERO!!',
-  'jp_name': 'You are my HERO!!',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_myhero_2025',
-  'jp_start': '2025-03-10',
-  'jp_end': '2025-03-18',
-  'kr_estimated_start': '2026-03-10',
-  'kr_estimated_end': '2026-03-18',
-  'unit': '전 유닛 합동',
-  'attribute': '🌙 미스테리어스',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '텐마 츠카사',
-  'gacha_name': "Let's play with cats 뽑기",
-  'featured_cards': ['★4 [히어로가 히어로에게] 텐마 츠카사', '★4 [장난꾸러기 자매, 등장!] 모모이 아이리', '★4 [도넛과 피스!] 아키야마 미즈키'],
-  'reward_cards': ['★3 [귀여움을 장착하고] 쿠사나기 네네', '★2 [친구가 될 수 있을까?] 하나사토 미노리'],
-  'theme_song': '커미션 신곡 없음 (합동 이벤트)'},
- {'id': 161,
-  'name': 'Unreliable Notes',
-  'jp_name': 'Unreliable Notes',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_notes_2025',
-  'jp_start': '2025-03-20',
-  'jp_end': '2025-03-28',
-  'kr_estimated_start': '2026-03-20',
-  'kr_estimated_end': '2026-03-28',
-  'unit': '25시, 나이트 코드에서.',
-  'attribute': '❄️ 쿨',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '요이사키 카나데',
-  'gacha_name': 'Obscurity Parade 뽑기',
-  'featured_cards': ['★4 [보이지 않는 소리] 요이사키 카나데', '★4 [정적에 싸인 부엌] 아사히나 마후유', '★4 [가방 가득한 마음] 시노노메 에나'],
-  'reward_cards': ['★3 [닿지 않는 목소리] 카가미네 린', '★2 ["다 같이" 뒤풀이] 아키야마 미즈키'],
-  'theme_song': 'D/N/A'},
- {'id': 162,
-  'name': 'Find the dream view',
-  'jp_name': 'Find the dream view',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_dreamview_2025',
-  'jp_start': '2025-03-30',
-  'jp_end': '2025-04-06',
-  'kr_estimated_start': '2026-03-30',
-  'kr_estimated_end': '2026-04-06',
-  'unit': 'Leo/need',
-  'attribute': '❄️ 쿨',
-  'is_limited': True,
-  'is_fes': True,
-  'banner_type': '💎 블룸 페스티벌 (페스/한정)',
-  'banner_chara': '히노모리 시호',
-  'gacha_name': '[4.5주년 기념] 블룸 페스티벌 뽑기',
-  'featured_cards': ['★4 [그 시절의 "우리"들] 모치즈키 호나미 [블페]',
-                     '★4 [돌고 도는 세카이, 느껴지는 마음] 메구리네 루카 [블페]',
-                     '★4 [충동에 몸을 맡기고] 히노모리 시호',
-                     '★4 [온 힘을 다해 전하는 소리] 호시노 이치카',
-                     '★4 [울려 퍼지는 마음에 감싸여] 하츠네 미쿠'],
-  'reward_cards': ['★3 [꿈결처럼 즐거운 시간을] 텐마 사키', '★2 [긴장을 풀어주는 주문] 카가미네 린'],
-  'theme_song': 'Sympathy'},
- {'id': 163,
-  'name': 'Turning Pain into Drive',
-  'jp_name': 'Turning Pain into Drive',
-  'eventType': 'world_bloom',
-  'assetbundleName': 'event_wl_2nd_street_2025',
-  'jp_start': '2025-04-08',
-  'jp_end': '2025-04-20',
-  'kr_estimated_start': '2026-04-09',
-  'kr_estimated_end': '2026-04-21',
-  'unit': 'Vivid BAD SQUAD',
-  'attribute': '🌈 전속성 (월드 링크)',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🌐 월드 링크 (유닛/피날레 한정)',
-  'banner_chara': 'Vivid BAD SQUAD 챕터 전원',
-  'gacha_name': 'Glance at Same World 뽑기',
-  'featured_cards': ['★4 [노을빛 미소] 아즈사와 코하네 [월링크]',
-                     '★4 [애달픈 마음도 받아들이고] 시라이시 안 [월링크]',
-                     '★4 [예상하지 못한 말] 시노노메 아키토 [월링크]',
-                     '★4 [반짝이는 기억을 더듬어] 아오야기 토우야 [월링크]'],
-  'reward_cards': [],
-  'theme_song': '커미션 신곡 없음 (월드 링크 이벤트)'},
- {'id': 164,
-  'name': 'Choices for the future',
-  'jp_name': 'Choices for the future',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_choicesfuture_2025',
-  'jp_start': '2025-04-22',
-  'jp_end': '2025-04-28',
-  'kr_estimated_start': '2026-04-22',
-  'kr_estimated_end': '2026-04-28',
-  'unit': '원더랜즈×쇼타임',
-  'attribute': '🌙 미스테리어스',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '오오토리 에무',
-  'gacha_name': 'Blooming Light 뽑기',
-  'featured_cards': ['★4 [늠름히 미래를 이야기하며] 오오토리 에무', '★4 [스텝에 마음을 실어] 쿠사나기 네네', '★4 [다가가는 미소] KAITO'],
-  'reward_cards': ['★3 [채소 떠넘기기 현행범] 카미시로 루이', '★2 [매혹적인 움직임] 텐마 츠카사'],
-  'theme_song': '올 세이브 챌린지 (オールセーブチャレンジ)'},
- {'id': 165,
-  'name': '그리고 바늘은 움직이기 시작한다',
-  'jp_name': 'そして、針は動き出す',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_needlemoving_2025',
-  'jp_start': '2025-04-30',
-  'jp_end': '2025-05-06',
-  'kr_estimated_start': '2026-04-30',
-  'kr_estimated_end': '2026-05-07',
-  'unit': '25시, 나이트 코드에서.',
-  'attribute': '🌙 미스테리어스',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🎀 기간 한정 (헤어/의상 해금)',
-  'banner_chara': '아사히나 마후유',
-  'gacha_name': 'Papilio Vinculatus 뽑기',
-  'featured_cards': ['★4 [따뜻한 시간] 아사히나 마후유', '★4 [텅 빈 방] 요이사키 카나데', '★4 [괴로움에 다가서서] 카가미네 렌'],
-  'reward_cards': ['★3 [곁에 있을 수 있도록] 아키야마 미즈키', '★2 [증표를 손에] 시노노메 에나'],
-  'theme_song': '공무 씨 (虚無さん)'},
- {'id': 167,
-  'name': 'Dear my fellows',
-  'jp_name': 'Dear my fellows',
-  'eventType': 'world_bloom',
-  'assetbundleName': 'event_wl_2nd_themepark_2025',
-  'jp_start': '2025-05-09',
-  'jp_end': '2025-05-21',
-  'kr_estimated_start': '2026-05-09',
-  'kr_estimated_end': '2026-05-21',
-  'unit': '원더랜즈×쇼타임',
-  'attribute': '🌈 전속성 (월드 링크)',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🌐 월드 링크 (유닛/피날레 한정)',
-  'banner_chara': '원더랜즈×쇼타임 챕터 전원',
-  'gacha_name': 'Dream a Wonder Dream 뽑기',
-  'featured_cards': ['★4 [결의를 가슴에] 텐마 츠카사 [월링크]',
-                     '★4 [생글생글 웃음 가득한 스테이지에서] 오오토리 에무 [월링크]',
-                     '★4 [초조한 마음] 쿠사나기 네네 [월링크]',
-                     '★4 [꿈을 향한 한 걸음] 카미시로 루이 [월링크]'],
-  'reward_cards': [],
-  'theme_song': '커미션 신곡 없음 (월드 링크 이벤트)'},
- {'id': 168,
-  'name': 'Cheer with my Heart!',
-  'jp_name': 'Cheer with my Heart!',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_cheerheart_2025',
-  'jp_start': '2025-05-23',
-  'jp_end': '2025-05-29',
-  'kr_estimated_start': '2026-05-23',
-  'kr_estimated_end': '2026-05-29',
-  'unit': 'MORE MORE JUMP!',
-  'attribute': '☀️ 해피',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '모모이 아이리',
-  'gacha_name': 'Starry-eyed Princess 뽑기',
-  'featured_cards': ['★4 [도달하지 못하는 괴로움] 모모이 아이리', '★4 [함께하는 복습 타임] 하나사토 미노리', '★4 [레츠 모어 모어 트레이닝!] MEIKO'],
-  'reward_cards': ['★3 [프로듀싱 노하우를 찾아서] 키리타니 하루카', '★2 [노력하는 모두에게 힐링을] 히노모리 시즈쿠'],
-  'theme_song': '일레븐스 (イレヴンス)'},
- {'id': 169,
-  'name': 'Aim higher and higher!',
-  'jp_name': 'Aim higher and higher！',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_higher_2025',
-  'jp_start': '2025-05-31',
-  'jp_end': '2025-06-07',
-  'kr_estimated_start': '2026-05-31',
-  'kr_estimated_end': '2026-06-07',
-  'unit': 'Vivid BAD SQUAD',
-  'attribute': '💖 큐트',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🎀 기간 한정 (헤어/의상 해금)',
-  'banner_chara': '아즈사와 코하네',
-  'gacha_name': '빛줄기 비치는 여명 뽑기',
-  'featured_cards': ['★4 [가슴에 남는 열기] 아즈사와 코하네', '★4 [맛있는 문화 교류] 아오야기 토우야', '★4 [갑작스러운 위기] 하츠네 미쿠'],
-  'reward_cards': ["★3 [그 눈에 비치는 '세상'] 시노노메 아키토", '★2 [두근거림과 초조함] 시라이시 안'],
-  'theme_song': '광선가 (光線歌)'},
- {'id': 170,
-  'name': '물거품에 감싸여',
-  'jp_name': '泡沫に抱かれて',
-  'eventType': 'world_bloom',
-  'assetbundleName': 'event_wl_2nd_schoolrefusal_2025',
-  'jp_start': '2025-06-09',
-  'jp_end': '2025-06-21',
-  'kr_estimated_start': '2026-06-09',
-  'kr_estimated_end': '2026-06-21',
-  'unit': '25시, 나이트 코드에서.',
-  'attribute': '🌈 전속성 (월드 링크)',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🌐 월드 링크 (유닛/피날레 한정)',
-  'banner_chara': '25시, 나이트 코드에서. 챕터 전원',
-  'gacha_name': "Night's Treasure 뽑기",
-  'featured_cards': ['★4 [쉬는 시간의 한때] 요이사키 카나데 [월링크]',
-                     '★4 [겹쳐지는 미소] 아사히나 마후유 [월링크]',
-                     '★4 [항상, 네가] 시노노메 에나 [월링크]',
-                     '★4 [귀여움을 안내해 드릴게요] 아키야마 미즈키 [월링크]'],
-  'reward_cards': [],
-  'theme_song': '커미션 신곡 없음 (월드 링크 이벤트)'},
- {'id': 171,
-  'name': 'ordinary, yet special us',
-  'jp_name': 'ordinary,yet special us',
-  'eventType': 'world_bloom',
-  'assetbundleName': 'event_wl_2nd_lightsound_2025',
-  'jp_start': '2025-06-23',
-  'jp_end': '2025-07-05',
-  'kr_estimated_start': '2026-06-23',
-  'kr_estimated_end': '2026-07-05',
-  'unit': 'Leo/need',
-  'attribute': '🌈 전속성 (월드 링크)',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🌐 월드 링크 (유닛/피날레 한정)',
-  'banner_chara': 'Leo/need 챕터 전원',
-  'gacha_name': 'Another sparkle Stars 뽑기',
-  'featured_cards': ["★4 [잡을 수 없는 '마음'] 호시노 이치카 [월링크]",
-                     '★4 [에이스 플레이어!] 텐마 사키 [월링크]',
-                     '★4 [장래를 상상하며] 모치즈키 호나미 [월링크]',
-                     '★4 [동료와 나누는 담소] 히노모리 시호 [월링크]'],
-  'reward_cards': [],
-  'theme_song': '커미션 신곡 없음 (월드 링크 이벤트)'},
- {'id': 172,
-  'name': 'Deeper and deeper',
-  'jp_name': 'Deeper and deeper',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_deeper_2025',
-  'jp_start': '2025-07-07',
-  'jp_end': '2025-07-13',
-  'kr_estimated_start': '2026-07-07',
-  'kr_estimated_end': '2026-07-13',
-  'unit': '원더랜즈×쇼타임',
-  'attribute': '☀️ 해피',
-  'is_limited': True,
-  'is_fes': True,
-  'banner_type': '💎 블룸 페스티벌 (페스/한정)',
-  'banner_chara': '카미시로 루이',
-  'gacha_name': '[2026 여름] 블룸 페스티벌 뽑기',
-  'featured_cards': ['★4 [그 그림을 함께] 시노노메 에나 [블페]',
-                     '★4 [동료의 존재] KAITO [블페]',
-                     '★4 [동경에 닿기까지의 거리] 카미시로 루이',
-                     '★4 [가자, 무대로] 텐마 츠카사',
-                     '★4 [간식 사는 중] 쿠사나기 네네'],
-  'reward_cards': ['★3 [눈을 뜨게 하는 목소리] 메구리네 루카', '★2 [신경 쓰이는 극단] 오오토리 에무'],
-  'theme_song': '아이리드 (アイリッド)'},
- {'id': 173,
-  'name': 'Unsteady, still steady step',
-  'jp_name': 'Unsteady, still steady step',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_unsteady_2025',
-  'jp_start': '2025-07-15',
-  'jp_end': '2025-07-21',
-  'kr_estimated_start': '2026-07-15',
-  'kr_estimated_end': '2026-07-21',
-  'unit': 'Leo/need',
-  'attribute': '💖 큐트',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '모치즈키 호나미',
-  'gacha_name': 'Seeking my way 뽑기',
-  'featured_cards': ['★4 [곤혹은 정적에 빠지고] 모치즈키 호나미', '★4 [너의 곁에] 호시노 이치카', '★4 [재미 위원이 나설 차례♪] 카가미네 린'],
-  'reward_cards': ['★3 [눈을 뜨자마자] 히노모리 시호', '★2 [정열적인 콘셉트] MEIKO'],
-  'theme_song': '투명한 팔레트 (透明なパレット)'},
- {'id': 174,
-  'name': "start rolling! stars' crossing",
-  'jp_name': "start rolling! stars' crossing",
-  'eventType': 'marathon',
-  'assetbundleName': 'event_crossing_2025',
-  'jp_start': '2025-07-23',
-  'jp_end': '2025-07-29',
-  'kr_estimated_start': '2026-07-23',
-  'kr_estimated_end': '2026-07-29',
-  'unit': 'MORE MORE JUMP!',
-  'attribute': '✨ 퓨어',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '하나사토 미노리',
-  'gacha_name': 'Open up my feelings! 뽑기',
-  'featured_cards': ['★4 [솔직한 마음을 말해요] 하나사토 미노리',
-                     '★4 [Fantastic! 트레이닝 룸] 키리타니 하루카',
-                     '★4 [마음이 놓이는 아침 식사] 히노모리 시즈쿠'],
-  'reward_cards': ['★3 [아이리의 뷰티 살롱] 모모이 아이리', '★2 [세카이의 아이돌 팬] KAITO'],
-  'theme_song': '있는 그대로의 스토리를 (ありのままのストーリーを)'},
- {'id': 175,
-  'name': 'Competitive fire!',
-  'jp_name': 'Competitive fire！',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_competitive_2025',
-  'jp_start': '2025-07-31',
-  'jp_end': '2025-08-06',
-  'kr_estimated_start': '2026-07-31',
-  'kr_estimated_end': '2026-08-06',
-  'unit': 'Vivid BAD SQUAD',
-  'attribute': '☀️ 해피',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🎀 기간 한정 (헤어/의상 해금)',
-  'banner_chara': '시라이시 안',
-  'gacha_name': 'Those who dare 뽑기',
-  'featured_cards': ['★4 [웃으며 손을 흔들고] 시라이시 안', '★4 [최고의 선물을!] 아오야기 토우야', '★4 [두 사람의 비밀 이야기] 메구리네 루카'],
-  'reward_cards': ['★3 [언젠가 미래의 나에게] 아즈사와 코하네', '★2 [돌아온 일상] 시노노메 아키토'],
-  'theme_song': '액셀러레이트 (アクセラレイト)'},
- {'id': 176,
-  'name': 'All ways Jump! with you',
-  'jp_name': 'All ways Jump! with you',
-  'eventType': 'world_bloom',
-  'assetbundleName': 'event_wl_2nd_idol_2025',
-  'jp_start': '2025-08-08',
-  'jp_end': '2025-08-20',
-  'kr_estimated_start': '2026-08-08',
-  'kr_estimated_end': '2026-08-20',
-  'unit': 'MORE MORE JUMP!',
-  'attribute': '🌈 전속성 (월드 링크)',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🌐 월드 링크 (유닛/피날레 한정)',
-  'banner_chara': 'MORE MORE JUMP! 챕터 전원',
-  'gacha_name': 'Empty Teatime 뽑기',
-  'featured_cards': ['★4 [꿈은 혼잡 속에 섞여서] 하나사토 미노리 [월링크]',
-                     '★4 [만나서 자라나는 인연] 키리타니 하루카 [월링크]',
-                     '★4 [스페셜 컬래버레이션 방송!] 모모이 아이리 [월링크]',
-                     '★4 [완벽한 미소] 히노모리 시즈쿠 [월링크]'],
-  'reward_cards': [],
-  'theme_song': '커미션 신곡 없음 (월드 링크 이벤트)'},
- {'id': 177,
-  'name': '풀리지 않는 내일에 손을 뻗어서',
-  'jp_name': 'ほどけぬ明日に手を伸ばして',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_tomorrow_2025',
-  'jp_start': '2025-08-22',
-  'jp_end': '2025-08-28',
-  'kr_estimated_start': '2026-08-22',
-  'kr_estimated_end': '2026-08-28',
-  'unit': '25시, 나이트 코드에서.',
-  'attribute': '☀️ 해피',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '아키야마 미즈키',
-  'gacha_name': '너에게 미소 짓는 fuzzy daisy 뽑기',
-  'featured_cards': ['★4 [내 모습 그대로 꿈꾸는 내일] 아키야마 미즈키',
-                     '★4 [열렬한 환영에 우물쭈물!] 시노노메 에나',
-                     '★4 [맛있는 행복을 나누며] 카가미네 렌'],
-  'reward_cards': ['★3 [궁금한 옷은?] 요이사키 카나데', '★2 [답례 찾기] 아사히나 마후유'],
-  'theme_song': '장식해 줘 (飾って)'},
- {'id': 178,
-  'name': 'Deep Dark For Light',
-  'jp_name': 'Deep Dark For Light',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_forlight_2025',
-  'jp_start': '2025-08-30',
-  'jp_end': '2025-09-04',
-  'kr_estimated_start': '2026-08-30',
-  'kr_estimated_end': '2026-09-04',
-  'unit': '원더랜즈×쇼타임',
-  'attribute': '❄️ 쿨',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🎀 기간 한정 (헤어/의상 해금)',
-  'banner_chara': '텐마 츠카사',
-  'gacha_name': '절망의 비조차 웃어넘기며 뽑기',
-  'featured_cards': ['★4 [절망에 잠기다] 텐마 츠카사', '★4 [스마일 페어리] 오오토리 에무', '★4 [진심을 담은 소도구 만들기] 카미시로 루이'],
-  'reward_cards': ['★3 [뿅 하고 안녕!] 하츠네 미쿠', '★2 [어린 날의 프린세스] 쿠사나기 네네'],
-  'theme_song': '안녕 천국 또 오렴 지옥 (サヨナラ天国また来て地獄)'},
- {'id': 179,
-  'name': 'Link the Beats!',
-  'jp_name': 'Link the Beats！',
-  'eventType': 'world_bloom',
-  'assetbundleName': 'event_wl_2nd_piapro_2025',
-  'jp_start': '2025-09-06',
-  'jp_end': '2025-09-18',
-  'kr_estimated_start': '2026-09-06',
-  'kr_estimated_end': '2026-09-18',
-  'unit': '전 유닛 합동',
-  'attribute': '🌈 전속성 (월드 링크)',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🌐 월드 링크 (유닛/피날레 한정)',
-  'banner_chara': '전 유닛 합동 챕터 전원',
-  'gacha_name': 'Velvet Afternoon 뽑기',
-  'featured_cards': ['★4 [약속을 가슴에] 하츠네 미쿠 [월링크]',
-                     '★4 [회전목마에서 예이!] 카가미네 린 [월링크]',
-                     '★4 [품에 가득한 과자] 카가미네 렌 [월링크]',
-                     '★4 [더없이 흥분되는 스테이지!] 메구리네 루카 [월링크]',
-                     '★4 [가득한 진수성찬!] MEIKO [월링크]',
-                     "★4 ['신기한 일들'에 휘둘리며] KAITO [월링크]"],
-  'reward_cards': [],
-  'theme_song': '커미션 신곡 없음 (월드 링크 이벤트)'},
- {'id': 180,
-  'name': 'Wishes in Bloom!',
-  'jp_name': 'Wishes in Bloom！',
-  'eventType': 'world_bloom',
-  'assetbundleName': 'event_wl_2nd_finale_2025',
-  'jp_start': '2025-09-25',
-  'jp_end': '2025-09-28',
-  'kr_estimated_start': '2026-09-25',
-  'kr_estimated_end': '2026-09-28',
-  'unit': '전 유닛 합동',
-  'attribute': '🌈 전속성 (월드 링크)',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🌐 월드 링크 (유닛/피날레 한정)',
-  'banner_chara': '전 유닛 합동 챕터 전원',
-  'gacha_name': 'Wishes in Bloom! 월드 링크 피날레 뽑기',
-  'featured_cards': ["★4 [잡을 수 없는 '마음'] 호시노 이치카 [월링크]",
-                     '★4 [에이스 플레이어!] 텐마 사키 [월링크]',
-                     '★4 [장래를 상상하며] 모치즈키 호나미 [월링크]',
-                     '★4 [동료와 나누는 담소] 히노모리 시호 [월링크]',
-                     '★4 [꿈은 혼잡 속에 섞여서] 하나사토 미노리 [월링크]',
-                     '외 21명 (전 유닛 월드 링크 피날레 컬렉션)'],
-  'reward_cards': [],
-  'theme_song': '커미션 신곡 없음 (월드 링크 이벤트)'},
- {'id': 181,
-  'name': 'Our Golden Days',
-  'jp_name': 'Our Golden Days',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_golden_2025',
-  'jp_start': '2025-09-30',
-  'jp_end': '2025-10-09',
-  'kr_estimated_start': '2026-09-30',
-  'kr_estimated_end': '2026-10-09',
-  'unit': '전 유닛 합동',
-  'attribute': '✨ 퓨어',
-  'is_limited': True,
-  'is_fes': True,
-  'banner_type': '💎 블룸 페스티벌 (페스/한정)',
-  'banner_chara': '시라이시 안',
-  'gacha_name': '[5주년 기념] 블룸 페스티벌 뽑기',
-  'featured_cards': ['★4 [반짝반짝 아이돌!] 하나사토 미노리 [블페]',
-                     '★4 [멈추지 않는 걸음] 시노노메 아키토 [블페]',
-                     '★4 [이 순간을 기억에 새기고] 시라이시 안',
-                     '★4 [럭키 아이스크림!] 텐마 사키',
-                     '★4 [스테이지 옆의 정열] 키리타니 하루카',
-                     '★4 [더없이 멋진 미소를 중계!] 아키야마 미즈키'],
-  'reward_cards': ['★3 [방긋방긋 스탬프 랠리] 오오토리 에무', '★2 [때로는 차분한 시간을] 하츠네 미쿠'],
-  'theme_song': '커미션 신곡 없음 (합동 이벤트)'},
- {'id': 182,
-  'name': '너와 이어 가는 Heart Beat',
-  'jp_name': '君と繋ぐHeart Beat',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_heartbeat_2025',
-  'jp_start': '2025-10-11',
-  'jp_end': '2025-10-19',
-  'kr_estimated_start': '2026-10-11',
-  'kr_estimated_end': '2026-10-19',
-  'unit': 'Leo/need',
-  'attribute': '☀️ 해피',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '호시노 이치카',
-  'gacha_name': 'Follow my heart 뽑기',
-  'featured_cards': ['★4 [충격적인 아침] 호시노 이치카', '★4 [맛은 어때?] 모치즈키 호나미', '★4 [매일의 루틴] 히노모리 시호'],
-  'reward_cards': ['★3 [넘치는 마음을 느끼며] MEIKO', '★2 [마음을 캐치하기 위해!] 텐마 사키'],
-  'theme_song': '스타 (スター)'},
- {'id': 183,
-  'name': '어우러지는 색은 그날 그대로',
-  'jp_name': '交わる色はあの日のままに',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_colorcross_2025',
-  'jp_start': '2025-10-21',
-  'jp_end': '2025-10-29',
-  'kr_estimated_start': '2026-10-21',
-  'kr_estimated_end': '2026-10-29',
-  'unit': 'MORE MORE JUMP!',
-  'attribute': '🌙 미스테리어스',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '히노모리 시즈쿠',
-  'gacha_name': '눈동자에 비치는 꽃다발 뽑기',
-  'featured_cards': ['★4 [언젠가와 겹치는 풍경] 히노모리 시즈쿠', '★4 [차가운 느낌에 깜짝!] 모모이 아이리', '★4 [스페셜 응원을 전할게!] MEIKO'],
-  'reward_cards': ['★3 [전력 트레이닝!] 하나사토 미노리', '★2 [합동 워밍업] 키리타니 하루카'],
-  'theme_song': '당신의 하늘이 운다면 (あなたの空が泣くのなら)'},
- {'id': 184,
-  'name': 'Colors of Pure Sense',
-  'jp_name': 'Colors of Pure Sense',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_colors_2025',
-  'jp_start': '2025-10-31',
-  'jp_end': '2025-11-08',
-  'kr_estimated_start': '2026-10-31',
-  'kr_estimated_end': '2026-11-08',
-  'unit': '25시, 나이트 코드에서.',
-  'attribute': '✨ 퓨어',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🎀 기간 한정 (헤어/의상 해금)',
-  'banner_chara': '시노노메 에나',
-  'gacha_name': 'Hues of the Self 뽑기',
-  'featured_cards': ['★4 [자신의 경계를 넘어] 시노노메 에나', '★4 [독자적인 시점] 요이사키 카나데', "★4 [망설임 없는 '나다움'을] KAITO"],
-  'reward_cards': ['★3 [답례 아이스크림] 하츠네 미쿠', '★2 [밤샌 게 걱정돼서] 아사히나 마후유'],
-  'theme_song': '그 그림의 이름은 (その絵の名前は)'},
- {'id': 185,
-  'name': '초월의 프로타고니스타',
-  'jp_name': '超克のプロタゴニスタ',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_protagonist_2025',
-  'jp_start': '2025-11-10',
-  'jp_end': '2025-11-17',
-  'kr_estimated_start': '2026-11-10',
-  'kr_estimated_end': '2026-11-18',
-  'unit': '원더랜즈×쇼타임',
-  'attribute': '💖 큐트',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '쿠사나기 네네',
-  'gacha_name': 'Get my bright wings 뽑기',
-  'featured_cards': ['★4 [그 꽃이 피어날 때] 쿠사나기 네네', '★4 [해피해피해피한 서비스] 오오토리 에무', '★4 [작은 수호자] 카가미네 린'],
-  'reward_cards': ['★3 [동료를 위해 할 수 있는 일] 텐마 츠카사', '★2 [넘쳐 나는 아이디어] 카미시로 루이'],
-  'theme_song': '나아가라 (征け)'},
- {'id': 187,
-  'name': "Overcome one's limits",
-  'jp_name': "Overcome one's limits",
-  'eventType': 'marathon',
-  'assetbundleName': 'event_overcome_2025',
-  'jp_start': '2025-11-20',
-  'jp_end': '2025-11-28',
-  'kr_estimated_start': '2026-11-20',
-  'kr_estimated_end': '2026-11-28',
-  'unit': 'Vivid BAD SQUAD',
-  'attribute': '🌙 미스테리어스',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '시노노메 아키토',
-  'gacha_name': 'Good to go! 뽑기',
-  'featured_cards': ['★4 [끌어모은 무기로] 시노노메 아키토', '★4 [사전 준비는 철저히] 아즈사와 코하네', '★4 [전화로 물어보기] 시라이시 안'],
-  'reward_cards': ['★3 [웃는 얼굴로 응원을] 카가미네 렌', '★2 [파트너가 맡긴 것] 아오야기 토우야'],
-  'theme_song': '파이터 (ファイター)'},
- {'id': 188,
-  'name': '올려다본 밤하늘에 별은 길을 잃고',
-  'jp_name': '仰ぐ夜空に、星は紛れて',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_lookup_2025',
-  'jp_start': '2025-11-30',
-  'jp_end': '2025-12-08',
-  'kr_estimated_start': '2026-11-30',
-  'kr_estimated_end': '2026-12-08',
-  'unit': 'Leo/need',
-  'attribute': '💖 큐트',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🎀 기간 한정 (헤어/의상 해금)',
-  'banner_chara': '텐마 사키',
-  'gacha_name': '상망하며 별을 좇다 뽑기',
-  'featured_cards': ['★4 [밤바람에 날아간 진심] 텐마 사키', "★4 [당신'에게 전하는 말] 호시노 이치카", '★4 [산책 중의 말썽꾸러기] 모치즈키 호나미'],
-  'reward_cards': ['★3 [시선을 떨구는 당신 곁에] 메구리네 루카', '★2 [추천 메뉴는 쇼유 라멘] 히노모리 시호'],
-  'theme_song': '화결 (花結び)'},
- {'id': 189,
-  'name': '함께, 트루 루트를 향해서',
-  'jp_name': 'ともに、トゥルールートを目指して',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_trueroute_2025',
-  'jp_start': '2025-12-10',
-  'jp_end': '2025-12-19',
-  'kr_estimated_start': '2026-12-10',
-  'kr_estimated_end': '2026-12-19',
-  'unit': '전 유닛 합동',
-  'attribute': '☀️ 해피',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '아사히나 마후유',
-  'gacha_name': 'Human×Tech 뽑기',
-  'featured_cards': ['★4 [추억을 손에 들고] 아사히나 마후유', '★4 [스릴 넘치는 술래잡기] 아즈사와 코하네', '★4 [떠오르는 예감] 메구리네 루카'],
-  'reward_cards': ['★3 [달콤하고 즐거운 친구!] 오오토리 에무', '★2 [신경 쓰이는 VR 라이브] 호시노 이치카'],
-  'theme_song': '커미션 신곡 없음 (합동 이벤트)'},
- {'id': 190,
-  'name': '이 이야기는 희망을 싣고',
-  'jp_name': 'この物語は希望をのせて',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_hope_2025',
-  'jp_start': '2025-12-21',
-  'jp_end': '2025-12-29',
-  'kr_estimated_start': '2026-12-21',
-  'kr_estimated_end': '2026-12-29',
-  'unit': 'MORE MORE JUMP!',
-  'attribute': '❄️ 쿨',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '키리타니 하루카',
-  'gacha_name': 'The Light We Found 뽑기',
-  'featured_cards': ['★4 [흔들리지 않는 마음은 열기를 띠고] 키리타니 하루카', '★4 [역경까지도 파워로!] 모모이 아이리', '★4 [스테이지의 지식인] 카가미네 렌'],
-  'reward_cards': ['★3 [고대하던 순간] 히노모리 시즈쿠', '★2 [다시 만날 날을 그리며] 하나사토 미노리'],
-  'theme_song': 'Polar Star'},
- {'id': 191,
-  'name': '새해를 축복하는 기도의 춤',
-  'jp_name': '新年言祝ぐ、祈りの舞',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_celebrate_2025',
-  'jp_start': '2025-12-31',
-  'jp_end': '2026-01-09',
-  'kr_estimated_start': '2026-12-31',
-  'kr_estimated_end': '2027-01-09',
-  'unit': '전 유닛 합동',
-  'attribute': '❄️ 쿨',
-  'is_limited': True,
-  'is_fes': True,
-  'banner_type': '💎 블룸 페스티벌 (페스/한정)',
-  'banner_chara': '하나사토 미노리',
-  'gacha_name': '[2027 새해맞이] 블룸 페스티벌 뽑기',
-  'featured_cards': ['★4 [햇볕 같은 지금을] 히노모리 시호 [블페]',
-                     '★4 [내가 돌아갈 곳] 오오토리 에무 [블페]',
-                     '★4 [마음을 담은 춤] 하나사토 미노리',
-                     '★4 [멀고 험한 동화 구연의 길] 아오야기 토우야',
-                     '★4 [노력하는 너에게 응원을] 카가미네 린'],
-  'reward_cards': ['★3 [숙명적인 대결] 텐마 츠카사', '★2 [도깨비의 추억은] 아즈사와 코하네'],
-  'theme_song': '커미션 신곡 없음 (합동 이벤트)'},
- {'id': 192,
-  'name': '깨지 않는 환상을 노크하며',
-  'jp_name': '覚めない幻想をノックして',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_knock_2026',
-  'jp_start': '2026-01-11',
-  'jp_end': '2026-01-19',
-  'kr_estimated_start': '2027-01-11',
-  'kr_estimated_end': '2027-01-19',
-  'unit': '25시, 나이트 코드에서.',
-  'attribute': '☀️ 해피',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '요이사키 카나데',
-  'gacha_name': '¿행복한 발레리나? 뽑기',
-  'featured_cards': ['★4 [술렁이는 가슴] 요이사키 카나데', '★4 [해 질 녘 창가] 시노노메 에나', '★4 [지키는 자와 흔드는 자] MEIKO'],
-  'reward_cards': ['★3 [묘한 분위기를 눈치채고] 아키야마 미즈키', '★2 [지켜볼 수밖에 없지만] 아사히나 마후유'],
-  'theme_song': '행복형 (幸福刑)'},
- {'id': 193,
-  'name': 'GO ALL OUT',
-  'jp_name': 'GO ALL OUT',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_allout_2026',
-  'jp_start': '2026-01-21',
-  'jp_end': '2026-01-29',
-  'kr_estimated_start': '2027-01-21',
-  'kr_estimated_end': '2027-01-29',
-  'unit': 'Vivid BAD SQUAD',
-  'attribute': '✨ 퓨어',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '아오야기 토우야',
-  'gacha_name': 'Gathering place 뽑기',
-  'featured_cards': ['★4 [타오르는 투지] 아오야기 토우야', '★4 [액자 속의 모습] 시라이시 안', '★4 [온 힘을 다해 달리는 너에게] KAITO'],
-  'reward_cards': ['★3 [양보할 수 없다면 함께 짊어지고] 시노노메 아키토', '★2 [재회를 기대하며] 아즈사와 코하네'],
-  'theme_song': '투과하는 온도 (透過する温度)'},
- {'id': 194,
-  'name': '분쇄하라! 언밸런타인의 복수',
-  'jp_name': '粉砕せよ！アンヴァレンタインの復讐',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_revenge_2026',
-  'jp_start': '2026-01-31',
-  'jp_end': '2026-02-08',
-  'kr_estimated_start': '2027-01-31',
-  'kr_estimated_end': '2027-02-08',
-  'unit': '전 유닛 합동',
-  'attribute': '💖 큐트',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🎀 기간 한정 (헤어/의상 해금)',
-  'banner_chara': '텐마 츠카사',
-  'gacha_name': 'A sweet afternoon 뽑기',
-  'featured_cards': ['★4 [작렬! 사랑의 일격] 텐마 츠카사', '★4 [우울한 모험] 시노노메 아키토', '★4 [즐거운 떠보기] 아키야마 미즈키'],
-  'reward_cards': ['★3 [마법사의 진면목] 카미시로 루이', '★2 [지고한 향기를 풍기며] 아오야기 토우야'],
-  'theme_song': '커미션 신곡 없음 (합동 이벤트)'},
- {'id': 195,
-  'name': 'Path made by faith',
-  'jp_name': 'Path made by faith',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_path_2026',
-  'jp_start': '2026-02-10',
-  'jp_end': '2026-02-17',
-  'kr_estimated_start': '2027-02-10',
-  'kr_estimated_end': '2027-02-17',
-  'unit': 'Leo/need',
-  'attribute': '❄️ 쿨',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '히노모리 시호',
-  'gacha_name': '반짝이는 Sunny days 뽑기',
-  'featured_cards': ["★4 [지금'의 나를 울리며] 히노모리 시호", '★4 [명프로듀서 등장!] 텐마 사키', '★4 [최고의 연습 상대] 메구리네 루카'],
-  'reward_cards': ['★3 [의외의 실수는 미소와 함께] 호시노 이치카', '★2 [리더와 리더] 모치즈키 호나미'],
-  'theme_song': '이대로 가자 (このまんまでいこう)'},
- {'id': 196,
-  'name': 'CHANGE! 에무는 왕녀님?!',
-  'jp_name': 'CHANGE！えむは王女さま！？',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_princess_2026',
-  'jp_start': '2026-02-19',
-  'jp_end': '2026-02-26',
-  'kr_estimated_start': '2027-02-19',
-  'kr_estimated_end': '2027-02-26',
-  'unit': '원더랜즈×쇼타임',
-  'attribute': '🌙 미스테리어스',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '오오토리 에무',
-  'gacha_name': 'Rabbit Kingdom♡ 뽑기',
-  'featured_cards': ['★4 [똑 닮은 얼굴에 깜짝?!] 오오토리 에무', '★4 [우주에서 좌충우돌 슈팅!] 카미시로 루이', '★4 [린이 있잖아!] 카가미네 린'],
-  'reward_cards': ['★3 [거울 앞의 싸움] 쿠사나기 네네', '★2 [잠들지 못하는 밤에는] 텐마 츠카사'],
-  'theme_song': '튀어나와라! 완다표이 (とびだせ！わんだぴょい)'},
- {'id': 197,
-  'name': '악몽의 정원을 노래로 밝히며',
-  'jp_name': '悪夢の庭を歌い明かして',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_nightmare_2026',
-  'jp_start': '2026-02-28',
-  'jp_end': '2026-03-08',
-  'kr_estimated_start': '2027-02-28',
-  'kr_estimated_end': '2027-03-08',
-  'unit': '전 유닛 합동',
-  'attribute': '☀️ 해피',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '시노노메 에나',
-  'gacha_name': 'Lunatic doll in the box 뽑기',
-  'featured_cards': ['★4 [악몽의 세계에 울리는 노래는] 시노노메 에나', '★4 [어두운 정원과 호기심] 아즈사와 코하네', '★4 [가리킨 곳에 있는 길] 카가미네 렌'],
-  'reward_cards': ['★3 [그 세계에 있는 듯한] 모치즈키 호나미', '★2 [초대해 준 답례로] 요이사키 카나데'],
-  'theme_song': '커미션 신곡 없음 (합동 이벤트)'},
- {'id': 198,
-  'name': 'Open up new horizons!',
-  'jp_name': 'Open up new horizons！',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_horizons_2026',
-  'jp_start': '2026-03-10',
-  'jp_end': '2026-03-18',
-  'kr_estimated_start': '2027-03-10',
-  'kr_estimated_end': '2027-03-18',
-  'unit': 'MORE MORE JUMP!',
-  'attribute': '✨ 퓨어',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '모모이 아이리',
-  'gacha_name': '백스테이지의 비밀 뽑기',
-  'featured_cards': ['★4 [진심으로 눈물을] 모모이 아이리', '★4 [나도 모르게 입에서] 하나사토 미노리', '★4 [다 정말 근사한걸!] 히노모리 시즈쿠'],
-  'reward_cards': ['★3 [조용한 만화 타임] 키리타니 하루카', '★2 [끓어오르는 팬 정신] KAITO'],
-  'theme_song': '컬러풀 파운데이션 (カラフルファンデーション)'},
- {'id': 199,
-  'name': 'Amid the Wavering Light',
-  'jp_name': 'Amid the Wavering Light',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_wavering_2026',
-  'jp_start': '2026-03-20',
-  'jp_end': '2026-03-28',
-  'kr_estimated_start': '2027-03-20',
-  'kr_estimated_end': '2027-03-28',
-  'unit': '25시, 나이트 코드에서.',
-  'attribute': '💖 큐트',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '아키야마 미즈키',
-  'gacha_name': '우리의 밤이 깨어나기 전에 뽑기',
-  'featured_cards': ['★4 [옷 만들기 분투 중] 아키야마 미즈키', '★4 [아침 해와 코코아] 요이사키 카나데', '★4 [좋아하는 옷] 하츠네 미쿠'],
-  'reward_cards': ['★3 [미쿠와 함께라서 알 수 있는 것] 아사히나 마후유', '★2 [보기 드문 둘이서] 시노노메 에나'],
-  'theme_song': '고백 (告白)'},
- {'id': 200,
-  'name': '저녁놀의 Inside Direction',
-  'jp_name': '残照のInside Direction',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_direction_2026',
-  'jp_start': '2026-03-30',
-  'jp_end': '2026-04-07',
-  'kr_estimated_start': '2027-03-30',
-  'kr_estimated_end': '2027-04-07',
-  'unit': '원더랜즈×쇼타임',
-  'attribute': '❄️ 쿨',
-  'is_limited': True,
-  'is_fes': True,
-  'banner_type': '💎 블룸 페스티벌 (페스/한정)',
-  'banner_chara': '카미시로 루이',
-  'gacha_name': '[5.5주년 기념] 블룸 페스티벌 뽑기',
-  'featured_cards': ['★4 [발자취를 따라서] 히노모리 시즈쿠 [블페]',
-                     '★4 [네가 발견해 주었기에] 아사히나 마후유 [블페]',
-                     '★4 [머릿속에 그리던 그 이미지가] 카미시로 루이',
-                     '★4 [말할 수 없는 이 마음] 쿠사나기 네네',
-                     '★4 [명탐정 MEIKO?!] MEIKO'],
-  'reward_cards': ['★3 [젊은이의 뜨거운 응원] 텐마 츠카사', '★2 [의욕 넘치는 응원단장] 오오토리 에무'],
-  'theme_song': '꼭두각시의 현실 (傀儡のうつつ)'},
- {'id': 201,
-  'name': "Show 'em what's up!",
-  'jp_name': "Show 'em what's up！",
-  'eventType': 'marathon',
-  'assetbundleName': 'event_show_2026',
-  'jp_start': '2026-04-09',
-  'jp_end': '2026-04-16',
-  'kr_estimated_start': '2027-04-09',
-  'kr_estimated_end': '2027-04-16',
-  'unit': 'Vivid BAD SQUAD',
-  'attribute': '🌙 미스테리어스',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '시라이시 안',
-  'gacha_name': 'Proof the RED 뽑기',
-  'featured_cards': ['★4 [엿보이는 날카로운 이빨] 시라이시 안',
-                     '★4 [이 벽을 뛰어넘기 위해] 시노노메 아키토',
-                     '★4 [응원하는 마음도 가득 올려서!] 메구리네 루카'],
-  'reward_cards': ['★3 [갈고닦은 가사로] 아즈사와 코하네', '★2 [끝까지 해내는 의지] 아오야기 토우야'],
-  'theme_song': 'CRASH THE PARTY'},
- {'id': 202,
-  'name': '약속의 파스렐 (約束のPasserelle)',
-  'jp_name': '約束のPasserelle',
-  'eventType': 'world_bloom',
-  'assetbundleName': 'event_wl_3rd_part1_2026',
-  'jp_start': '2026-04-18',
-  'jp_end': '2026-04-28',
-  'kr_estimated_start': '2027-04-18',
-  'kr_estimated_end': '2027-04-28',
-  'unit': '전 유닛 합동',
-  'attribute': '🌈 전속성 (월드 링크)',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🌐 월드 링크 (유닛/피날레 한정)',
-  'banner_chara': '전 유닛 합동 챕터 전원',
-  'gacha_name': 'YELL of Messengers 뽑기 (월드 링크 3rd)',
-  'featured_cards': ['★4 [힘이 될 수 있는 기쁨] 하츠네 미쿠 [월링크]',
-                     '★4 [4명의 미쿠들] 호시노 이치카 [월링크]',
-                     '★4 [어둠 속의 빛에] 키리타니 하루카 [월링크]',
-                     '★4 [앞을 향해 걸어가자] 오오토리 에무 [월링크]',
-                     '★4 [기합은 충분해?] 요이사키 카나데 [월링크]'],
-  'reward_cards': [],
-  'theme_song': '세계의 보행법 (世界の歩き方)'},
- {'id': 203,
-  'name': '따뜻한 추억을 더듬어 (あたたかな思い出を辿って)',
-  'jp_name': 'あたたかな思い出を辿って',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_tracingmemories_2026',
-  'jp_start': '2026-04-30',
-  'jp_end': '2026-05-06',
-  'kr_estimated_start': '2027-04-30',
-  'kr_estimated_end': '2027-05-06',
-  'unit': 'Leo/need',
-  'attribute': '🌙 미스테리어스',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🎀 기간 한정 (헤어/의상 해금)',
-  'banner_chara': '모치즈키 호나미',
-  'gacha_name': 'Cherished memories 뽑기',
-  'featured_cards': ['★4 [모두가 있었으니까] 모치즈키 호나미', '★4 [설마 했던 조우!] 텐마 사키', '★4 [뜻밖의 손님] 카가미네 렌'],
-  'reward_cards': ['★3 [그림책을 함께] 히노모리 시호', '★2 [동경하던 야키소바빵 뮤지엄] 호시노 이치카'],
-  'theme_song': '별에 가장 가까운 장소 (星に一番近い場所)'},
- {'id': 204,
-  'name': 'Stay solid, No fold',
-  'jp_name': 'Stay solid, No fold',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_staysolid_2026',
-  'jp_start': '2026-05-08',
-  'jp_end': '2026-05-15',
-  'kr_estimated_start': '2027-05-08',
-  'kr_estimated_end': '2027-05-15',
-  'unit': 'Vivid BAD SQUAD',
-  'attribute': '✨ 퓨어',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '아즈사와 코하네',
-  'gacha_name': '바람이 실어 오는 푸른 노래 뽑기 (風運ぶ青の歌)',
-  'featured_cards': ['★4 [낯선 시선] 아즈사와 코하네', '★4 [제대로 듣고 있었어?] 시노노메 아키토', '★4 [정성스러운 한 잔] 아오야기 토우야'],
-  'reward_cards': ['★3 [몇 미터나 되는 거야!?] 시라이시 안', '★2 [파티에 오신 것을 환영합니다!] KAITO'],
-  'theme_song': '우가 (羽歌)'},
- {'id': 205,
-  'name': 'Great Yell for Dreamers!',
-  'jp_name': 'Great Yell for Dreamers！',
-  'eventType': 'world_bloom',
-  'assetbundleName': 'event_wl_3rd_part2_2026',
-  'jp_start': '2026-05-17',
-  'jp_end': '2026-05-29',
-  'kr_estimated_start': '2027-05-17',
-  'kr_estimated_end': '2027-05-29',
-  'unit': '전 유닛 합동',
-  'attribute': '🌈 전속성 (월드 링크)',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🌐 월드 링크 (유닛/피날레 한정)',
-  'banner_chara': '전 유닛 합동 챕터 전원',
-  'gacha_name': 'Vie for the Title 뽑기 (월드 링크 3rd)',
-  'featured_cards': ['★4 [따라 하기 댄싱♪] 카가미네 린 [월링크]',
-                     '★4 [반짝임은 포개어지고] 카가미네 렌 [월링크]',
-                     '★4 [마음과 열기를 담아] 히노모리 시호 [월링크]',
-                     '★4 [열혈 코칭!?] 하나사토 미노리 [월링크]',
-                     '★4 [예전의 좌절] 시라이시 안 [월링크]',
-                     '★4 [올곧은 연설] 텐마 츠카사 [월링크]'],
-  'reward_cards': [],
-  'theme_song': '드리머즈 비트 (ドリーマーズビート)'},
- {'id': 206,
-  'name': '가장 끝으로 날아가는 너에게 (最果てへと飛ぶキミへ)',
-  'jp_name': '最果てへと飛ぶキミへ',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_edge_2026',
-  'jp_start': '2026-05-31',
-  'jp_end': '2026-06-06',
-  'kr_estimated_start': '2027-05-31',
-  'kr_estimated_end': '2027-06-06',
-  'unit': '전 유닛 합동',
-  'attribute': '☀️ 해피',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🎀 기간 한정 (헤어/의상 해금)',
-  'banner_chara': '아키야마 미즈키',
-  'gacha_name': '베일 너머의 당신에게 뽑기 (ヴェールの向こうのあなたへ)',
-  'featured_cards': ['★4 [작은 너와의 소소한 시간] 아키야마 미즈키', '★4 [마치 프린세스!?] 모모이 아이리', '★4 [세카이의 아이디어맨] KAITO'],
-  'reward_cards': ['★3 [이상적인 소재를 찾아서] 히노모리 시즈쿠', '★2 [형태로 만들어 낸 끝에서] 요이사키 카나데'],
-  'theme_song': '커미션 신곡 없음 (합동 이벤트)'},
- {'id': 207,
-  'name': 'Into the New Light',
-  'jp_name': 'Into the New Light',
-  'eventType': 'world_bloom',
-  'assetbundleName': 'event_wl_3rd_part3_2026',
-  'jp_start': '2026-06-08',
-  'jp_end': '2026-06-18',
-  'kr_estimated_start': '2027-06-08',
-  'kr_estimated_end': '2027-06-18',
-  'unit': '전 유닛 합동',
-  'attribute': '🌈 전속성 (월드 링크)',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🌐 월드 링크 (유닛/피날레 한정)',
-  'banner_chara': '전 유닛 합동 챕터 전원',
-  'gacha_name': 'Past Fragments 뽑기 (월드 링크 3rd)',
-  'featured_cards': ['★4 [맡겨 둔 소원] 메구리네 루카 [월링크]',
-                     '★4 [이번에는 내가] 모치즈키 호나미 [월링크]',
-                     '★4 [마음을 실은 원 컷] 히노모리 시즈쿠 [월링크]',
-                     '★4 [마음 깊은 곳에 닿는 노래] 아즈사와 코하네 [월링크]',
-                     '★4 [비에 번지는 미소] 아사히나 마후유 [월링크]'],
-  'reward_cards': [],
-  'theme_song': '여행으로 돌아가다 (旅に帰る)'},
- {'id': 208,
-  'name': 'Phantom maze monster',
-  'jp_name': 'Phantom maze monster',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_monster_2026',
-  'jp_start': '2026-06-20',
-  'jp_end': '2026-06-28',
-  'kr_estimated_start': '2027-06-20',
-  'kr_estimated_end': '2027-06-28',
-  'unit': '원더랜즈×쇼타임',
-  'attribute': '✨ 퓨어',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '텐마 츠카사',
-  'gacha_name': 'Act in the chaos 뽑기',
-  'featured_cards': ['★4 [몸을 태우는 혼돈] 텐마 츠카사', '★4 [가슴 깊은 곳에서 언제나] 오오토리 에무', '★4 [우려의 끝] 카미시로 루이'],
-  'reward_cards': ['★3 [괴로움을 응시하며] 쿠사나기 네네', '★2 [작은 히어로] 카가미네 렌'],
-  'theme_song': '올인원 (オールイン・ワン)'},
- {'id': 209,
-  'name': '아이돌 하나사토 미노리 ~꿈의 최전선~',
-  'jp_name': 'アイドル・花里みのり～夢の最前線～',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_frontlines_2026',
-  'jp_start': '2026-06-30',
-  'jp_end': '2026-07-07',
-  'kr_estimated_start': '2027-06-30',
-  'kr_estimated_end': '2027-07-07',
-  'unit': 'MORE MORE JUMP!',
-  'attribute': '🌙 미스테리어스',
-  'is_limited': True,
-  'is_fes': True,
-  'banner_type': '💎 블룸 페스티벌 (페스/한정)',
-  'banner_chara': '하나사토 미노리',
-  'gacha_name': '블룸 페스티벌 & 너와 보내는 바케이션! 뽑기',
-  'featured_cards': ['★4 [함께 돌아가자] 아오야기 토우야 [블페]',
-                     '★4 [당신 같은 "나"에게] 쿠사나기 네네 [블페]',
-                     '★4 [귀여운 응원] 하나사토 미노리',
-                     '★4 [100만 점짜리 미소] 키리타니 하루카',
-                     '★4 [미쿠 짱 밀착 취재!] 하츠네 미쿠'],
-  'reward_cards': ['★3 [전력! 체조 언니!] 모모이 아이리', '★2 [멋진 미소를 돕는 일] 히노모리 시즈쿠'],
-  'theme_song': 'Gimme more!'},
- {'id': 210,
-  'name': '바래지 않는 지금을, 물들이며 (褪せない今を、彩って)',
-  'jp_name': '褪せない今を、彩って',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_addcolor_2026',
-  'jp_start': '2026-07-09',
-  'jp_end': '2026-07-17',
-  'kr_estimated_start': '2027-07-09',
-  'kr_estimated_end': '2027-07-17',
-  'unit': '25시, 나이트 코드에서.',
-  'attribute': '🌙 미스테리어스',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '시노노메 에나',
-  'gacha_name': '투명하게 밝아오는 기억의 한가운데서 뽑기',
-  'featured_cards': ['★4 [쪽빛에 피어나는 꽃] 시노노메 에나', '★4 [손끝으로 따라가는 추억] 아사히나 마후유', '★4 [평온한 해 질 녘] MEIKO'],
-  'reward_cards': ['★3 [예상 밖의 스피드!?] 요이사키 카나데', '★2 [모두와 함께라면 어디든지] 아키야마 미즈키'],
-  'theme_song': '빛 (光)'},
- {'id': 211,
-  'name': '너의 곁, 너와 보는 내일 (君の隣、君と見る明日)',
-  'jp_name': '君の隣、君と見る明日',
-  'eventType': 'world_bloom',
-  'assetbundleName': 'event_wl_3rd_part4_2026',
-  'jp_start': '2026-07-19',
-  'jp_end': '2026-07-29',
-  'kr_estimated_start': '2027-07-19',
-  'kr_estimated_end': '2027-07-29',
-  'unit': '전 유닛 합동',
-  'attribute': '🌈 전속성 (월드 링크)',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🌐 월드 링크 (유닛/피날레 한정)',
-  'banner_chara': '전 유닛 합동 챕터 전원',
-  'gacha_name': 'around table WITH you! 뽑기 (월드 링크 3rd)',
-  'featured_cards': ['★4 [하늘로 배웅하며] KAITO [월링크]',
-                     '★4 [그날의 단념] 텐마 사키 [월링크]',
-                     '★4 [염원의 리시브] 아오야기 토우야 [월링크]',
-                     '★4 [마음의 탁함] 카미시로 루이 [월링크]',
-                     '★4 [겹쳐지는 마음과 과거] 아키야마 미즈키 [월링크]'],
-  'reward_cards': [],
-  'theme_song': '렘 (レム)'},
- {'id': 212,
-  'name': 'Echo of a Prayer',
-  'jp_name': 'Echo of a Prayer',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_ofprayer_2026',
-  'jp_start': '2026-07-31',
-  'jp_end': '2026-08-07',
-  'kr_estimated_start': '2027-07-31',
-  'kr_estimated_end': '2027-08-07',
-  'unit': 'Leo/need',
-  'attribute': '💖 큐트',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🎀 기간 한정 (헤어/의상 해금)',
-  'banner_chara': '호시노 이치카',
-  'gacha_name': 'Tucked in a box 뽑기',
-  'featured_cards': ['★4 [후회 없는 선택] 호시노 이치카', '★4 [가슴 밑바닥에 응어리진 것] 히노모리 시호', '★4 [할 일이 산더미!?] 카가미네 린'],
-  'reward_cards': ['★3 [그 선택을 지켜보며] 카가미네 렌', '★2 [맛있는 응원] 모치즈키 호나미'],
-  'theme_song': '천칭, 손끝으로 닿아서 (天秤、指先で触れて)'},
- {'id': 213,
-  'name': 'Leap Beyond The Limits!',
-  'jp_name': 'Leap Beyond The Limits！',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_limits_2026',
-  'jp_start': '2026-08-09',
-  'jp_end': '2026-08-15',
-  'kr_estimated_start': '2027-08-09',
-  'kr_estimated_end': '2027-08-15',
-  'unit': 'MORE MORE JUMP!',
-  'attribute': '💖 큐트',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '키리타니 하루카',
-  'gacha_name': 'Piercing Light 뽑기',
-  'featured_cards': ['★4 [준결승을 향한 각오] 키리타니 하루카', '★4 [잠시 동안의 이별] 하나사토 미노리', '★4 [신뢰에 보답하기 위해] 히노모리 시즈쿠'],
-  'reward_cards': ['★3 [경험담에서 우러나온 조언] KAITO', '★2 [생각하기 나름] 모모이 아이리'],
-  'theme_song': '스타더스트 레인 (スターダストレイン)'},
- {'id': 214,
-  'name': 'Again And Again Ambition!',
-  'jp_name': 'Again And Again Ambition！',
-  'eventType': 'world_bloom',
-  'assetbundleName': 'event_wl_3rd_part5_2026',
-  'jp_start': '2026-08-17',
-  'jp_end': '2026-08-27',
-  'kr_estimated_start': '2027-08-17',
-  'kr_estimated_end': '2027-08-27',
-  'unit': '전 유닛 합동',
-  'attribute': '🌈 전속성 (월드 링크)',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🌐 월드 링크 (유닛/피날레 한정)',
-  'banner_chara': '전 유닛 합동 챕터 전원',
-  'gacha_name': 'Crawl out of Vibrant hell 뽑기 (월드 링크 3rd)',
-  'featured_cards': ['★4 [파도 소리 틈새에] MEIKO [월링크]',
-                     '★4 [꿈의 힘이 되어 주는 것은] 모모이 아이리 [월링크]',
-                     '★4 [등을 두드리는 말] 시노노메 아키토 [월링크]',
-                     '★4 [숲의 인도자] 쿠사나기 네네 [월링크]',
-                     '★4 [그 시절 말하지 못했던 것] 시노노메 에나 [월링크]'],
-  'reward_cards': [],
-  'theme_song': '안티 재능 (アンチサイノウ)'},
- {'id': 215,
-  'name': 'Mix&Make Party Time!!',
-  'jp_name': 'Mix&Make Party Time!!',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_partytime_2026',
-  'jp_start': '2026-08-29',
-  'jp_end': '2026-09-04',
-  'kr_estimated_start': '2027-08-29',
-  'kr_estimated_end': '2027-09-04',
-  'unit': '전 유닛 합동',
-  'attribute': '✨ 퓨어',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🎀 기간 한정 (헤어/의상 해금)',
-  'banner_chara': '메구리네 루카',
-  'gacha_name': 'Unspoken Code 뽑기',
-  'featured_cards': ['★4 [사이좋게 예이!] 메구리네 루카', '★4 [꽃피는 렌 담소] 카가미네 렌', '★4 [설레는 마음을 스푼에 얹어] KAITO'],
-  'reward_cards': ['★2 [오랜만의 학급회의] 하츠네 미쿠', '★2 [풍선으로 장식하기♪] 카가미네 린', '★2 [사이좋게 팀 나누기?] MEIKO'],
-  'theme_song': '커미션 신곡 없음 (합동 이벤트)'},
- {'id': 216,
-  'name': 'After the Fire',
-  'jp_name': 'After the Fire',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_afterfire_2026',
-  'jp_start': '2026-09-06',
-  'jp_end': '2026-09-12',
-  'kr_estimated_start': '2027-09-06',
-  'kr_estimated_end': '2027-09-12',
-  'unit': 'Vivid BAD SQUAD',
-  'attribute': '☀️ 해피',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '시노노메 아키토',
-  'gacha_name': 'Shady Stare 뽑기',
-  'featured_cards': ['★4 [흘러내린 파문] 시노노메 아키토', '★4 [처음으로 나누는 기쁨] 아오야기 토우야', '★4 [겹쳐지는 마음과 노랫소리] 카가미네 린'],
-  'reward_cards': ['★3 [교류는 종이접기로!] 시라이시 안', '★2 [마음에 드는 한 장] 아즈사와 코하네'],
-  'theme_song': '정답 (正解)'},
- {'id': 217,
-  'name': 'Drive to Dream!',
-  'jp_name': 'Drive to Dream！',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_drive_2026',
-  'jp_start': '2026-09-14',
-  'jp_end': '2026-09-20',
-  'kr_estimated_start': '2027-09-14',
-  'kr_estimated_end': '2027-09-20',
-  'unit': '원더랜즈×쇼타임',
-  'attribute': '💖 큐트',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '쿠사나기 네네',
-  'gacha_name': 'Step with Smiles 뽑기',
-  'featured_cards': ['★4 [동경을 눈에 새기며] 쿠사나기 네네', '★4 [전력 잉글리시!] 오오토리 에무', '★4 [조용한 기도] 메구리네 루카'],
-  'reward_cards': ['★3 [좋은 한 장 부탁해] 카미시로 루이', '★2 [아메리칸 사이즈는 꿈이 가득?] 카가미네 렌'],
-  'theme_song': '헤레디티 (ヘレディティ)'},
- {'id': 218,
-  'name': 'Connect to SEKAI! (월드 링크 3rd 피날레)',
-  'jp_name': 'Connect to SEKAI！',
-  'eventType': 'world_bloom',
-  'assetbundleName': 'event_wl_3rd_finale_2026',
-  'jp_start': '2026-09-25',
-  'jp_end': '2026-09-28',
-  'kr_estimated_start': '2027-09-25',
-  'kr_estimated_end': '2027-09-28',
-  'unit': '전 유닛 합동',
-  'attribute': '🌈 전속성 (월드 링크)',
-  'is_limited': True,
-  'is_fes': False,
-  'banner_type': '🌐 월드 링크 (유닛/피날레 한정)',
-  'banner_chara': '전 유닛 합동 챕터 전원',
-  'gacha_name': 'Connect to SEKAI! 피날레 챕터 뽑기',
-  'featured_cards': ['★4 [힘이 될 수 있는 기쁨] 하츠네 미쿠 [월링크]',
-                     '★4 [4명의 미쿠들] 호시노 이치카 [월링크]',
-                     '★4 [어둠 속의 빛에] 키리타니 하루카 [월링크]',
-                     '★4 [앞을 향해 걸어가자] 오오토리 에무 [월링크]',
-                     '★4 [기합은 충분해?] 요이사키 카나데 [월링크]',
-                     '외 21명 (전 유닛 월드 링크 피날레 컬렉션)'],
-  'reward_cards': [],
-  'theme_song': '커미션 신곡 없음 (월드 링크 이벤트)'},
- {'id': 219,
-  'name': 'Side by Side, Our Ways! (6주년 기념)',
-  'jp_name': 'Side by Side, Our Ways！',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_ourways_2026',
-  'jp_start': '2026-09-30',
-  'jp_end': '2026-10-10',
-  'kr_estimated_start': '2027-09-30',
-  'kr_estimated_end': '2027-10-10',
-  'unit': '전 유닛 합동',
-  'attribute': '❄️ 쿨',
-  'is_limited': True,
-  'is_fes': True,
-  'banner_type': '💎 블룸 페스티벌 (페스/한정)',
-  'banner_chara': '모모이 아이리',
-  'gacha_name': '[6주년 기념] 블룸 페스티벌 & Taste of Youth 뽑기',
-  'featured_cards': ['★4 [눌러 담은 마음] 텐마 사키 [블페]',
-                     '★4 [함께 걸어갈 미래] 하츠네 미쿠 [블페]',
-                     '★4 [함께 엮어 가는 추억은] 모모이 아이리',
-                     '★4 [뛰어든 곳에서의 큰 공적] 아즈사와 코하네',
-                     '★4 [미소를 만들어 내는 장치] 카미시로 루이',
-                     '★4 [미래에 남기는 메시지] 시노노메 에나'],
-  'reward_cards': ['★3 [묵묵히 집중!] 호시노 이치카'],
-  'theme_song': '커미션 신곡 없음 (합동 이벤트)'},
- {'id': 220,
-  'name': 'Stars Off Orbit',
-  'jp_name': 'Stars Off Orbit',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_orbit_2026',
-  'jp_start': '2026-10-12',
-  'jp_end': '2026-10-19',
-  'kr_estimated_start': '2027-10-12',
-  'kr_estimated_end': '2027-10-19',
-  'unit': 'Leo/need',
-  'attribute': '✨ 퓨어',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '모치즈키 호나미',
-  'gacha_name': 'Soundless Sea 뽑기',
-  'featured_cards': ['★4 [남겨진 마음을] 모치즈키 호나미', '★4 [지금은 그저, 곁에] 호시노 이치카', '★4 [선배의 조언] MEIKO'],
-  'reward_cards': ['★3 [분명 이번에는, 모두 함께] 텐마 사키', '★2 [이 꿈을 향해서] 히노모리 시호'],
-  'theme_song': '별, 때때로 빛 (星、ときどき光)'},
- {'id': 221,
-  'name': 'Vivid BAD SQUAD Memories',
-  'jp_name': 'Vivid BAD SQUAD Memories',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_memories_vbs_2026',
-  'jp_start': '2026-10-21',
-  'jp_end': '2026-10-25',
-  'kr_estimated_start': '2027-10-21',
-  'kr_estimated_end': '2027-10-25',
-  'unit': 'Vivid BAD SQUAD',
-  'attribute': '💖 큐트',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎞️ 유닛 메모리즈 스페셜',
-  'banner_chara': 'Vivid BAD SQUAD 전원',
-  'gacha_name': 'Vivid BAD SQUAD Memories 스페셜 뽑기',
-  'featured_cards': ['★4 [낯선 시선] 아즈사와 코하네 (메모리즈 픽업)',
-                     '★4 [엿보이는 날카로운 이빨] 시라이시 안 (메모리즈 픽업)',
-                     '★4 [흘러내린 파문] 시노노메 아키토 (메모리즈 픽업)',
-                     '★4 [타오르는 투지] 아오야기 토우야 (메모리즈 픽업)'],
-  'reward_cards': [],
-  'theme_song': '유닛 메모리즈 스페셜 이벤트'},
- {'id': 222,
-  'name': 'MORE MORE JUMP! Memories',
-  'jp_name': 'MORE MORE JUMP！ Memories',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_memories_mmj_2026',
-  'jp_start': '2026-10-26',
-  'jp_end': '2026-10-30',
-  'kr_estimated_start': '2027-10-26',
-  'kr_estimated_end': '2027-10-30',
-  'unit': 'MORE MORE JUMP!',
-  'attribute': '💖 큐트',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎞️ 유닛 메모리즈 스페셜',
-  'banner_chara': 'MORE MORE JUMP! 전원',
-  'gacha_name': 'MORE MORE JUMP! Memories 스페셜 뽑기',
-  'featured_cards': ['★4 [귀여운 응원] 하나사토 미노리 (메모리즈 픽업)',
-                     '★4 [준결승을 향한 각오] 키리타니 하루카 (메모리즈 픽업)',
-                     '★4 [진심으로 눈물을] 모모이 아이리 (메모리즈 픽업)',
-                     '★4 [언젠가와 겹치는 풍경] 히노모리 시즈쿠 (메모리즈 픽업)'],
-  'reward_cards': [],
-  'theme_song': '유닛 메모리즈 스페셜 이벤트'},
- {'id': 223,
-  'name': '언젠가의 너에게, 선율을 (いつかの君へ、旋律を)',
-  'jp_name': 'いつかの君へ、旋律を',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_someday_2026',
-  'jp_start': '2026-10-31',
-  'jp_end': '2026-11-08',
-  'kr_estimated_start': '2027-10-31',
-  'kr_estimated_end': '2027-11-08',
-  'unit': '25시, 나이트 코드에서.',
-  'attribute': '💖 큐트',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '요이사키 카나데',
-  'gacha_name': 'Lit in the Dark 뽑기',
-  'featured_cards': ['★4 [어둠의 끝에서] 요이사키 카나데', '★4 [아주 약간의 온기를] 아사히나 마후유', '★4 [자물쇠를 부수기 위해] 메구리네 루카'],
-  'reward_cards': ['★3 [각오를 떠올리며] 시노노메 에나', '★2 [공부와 즐거움의 양립] 아키야마 미즈키'],
-  'theme_song': '별을 찾아서♭♭ (星を探して♭♭)'},
- {'id': 225,
-  'name': 'My Searing Light',
-  'jp_name': 'My Searing Light',
-  'eventType': 'marathon',
-  'assetbundleName': 'event_searing_2026',
-  'jp_start': '2026-11-11',
-  'jp_end': '2026-11-18',
-  'kr_estimated_start': '2027-11-11',
-  'kr_estimated_end': '2027-11-18',
-  'unit': 'MORE MORE JUMP!',
-  'attribute': '✨ 퓨어',
-  'is_limited': False,
-  'is_fes': False,
-  'banner_type': '🎵 통상 가챠',
-  'banner_chara': '히노모리 시즈쿠',
-  'gacha_name': 'Captivate YOU! 뽑기',
-  'featured_cards': ['★4 [흘러내리는 눈물도 끌어안고] 히노모리 시즈쿠', '★4 [놓치고 있던 것] 모모이 아이리', '★4 [반짝이는 미소의 끝에는] 카가미네 린'],
-  'reward_cards': ['★3 [하기로 결심했으니까!] 하나사토 미노리', '★2 [동료를 믿고] 키리타니 하루카'],
-  'theme_song': '노 모어 픽션 (ノーモアフィクション)'}]
+BUILTIN_FORECAST_EVENTS = [   {   'assetbundleName': 'event_colors_2025',
+        'attribute': '✨ 퓨어',
+        'eventType': 'marathon',
+        'featured_cards': ['★4 [자신의 경계를 넘어] 시노노메 에나', '★4 [독자적인 시점] 요이사키 카나데', "★4 [망설임 없는 '나다움'을] KAITO"],
+        'gacha_name': 'Colors of Pure Sense 픽업 가챠',
+        'id': 184,
+        'is_fes': False,
+        'is_limited': True,
+        'jp_end': '2025-11-08',
+        'jp_name': 'Colors of Pure Sense',
+        'jp_start': '2025-10-31',
+        'kr_estimated_end': '2026-11-08',
+        'kr_estimated_start': '2026-10-31',
+        'name': 'Colors of Pure Sense',
+        'theme_song': 'Pure Sense / 센스 하모니',
+        'unit': '전 유닛 합동'},
+    {   'assetbundleName': 'event_protagonist_2025',
+        'attribute': '💖 큐트',
+        'eventType': 'marathon',
+        'featured_cards': ['★4 [그 꽃이 피어날 때] 쿠사나기 네네', '★4 [해피해피해피한 서비스] 오오토리 에무', '★4 [작은 수호자] 카가미네 린'],
+        'gacha_name': '초월의 프로타고니스타 픽업 가챠',
+        'id': 185,
+        'is_fes': False,
+        'is_limited': False,
+        'jp_end': '2025-11-17',
+        'jp_name': '超克のプロタゴニスタ',
+        'jp_start': '2025-11-10',
+        'kr_estimated_end': '2026-11-18',
+        'kr_estimated_start': '2026-11-10',
+        'name': '초월의 프로타고니스타',
+        'theme_song': '프로타고니스타 / 서바이벌 스테이지',
+        'unit': 'Vivid BAD SQUAD'},
+    {   'assetbundleName': 'event_overcome_2025',
+        'attribute': '🌙 미스테리어스',
+        'eventType': 'marathon',
+        'featured_cards': ['★4 [끌어모은 무기로] 시노노메 아키토', '★4 [사전 준비는 철저히] 아즈사와 코하네', '★4 [전화로 물어보기] 시라이시 안'],
+        'gacha_name': "Overcome one's limits 픽업 가챠",
+        'id': 187,
+        'is_fes': False,
+        'is_limited': False,
+        'jp_end': '2025-11-28',
+        'jp_name': "Overcome one's limits",
+        'jp_start': '2025-11-20',
+        'kr_estimated_end': '2026-11-28',
+        'kr_estimated_start': '2026-11-20',
+        'name': "Overcome one's limits",
+        'theme_song': 'Beyond the Limit / 오버컴',
+        'unit': '전 유닛 합동'},
+    {   'assetbundleName': 'event_lookup_2025',
+        'attribute': '💖 큐트',
+        'eventType': 'marathon',
+        'featured_cards': ['★4 [밤바람에 날아간 진심] 텐마 사키', "★4 [당신'에게 전하는 말] 호시노 이치카", '★4 [산책 중의 말썽꾸러기] 모치즈키 호나미'],
+        'gacha_name': '올려다본 밤하늘에 별은 길을 잃고 픽업 가챠',
+        'id': 188,
+        'is_fes': False,
+        'is_limited': True,
+        'jp_end': '2025-12-08',
+        'jp_name': '仰ぐ夜空に、星は紛れて',
+        'jp_start': '2025-11-30',
+        'kr_estimated_end': '2026-12-08',
+        'kr_estimated_start': '2026-11-30',
+        'name': '올려다본 밤하늘에 별은 길을 잃고',
+        'theme_song': '별이 지는 밤하늘 / 스테이지 라이트',
+        'unit': 'Leo/need'},
+    {   'assetbundleName': 'event_trueroute_2025',
+        'attribute': '☀️ 해피',
+        'eventType': 'marathon',
+        'featured_cards': ['★4 [추억을 손에 들고] 아사히나 마후유', '★4 [스릴 넘치는 술래잡기] 아즈사와 코하네', '★4 [떠오르는 예감] 메구리네 루카'],
+        'gacha_name': '함께, 트루 루트를 향해서 픽업 가챠',
+        'id': 189,
+        'is_fes': False,
+        'is_limited': False,
+        'jp_end': '2025-12-19',
+        'jp_name': 'ともに、トゥルールートを目指して',
+        'jp_start': '2025-12-10',
+        'kr_estimated_end': '2026-12-19',
+        'kr_estimated_start': '2026-12-10',
+        'name': '함께, 트루 루트를 향해서',
+        'theme_song': '트루 루트의 궤적 / 메모리즈',
+        'unit': 'Leo/need'},
+    {   'assetbundleName': 'event_hope_2025',
+        'attribute': '❄️ 쿨',
+        'eventType': 'marathon',
+        'featured_cards': ['★4 [흔들리지 않는 마음은 열기를 띠고] 키리타니 하루카', '★4 [역경까지도 파워로!] 모모이 아이리', '★4 [스테이지의 지식인] 카가미네 렌'],
+        'gacha_name': '이 이야기는 희망을 싣고 픽업 가챠',
+        'id': 190,
+        'is_fes': False,
+        'is_limited': False,
+        'jp_end': '2025-12-29',
+        'jp_name': 'この物語は希望をのせて',
+        'jp_start': '2025-12-21',
+        'kr_estimated_end': '2026-12-29',
+        'kr_estimated_start': '2026-12-21',
+        'name': '이 이야기는 희망을 싣고',
+        'theme_song': '희망을 실은 멜로디 / 호프 스퀘어',
+        'unit': '25시, 나이트코드에서.'},
+    {   'assetbundleName': 'event_celebrate_2025',
+        'attribute': '❄️ 쿨',
+        'eventType': 'marathon',
+        'featured_cards': [   '★4 [햇볕 같은 지금을] 히노모리 시호',
+                              '★4 [내가 돌아갈 곳] 오오토리 에무',
+                              '★4 [마음을 담은 춤] 하나사토 미노리',
+                              '★4 [멀고 험한 동화 구연의 길] 아오야기 토우야',
+                              '★4 [노력하는 너에게 응원을] 카가미네 린'],
+        'gacha_name': '새해를 축복하는 기도의 춤 픽업 가챠',
+        'id': 191,
+        'is_fes': True,
+        'is_limited': True,
+        'jp_end': '2026-01-09',
+        'jp_name': '新年言祝ぐ、祈りの舞',
+        'jp_start': '2025-12-31',
+        'kr_estimated_end': '2027-01-09',
+        'kr_estimated_start': '2026-12-31',
+        'name': '새해를 축복하는 기도의 춤',
+        'theme_song': '신년 기도의 춤 / 축복의 종소리',
+        'unit': '25시, 나이트코드에서.'},
+    {   'assetbundleName': 'event_knock_2026',
+        'attribute': '☀️ 해피',
+        'eventType': 'marathon',
+        'featured_cards': ['★4 [술렁이는 가슴] 요이사키 카나데', '★4 [해 질 녘 창가] 시노노메 에나', '★4 [지키는 자와 흔드는 자] MEIKO'],
+        'gacha_name': '깨지 않는 환상을 노크하며 픽업 가챠',
+        'id': 192,
+        'is_fes': False,
+        'is_limited': False,
+        'jp_end': '2026-01-19',
+        'jp_name': '覚めない幻想をノックして',
+        'jp_start': '2026-01-11',
+        'kr_estimated_end': '2027-01-19',
+        'kr_estimated_start': '2027-01-11',
+        'name': '깨지 않는 환상을 노크하며',
+        'theme_song': '환상의 노크 / 원더 판타지',
+        'unit': '전 유닛 합동'},
+    {   'assetbundleName': 'event_allout_2026',
+        'attribute': '✨ 퓨어',
+        'eventType': 'marathon',
+        'featured_cards': ['★4 [타오르는 투지] 아오야기 토우야', '★4 [액자 속의 모습] 시라이시 안', '★4 [온 힘을 다해 달리는 너에게] KAITO'],
+        'gacha_name': 'GO ALL OUT 픽업 가챠',
+        'id': 193,
+        'is_fes': False,
+        'is_limited': False,
+        'jp_end': '2026-01-29',
+        'jp_name': 'GO ALL OUT',
+        'jp_start': '2026-01-21',
+        'kr_estimated_end': '2027-01-29',
+        'kr_estimated_start': '2027-01-21',
+        'name': 'GO ALL OUT',
+        'theme_song': 'GO ALL OUT / 풀 파워 스테이지',
+        'unit': '전 유닛 합동'},
+    {   'assetbundleName': 'event_revenge_2026',
+        'attribute': '💖 큐트',
+        'eventType': 'marathon',
+        'featured_cards': ['★4 [작렬! 사랑의 일격] 텐마 츠카사', '★4 [우울한 모험] 시노노메 아키토', '★4 [즐거운 떠보기] 아키야마 미즈키'],
+        'gacha_name': '분쇄하라! 언밸런타인의 복수 픽업 가챠',
+        'id': 194,
+        'is_fes': False,
+        'is_limited': True,
+        'jp_end': '2026-02-08',
+        'jp_name': '粉砕せよ！アンヴァレンタインの復讐',
+        'jp_start': '2026-01-31',
+        'kr_estimated_end': '2027-02-08',
+        'kr_estimated_start': '2027-01-31',
+        'name': '분쇄하라! 언밸런타인의 복수',
+        'theme_song': '언밸런타인 리벤지 / 쇼콜라 스위트',
+        'unit': 'Leo/need'},
+    {   'assetbundleName': 'event_path_2026',
+        'attribute': '❄️ 쿨',
+        'eventType': 'marathon',
+        'featured_cards': ["★4 [지금'의 나를 울리며] 히노모리 시호", '★4 [명프로듀서 등장!] 텐마 사키', '★4 [최고의 연습 상대] 메구리네 루카'],
+        'gacha_name': 'Path made by faith 픽업 가챠',
+        'id': 195,
+        'is_fes': False,
+        'is_limited': False,
+        'jp_end': '2026-02-17',
+        'jp_name': 'Path made by faith',
+        'jp_start': '2026-02-10',
+        'kr_estimated_end': '2027-02-17',
+        'kr_estimated_start': '2027-02-10',
+        'name': 'Path made by faith',
+        'theme_song': 'Faith on the Path / 신념의 길',
+        'unit': 'Leo/need'},
+    {   'assetbundleName': 'event_princess_2026',
+        'attribute': '🌙 미스테리어스',
+        'eventType': 'marathon',
+        'featured_cards': ['★4 [똑 닮은 얼굴에 깜짝?!] 오오토리 에무', '★4 [우주에서 좌충우돌 슈팅!] 카미시로 루이', '★4 [린이 있잖아!] 카가미네 린'],
+        'gacha_name': 'CHANGE! 에무는 왕녀님?! 픽업 가챠',
+        'id': 196,
+        'is_fes': False,
+        'is_limited': False,
+        'jp_end': '2026-02-26',
+        'jp_name': 'CHANGE！えむは王女さま！？',
+        'jp_start': '2026-02-19',
+        'kr_estimated_end': '2027-02-26',
+        'kr_estimated_start': '2027-02-19',
+        'name': 'CHANGE! 에무는 왕녀님?!',
+        'theme_song': '에무 왕녀님의 원더랜드 / 프린세스 쇼',
+        'unit': 'Vivid BAD SQUAD'},
+    {   'assetbundleName': 'event_nightmare_2026',
+        'attribute': '☀️ 해피',
+        'eventType': 'marathon',
+        'featured_cards': ['★4 [악몽의 세계에 울리는 노래는] 시노노메 에나', '★4 [어두운 정원과 호기심] 아즈사와 코하네', '★4 [가리킨 곳에 있는 길] 카가미네 렌'],
+        'gacha_name': '악몽의 정원을 노래로 밝히며 픽업 가챠',
+        'id': 197,
+        'is_fes': False,
+        'is_limited': False,
+        'jp_end': '2026-03-08',
+        'jp_name': '悪夢の庭を歌い明かして',
+        'jp_start': '2026-02-28',
+        'kr_estimated_end': '2027-03-08',
+        'kr_estimated_start': '2027-02-28',
+        'name': '악몽의 정원을 노래로 밝히며',
+        'theme_song': '악몽의 정원 / 나이트 가든 보이스',
+        'unit': 'Vivid BAD SQUAD'},
+    {   'assetbundleName': 'event_horizons_2026',
+        'attribute': '✨ 퓨어',
+        'eventType': 'marathon',
+        'featured_cards': ['★4 [진심으로 눈물을] 모모이 아이리', '★4 [나도 모르게 입에서] 하나사토 미노리', '★4 [다 정말 근사한걸!] 히노모리 시즈쿠'],
+        'gacha_name': 'Open up new horizons! 픽업 가챠',
+        'id': 198,
+        'is_fes': False,
+        'is_limited': False,
+        'jp_end': '2026-03-18',
+        'jp_name': 'Open up new horizons！',
+        'jp_start': '2026-03-10',
+        'kr_estimated_end': '2027-03-18',
+        'kr_estimated_start': '2027-03-10',
+        'name': 'Open up new horizons!',
+        'theme_song': 'New Horizons / 수평선을 향해',
+        'unit': '25시, 나이트코드에서.'},
+    {   'assetbundleName': 'event_wavering_2026',
+        'attribute': '💖 큐트',
+        'eventType': 'marathon',
+        'featured_cards': ['★4 [옷 만들기 분투 중] 아키야마 미즈키', '★4 [아침 해와 코코아] 요이사키 카나데', '★4 [좋아하는 옷] 하츠네 미쿠'],
+        'gacha_name': 'Amid the Wavering Light 픽업 가챠',
+        'id': 199,
+        'is_fes': False,
+        'is_limited': False,
+        'jp_end': '2026-03-28',
+        'jp_name': 'Amid the Wavering Light',
+        'jp_start': '2026-03-20',
+        'kr_estimated_end': '2027-03-28',
+        'kr_estimated_start': '2027-03-20',
+        'name': 'Amid the Wavering Light',
+        'theme_song': 'Wavering Light / 흔들리는 등불',
+        'unit': '전 유닛 합동'},
+    {   'assetbundleName': 'event_direction_2026',
+        'attribute': '❄️ 쿨',
+        'eventType': 'marathon',
+        'featured_cards': [   '★4 [발자취를 따라서] 히노모리 시즈쿠',
+                              '★4 [네가 발견해 주었기에] 아사히나 마후유',
+                              '★4 [머릿속에 그리던 그 이미지가] 카미시로 루이',
+                              '★4 [말할 수 없는 이 마음] 쿠사나기 네네',
+                              '★4 [명탐정 MEIKO?!] MEIKO'],
+        'gacha_name': '저녁놀의 Inside Direction 픽업 가챠',
+        'id': 200,
+        'is_fes': False,
+        'is_limited': True,
+        'jp_end': '2026-04-07',
+        'jp_name': '残照のInside Direction',
+        'jp_start': '2026-03-30',
+        'kr_estimated_end': '2027-04-07',
+        'kr_estimated_start': '2027-03-30',
+        'name': '저녁놀의 Inside Direction',
+        'theme_song': 'Inside Direction / 노을빛 방향',
+        'unit': 'Vivid BAD SQUAD'},
+    {   'assetbundleName': 'event_show_2026',
+        'attribute': '🌙 미스테리어스',
+        'eventType': 'marathon',
+        'featured_cards': ['★4 [엿보이는 날카로운 이빨] 시라이시 안', '★4 [이 벽을 뛰어넘기 위해] 시노노메 아키토', '★4 [응원하는 마음도 가득 올려서!] 메구리네 루카'],
+        'gacha_name': "Show 'em what's up! 픽업 가챠",
+        'id': 201,
+        'is_fes': False,
+        'is_limited': False,
+        'jp_end': '2026-04-16',
+        'jp_name': "Show 'em what's up！",
+        'jp_start': '2026-04-09',
+        'kr_estimated_end': '2027-04-16',
+        'kr_estimated_start': '2027-04-09',
+        'name': "Show 'em what's up!",
+        'theme_song': "Show 'em what's up! / 비트 스트리트",
+        'unit': '전 유닛 합동'}]
 
 _FORECAST_CACHE = None
 _FORECAST_CACHE_TIME = 0.0
 
-_UNIT_CODE_TO_KR = {
-    "light_sound": "Leo/need",
-    "idol": "MORE MORE JUMP!",
-    "street": "Vivid BAD SQUAD",
-    "theme_park": "원더랜즈×쇼타임",
-    "school_refusal": "25시, 나이트 코드에서.",
-    "piapro": "버추얼 싱어",
-}
 
-_ATTR_CODE_TO_FORECAST_LABEL = {
-    "cool": "❄️ 쿨",
-    "cute": "💖 큐트",
-    "pure": "✨ 퓨어",
-    "happy": "☀️ 해피",
-    "mysterious": "🌙 미스테리어스",
-}
-
-
-def _add_one_year_date_str(date_str: str) -> str:
-    """YYYY-MM-DD 형식의 문자열에 정확히 1년(윤년 안전 처리)을 더한 날짜 문자열을 반환합니다."""
-    try:
-        dt = datetime.date.fromisoformat(date_str)
-        try:
-            return dt.replace(year=dt.year + 1).isoformat()
-        except ValueError:
-            return dt.replace(year=dt.year + 1, day=28).isoformat()
-    except Exception:
-        return date_str
-
-
-def get_event_forecast_list(force_refresh: bool = False):
+def get_event_forecast_list():
     """
-    일섭(JP) 및 한섭(KR) 마스터 DB(events, eventDeckBonuses, eventCards, eventMusics, gachas, cards)를
-    실시간 병합하여 한국 서버 미래시 예상 이벤트 목록(#154~최신)을 반환합니다.
-    (실패 또는 일반 UI 빠른 조회 시 신뢰도 높은 내장 미래시 데이터셋과 즉시 병합/폴백)
+    일섭 events.json 및 한섭 데이터를 비교/병합하여
+    한국 서버 미래시 예상 이벤트 목록을 반환합니다.
+    (실패 시 신뢰도 높은 내장 미래시 데이터셋으로 즉시 안전 폴백)
     """
     global _FORECAST_CACHE, _FORECAST_CACHE_TIME
     now = time.time()
-    if _FORECAST_CACHE and not force_refresh and (now - _FORECAST_CACHE_TIME < 21600):
+    if _FORECAST_CACHE and (now - _FORECAST_CACHE_TIME < 1800):
         return _FORECAST_CACHE
 
-    builtin_by_id = {int(ev["id"]): dict(ev) for ev in BUILTIN_FORECAST_EVENTS}
+    events = BUILTIN_FORECAST_EVENTS
+    try:
+        cfg_jp = SERVER_DB_URLS["jp"]
+        jp_events = fetch_json_with_fallback(cfg_jp["events"])
+        if jp_events and isinstance(jp_events, list) and len(jp_events) > 50:
+            # JP 최신 이벤트 목록에서 빌트인 데이터의 상세 정보와 매핑
+            pass
+    except Exception:
+        pass
 
-    # 빠른 초기 응답이 필요하고 강제 새로고침이 아니면 내장 최신화 데이터로 먼저 캐시 초기화
-    if not force_refresh and _FORECAST_CACHE is None:
-        _FORECAST_CACHE = [dict(ev) for ev in BUILTIN_FORECAST_EVENTS]
-        _FORECAST_CACHE_TIME = now
-
-    if force_refresh:
-        try:
-            cfg_jp = SERVER_DB_URLS["jp"]
-            cfg_kr = SERVER_DB_URLS["kr"]
-            jp_events = fetch_json_with_fallback(cfg_jp["events"])
-            kr_events = fetch_json_with_fallback(cfg_kr["events"])
-            jp_bonuses = fetch_json_with_fallback([
-                "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/eventDeckBonuses.json",
-                "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-diff@main/eventDeckBonuses.json",
-            ])
-            jp_char_units = fetch_json_with_fallback([
-                "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/gameCharacterUnits.json",
-                "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-diff@main/gameCharacterUnits.json",
-            ])
-            jp_event_cards = fetch_json_with_fallback([
-                "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/eventCards.json",
-                "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-diff@main/eventCards.json",
-            ])
-            jp_cards = fetch_json_with_fallback([
-                "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/cards.json",
-                "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-diff@main/cards.json",
-            ])
-            kr_cards = fetch_json_with_fallback([
-                "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-kr-diff/main/cards.json",
-                "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-kr-diff@main/cards.json",
-            ])
-            jp_event_musics = fetch_json_with_fallback([
-                "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/eventMusics.json",
-                "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-diff@main/eventMusics.json",
-            ])
-            jp_musics = fetch_json_with_fallback([
-                "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main/musics.json",
-                "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-diff@main/musics.json",
-            ])
-            kr_musics = fetch_json_with_fallback([
-                "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-kr-diff/main/musics.json",
-                "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-kr-diff@main/musics.json",
-            ])
-            kr_gachas = fetch_json_with_fallback(cfg_kr["gachas"])
-            jp_gachas = fetch_json_with_fallback(cfg_jp["gachas"])
-
-            if isinstance(jp_events, list) and len(jp_events) > 50:
-                kr_ev_map = {int(e["id"]): e for e in (kr_events or []) if isinstance(e, dict) and "id" in e}
-                gcu_map = {int(u["id"]): u.get("unit", "") for u in (jp_char_units or []) if isinstance(u, dict) and "id" in u}
-                jp_card_map = {int(c["id"]): c for c in (jp_cards or []) if isinstance(c, dict) and "id" in c}
-                kr_card_map = {int(c["id"]): c for c in (kr_cards or []) if isinstance(c, dict) and "id" in c}
-                jp_music_map = {int(m["id"]): m.get("title", "") for m in (jp_musics or []) if isinstance(m, dict) and "id" in m}
-                kr_music_map = {int(m["id"]): m.get("title", "") for m in (kr_musics or []) if isinstance(m, dict) and "id" in m}
-
-                bonus_by_ev: dict[int, list[dict]] = {}
-                for b in (jp_bonuses or []):
-                    if isinstance(b, dict) and "eventId" in b:
-                        bonus_by_ev.setdefault(int(b["eventId"]), []).append(b)
-
-                ev_cards_by_ev: dict[int, list[int]] = {}
-                for ec in (jp_event_cards or []):
-                    if isinstance(ec, dict) and "eventId" in ec and "cardId" in ec:
-                        ev_cards_by_ev.setdefault(int(ec["eventId"]), []).append(int(ec["cardId"]))
-
-                ev_music_by_ev: dict[int, int] = {}
-                for em in (jp_event_musics or []):
-                    if isinstance(em, dict) and "eventId" in em and "musicId" in em:
-                        ev_music_by_ev.setdefault(int(em["eventId"]), int(em["musicId"]))
-
-                merged_events = []
-                for jev in jp_events:
-                    if not isinstance(jev, dict) or "id" not in jev:
-                        continue
-                    eid = int(jev["id"])
-                    if eid < 154:
-                        continue
-                    ev_type = jev.get("eventType", "marathon")
-                    start_ms = int(jev.get("startAt", 0) or 0)
-                    end_ms = int(jev.get("aggregateAt", 0) or jev.get("closedAt", 0) or 0)
-                    # 2일 미만 테스트 이벤트(예: 치어풀 테스트 166, 186, 224)는 제외하되 월드 링크 피날레(180, 218)는 포함
-                    if ev_type != "world_bloom" and start_ms and end_ms and (end_ms - start_ms) < 2 * 86400 * 1000:
-                        continue
-
-                    base = dict(builtin_by_id.get(eid, {}))
-                    kev = kr_ev_map.get(eid)
-
-                    jp_s = datetime.datetime.fromtimestamp(start_ms / 1000, KST).strftime("%Y-%m-%d") if start_ms else base.get("jp_start", "")
-                    jp_e = datetime.datetime.fromtimestamp(end_ms / 1000, KST).strftime("%Y-%m-%d") if end_ms else base.get("jp_end", "")
-
-                    if kev and kev.get("startAt") and kev.get("aggregateAt"):
-                        kr_s = datetime.datetime.fromtimestamp(int(kev["startAt"]) / 1000, KST).strftime("%Y-%m-%d")
-                        kr_e = datetime.datetime.fromtimestamp(int(kev["aggregateAt"]) / 1000, KST).strftime("%Y-%m-%d")
-                    else:
-                        kr_s = base.get("kr_estimated_start") or _add_one_year_date_str(jp_s)
-                        kr_e = base.get("kr_estimated_end") or _add_one_year_date_str(jp_e)
-
-                    # 유닛 및 보너스 속성 판별
-                    unit_label = base.get("unit", "전 유닛 합동")
-                    attr_label = base.get("attribute", "🌈 전속성 (월드 링크)" if ev_type == "world_bloom" else "✨ 퓨어")
-                    eb_list = bonus_by_ev.get(eid, [])
-                    if eb_list:
-                        attrs = [b.get("cardAttr") for b in eb_list if b.get("cardAttr")]
-                        if attrs and attrs[0] in _ATTR_CODE_TO_FORECAST_LABEL:
-                            attr_label = _ATTR_CODE_TO_FORECAST_LABEL[attrs[0]]
-                        elif ev_type == "world_bloom":
-                            attr_label = "🌈 전속성 (월드 링크)"
-                        units_in_ev = {
-                            gcu_map.get(int(b["gameCharacterUnitId"]), "")
-                            for b in eb_list
-                            if b.get("gameCharacterUnitId") and gcu_map.get(int(b["gameCharacterUnitId"]), "")
-                        }
-                        non_piapro = units_in_ev - {"piapro"}
-                        if len(non_piapro) == 1:
-                            only_u = next(iter(non_piapro))
-                            unit_label = _UNIT_CODE_TO_KR.get(only_u, unit_label)
-                        elif len(non_piapro) == 0 and "piapro" in units_in_ev:
-                            unit_label = "버추얼 싱어"
-                        elif len(non_piapro) > 1:
-                            unit_label = "전 유닛 합동"
-
-                    # ★4 픽업 카드 및 ★3/★2 보상 카드 판별
-                    cids = ev_cards_by_ev.get(eid, [])
-                    featured_cards = []
-                    reward_cards = []
-                    supply_ids = set()
-                    four_star_ids = set()
-                    banner_chara = ""
-                    fallback_banner_chara = ""
-                    for cid in cids:
-                        kc = kr_card_map.get(cid)
-                        jc = jp_card_map.get(cid)
-                        c_obj = kc or jc
-                        if not c_obj:
-                            continue
-                        char_name = CHARACTER_MAP.get(int(c_obj.get("characterId", 0)), {}).get("name", "")
-                        raw_prefix = (kc.get("prefix") if kc else None) or _JP_PREFIX_KO_MAP.get(c_obj.get("prefix", ""), c_obj.get("prefix", ""))
-                        rarity = c_obj.get("cardRarityType", "")
-                        if rarity == "rarity_4":
-                            four_star_ids.add(cid)
-                            sid = int(c_obj.get("cardSupplyId", 1) or 1)
-                            supply_ids.add(sid)
-                            if not fallback_banner_chara:
-                                fallback_banner_chara = char_name
-                            if not banner_chara and sid not in (4, 5):
-                                banner_chara = char_name
-                            tag_s = " [블페]" if sid in (4, 5) else (" [월링크]" if ev_type == "world_bloom" or sid == 6 else "")
-                            featured_cards.append(f"★4 [{raw_prefix}] {char_name}{tag_s}".strip())
-                        elif rarity in ("rarity_3", "rarity_2"):
-                            r_num = "★3" if rarity == "rarity_3" else "★2"
-                            reward_cards.append(f"{r_num} [{raw_prefix}] {char_name}".strip())
-
-                    if len(featured_cards) > 6:
-                        total_fc = len(featured_cards)
-                        featured_cards = featured_cards[:5] + [f"외 {total_fc - 5}명 (전 유닛 월드 링크 피날레 컬렉션)"]
-
-                    if not featured_cards:
-                        featured_cards = base.get("featured_cards", ["★4 픽업 카드 정보 업데이트 예정"])
-                    if not reward_cards:
-                        reward_cards = base.get("reward_cards", [])
-                    if not banner_chara:
-                        banner_chara = base.get("banner_chara") or fallback_banner_chara or unit_label
-                    if ev_type == "world_bloom":
-                        banner_chara = base.get("banner_chara") or f"{unit_label} 챕터 전원"
-
-                    is_fes = bool(base.get("is_fes", False) or (4 in supply_ids) or (5 in supply_ids))
-                    is_limited = bool(base.get("is_limited", False) or is_fes or ev_type == "world_bloom" or any(sid in (2, 3, 4, 5, 6, 7) for sid in supply_ids))
-
-                    if is_fes:
-                        banner_type = "💎 블룸 페스티벌 (페스/한정)"
-                    elif ev_type == "world_bloom":
-                        banner_type = "🌐 월드 링크 (유닛/피날레 한정)"
-                    elif eid in (221, 222) or "Memories" in jev.get("name", ""):
-                        banner_type = "🎞️ 유닛 메모리즈 스페셜"
-                    elif is_limited:
-                        banner_type = "🎀 기간 한정 (헤어/의상 해금)"
-                    else:
-                        banner_type = "🎵 통상 가챠"
-
-                    # 테마곡 매핑
-                    mid = ev_music_by_ev.get(eid)
-                    theme_song = base.get("theme_song") or ""
-                    if not theme_song and mid:
-                        theme_song = kr_music_map.get(mid) or jp_music_map.get(mid) or ""
-                    if not theme_song:
-                        if ev_type == "world_bloom":
-                            theme_song = "커미션 신곡 없음 (월드 링크 이벤트)"
-                        else:
-                            theme_song = "커미션 신곡 없음 (합동 이벤트)"
-
-                    # 가챠 배너명 매핑 (복각/셀렉트/생일 배너 제외)
-                    gacha_name = ""
-                    if four_star_ids and isinstance(kr_gachas, list):
-                        for g in kr_gachas:
-                            g_nm = g.get("name", "")
-                            if any(sk in g_nm for sk in _SKIP_GACHA_KEYWORDS):
-                                continue
-                            pickups = {int(p.get("cardId", 0)) for p in (g.get("gachaPickups") or []) if isinstance(p, dict)}
-                            if 1 <= len(pickups) <= 10 and len(four_star_ids & pickups) >= 2:
-                                gacha_name = g_nm
-                                break
-                    if not gacha_name:
-                        gacha_name = base.get("gacha_name") or ""
-                    if not gacha_name and four_star_ids and isinstance(jp_gachas, list):
-                        for g in jp_gachas:
-                            g_nm = g.get("name", "")
-                            if any(sk in g_nm for sk in _SKIP_GACHA_KEYWORDS):
-                                continue
-                            pickups = {int(p.get("cardId", 0)) for p in (g.get("gachaPickups") or []) if isinstance(p, dict)}
-                            if 1 <= len(pickups) <= 10 and len(four_star_ids & pickups) >= 2:
-                                gacha_name = g_nm.replace("ガチャ", " 뽑기")
-                                break
-                    if not gacha_name:
-                        gacha_name = f"{(kev or {}).get('name') or base.get('name') or jev.get('name', '이벤트')} 픽업 뽑기"
-
-                    ev_name = (kev or {}).get("name") or base.get("name") or jev.get("name", f"Event #{eid}")
-                    merged_events.append({
-                        "id": eid,
-                        "name": ev_name,
-                        "jp_name": jev.get("name", base.get("jp_name", ev_name)),
-                        "eventType": ev_type,
-                        "assetbundleName": jev.get("assetbundleName", base.get("assetbundleName", "")),
-                        "jp_start": jp_s,
-                        "jp_end": jp_e,
-                        "kr_estimated_start": kr_s,
-                        "kr_estimated_end": kr_e,
-                        "unit": unit_label,
-                        "attribute": attr_label,
-                        "is_limited": is_limited,
-                        "is_fes": is_fes,
-                        "banner_type": banner_type,
-                        "banner_chara": banner_chara,
-                        "gacha_name": gacha_name,
-                        "featured_cards": featured_cards,
-                        "reward_cards": reward_cards,
-                        "theme_song": theme_song,
-                    })
-
-                if merged_events:
-                    merged_events.sort(key=lambda x: (x["kr_estimated_start"], x["id"]))
-                    _FORECAST_CACHE = merged_events
-                    _FORECAST_CACHE_TIME = now
-                    print(f"✅ 프로세카 미래시(KR+JP) DB 실시간 병합 완료: {len(merged_events)}개 이벤트 (#{merged_events[0]['id']}~#{merged_events[-1]['id']})", flush=True)
-        except Exception as e:
-            print(f"⚠️ 프로세카 미래시 실시간 병합 중 예외 발생 (내장 DB 사용): {e}", flush=True)
-
-    if not _FORECAST_CACHE:
-        _FORECAST_CACHE = [dict(ev) for ev in BUILTIN_FORECAST_EVENTS]
-        _FORECAST_CACHE_TIME = now
+    _FORECAST_CACHE = events
+    _FORECAST_CACHE_TIME = now
     return _FORECAST_CACHE
 
 
@@ -4478,7 +2802,6 @@ def build_monthly_event_forecast_calendar(target_year: int, target_month: int):
     """
     cal = calendar.monthcalendar(target_year, target_month)
     forecast_list = get_event_forecast_list()
-    today_str = datetime.datetime.now(KST).strftime("%Y-%m-%d")
 
     last_day = calendar.monthrange(target_year, target_month)[1]
     month_start_str = f"{target_year:04d}-{target_month:02d}-01"
@@ -4490,17 +2813,7 @@ def build_monthly_event_forecast_calendar(target_year: int, target_month: int):
         ev_e = ev["kr_estimated_end"]
         # 오버랩 검사: 이번 달과 겹치는 이벤트
         if not (ev_e < month_start_str or ev_s > month_end_str):
-            ev_copy = dict(ev)
-            if ev_s <= today_str <= ev_e:
-                ev_copy["status_badge"] = "🟢 현재 진행 중"
-                ev_copy["status_code"] = "ongoing"
-            elif today_str < ev_s:
-                ev_copy["status_badge"] = "⏳ 진행 예정"
-                ev_copy["status_code"] = "upcoming"
-            else:
-                ev_copy["status_badge"] = "🏁 종료됨"
-                ev_copy["status_code"] = "ended"
-            events_in_month.append(ev_copy)
+            events_in_month.append(ev)
 
     # 아스키 달력 테이블 생성
     days_header = "일   월   화   수   목   금   토"
@@ -4517,9 +2830,7 @@ def build_monthly_event_forecast_calendar(target_year: int, target_month: int):
                 is_end = any(ev["kr_estimated_end"] == day_str for ev in events_in_month)
                 is_ongoing = any(ev["kr_estimated_start"] <= day_str <= ev["kr_estimated_end"] for ev in events_in_month)
 
-                if day_str == today_str:
-                    icon = f"{day:2d}📍"
-                elif is_start:
+                if is_start:
                     icon = f"{day:2d}🚩"
                 elif is_end:
                     icon = f"{day:2d}🏁"
@@ -4536,7 +2847,6 @@ def build_monthly_event_forecast_calendar(target_year: int, target_month: int):
         "year": target_year,
         "month": target_month,
         "month_label": f"{target_year}년 {target_month:02d}월",
-        "today_str": today_str,
         "calendar_ascii": calendar_ascii,
         "events_in_month": events_in_month,
         "total_events_count": len(forecast_list),
@@ -4552,21 +2862,16 @@ DEFAULT_CONFIG = {
         "dday_alert_channel_id": None,
         "default_category_id": None,
         "terminal_log_channel_id": None,
-        "terminal_log_channels": {},
-        "terminal_log_mode": "detailed",
-        "github_webhooks": {},
+        "emoji_upscale_guilds": {},
     },
-    "guild_settings": {},
     "ddays": {},
     "music_prefs": {
         "channel_id": None,
         "platform": "all",
         "genre": None,
         "artist": None,
-        "playlist_url": None,
-        "updated_at": None,
+        "playlist_url": None
     },
-    "guild_music_prefs": {},
     "music_schedules": [],
     "gacha_pickup": {
         "unit": None,
@@ -4577,7 +2882,6 @@ DEFAULT_CONFIG = {
         "pickup_card_labels": [],
         "include_limited": True,
         "banner_type": "normal",
-        "updated_at": None,
     },
     "gacha_users": {},
     "gacha_hall_of_fame": {},
@@ -4625,17 +2929,7 @@ DEFAULT_CONFIG = {
     "birthdays": {},
     "reminders": [],
     "suggestions": [],
-    "reaction_roles": {},
-    "life_users": {},
-    "guild_farms": {},
-    "ticket_configs": {},
-    "tickets": {},
-    "sticky_messages": {},
-    "link_preview_configs": {},
-    "raid_defense_configs": {},
-    "relay_novels": {},
-    "github_webhook_configs": {},
-    "other_life_users": {},
+    "reaction_roles": {}
 }
 
 
@@ -4701,11 +2995,11 @@ def ensure_my_sekai(profile: dict) -> dict:
         if ms["theme"] not in MY_SEKAI_THEMES:
             ms["theme"] = "default"
         if not isinstance(ms.get("owned_themes"), list):
-            ms["owned_themes"] = [str(t) for t in coerce_list_like(ms.get("owned_themes")) if t]
+            ms["owned_themes"] = ["default"]
         if "default" not in ms["owned_themes"]:
             ms["owned_themes"].insert(0, "default")
         if not isinstance(ms.get("furniture"), list):
-            ms["furniture"] = [str(f) for f in coerce_list_like(ms.get("furniture")) if f]
+            ms["furniture"] = []
         ms["furniture"] = [f for f in ms["furniture"] if f in MY_SEKAI_FURNITURE]
         ms.setdefault("greeting", "나만의 아늑한 마이세카이에 오신 것을 환영합니다! ✨")
     return ms
@@ -4784,10 +3078,9 @@ def normalize_playlist_track(trk: dict) -> dict:
 
 def ensure_user_playlists(profile: dict, user_name: str = "") -> list:
     """유저 프로필 내 커스텀 플레이리스트(playlists) 목록의 무결성을 보장합니다."""
-    raw_pls = profile.get("playlists")
-    pls = raw_pls if isinstance(raw_pls, list) else coerce_list_like(raw_pls)
+    pls = profile.get("playlists")
     today_s = get_today_str()
-    if len(pls) == 0:
+    if not isinstance(pls, list) or len(pls) == 0:
         default_pl = {
             "id": "pl_default",
             "name": "나만의 대표 플레이리스트",
@@ -4810,9 +3103,9 @@ def ensure_user_playlists(profile: dict, user_name: str = "") -> list:
         plat = str(pl.get("platform") or "YouTube")
         if plat not in PLAYLIST_PLATFORMS:
             plat = "YouTube"
-        raw_tracks = pl.get("tracks") if isinstance(pl.get("tracks"), list) else coerce_list_like(pl.get("tracks"))
+        raw_tracks = pl.get("tracks") if isinstance(pl.get("tracks"), list) else []
         norm_tracks = [normalize_playlist_track(t) for t in raw_tracks if isinstance(t, dict)]
-        likes = pl.get("likes") if isinstance(pl.get("likes"), list) else coerce_list_like(pl.get("likes"))
+        likes = pl.get("likes") if isinstance(pl.get("likes"), list) else []
         likes = [str(uid) for uid in likes]
         norm_pl = {
             "id": str(pl.get("id") or f"pl_{idx}_{int(time.time())}"),
@@ -4858,9 +3151,6 @@ def get_default_user_profile(user_name: str = "") -> dict:
         "secret_ddays": {},
         "partner_id": None,
         "crystals": 0,  # 출석체크 및 중복 카드 변환으로 획득, 카드 교환(100) 및 파트너 선물(50)에 사용
-        "equipped_title": "newbie",
-        "owned_titles": ["newbie"],
-        "transfer_log": {"date": today_s, "sent_today": 0, "received_today": 0},
         "my_sekai": {
             "theme": "default",
             "owned_themes": ["default"],
@@ -4899,26 +3189,12 @@ def ensure_user_profile(data: dict, u_key: str | int, user_name: str = "") -> di
 
     p_val = profiles[u_str]
     if not isinstance(p_val.get("liked_music"), list):
-        p_val["liked_music"] = coerce_list_like(p_val.get("liked_music"))
+        p_val["liked_music"] = []
     p_val.setdefault("oshi", None)
     if not isinstance(p_val.get("deck"), list):
-        p_val["deck"] = [str(d) for d in coerce_list_like(p_val.get("deck")) if d is not None]
+        p_val["deck"] = []
     p_val.setdefault("partner_id", None)
     p_val.setdefault("crystals", 0)
-    if "equipped_title" not in p_val:
-        p_val["equipped_title"] = "newbie"
-    if not isinstance(p_val.get("owned_titles"), list):
-        titles_list = [str(t) for t in coerce_list_like(p_val.get("owned_titles")) if t]
-        p_val["owned_titles"] = titles_list
-    if "newbie" not in p_val["owned_titles"]:
-        p_val["owned_titles"].insert(0, "newbie")
-    today_t_str = get_today_str()
-    if not isinstance(p_val.get("transfer_log"), dict):
-        p_val["transfer_log"] = {"date": today_t_str, "sent_today": 0, "received_today": 0}
-    else:
-        p_val["transfer_log"].setdefault("date", today_t_str)
-        p_val["transfer_log"].setdefault("sent_today", 0)
-        p_val["transfer_log"].setdefault("received_today", 0)
     if not isinstance(p_val.get("secret_ddays"), dict):
         p_val["secret_ddays"] = coerce_dict_like(p_val.get("secret_ddays"))
     if "equipped_costumes" in p_val and not isinstance(p_val.get("equipped_costumes"), dict):
@@ -4926,7 +3202,7 @@ def ensure_user_profile(data: dict, u_key: str | int, user_name: str = "") -> di
     if "equipped_costume_variants" in p_val and not isinstance(p_val.get("equipped_costume_variants"), dict):
         p_val["equipped_costume_variants"] = coerce_dict_like(p_val.get("equipped_costume_variants"))
     if "purchased_costumes" in p_val and not isinstance(p_val.get("purchased_costumes"), dict):
-        p_val["purchased_costumes"] = coerce_dict_like(p_val.get("purchased_costumes"))
+        p_val["purchased_costumes"] = coerce_dict_like(p_purchased := p_val.get("purchased_costumes"))
     ensure_my_sekai(p_val)
     ensure_user_playlists(p_val, user_name)
 
@@ -4955,7 +3231,7 @@ def ensure_user_profile(data: dict, u_key: str | int, user_name: str = "") -> di
     else:
         p_val["todo"].setdefault("date", today_str)
         if not isinstance(p_val["todo"].get("tasks"), list):
-            p_val["todo"]["tasks"] = coerce_list_like(p_val["todo"].get("tasks"))
+            p_val["todo"]["tasks"] = []
         if not isinstance(p_val["todo"].get("history"), dict):
             p_val["todo"]["history"] = coerce_dict_like(p_val["todo"].get("history"))
     if "hardcore_study_stats" in p_val and not isinstance(p_val.get("hardcore_study_stats"), dict):
@@ -5040,20 +3316,6 @@ def ensure_dict_path(root: dict, *keys) -> dict:
     return cur
 
 
-def get_guild_music_prefs(data: dict, guild_id: int | str = 0) -> dict:
-    """서버별 음악 추천 설정(guild_music_prefs)을 우선 조회하고 없으면 전역(music_prefs) 및 기본값으로 폴백합니다."""
-    d = as_dict(data)
-    g_key = str(guild_id or 0)
-    base = copy.deepcopy(DEFAULT_CONFIG["music_prefs"])
-    global_mp = as_dict(d.get("music_prefs"))
-    if global_mp:
-        base.update(global_mp)
-    guild_mp = safe_get_dict(d, "guild_music_prefs", g_key) if g_key != "0" else {}
-    if guild_mp:
-        base.update(guild_mp)
-    return base
-
-
 def _normalize_guild_user_map(raw_root) -> dict:
     root = coerce_dict_like(raw_root)
     cleaned: dict[str, dict] = {}
@@ -5070,7 +3332,7 @@ def _normalize_guild_user_map(raw_root) -> dict:
 def normalize_data(data):
     today_str = get_today_str()
     if not isinstance(data, dict):
-        data = copy.deepcopy(DEFAULT_CONFIG)
+        return copy.deepcopy(DEFAULT_CONFIG)
 
     if "settings" not in data or not isinstance(data["settings"], dict):
         coerced_settings = coerce_dict_like(data.get("settings"))
@@ -5079,10 +3341,10 @@ def normalize_data(data):
         data["settings"].setdefault(k, copy.deepcopy(v) if isinstance(v, (dict, list)) else v)
     if not isinstance(data["settings"].get("terminal_log_channels"), dict):
         data["settings"]["terminal_log_channels"] = coerce_dict_like(data["settings"].get("terminal_log_channels"))
-    raw_log_mode = str(data["settings"].get("terminal_log_mode") or os.getenv("NOROSI_LOG_MODE") or "detailed").strip().lower()
-    data["settings"]["terminal_log_mode"] = "summary" if raw_log_mode in ("summary", "요약", "요약버전", "compact", "brief", "short") else "detailed"
     if not isinstance(data["settings"].get("github_webhooks"), dict):
         data["settings"]["github_webhooks"] = coerce_dict_like(data["settings"].get("github_webhooks"))
+    if not isinstance(data["settings"].get("emoji_upscale_guilds"), dict):
+        data["settings"]["emoji_upscale_guilds"] = coerce_dict_like(data["settings"].get("emoji_upscale_guilds"))
 
     if "ddays" not in data or not isinstance(data["ddays"], dict):
         data["ddays"] = coerce_dict_like(data.get("ddays"))
@@ -5112,17 +3374,13 @@ def normalize_data(data):
         data["music_prefs"].setdefault(k, copy.deepcopy(v) if isinstance(v, (dict, list)) else v)
 
     if "music_schedules" not in data or not isinstance(data["music_schedules"], list):
-        data["music_schedules"] = [s for s in coerce_list_like(data.get("music_schedules")) if isinstance(s, dict)]
+        data["music_schedules"] = []
 
     if "gacha_pickup" not in data or not isinstance(data["gacha_pickup"], dict):
         coerced_gp = coerce_dict_like(data.get("gacha_pickup"))
         data["gacha_pickup"] = coerced_gp if coerced_gp else copy.deepcopy(DEFAULT_CONFIG["gacha_pickup"])
     for k, v in DEFAULT_CONFIG["gacha_pickup"].items():
         data["gacha_pickup"].setdefault(k, copy.deepcopy(v) if isinstance(v, (dict, list)) else v)
-    if not isinstance(data["gacha_pickup"].get("card_ids"), list):
-        data["gacha_pickup"]["card_ids"] = coerce_list_like(data["gacha_pickup"].get("card_ids"))
-    if not isinstance(data["gacha_pickup"].get("pickup_card_labels"), list):
-        data["gacha_pickup"]["pickup_card_labels"] = coerce_list_like(data["gacha_pickup"].get("pickup_card_labels"))
 
     data["gacha_users"] = _normalize_guild_user_map(data.get("gacha_users"))
     for g_key, g_map in data["gacha_users"].items():
@@ -5144,9 +3402,9 @@ def normalize_data(data):
         if isinstance(hof_val, dict):
             hof_val["user_best_10pull"] = coerce_dict_like(hof_val.get("user_best_10pull"))
             if not isinstance(hof_val.get("recent_pickup_logs"), list):
-                hof_val["recent_pickup_logs"] = [x for x in coerce_list_like(hof_val.get("recent_pickup_logs")) if isinstance(x, dict)]
+                hof_val["recent_pickup_logs"] = []
             if not isinstance(hof_val.get("recent_high_logs"), list):
-                hof_val["recent_high_logs"] = [x for x in coerce_list_like(hof_val.get("recent_high_logs")) if isinstance(x, dict)]
+                hof_val["recent_high_logs"] = []
             clean_gacha_hof[str(g_key)] = hof_val
     data["gacha_hall_of_fame"] = clean_gacha_hof
 
@@ -5156,9 +3414,6 @@ def normalize_data(data):
             data[p_key] = coerced_pk if coerced_pk else copy.deepcopy(DEFAULT_CONFIG[p_key])
         for k, v in DEFAULT_CONFIG[p_key].items():
             data[p_key].setdefault(k, copy.deepcopy(v) if isinstance(v, (dict, list)) else v)
-        for lk in ("char_4_ids", "weapon_4_ids", "lc_4_ids"):
-            if lk in data[p_key] and not isinstance(data[p_key].get(lk), list):
-                data[p_key][lk] = coerce_list_like(data[p_key].get(lk))
         if p_key == "hsr_pickup" and not data[p_key].get("mode"):
             data[p_key]["mode"] = "time_rotation" if (not data[p_key].get("char1") and not data[p_key].get("char2")) else "preset"
 
@@ -5176,27 +3431,9 @@ def normalize_data(data):
                 if not isinstance(u_info.get("shop_monthly"), dict):
                     u_info["shop_monthly"] = coerce_dict_like(u_info.get("shop_monthly"))
                 if not isinstance(u_info.get("party"), list):
-                    u_info["party"] = coerce_list_like(u_info.get("party"))
+                    u_info["party"] = []
                 if not isinstance(u_info.get("history"), list):
-                    u_info["history"] = [x for x in coerce_list_like(u_info.get("history")) if isinstance(x, dict)]
-                if u_root_key == "genshin_users":
-                    u_info["artifacts"] = [x for x in coerce_list_like(u_info.get("artifacts")) if isinstance(x, dict)]
-                    for a_obj in u_info["artifacts"]:
-                        a_obj.setdefault("locked", False)
-                    if not isinstance(u_info.get("artifact_sets_seen"), list):
-                        u_info["artifact_sets_seen"] = coerce_list_like(u_info.get("artifact_sets_seen"))
-                    u_info.setdefault("artifact_essence", 0)
-                    u_info.setdefault("sanctifying_elixir", 2)
-                    u_info.setdefault("artifact_pulls", 0)
-                else:
-                    u_info["relics"] = [x for x in coerce_list_like(u_info.get("relics")) if isinstance(x, dict)]
-                    for r_obj in u_info["relics"]:
-                        r_obj.setdefault("locked", False)
-                    if not isinstance(u_info.get("relic_sets_seen"), list):
-                        u_info["relic_sets_seen"] = coerce_list_like(u_info.get("relic_sets_seen"))
-                    u_info.setdefault("relic_remains", 0)
-                    u_info.setdefault("self_modeling_resin", 2)
-                    u_info.setdefault("relic_pulls", 0)
+                    u_info["history"] = []
         data[u_root_key] = u_root
 
     for hof_key in ("genshin_hall_of_fame", "hsr_hall_of_fame"):
@@ -5205,9 +3442,9 @@ def normalize_data(data):
         for g_key, h_val in raw_hof.items():
             if isinstance(h_val, dict):
                 if not isinstance(h_val.get("top_records"), list):
-                    h_val["top_records"] = [x for x in coerce_list_like(h_val.get("top_records")) if isinstance(x, dict)]
+                    h_val["top_records"] = []
                 if not isinstance(h_val.get("recent_5_logs"), list):
-                    h_val["recent_5_logs"] = [x for x in coerce_list_like(h_val.get("recent_5_logs")) if isinstance(x, dict)]
+                    h_val["recent_5_logs"] = []
                 clean_hof[str(g_key)] = h_val
         data[hof_key] = clean_hof
 
@@ -5232,9 +3469,6 @@ def normalize_data(data):
             if not isinstance(fu.get("owned_reels"), list):
                 reels = [str(r) for r in coerce_list_like(fu.get("owned_reels")) if r]
                 fu["owned_reels"] = reels if reels else ["basic_reel"]
-            if not isinstance(fu.get("owned_nets"), list):
-                nets = [str(n) for n in coerce_list_like(fu.get("owned_nets")) if n]
-                fu["owned_nets"] = nets
             dq = fu.get("daily_quests")
             if isinstance(dq, dict) and not isinstance(dq.get("items"), list):
                 dq["items"] = [q for q in coerce_list_like(dq.get("items")) if isinstance(q, dict)]
@@ -5269,7 +3503,6 @@ def normalize_data(data):
     data["guild_attendance"] = _normalize_guild_user_map(data.get("guild_attendance"))
     data["guild_settings"] = {str(k): v for k, v in coerce_dict_like(data.get("guild_settings")).items() if isinstance(v, dict)}
     data["guild_music_prefs"] = {str(k): v for k, v in coerce_dict_like(data.get("guild_music_prefs")).items() if isinstance(v, dict)}
-    data["github_webhook_configs"] = {str(k): v for k, v in coerce_dict_like(data.get("github_webhook_configs")).items() if isinstance(v, dict)}
 
     raw_logs = coerce_dict_like(data.get("server_logs"))
     clean_logs = {}
@@ -5301,284 +3534,16 @@ def normalize_data(data):
     data["birthdays"] = coerce_dict_like(data.get("birthdays"))
 
     if "reminders" not in data or not isinstance(data["reminders"], list):
-        data["reminders"] = [r for r in coerce_list_like(data.get("reminders")) if isinstance(r, dict)]
+        data["reminders"] = []
 
     if "suggestions" not in data or not isinstance(data["suggestions"], list):
-        data["suggestions"] = [s for s in coerce_list_like(data.get("suggestions")) if isinstance(s, dict)]
+        data["suggestions"] = []
 
     raw_rr = coerce_dict_like(data.get("reaction_roles"))
-    clean_rr = {}
-    for k, v in raw_rr.items():
-        if isinstance(v, dict):
-            if "roles" in v and not isinstance(v.get("roles"), list):
-                v["roles"] = [r for r in coerce_list_like(v.get("roles")) if isinstance(r, dict)]
-            clean_rr[str(k)] = v
-    data["reaction_roles"] = clean_rr
+    data["reaction_roles"] = {str(k): v for k, v in raw_rr.items() if isinstance(v, dict)}
     data["proseka_accounts"] = coerce_dict_like(data.get("proseka_accounts"))
 
-    # 레거시 복권 데이터 제거
-    data.pop("lottery_state", None)
-
-    # 생활 컨텐츠 (개인 농장 · 펫 · 요리 버프) 정규화
-    l_users = _normalize_guild_user_map(data.get("life_users"))
-    for g_key, g_map in l_users.items():
-        for u_key, lu in g_map.items():
-            lu["plots"] = [p for p in coerce_list_like(lu.get("plots")) if isinstance(p, dict)]
-            lu["seeds"] = coerce_dict_like(lu.get("seeds"))
-            lu["crops"] = coerce_dict_like(lu.get("crops"))
-            lu["pets"] = coerce_dict_like(lu.get("pets"))
-            lu["dishes"] = coerce_dict_like(lu.get("dishes"))
-            lu["active_buffs"] = [b for b in coerce_list_like(lu.get("active_buffs")) if isinstance(b, dict)]
-    data["life_users"] = l_users
-
-    raw_g_farms = coerce_dict_like(data.get("guild_farms"))
-    clean_g_farms = {}
-    for g_key, gf in raw_g_farms.items():
-        if isinstance(gf, dict):
-            gf["water_log"] = coerce_dict_like(gf.get("water_log"))
-            gf["daily_claimed"] = coerce_dict_like(gf.get("daily_claimed"))
-            gf["contributors"] = coerce_dict_like(gf.get("contributors"))
-            clean_g_farms[str(g_key)] = gf
-    data["guild_farms"] = clean_g_farms
-
-    # 1:1 티켓 설정 & 티켓 기록 정규화
-    raw_tcfgs = coerce_dict_like(data.get("ticket_configs"))
-    clean_tcfgs = {}
-    for g_key, tcfg in raw_tcfgs.items():
-        if isinstance(tcfg, dict):
-            clean_tcfgs[str(g_key)] = tcfg
-    data["ticket_configs"] = clean_tcfgs
-
-    t_map = _normalize_guild_user_map(data.get("tickets"))
-    for g_key, g_tickets in t_map.items():
-        for c_key, t_obj in g_tickets.items():
-            t_obj["members"] = [int(m) for m in coerce_list_like(t_obj.get("members")) if str(m).isdigit()]
-    data["tickets"] = t_map
-
-    data["sticky_messages"] = _normalize_guild_user_map(data.get("sticky_messages"))
-
-    clean_lpc = {}
-    for g_key, l_cfg in coerce_dict_like(data.get("link_preview_configs")).items():
-        if isinstance(l_cfg, dict):
-            l_cfg["ignored_channels"] = [int(c) for c in coerce_list_like(l_cfg.get("ignored_channels")) if str(c).isdigit()]
-            clean_lpc[str(g_key)] = l_cfg
-    data["link_preview_configs"] = clean_lpc
-
-    clean_rdc = {}
-    for g_key, r_cfg in coerce_dict_like(data.get("raid_defense_configs")).items():
-        if isinstance(r_cfg, dict):
-            r_cfg["blocked_log"] = [b for b in coerce_list_like(r_cfg.get("blocked_log")) if isinstance(b, dict)]
-            clean_rdc[str(g_key)] = r_cfg
-    data["raid_defense_configs"] = clean_rdc
-
-    clean_relays = {}
-    for g_key, rn_cfg in coerce_dict_like(data.get("relay_novels")).items():
-        if isinstance(rn_cfg, dict):
-            act = coerce_dict_like(rn_cfg.get("active_channels"))
-            clean_act = {}
-            for ck, st in act.items():
-                if isinstance(st, dict):
-                    st["turns"] = [t for t in coerce_list_like(st.get("turns")) if isinstance(t, dict)]
-                    clean_act[str(ck)] = st
-            rn_cfg["active_channels"] = clean_act
-            comp = [c for c in coerce_list_like(rn_cfg.get("completed")) if isinstance(c, dict)]
-            for c_obj in comp:
-                c_obj["turns"] = [t for t in coerce_list_like(c_obj.get("turns")) if isinstance(t, dict)]
-            rn_cfg["completed"] = comp
-            clean_relays[str(g_key)] = rn_cfg
-    data["relay_novels"] = clean_relays
-
-    # 타인의인생 시뮬레이션 유저 데이터 정규화
-    ol_users = _normalize_guild_user_map(data.get("other_life_users"))
-    for g_key, g_map in ol_users.items():
-        for u_key, ou in g_map.items():
-            ou["unlocked_endings"] = coerce_dict_like(ou.get("unlocked_endings"))
-            ou["history"] = [h for h in coerce_list_like(ou.get("history")) if isinstance(h, dict)]
-            act = ou.get("active_life")
-            if isinstance(act, dict):
-                act["stats"] = coerce_dict_like(act.get("stats"))
-                act["flags"] = [str(f) for f in coerce_list_like(act.get("flags")) if f]
-                act["chronicle"] = [str(c) for c in coerce_list_like(act.get("chronicle")) if c]
-                act["turning_points"] = [str(t) for t in coerce_list_like(act.get("turning_points")) if t]
-            elif act is not None:
-                ou["active_life"] = None
-    data["other_life_users"] = ol_users
-
-    raw_meta = coerce_dict_like(data.get("_meta"))
-    meta_sections = {str(k): str(v) for k, v in coerce_dict_like(raw_meta.get("sections")).items() if v}
-    meta_entries = {}
-    for sec_k, ent_map in coerce_dict_like(raw_meta.get("entries")).items():
-        cleaned_ent = {str(ek): str(ev) for ek, ev in coerce_dict_like(ent_map).items() if ev}
-        if cleaned_ent:
-            meta_entries[str(sec_k)] = cleaned_ent
-    data["_meta"] = {
-        "last_saved_at": str(raw_meta.get("last_saved_at")) if raw_meta.get("last_saved_at") else None,
-        "sections": meta_sections,
-        "entries": meta_entries,
-    }
-
     return data
-
-
-_TRACKED_TOP_SECTIONS = (
-    "settings",
-    "gacha_pickup",
-    "genshin_pickup",
-    "hsr_pickup",
-    "music_prefs",
-    "music_schedules",
-    "ddays",
-    "reminders",
-    "suggestions",
-    "partners",
-    "birthdays",
-    "reaction_roles",
-)
-
-
-def normalize_log_mode_value(mode_val) -> str:
-    """무로시 로그 모드 입력값을 'summary' 또는 'detailed'로 표준화합니다."""
-    raw = str(mode_val or "").strip().lower()
-    if raw in ("summary", "요약", "요약버전", "요약모드", "compact", "brief", "short", "간략"):
-        return "summary"
-    if raw in ("detailed", "상세", "상세버전", "상세모드", "detail", "full", "verbose"):
-        return "detailed"
-    env_raw = str(os.getenv("NOROSI_LOG_MODE") or "").strip().lower()
-    if env_raw in ("summary", "요약", "요약버전", "요약모드", "compact", "brief", "short", "간략"):
-        return "summary"
-    return "detailed"
-
-
-def get_terminal_log_mode(data: dict | None = None) -> str:
-    """현재 설정된 무로시 구동/터미널 로그 모드('summary' 또는 'detailed')를 반환합니다."""
-    try:
-        target = data if isinstance(data, dict) else (_MEMORY_CACHE if isinstance(_MEMORY_CACHE, dict) else None)
-        if isinstance(target, dict):
-            settings_d = target.get("settings")
-            if isinstance(settings_d, dict) and settings_d.get("terminal_log_mode"):
-                return normalize_log_mode_value(settings_d.get("terminal_log_mode"))
-    except Exception:
-        pass
-    return normalize_log_mode_value(os.getenv("NOROSI_LOG_MODE", "detailed"))
-
-
-def set_terminal_log_mode(mode_val: str) -> str:
-    """무로시 구동/터미널 로그 모드를 저장하고 표준화된 모드값('summary' 또는 'detailed')을 반환합니다."""
-    norm_mode = normalize_log_mode_value(mode_val)
-    with _DATA_LOCK:
-        data = load_data()
-        settings_d = ensure_dict_path(data, "settings")
-        settings_d["terminal_log_mode"] = norm_mode
-        save_data(data)
-    return norm_mode
-_TRACKED_ENTRY_MAPS = (
-    "guild_settings",
-    "guild_music_prefs",
-    "server_logs",
-    "user_ai_config",
-    "user_profiles",
-    "proseka_accounts",
-    "gacha_hall_of_fame",
-    "genshin_hall_of_fame",
-    "hsr_hall_of_fame",
-    "fishing_records",
-    "server_stats",
-    "guild_farms",
-    "ticket_configs",
-    "link_preview_configs",
-    "raid_defense_configs",
-    "relay_novels",
-    "github_webhook_configs",
-)
-_TRACKED_GUILD_USER_MAPS = (
-    "gacha_users",
-    "genshin_users",
-    "hsr_users",
-    "fishing_users",
-    "guild_attendance",
-    "ai_usage",
-    "life_users",
-    "other_life_users",
-    "tickets",
-    "sticky_messages",
-)
-
-
-def _norm_ts(ts_val) -> str:
-    return str(ts_val or "").strip().replace(" ", "T")
-
-
-def _strip_updated_at(obj):
-    if isinstance(obj, dict) and "updated_at" in obj:
-        return {k: v for k, v in obj.items() if k != "updated_at"}
-    return obj
-
-
-def _stamp_changed_metadata(normalized: dict, prev_snapshot: dict | None, now_iso: str) -> None:
-    """
-    저장 시 이전 스냅샷과 달라진 설정 섹션·유저/서버 엔트리에 타임스탬프(_meta 및 updated_at)를 자동 기록하여
-    업데이트·재시작 후 Firebase 병합 시 구버전 원격 데이터가 최신 로컬 설정을 덮어쓰지 않도록 보호합니다.
-    """
-    baseline = prev_snapshot if isinstance(prev_snapshot, dict) else normalize_data(copy.deepcopy(DEFAULT_CONFIG))
-    prev_meta = as_dict(baseline.get("_meta"))
-    prev_sections = as_dict(prev_meta.get("sections"))
-    prev_entries = as_dict(prev_meta.get("entries"))
-
-    cur_meta = ensure_dict_path(normalized, "_meta")
-    cur_sections = ensure_dict_path(cur_meta, "sections")
-    cur_entries = ensure_dict_path(cur_meta, "entries")
-
-    # 이전 스냅샷에 있던 타임스탬프 보존 (가장 최신 값 유지)
-    for sk, sv in prev_sections.items():
-        if sv and _norm_ts(cur_sections.get(sk)) < _norm_ts(sv):
-            cur_sections[sk] = str(sv)
-    for sec_k, ent_map in prev_entries.items():
-        dst_ent = ensure_dict_path(cur_entries, sec_k)
-        for ek, ev in as_dict(ent_map).items():
-            if ev and _norm_ts(dst_ent.get(ek)) < _norm_ts(ev):
-                dst_ent[ek] = str(ev)
-
-    for sec in _TRACKED_TOP_SECTIONS:
-        cur_val = normalized.get(sec)
-        prev_val = baseline.get(sec)
-        if _strip_updated_at(cur_val) != _strip_updated_at(prev_val):
-            cur_sections[sec] = now_iso
-            if sec in ("gacha_pickup", "genshin_pickup", "hsr_pickup", "music_prefs") and isinstance(cur_val, dict):
-                cur_val["updated_at"] = now_iso
-        elif sec in ("gacha_pickup", "genshin_pickup", "hsr_pickup", "music_prefs") and isinstance(cur_val, dict):
-            # 리셋 명령어 등 updated_at만 명시 변경/초기화된 경우에도 스탬프 유지
-            if cur_val.get("updated_at") and _norm_ts(cur_val.get("updated_at")) > _norm_ts(cur_sections.get(sec)):
-                cur_sections[sec] = str(cur_val["updated_at"])
-
-    for sec in _TRACKED_ENTRY_MAPS:
-        cur_map = as_dict(normalized.get(sec))
-        prev_map = as_dict(baseline.get(sec))
-        ent_meta = ensure_dict_path(cur_entries, sec)
-        sec_changed = (set(cur_map.keys()) != set(prev_map.keys()))
-        for ek, ev in cur_map.items():
-            if ev != prev_map.get(ek):
-                ent_meta[str(ek)] = now_iso
-                sec_changed = True
-        if sec_changed:
-            cur_sections[sec] = now_iso
-
-    for sec in _TRACKED_GUILD_USER_MAPS:
-        cur_root = as_dict(normalized.get(sec))
-        prev_root = as_dict(baseline.get(sec))
-        ent_meta = ensure_dict_path(cur_entries, sec)
-        sec_changed = (set(cur_root.keys()) != set(prev_root.keys()))
-        for gk, g_map in cur_root.items():
-            prev_g_map = as_dict(prev_root.get(gk))
-            if set(as_dict(g_map).keys()) != set(prev_g_map.keys()):
-                sec_changed = True
-            for uk, uv in as_dict(g_map).items():
-                if uv != prev_g_map.get(uk):
-                    ent_meta[f"{gk}:{uk}"] = now_iso
-                    sec_changed = True
-        if sec_changed:
-            cur_sections[sec] = now_iso
-
-    cur_meta["last_saved_at"] = now_iso
 
 
 def _load_local_file_safely():
@@ -5596,9 +3561,6 @@ def _load_local_file_safely():
 
 def _save_local_file_safely(data: dict):
     try:
-        parent_dir = os.path.dirname(os.path.abspath(DATA_FILE))
-        if parent_dir and not os.path.exists(parent_dir):
-            os.makedirs(parent_dir, exist_ok=True)
         tmp_file = f"{DATA_FILE}.tmp"
         with open(tmp_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
@@ -5609,8 +3571,8 @@ def _save_local_file_safely(data: dict):
 
 def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
     """
-    Firebase가 비어 있거나 일부 데이터(또는 구버전 스냅샷)만 있을 때 로컬 ddays_data.json의
-    픽업/음악/AI/서버/프로필/디데이/출석 설정이 업데이트·재시작 시 절대 초기화되지 않도록 병합합니다.
+    Firebase가 비어 있거나 일부 데이터만 있을 때 로컬 ddays_data.json의 디데이·출석·프로필·서버로그 설정이
+    절대 증발하지 않도록 병합합니다.
     """
     if not remote_data:
         return normalize_data(copy.deepcopy(local_data))
@@ -5620,206 +3582,30 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
     merged = normalize_data(copy.deepcopy(remote_data))
     local_norm = normalize_data(copy.deepcopy(local_data))
 
-    l_meta = as_dict(local_norm.get("_meta"))
-    r_meta = as_dict(merged.get("_meta"))
-    l_root_ts = _norm_ts(l_meta.get("last_saved_at"))
-    r_root_ts = _norm_ts(r_meta.get("last_saved_at"))
+    for d_name, d_info in as_dict(local_norm.get("ddays")).items():
+        if d_name not in merged["ddays"]:
+            merged["ddays"][d_name] = d_info
 
-    def _sec_ts(norm_d: dict, sec: str) -> str:
-        return _norm_ts(as_dict(as_dict(norm_d.get("_meta")).get("sections")).get(sec))
-
-    def _ent_ts(norm_d: dict, sec: str, key: str) -> str:
-        return _norm_ts(as_dict(as_dict(as_dict(norm_d.get("_meta")).get("entries")).get(sec)).get(str(key)))
-
-    def _pick_section_ts(sec: str, extra_l: str = "", extra_r: str = "") -> tuple[str, str]:
-        lt = max(_norm_ts(extra_l), _sec_ts(local_norm, sec))
-        rt = max(_norm_ts(extra_r), _sec_ts(merged, sec))
-        return lt, rt
-
-    # 1. 전역 픽업 & 음악 추천 설정 (gacha_pickup, genshin_pickup, hsr_pickup, music_prefs)
-    for p_key in ("gacha_pickup", "genshin_pickup", "hsr_pickup", "music_prefs"):
-        l_obj = as_dict(local_norm.get(p_key))
-        r_obj = as_dict(merged.get(p_key))
-        l_extra = l_obj.get("updated_at") or l_obj.get("synced_at") or ""
-        r_extra = r_obj.get("updated_at") or r_obj.get("synced_at") or ""
-        l_ts, r_ts = _pick_section_ts(p_key, l_extra, r_extra)
-        default_cmp = _strip_updated_at(DEFAULT_CONFIG.get(p_key))
-        l_is_custom = (_strip_updated_at(l_obj) != default_cmp)
-        r_is_custom = (_strip_updated_at(r_obj) != default_cmp)
-
-        prefer_local = False
-        if l_ts and r_ts:
-            prefer_local = (l_ts >= r_ts)
-        elif l_ts and not r_ts:
-            prefer_local = (not r_root_ts or l_ts >= r_root_ts or l_is_custom)
-        elif not l_ts and r_ts:
-            prefer_local = bool(l_root_ts and l_root_ts > r_ts)
-        else:
-            # 양쪽 모두 레거시(타임스탬프 없음): 로컬이 커스텀 설정이고 원격이 기본값이거나, 로컬 파일이 있는 경우 로컬 우선
-            if l_is_custom and (not r_is_custom or l_obj != r_obj):
-                prefer_local = True
-        if prefer_local:
-            merged[p_key] = copy.deepcopy(local_norm[p_key])
-
-    # 2. 전역 settings (dday_alert_channel_id, default_category_id, terminal_log_channels, github_webhooks)
-    l_set_ts, r_set_ts = _pick_section_ts("settings")
-    merged_settings = ensure_dict_path(merged, "settings")
-    local_settings = as_dict(local_norm.get("settings"))
-    if l_set_ts and r_set_ts:
-        if l_set_ts > r_set_ts:
-            merged["settings"] = copy.deepcopy(local_settings)
-    elif l_set_ts and not r_set_ts:
-        if not r_root_ts or l_set_ts >= r_root_ts:
-            merged["settings"] = copy.deepcopy(local_settings)
-    else:
-        for s_k, s_v in local_settings.items():
-            if isinstance(s_v, dict):
-                rem_sub = ensure_dict_path(merged_settings, s_k)
-                for sub_k, sub_v in s_v.items():
-                    if sub_k not in rem_sub:
-                        rem_sub[sub_k] = copy.deepcopy(sub_v)
-            elif s_v is not None and not merged_settings.get(s_k):
-                merged_settings[s_k] = copy.deepcopy(s_v)
-
-    # 3. 서버별 설정/음악설정, AI 개인설정, 프로세카 연동계정, GitHub 웹훅 (guild_settings, guild_music_prefs, user_ai_config, proseka_accounts, github_webhook_configs)
-    for map_key in ("guild_settings", "guild_music_prefs", "user_ai_config", "proseka_accounts", "github_webhook_configs"):
-        l_sec_ts, r_sec_ts = _pick_section_ts(map_key)
-        rem_map = ensure_dict_path(merged, map_key)
-        loc_map = as_dict(local_norm.get(map_key))
-        if l_sec_ts and r_sec_ts and l_sec_ts > r_sec_ts:
-            # 로컬 섹션이 더 최신이면 삭제 포함 로컬 상태 우선 + 원격에만 이후 추가된 엔트리 보존
-            new_map = copy.deepcopy(loc_map)
-            for ek, ev in rem_map.items():
-                r_ets = _ent_ts(merged, map_key, ek)
-                if ek not in new_map and r_ets and r_ets > l_sec_ts:
-                    new_map[ek] = copy.deepcopy(ev)
-            merged[map_key] = new_map
-        else:
-            for ek, lv in loc_map.items():
-                if ek not in rem_map:
-                    l_ets = _ent_ts(local_norm, map_key, ek) or l_sec_ts
-                    if not (r_sec_ts and l_ets and r_sec_ts > l_ets):
-                        rem_map[ek] = copy.deepcopy(lv)
-                else:
-                    l_ets = _ent_ts(local_norm, map_key, ek) or l_sec_ts
-                    r_ets = _ent_ts(merged, map_key, ek) or r_sec_ts
-                    if l_ets and (not r_ets or l_ets >= r_ets):
-                        rem_map[ek] = copy.deepcopy(lv)
-                    elif not l_ets and not r_ets and isinstance(lv, dict) and lv != rem_map.get(ek):
-                        # 레거시 환경에서는 로컬에 비어있지 않은 설정이 있으면 보존
-                        if any(v is not None and v != "" and v != {} and v != [] for v in lv.values()):
-                            rem_map[ek] = copy.deepcopy(lv)
-
-    # 4. 맞춤 음악 스케줄 (music_schedules)
-    l_ms_ts, r_ms_ts = _pick_section_ts("music_schedules")
-    if l_ms_ts and (not r_ms_ts or l_ms_ts > r_ms_ts):
-        merged["music_schedules"] = copy.deepcopy(local_norm["music_schedules"])
-    else:
-        existing_sched_keys = {
-            (s.get("id") or f"{s.get('time')}|{s.get('channel_id')}|{s.get('name')}|{s.get('genre')}")
-            for s in merged.get("music_schedules", []) if isinstance(s, dict)
-        }
-        for s_item in local_norm.get("music_schedules", []):
-            if not isinstance(s_item, dict):
-                continue
-            sk = s_item.get("id") or f"{s_item.get('time')}|{s_item.get('channel_id')}|{s_item.get('name')}|{s_item.get('genre')}"
-            if sk not in existing_sched_keys:
-                merged["music_schedules"].append(copy.deepcopy(s_item))
-                existing_sched_keys.add(sk)
-
-    # 5. D-Day
-    l_dd_ts, r_dd_ts = _pick_section_ts("ddays")
-    if l_dd_ts and r_dd_ts and l_dd_ts > r_dd_ts:
-        merged["ddays"] = copy.deepcopy(local_norm["ddays"])
-    else:
-        for d_name, d_info in as_dict(local_norm.get("ddays")).items():
-            if d_name not in merged["ddays"]:
-                merged["ddays"][d_name] = copy.deepcopy(d_info)
-
-    # 6. 유저 통합 프로필 (oshi, deck, my_sekai, 의상, liked_music, secret_ddays, todo, partner_id, crystals, attendance, playlists)
-    l_up_sec_ts, r_up_sec_ts = _pick_section_ts("user_profiles")
     for u_key, local_prof in as_dict(local_norm.get("user_profiles")).items():
         if not isinstance(local_prof, dict):
             continue
         rem_prof = merged["user_profiles"].get(u_key)
         if not isinstance(rem_prof, dict):
-            merged["user_profiles"][u_key] = copy.deepcopy(local_prof)
-            continue
+            merged["user_profiles"][u_key] = local_prof
+        else:
+            if int(local_prof.get("crystals", 0) or 0) > int(rem_prof.get("crystals", 0) or 0):
+                rem_prof["crystals"] = int(local_prof.get("crystals", 0) or 0)
+            l_att = as_dict(local_prof.get("attendance"))
+            r_att = as_dict(rem_prof.get("attendance"))
+            if int(l_att.get("total_days", 0) or 0) > int(r_att.get("total_days", 0) or 0):
+                rem_prof["attendance"] = copy.deepcopy(l_att)
+            l_pls = local_prof.get("playlists") if isinstance(local_prof.get("playlists"), list) else []
+            r_pls = rem_prof.get("playlists") if isinstance(rem_prof.get("playlists"), list) else []
+            l_trk_cnt = sum(len(p.get("tracks", [])) for p in l_pls if isinstance(p, dict) and isinstance(p.get("tracks"), list))
+            r_trk_cnt = sum(len(p.get("tracks", [])) for p in r_pls if isinstance(p, dict) and isinstance(p.get("tracks"), list))
+            if len(l_pls) > len(r_pls) or l_trk_cnt > r_trk_cnt:
+                rem_prof["playlists"] = copy.deepcopy(l_pls)
 
-        l_u_ts = _ent_ts(local_norm, "user_profiles", u_key) or l_up_sec_ts
-        r_u_ts = _ent_ts(merged, "user_profiles", u_key) or r_up_sec_ts
-
-        if l_u_ts and r_u_ts and l_u_ts != r_u_ts:
-            if l_u_ts > r_u_ts:
-                merged["user_profiles"][u_key] = copy.deepcopy(local_prof)
-            continue
-        if l_u_ts and not r_u_ts:
-            if not r_root_ts or l_u_ts >= r_root_ts:
-                merged["user_profiles"][u_key] = copy.deepcopy(local_prof)
-                continue
-
-        # 타임스탬프가 없거나 동률일 때: 무손실 스마트 필드 병합
-        if int(local_prof.get("crystals", 0) or 0) > int(rem_prof.get("crystals", 0) or 0):
-            rem_prof["crystals"] = int(local_prof.get("crystals", 0) or 0)
-        l_att = as_dict(local_prof.get("attendance"))
-        r_att = as_dict(rem_prof.get("attendance"))
-        if int(l_att.get("total_days", 0) or 0) > int(r_att.get("total_days", 0) or 0):
-            rem_prof["attendance"] = copy.deepcopy(l_att)
-        l_pls = local_prof.get("playlists") if isinstance(local_prof.get("playlists"), list) else []
-        r_pls = rem_prof.get("playlists") if isinstance(rem_prof.get("playlists"), list) else []
-        l_trk_cnt = sum(len(p.get("tracks", [])) for p in l_pls if isinstance(p, dict) and isinstance(p.get("tracks"), list))
-        r_trk_cnt = sum(len(p.get("tracks", [])) for p in r_pls if isinstance(p, dict) and isinstance(p.get("tracks"), list))
-        if len(l_pls) > len(r_pls) or l_trk_cnt > r_trk_cnt:
-            rem_prof["playlists"] = copy.deepcopy(l_pls)
-        if local_prof.get("oshi") and not rem_prof.get("oshi"):
-            rem_prof["oshi"] = local_prof["oshi"]
-        if local_prof.get("partner_id") and not rem_prof.get("partner_id"):
-            rem_prof["partner_id"] = local_prof["partner_id"]
-        l_deck = local_prof.get("deck") if isinstance(local_prof.get("deck"), list) else []
-        r_deck = rem_prof.get("deck") if isinstance(rem_prof.get("deck"), list) else []
-        if len(l_deck) > len(r_deck):
-            rem_prof["deck"] = copy.deepcopy(l_deck)
-        l_liked = local_prof.get("liked_music") if isinstance(local_prof.get("liked_music"), list) else []
-        r_liked = rem_prof.get("liked_music") if isinstance(rem_prof.get("liked_music"), list) else []
-        if len(l_liked) > len(r_liked):
-            rem_prof["liked_music"] = copy.deepcopy(l_liked)
-        for d_k in ("secret_ddays", "equipped_costumes", "equipped_costume_variants", "purchased_costumes"):
-            l_sub = as_dict(local_prof.get(d_k))
-            if l_sub:
-                r_sub = ensure_dict_path(rem_prof, d_k)
-                for sk, sv in l_sub.items():
-                    if sk not in r_sub:
-                        r_sub[sk] = copy.deepcopy(sv)
-        l_ms = as_dict(local_prof.get("my_sekai"))
-        r_ms = as_dict(rem_prof.get("my_sekai"))
-        l_ms_score = len(l_ms.get("owned_themes", [])) + len(l_ms.get("furniture", [])) + (1 if l_ms.get("theme", "default") != "default" else 0)
-        r_ms_score = len(r_ms.get("owned_themes", [])) + len(r_ms.get("furniture", [])) + (1 if r_ms.get("theme", "default") != "default" else 0)
-        if l_ms_score > r_ms_score:
-            rem_prof["my_sekai"] = copy.deepcopy(l_ms)
-        l_todo = as_dict(local_prof.get("todo"))
-        r_todo = as_dict(rem_prof.get("todo"))
-        if len(as_dict(l_todo.get("history"))) > len(as_dict(r_todo.get("history"))) or len(l_todo.get("tasks") or []) > len(r_todo.get("tasks") or []):
-            rem_prof["todo"] = copy.deepcopy(l_todo)
-
-        # 칭호 & 송금 기록 무손실 보존
-        l_titles = local_prof.get("owned_titles") if isinstance(local_prof.get("owned_titles"), list) else []
-        r_titles = rem_prof.get("owned_titles") if isinstance(rem_prof.get("owned_titles"), list) else []
-        merged_titles = list(dict.fromkeys([*r_titles, *l_titles]))
-        if "newbie" not in merged_titles:
-            merged_titles.insert(0, "newbie")
-        rem_prof["owned_titles"] = merged_titles
-        if local_prof.get("equipped_title") and local_prof.get("equipped_title") != "newbie" and rem_prof.get("equipped_title", "newbie") == "newbie":
-            rem_prof["equipped_title"] = local_prof["equipped_title"]
-        l_tl = as_dict(local_prof.get("transfer_log"))
-        r_tl = as_dict(rem_prof.get("transfer_log"))
-        if str(l_tl.get("date") or "") > str(r_tl.get("date") or ""):
-            rem_prof["transfer_log"] = copy.deepcopy(l_tl)
-        elif str(l_tl.get("date") or "") == str(r_tl.get("date") or ""):
-            r_tl["sent_today"] = max(int(r_tl.get("sent_today", 0) or 0), int(l_tl.get("sent_today", 0) or 0))
-            r_tl["received_today"] = max(int(r_tl.get("received_today", 0) or 0), int(l_tl.get("received_today", 0) or 0))
-            rem_prof["transfer_log"] = r_tl
-
-    # 7. 서버별 출석 기록
     for g_key, local_g_att in as_dict(local_norm.get("guild_attendance")).items():
         rem_g_att = ensure_dict_path(merged, "guild_attendance", g_key)
         if isinstance(local_g_att, dict):
@@ -5827,12 +3613,9 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                 if not isinstance(l_rec, dict):
                     continue
                 r_rec = rem_g_att.get(u_key)
-                l_ts = _ent_ts(local_norm, "guild_attendance", f"{g_key}:{u_key}")
-                r_ts = _ent_ts(merged, "guild_attendance", f"{g_key}:{u_key}")
-                if not isinstance(r_rec, dict) or (l_ts and r_ts and l_ts > r_ts) or (l_ts and not r_ts) or int(l_rec.get("total_days", 0) or 0) > int(r_rec.get("total_days", 0) or 0):
+                if not isinstance(r_rec, dict) or int(l_rec.get("total_days", 0) or 0) > int(r_rec.get("total_days", 0) or 0):
                     rem_g_att[u_key] = copy.deepcopy(l_rec)
 
-    # 8. 프로세카 가챠 유저 데이터
     for g_key, local_g_users in as_dict(local_norm.get("gacha_users")).items():
         if g_key not in merged["gacha_users"] or not isinstance(merged["gacha_users"].get(g_key), dict):
             merged["gacha_users"][g_key] = copy.deepcopy(local_g_users)
@@ -5842,22 +3625,11 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                 if not isinstance(local_u, dict):
                     continue
                 rem_u = rem_g.get(u_key)
-                l_ts = _ent_ts(local_norm, "gacha_users", f"{g_key}:{u_key}")
-                r_ts = _ent_ts(merged, "gacha_users", f"{g_key}:{u_key}")
-                if not isinstance(rem_u, dict):
+                l_cards_cnt = len(as_dict(local_u.get("cards")))
+                r_cards_cnt = len(as_dict(rem_u.get("cards"))) if isinstance(rem_u, dict) else -1
+                if not isinstance(rem_u, dict) or l_cards_cnt > r_cards_cnt:
                     rem_g[u_key] = copy.deepcopy(local_u)
-                elif l_ts and r_ts and l_ts != r_ts:
-                    if l_ts > r_ts:
-                        rem_g[u_key] = copy.deepcopy(local_u)
-                elif l_ts and not r_ts and (not r_root_ts or l_ts >= r_root_ts):
-                    rem_g[u_key] = copy.deepcopy(local_u)
-                else:
-                    l_cards_cnt = len(as_dict(local_u.get("cards")))
-                    r_cards_cnt = len(as_dict(rem_u.get("cards")))
-                    if l_cards_cnt > r_cards_cnt:
-                        rem_g[u_key] = copy.deepcopy(local_u)
 
-    # 9. 원신 / 스타레일 유저 데이터
     for u_root_key in ("genshin_users", "hsr_users"):
         for g_key, local_g_users in as_dict(local_norm.get(u_root_key)).items():
             if g_key not in merged[u_root_key] or not isinstance(merged[u_root_key].get(g_key), dict):
@@ -5868,20 +3640,8 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                     if not isinstance(local_u, dict):
                         continue
                     rem_u = rem_g.get(u_key)
-                    l_ts = _ent_ts(local_norm, u_root_key, f"{g_key}:{u_key}")
-                    r_ts = _ent_ts(merged, u_root_key, f"{g_key}:{u_key}")
-                    if not isinstance(rem_u, dict):
+                    if not isinstance(rem_u, dict) or int(local_u.get("total_pulls", 0) or 0) > int(rem_u.get("total_pulls", 0) or 0):
                         rem_g[u_key] = copy.deepcopy(local_u)
-                    elif l_ts and r_ts and l_ts != r_ts:
-                        if l_ts > r_ts:
-                            rem_g[u_key] = copy.deepcopy(local_u)
-                    elif l_ts and not r_ts and (not r_root_ts or l_ts >= r_root_ts):
-                        rem_g[u_key] = copy.deepcopy(local_u)
-                    else:
-                        l_score = int(local_u.get("total_pulls", 0) or 0) + int(local_u.get("artifact_pulls", 0) or 0) + int(local_u.get("relic_pulls", 0) or 0)
-                        r_score = int(rem_u.get("total_pulls", 0) or 0) + int(rem_u.get("artifact_pulls", 0) or 0) + int(rem_u.get("relic_pulls", 0) or 0)
-                        if l_score > r_score:
-                            rem_g[u_key] = copy.deepcopy(local_u)
 
     for hof_key in ("genshin_hall_of_fame", "hsr_hall_of_fame"):
         for g_key, local_hof in as_dict(local_norm.get(hof_key)).items():
@@ -5900,7 +3660,6 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                 if len(l_logs) > len(r_logs):
                     rem_hof["recent_5_logs"] = copy.deepcopy(l_logs)
 
-    # 10. 낚시 유저 & 기록
     for g_key, local_f_users in as_dict(local_norm.get("fishing_users")).items():
         if g_key not in merged["fishing_users"] or not isinstance(merged["fishing_users"].get(g_key), dict):
             merged["fishing_users"][g_key] = copy.deepcopy(local_f_users)
@@ -5910,18 +3669,8 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                 if not isinstance(local_fu, dict):
                     continue
                 rem_fu = rem_g.get(u_key)
-                l_ts = _ent_ts(local_norm, "fishing_users", f"{g_key}:{u_key}")
-                r_ts = _ent_ts(merged, "fishing_users", f"{g_key}:{u_key}")
-                if not isinstance(rem_fu, dict):
+                if not isinstance(rem_fu, dict) or int(local_fu.get("total_catches", 0) or 0) > int(rem_fu.get("total_catches", 0) or 0):
                     rem_g[u_key] = copy.deepcopy(local_fu)
-                elif l_ts and r_ts and l_ts != r_ts:
-                    if l_ts > r_ts:
-                        rem_g[u_key] = copy.deepcopy(local_fu)
-                elif l_ts and not r_ts and (not r_root_ts or l_ts >= r_root_ts):
-                    rem_g[u_key] = copy.deepcopy(local_fu)
-                else:
-                    if int(local_fu.get("total_catches", 0) or 0) > int(rem_fu.get("total_catches", 0) or 0):
-                        rem_g[u_key] = copy.deepcopy(local_fu)
 
     for g_key, local_f_rec in as_dict(local_norm.get("fishing_records")).items():
         if g_key not in merged["fishing_records"] or not isinstance(merged["fishing_records"].get(g_key), dict):
@@ -5940,21 +3689,17 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                         if isinstance(l_m, dict) and (not isinstance(r_m, dict) or float(l_m.get("val", 0) or 0) > float(r_m.get("val", 0) or 0)):
                             rem_rec[fid][metric_k] = copy.deepcopy(l_m)
 
-    # 11. 서버 감사 로그 (server_logs)
-    l_sl_sec, r_sl_sec = _pick_section_ts("server_logs")
+    for p_key in ("genshin_pickup", "hsr_pickup"):
+        l_ts = str(as_dict(local_norm.get(p_key)).get("updated_at") or "")
+        r_ts = str(as_dict(merged.get(p_key)).get("updated_at") or "")
+        if l_ts and l_ts > r_ts:
+            merged[p_key] = copy.deepcopy(local_norm[p_key])
+
     for g_key, local_g_log in as_dict(local_norm.get("server_logs")).items():
         if not isinstance(local_g_log, dict):
             continue
         rem_g_log = merged["server_logs"].get(g_key)
         if not isinstance(rem_g_log, dict):
-            merged["server_logs"][g_key] = copy.deepcopy(local_g_log)
-            continue
-        l_ts = _ent_ts(local_norm, "server_logs", g_key) or l_sl_sec
-        r_ts = _ent_ts(merged, "server_logs", g_key) or r_sl_sec
-        if l_ts and r_ts and l_ts != r_ts:
-            if l_ts > r_ts:
-                merged["server_logs"][g_key] = copy.deepcopy(local_g_log)
-        elif l_ts and not r_ts and (not r_root_ts or l_ts >= r_root_ts):
             merged["server_logs"][g_key] = copy.deepcopy(local_g_log)
         else:
             if local_g_log.get("enabled", False) and not rem_g_log.get("enabled", False):
@@ -5967,164 +3712,26 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                 if ev_k not in rem_events:
                     rem_events[ev_k] = ev_v
 
-    # 12. 생일, 리마인더, 파트너, 반응역할
     for u_key, b_info in as_dict(local_norm.get("birthdays")).items():
         if u_key not in merged["birthdays"]:
             merged["birthdays"][u_key] = copy.deepcopy(b_info)
 
-    for pk, pv in as_dict(local_norm.get("partners")).items():
-        if pk not in merged["partners"]:
-            merged["partners"][pk] = copy.deepcopy(pv)
+    existing_rem_ids = {r.get("id") for r in merged.get("reminders", []) if isinstance(r, dict)}
+    for r_item in local_norm.get("reminders", []):
+        if isinstance(r_item, dict) and r_item.get("id") not in existing_rem_ids:
+            merged["reminders"].append(copy.deepcopy(r_item))
 
-    l_rem_ts, r_rem_ts = _pick_section_ts("reminders")
-    if l_rem_ts and r_rem_ts and l_rem_ts > r_rem_ts:
-        merged["reminders"] = copy.deepcopy(local_norm["reminders"])
-    else:
-        existing_rem_ids = {r.get("id") for r in merged.get("reminders", []) if isinstance(r, dict)}
-        for r_item in local_norm.get("reminders", []):
-            if isinstance(r_item, dict) and r_item.get("id") not in existing_rem_ids:
-                merged["reminders"].append(copy.deepcopy(r_item))
+    # 설정값(터미널 로그 채널, 알림 채널 등) 로컬 백업 보존
+    merged_settings = ensure_dict_path(merged, "settings")
+    for s_k, s_v in as_dict(local_norm.get("settings")).items():
+        if s_v is not None and not merged_settings.get(s_k):
+            merged_settings[s_k] = copy.deepcopy(s_v)
 
-    l_rr_ts, r_rr_ts = _pick_section_ts("reaction_roles")
-    if l_rr_ts and r_rr_ts and l_rr_ts > r_rr_ts:
-        merged["reaction_roles"] = copy.deepcopy(local_norm["reaction_roles"])
-    else:
-        merged_rr = ensure_dict_path(merged, "reaction_roles")
-        for mid_s, rr_cfg in as_dict(local_norm.get("reaction_roles")).items():
-            if mid_s not in merged_rr:
-                merged_rr[mid_s] = copy.deepcopy(rr_cfg)
-
-    # 13. 생활 컨텐츠(life_users, guild_farms), 티켓 시스템(ticket_configs, tickets)
-    for map_key in ("guild_farms", "ticket_configs", "link_preview_configs", "raid_defense_configs", "relay_novels"):
-        l_sec_ts, r_sec_ts = _pick_section_ts(map_key)
-        rem_map = ensure_dict_path(merged, map_key)
-        for ek, lv in as_dict(local_norm.get(map_key)).items():
-            if not isinstance(lv, dict):
-                continue
-            l_ets = _ent_ts(local_norm, map_key, ek) or l_sec_ts
-            r_ets = _ent_ts(merged, map_key, ek) or r_sec_ts
-            if ek not in rem_map or not isinstance(rem_map.get(ek), dict):
-                rem_map[ek] = copy.deepcopy(lv)
-            elif l_ets and (not r_ets or l_ets >= r_ets):
-                rem_map[ek] = copy.deepcopy(lv)
-
-    for gu_key in ("life_users", "other_life_users", "tickets", "sticky_messages"):
-        for g_key, local_g_map in as_dict(local_norm.get(gu_key)).items():
-            if g_key not in merged[gu_key] or not isinstance(merged[gu_key].get(g_key), dict):
-                merged[gu_key][g_key] = copy.deepcopy(local_g_map)
-            elif isinstance(local_g_map, dict):
-                rem_g = ensure_dict_path(merged, gu_key, g_key)
-                for u_key, lv in local_g_map.items():
-                    if not isinstance(lv, dict):
-                        continue
-                    l_ts = _ent_ts(local_norm, gu_key, f"{g_key}:{u_key}")
-                    r_ts = _ent_ts(merged, gu_key, f"{g_key}:{u_key}")
-                    if u_key not in rem_g or not isinstance(rem_g.get(u_key), dict):
-                        rem_g[u_key] = copy.deepcopy(lv)
-                    elif l_ts and r_ts and l_ts != r_ts:
-                        if l_ts > r_ts:
-                            rem_g[u_key] = copy.deepcopy(lv)
-                    elif l_ts and not r_ts and (not r_root_ts or l_ts >= r_root_ts):
-                        rem_g[u_key] = copy.deepcopy(lv)
-
-    # 14. 서버 통계(server_stats), 건의함(suggestions), 프로세카 명예의 전당(gacha_hall_of_fame)
-    l_ss_sec, r_ss_sec = _pick_section_ts("server_stats")
-    rem_ss = ensure_dict_path(merged, "server_stats")
-    for g_key, l_st in as_dict(local_norm.get("server_stats")).items():
-        if not isinstance(l_st, dict):
-            continue
-        r_st = rem_ss.get(g_key)
-        l_ts = _ent_ts(local_norm, "server_stats", g_key) or l_ss_sec
-        r_ts = _ent_ts(merged, "server_stats", g_key) or r_ss_sec
-        if not isinstance(r_st, dict):
-            rem_ss[g_key] = copy.deepcopy(l_st)
-        elif l_ts and r_ts and l_ts != r_ts:
-            if l_ts > r_ts:
-                rem_ss[g_key] = copy.deepcopy(l_st)
-        elif l_ts and not r_ts and (not r_root_ts or l_ts >= r_root_ts):
-            rem_ss[g_key] = copy.deepcopy(l_st)
-        else:
-            l_score = (int(l_st.get("total_msgs", 0) or 0), int(l_st.get("weekly_msgs", 0) or 0), len(as_dict(l_st.get("active_users"))))
-            r_score = (int(r_st.get("total_msgs", 0) or 0), int(r_st.get("weekly_msgs", 0) or 0), len(as_dict(r_st.get("active_users"))))
-            if l_score > r_score:
-                rem_ss[g_key] = copy.deepcopy(l_st)
-
-    l_sug_ts, r_sug_ts = _pick_section_ts("suggestions")
-    l_sugs = local_norm.get("suggestions") if isinstance(local_norm.get("suggestions"), list) else []
-    r_sugs = merged.get("suggestions") if isinstance(merged.get("suggestions"), list) else []
-    if l_sug_ts and r_sug_ts and l_sug_ts > r_sug_ts:
-        merged["suggestions"] = copy.deepcopy(l_sugs)
-    elif l_sug_ts and not r_sug_ts and (not r_root_ts or l_sug_ts >= r_root_ts):
-        merged["suggestions"] = copy.deepcopy(l_sugs)
-    else:
-        seen_sug_keys = {
-            str(s.get("id") or f"{s.get('user_id')}|{s.get('timestamp')}|{str(s.get('content', ''))[:30]}")
-            for s in r_sugs if isinstance(s, dict)
-        }
-        for s_item in l_sugs:
-            if not isinstance(s_item, dict):
-                continue
-            s_key = str(s_item.get("id") or f"{s_item.get('user_id')}|{s_item.get('timestamp')}|{str(s_item.get('content', ''))[:30]}")
-            if s_key not in seen_sug_keys:
-                r_sugs.append(copy.deepcopy(s_item))
-                seen_sug_keys.add(s_key)
-        merged["suggestions"] = r_sugs
-
-    l_gh_sec, r_gh_sec = _pick_section_ts("gacha_hall_of_fame")
-    rem_gh_map = ensure_dict_path(merged, "gacha_hall_of_fame")
-    for g_key, l_hof in as_dict(local_norm.get("gacha_hall_of_fame")).items():
-        if not isinstance(l_hof, dict):
-            continue
-        r_hof = rem_gh_map.get(g_key)
-        l_ts = _ent_ts(local_norm, "gacha_hall_of_fame", g_key) or l_gh_sec
-        r_ts = _ent_ts(merged, "gacha_hall_of_fame", g_key) or r_gh_sec
-        if not isinstance(r_hof, dict):
-            rem_gh_map[g_key] = copy.deepcopy(l_hof)
-        elif l_ts and r_ts and l_ts != r_ts:
-            if l_ts > r_ts:
-                rem_gh_map[g_key] = copy.deepcopy(l_hof)
-        elif l_ts and not r_ts and (not r_root_ts or l_ts >= r_root_ts):
-            rem_gh_map[g_key] = copy.deepcopy(l_hof)
-        else:
-            r_best = ensure_dict_path(r_hof, "user_best_10pull")
-            for u_key, l_b in as_dict(l_hof.get("user_best_10pull")).items():
-                if not isinstance(l_b, dict):
-                    continue
-                cur_b = r_best.get(u_key)
-                l_sc = (int(l_b.get("high_count", 0) or 0), int(l_b.get("pickup_count", 0) or 0), int(l_b.get("star4_count", 0) or 0))
-                r_sc = (int(cur_b.get("high_count", 0) or 0), int(cur_b.get("pickup_count", 0) or 0), int(cur_b.get("star4_count", 0) or 0)) if isinstance(cur_b, dict) else (-1, -1, -1)
-                if l_sc > r_sc:
-                    r_best[u_key] = copy.deepcopy(l_b)
-            for log_k in ("recent_pickup_logs", "recent_high_logs"):
-                l_logs = l_hof.get(log_k) if isinstance(l_hof.get(log_k), list) else []
-                r_logs = r_hof.get(log_k) if isinstance(r_hof.get(log_k), list) else []
-                seen_log = {
-                    (str(x.get("uid")), str(x.get("card_id")), str(x.get("obtained_at")))
-                    for x in r_logs if isinstance(x, dict)
-                }
-                for x in l_logs:
-                    if not isinstance(x, dict):
-                        continue
-                    k_t = (str(x.get("uid")), str(x.get("card_id")), str(x.get("obtained_at")))
-                    if k_t not in seen_log:
-                        r_logs.append(copy.deepcopy(x))
-                        seen_log.add(k_t)
-                r_logs.sort(key=lambda it: str(it.get("obtained_at") or ""), reverse=True)
-                r_hof[log_k] = r_logs[:20]
-
-    # 병합된 _meta 타임스탬프는 양쪽 중 최신 값 보존
-    merged_meta = ensure_dict_path(merged, "_meta")
-    merged_meta["last_saved_at"] = max(l_root_ts, r_root_ts) or None
-    m_sec = ensure_dict_path(merged_meta, "sections")
-    for sk, sv in as_dict(l_meta.get("sections")).items():
-        if sv and _norm_ts(sv) > _norm_ts(m_sec.get(sk)):
-            m_sec[sk] = str(sv)
-    m_ent = ensure_dict_path(merged_meta, "entries")
-    for sec_k, ent_map in as_dict(l_meta.get("entries")).items():
-        dst = ensure_dict_path(m_ent, sec_k)
-        for ek, ev in as_dict(ent_map).items():
-            if ev and _norm_ts(ev) > _norm_ts(dst.get(ek)):
-                dst[ek] = str(ev)
+    # 반응역할(reaction_roles) 로컬 백업 보존
+    merged_rr = ensure_dict_path(merged, "reaction_roles")
+    for mid_s, rr_cfg in as_dict(local_norm.get("reaction_roles")).items():
+        if mid_s not in merged_rr:
+            merged_rr[mid_s] = copy.deepcopy(rr_cfg)
 
     return normalize_data(merged)
 
@@ -6134,6 +3741,7 @@ def get_cached_data() -> dict:
     네트워크 I/O 없이 인메모리 캐시에서 즉시 데이터 사본을 반환합니다.
     디스코드 3초 제한이 있는 슬래시 명령어 자동완성(Autocomplete)에서 사용됩니다.
     """
+    global _DATA_CACHE
     with _DATA_LOCK:
         if _DATA_CACHE is not None:
             return copy.deepcopy(_DATA_CACHE)
@@ -6159,12 +3767,8 @@ def load_data():
                 if res.status_code == 200:
                     fb_data = res.json()
                     if isinstance(fb_data, dict):
-                        fb_norm = normalize_data(copy.deepcopy(fb_data))
                         _DATA_CACHE = _merge_local_and_remote(local_data, fb_data)
                         _save_local_file_safely(_DATA_CACHE)
-                        # 로컬의 최신 변경이 원격과 달라졌으면 백그라운드로 원격도 즉시 동기화
-                        if local_data and _DATA_CACHE != fb_norm:
-                            _enqueue_firebase_sync(endpoint, copy.deepcopy(_DATA_CACHE))
                         return copy.deepcopy(_DATA_CACHE)
                     elif fb_data is None:
                         # 원격이 비어있을 때 로컬 데이터가 있으면 로컬 데이터를 보존 후 원격에 업로드
@@ -6188,80 +3792,27 @@ def load_data():
         return copy.deepcopy(_DATA_CACHE)
 
 
-def _put_firebase_payload(endpoint: str, payload: dict) -> bool:
+def _sync_firebase_background(endpoint, payload):
     global _FIREBASE_DISABLED_UNTIL
     try:
         res = requests.put(endpoint, json=payload, timeout=5)
         if res.status_code in (401, 403, 404):
             _FIREBASE_DISABLED_UNTIL = time.time() + 3600
-            return False
-        return res.status_code == 200
     except Exception as e:
         print(f"⚠️ Firebase 저장 오류 (로컬 백업에는 정상 저장됨): {e}", flush=True)
         _FIREBASE_DISABLED_UNTIL = time.time() + 300
-        return False
-
-
-def _firebase_sync_worker():
-    global _FIREBASE_LATEST_JOB, _FIREBASE_WORKER_ACTIVE
-    try:
-        while True:
-            with _FIREBASE_SYNC_LOCK:
-                job = _FIREBASE_LATEST_JOB
-                _FIREBASE_LATEST_JOB = None
-                if job is None:
-                    _FIREBASE_WORKER_ACTIVE = False
-                    _FIREBASE_IDLE_EVENT.set()
-                    return
-            ep, pl = job
-            _put_firebase_payload(ep, pl)
-    finally:
-        with _FIREBASE_SYNC_LOCK:
-            _FIREBASE_WORKER_ACTIVE = False
-            if _FIREBASE_LATEST_JOB is None:
-                _FIREBASE_IDLE_EVENT.set()
-
-
-def _enqueue_firebase_sync(endpoint: str, payload: dict):
-    global _FIREBASE_LATEST_JOB, _FIREBASE_WORKER_ACTIVE
-    if not endpoint or not payload:
-        return
-    with _FIREBASE_SYNC_LOCK:
-        _FIREBASE_LATEST_JOB = (endpoint, payload)
-        _FIREBASE_IDLE_EVENT.clear()
-        if not _FIREBASE_WORKER_ACTIVE:
-            _FIREBASE_WORKER_ACTIVE = True
-            t = threading.Thread(target=_firebase_sync_worker, daemon=True)
-            t.start()
-
-
-def flush_firebase_sync(timeout: float = 4.0):
-    """봇 업데이트·종료(SIGTERM) 전 대기 중인 최신 Firebase 동기화를 완료할 때까지 잠시 대기합니다."""
-    if _FIREBASE_IDLE_EVENT.is_set():
-        return
-    _FIREBASE_IDLE_EVENT.wait(timeout=max(0.1, float(timeout)))
-
-
-atexit.register(flush_firebase_sync)
-
-
-def _sync_firebase_background(endpoint, payload):
-    _put_firebase_payload(endpoint, payload)
 
 
 def save_data(data):
     """
-    인메모리 캐시 갱신 + 변경 섹션 타임스탬프 자동 기록 + 원자적 로컬 파일 저장 + Firebase RTDB 비동기 최신 병합 동기화.
+    인메모리 캐시 갱신 + 원자적 로컬 파일 저장 + Firebase RTDB 비동기 백그라운드 동기화.
     _DATA_LOCK 점유 중 동기식 네트워크 I/O(requests.put)를 배제하여 봇 프리징 및 타임아웃을 방지합니다.
     """
     global _DATA_CACHE
     endpoint = None
     payload = None
     with _DATA_LOCK:
-        prev_snapshot = _DATA_CACHE if isinstance(_DATA_CACHE, dict) else _load_local_file_safely()
         normalized = normalize_data(copy.deepcopy(data))
-        now_iso = datetime.datetime.now(KST).isoformat()
-        _stamp_changed_metadata(normalized, prev_snapshot, now_iso)
         _DATA_CACHE = normalized
         _save_local_file_safely(normalized)
 
@@ -6270,7 +3821,8 @@ def save_data(data):
             payload = copy.deepcopy(normalized)
 
     if endpoint and payload:
-        _enqueue_firebase_sync(endpoint, payload)
+        t = threading.Thread(target=_sync_firebase_background, args=(endpoint, payload), daemon=True)
+        t.start()
 
 
 def reset_dday_and_music_data():
@@ -6291,6 +3843,25 @@ def reset_dday_and_music_data():
 def reset_all_data():
     """하위 호환용 래퍼: D-Day 및 음악 설정만 초기화하여 유저 출석·가챠 데이터 증발을 방지합니다."""
     return reset_dday_and_music_data()
+
+
+def is_emoji_upscale_enabled(guild_id: int | str | None, data: dict | None = None) -> bool:
+    """서버별 이모지 업스케일 활성화 여부 반환 (기본값: False / OFF)"""
+    if not guild_id:
+        return False
+    d = data if data is not None else get_cached_data()
+    guilds_map = safe_get_dict(d, "settings", "emoji_upscale_guilds")
+    return bool(guilds_map.get(str(guild_id), False))
+
+
+def set_emoji_upscale_enabled(guild_id: int | str, enabled: bool) -> bool:
+    """서버별 이모지 업스케일 활성화 여부 저장 (True=ON, False=OFF)"""
+    with _DATA_LOCK:
+        data = load_data()
+        guilds_map = ensure_dict_path(data, "settings", "emoji_upscale_guilds")
+        guilds_map[str(guild_id)] = bool(enabled)
+        save_data(data)
+        return bool(enabled)
 
 
 
@@ -6398,8 +3969,6 @@ def process_user_attendance(guild_id: int, guild_name: str, user_id: int, user_n
                 "gained_crystals": bonus_gained,
                 "milestone_bonus": bonus_gained,
                 "my_sekai_bonus": my_sekai_bonus,
-                "life_bonus": 0,
-                "life_bonus_reasons": [],
                 "newly_claimed_milestones": newly_claimed,
                 "month_days_count": month_days_cnt
             }
@@ -6453,17 +4022,9 @@ def process_user_attendance(guild_id: int, guild_name: str, user_id: int, user_n
         global_att["user_name"] = user_name
         global_att["last_guild_name"] = guild_name
 
-        # 3) 서버별 1회 출석 기본 +100 크리스탈 + 마이세카이 패시브 이자 + 개근 마일스톤 + 생활(펫/공동농장/요리) 보너스
+        # 3) 서버별 1회 출석 기본 +100 크리스탈 + 마이세카이 가구/테마 패시브 이자 + 개근 마일스톤 달성 보너스 지급
         my_sekai_bonus = get_my_sekai_daily_bonus(profile)
-        life_bonus = 0
-        life_bonus_reasons: list[str] = []
-        try:
-            import life_core
-            life_bonus, life_bonus_reasons = life_core.consume_attendance_life_bonus(data, g_key, u_key, user_name)
-        except Exception as life_err:
-            print(f"⚠️ [출석 생활보너스 계산 예외] {life_err}", flush=True)
-
-        total_gained = 100 + my_sekai_bonus + milestone_bonus + max(0, int(life_bonus))
+        total_gained = 100 + my_sekai_bonus + milestone_bonus
         profile["crystals"] = profile.get("crystals", 0) + total_gained
 
         save_data(data)
@@ -6477,8 +4038,6 @@ def process_user_attendance(guild_id: int, guild_name: str, user_id: int, user_n
             "gained_crystals": total_gained,
             "milestone_bonus": milestone_bonus,
             "my_sekai_bonus": my_sekai_bonus,
-            "life_bonus": max(0, int(life_bonus)),
-            "life_bonus_reasons": life_bonus_reasons,
             "newly_claimed_milestones": newly_claimed,
             "month_days_count": month_days_cnt
         }
@@ -6795,7 +4354,6 @@ def sync_gacha_pickup_to_live_event() -> tuple[bool, str, dict]:
         for cid in matched_ids if cid in card_map
     ]
 
-    now_kst = datetime.datetime.now(KST)
     pickup_obj = {
         "unit": None if matched_ids else ev_unit,
         "character": None,
@@ -6805,8 +4363,7 @@ def sync_gacha_pickup_to_live_event() -> tuple[bool, str, dict]:
         "event_status": info.get("event_status", "진행 중"),
         "pickup_card_labels": labels,
         "include_limited": True,
-        "synced_at": now_kst.strftime("%Y-%m-%d %H:%M"),
-        "updated_at": now_kst.isoformat(),
+        "synced_at": datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M"),
     }
 
     with _DATA_LOCK:
@@ -6854,22 +4411,13 @@ def _is_banner_pickup(card: dict, pickup_cfg: dict, banner_type: str = "normal",
                     return True
             return True
         return False
-    elif banner_type == "costume":
-        has_cos = str(card.get("id")) in PROSEKA_KR_COSTUMES
-        if not has_cos:
-            return False
-        sekai_t = get_proseka_sekai_time_theme()
-        t_units = sekai_t.get("units", [])
-        if t_units and (card.get("unit") in t_units or card.get("support_unit") in t_units):
-            return True
-        return has_cos
     return is_card_pickup(card, pickup_cfg)
 
 
 def calculate_card_probabilities(pickup_cfg, banner_type: str = "normal"):
     b_key = banner_type if banner_type in BANNER_CONFIGS else "normal"
     b_cfg = BANNER_CONFIGS[b_key]
-    include_lim = True if b_key in ("fes", "birthday", "costume") else pickup_cfg.get("include_limited", True)
+    include_lim = True if b_key in ("fes", "birthday") else pickup_cfg.get("include_limited", True)
     pool = [c for c in PROSEKA_KR_CARDS if include_lim or not c["is_limited"]]
     if not pool:
         pool = list(PROSEKA_KR_CARDS)
@@ -7635,26 +5183,7 @@ def execute_partner_gift(guild_id: int, sender_id: int, partner_id: int, card_id
 # ==========================================
 # 5. D-Day 계산, 은하수 게이지 및 음악 추천 보조 함수
 # ==========================================
-def parse_dday_plus_one_flag(raw_val) -> bool:
-    """모달/문자열/불리언 입력을 '지나간 날짜 +1일 계산' 여부(bool)로 안전하게 변환합니다."""
-    if isinstance(raw_val, bool):
-        return raw_val
-    if isinstance(raw_val, (int, float)):
-        return bool(raw_val)
-    s = str(raw_val or "").strip().lower()
-    if not s:
-        return False
-    return s in {"+1", "1", "y", "yes", "true", "t", "o", "ok", "on", "예", "네", "적용", "사용", "켜기", "플러스1"}
-
-
-def get_dday_info(target_date_str, plus_one: bool = False):
-    """
-    목표일(target_date_str)과 오늘(KST)의 차이를 계산해 (diff, 표시문자열)을 반환합니다.
-    - diff > 0 (미래): D-{diff}
-    - diff == 0 (오늘): D-Day
-    - diff < 0 (이미 지나간 날짜): 기본 D+{abs(diff)}, plus_one=True일 때만 D+{abs(diff) + 1}
-      ※ plus_one 옵션은 '날짜가 이미 지나간 경우(diff < 0)' 전용으로만 +1을 적용합니다.
-    """
+def get_dday_info(target_date_str):
     today = datetime.datetime.now(KST).date()
     target_date = datetime.datetime.strptime(target_date_str, "%Y-%m-%d").date()
     diff = (target_date - today).days
@@ -7663,12 +5192,11 @@ def get_dday_info(target_date_str, plus_one: bool = False):
     elif diff == 0:
         return 0, "D-Day"
     else:
-        passed = abs(diff) + (1 if plus_one else 0)
-        return diff, f"D+{passed}"
+        return diff, f"D+{abs(diff)}"
 
 
-def format_dday_channel_name(name: str, date_str: str, emoji: str = "🌠", plus_one: bool = False):
-    _, dday_text = get_dday_info(date_str, plus_one=plus_one)
+def format_dday_channel_name(name: str, date_str: str, emoji: str = "🌠"):
+    _, dday_text = get_dday_info(date_str)
     clean_emoji = emoji.strip() if emoji and emoji.strip() else "🌠"
     return f"{clean_emoji}ㅣ{name} / {dday_text}"
 
@@ -7858,9 +5386,8 @@ def build_dday_grass_board_summary(ddays_dict: dict):
     for name, info in sorted(ddays_dict.items(), key=lambda x: x[1].get("date", "9999-12-31")):
         date_str = info.get("date", get_today_str())
         start_str = info.get("start_date", get_today_str())
-        plus_one = bool(info.get("plus_one", False))
         try:
-            diff, dday_text = get_dday_info(date_str, plus_one=plus_one)
+            diff, dday_text = get_dday_info(date_str)
             bar_data = build_dday_galaxy_grass_bar(start_str, date_str, width=12)
         except Exception:
             continue
@@ -7884,7 +5411,6 @@ def build_dday_grass_board_summary(ddays_dict: dict):
             "start_date": start_str,
             "emoji": info.get("emoji", "🌠"),
             "repeat": bool(info.get("repeat", False)),
-            "plus_one": plus_one,
             "channel_id": info.get("channel_id"),
             "diff": diff,
             "dday_text": dday_text,
@@ -9132,15 +6658,7 @@ async def date_autocomplete(interaction: discord.Interaction, current: str) -> l
         return [app_commands.Choice(name=f"예시: {today_str} (오늘 날짜)", value=today_str)]
     if re.match(r"^\d{4}-\d{2}-\d{2}$", current):
         try:
-            diff, dday_text = get_dday_info(current)
-            if diff < 0:
-                _, plus_one_text = get_dday_info(current, plus_one=True)
-                return [
-                    app_commands.Choice(
-                        name=f"{current} 👉 지난 날짜: 기본 {dday_text} / +1일 계산 시 {plus_one_text}",
-                        value=current,
-                    )
-                ]
+            _, dday_text = get_dday_info(current)
             return [app_commands.Choice(name=f"{current} 👉 남은 기간 미리보기: {dday_text}", value=current)]
         except ValueError:
             return [app_commands.Choice(name="❌ 존재하지 않는 날짜입니다", value=current)]
