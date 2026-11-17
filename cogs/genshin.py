@@ -1413,6 +1413,42 @@ class GenshinGuildResetConfirmView(core.SafeView):
         await core.safe_edit_response(interaction, content="취소되었습니다.", embed=None, view=None)
 
 
+async def _fallback_genshin_artifact_autocomplete(interaction: discord.Interaction, current: str):
+    load_fn = getattr(genshin_core, "load_genshin_kr_db", None)
+    if callable(load_fn):
+        try:
+            load_fn()
+        except Exception:
+            pass
+    artifacts = getattr(genshin_core, "GENSHIN_ARTIFACTS", []) or []
+    q = (current or "").strip().lower()
+    cands = [a for a in artifacts if a.get("rank") == 5 and (not q or q in str(a.get("name", "")).lower() or q in str(a.get("id", "")).lower())]
+    if not cands:
+        cands = [a for a in artifacts if not q or q in str(a.get("name", "")).lower() or q in str(a.get("id", "")).lower()]
+    return [
+        app_commands.Choice(name=f"🏺 {a.get('name', '성유물')} ({str(a.get('set_2p', '성유물 세트'))[:36]})"[:100], value=str(a.get("id", "")))
+        for a in cands[:25] if a.get("id")
+    ]
+
+
+def _make_genshin_autocomplete(attr_name: str, fallback_fn=None):
+    async def _ac(interaction: discord.Interaction, current: str):
+        fn = getattr(genshin_core, attr_name, None)
+        if callable(fn):
+            return await fn(interaction, current)
+        if callable(fallback_fn):
+            return await fallback_fn(interaction, current)
+        return []
+    return _ac
+
+
+_AC_GENSHIN_OWNED_CHAR = _make_genshin_autocomplete("genshin_owned_char_autocomplete")
+_AC_GENSHIN_5STAR_CHAR = _make_genshin_autocomplete("genshin_5star_char_autocomplete")
+_AC_GENSHIN_4STAR_CHAR = _make_genshin_autocomplete("genshin_4star_char_autocomplete")
+_AC_GENSHIN_5STAR_WEAPON = _make_genshin_autocomplete("genshin_5star_weapon_autocomplete")
+_AC_GENSHIN_ARTIFACT = _make_genshin_autocomplete("genshin_artifact_autocomplete", _fallback_genshin_artifact_autocomplete)
+
+
 # ==========================================
 # /원신 GroupCog (11 Subcommands + Prefix Shortcuts)
 # ==========================================
@@ -1521,10 +1557,10 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
 
     @app_commands.command(name="파티편성", description="⚔️ 보유 원신 캐릭터 4명으로 파티를 편성하고 원소 공명 & 전투력을 계산합니다")
     @app_commands.autocomplete(
-        슬롯1=genshin_core.genshin_owned_char_autocomplete,
-        슬롯2=genshin_core.genshin_owned_char_autocomplete,
-        슬롯3=genshin_core.genshin_owned_char_autocomplete,
-        슬롯4=genshin_core.genshin_owned_char_autocomplete,
+        슬롯1=_AC_GENSHIN_OWNED_CHAR,
+        슬롯2=_AC_GENSHIN_OWNED_CHAR,
+        슬롯3=_AC_GENSHIN_OWNED_CHAR,
+        슬롯4=_AC_GENSHIN_OWNED_CHAR,
     )
     async def party_cmd(
         self,
@@ -1550,7 +1586,7 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
         await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
 
     @app_commands.command(name="프로필", description="🪪 나 또는 다른 여행자의 원신 쇼케이스 카드(천장 · 대표캐릭터 · 파티)를 봅니다")
-    @app_commands.autocomplete(대표캐릭터=genshin_core.genshin_owned_char_autocomplete)
+    @app_commands.autocomplete(대표캐릭터=_AC_GENSHIN_OWNED_CHAR)
     async def profile_cmd(
         self,
         interaction: discord.Interaction,
@@ -1630,15 +1666,15 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
         app_commands.Choice(name="🧹 기본값 초기화", value="reset"),
     ])
     @app_commands.autocomplete(
-        캐릭터1=genshin_core.genshin_5star_char_autocomplete,
-        캐릭터2=genshin_core.genshin_5star_char_autocomplete,
-        사성1=genshin_core.genshin_4star_char_autocomplete,
-        사성2=genshin_core.genshin_4star_char_autocomplete,
-        사성3=genshin_core.genshin_4star_char_autocomplete,
-        무기1=genshin_core.genshin_5star_weapon_autocomplete,
-        무기2=genshin_core.genshin_5star_weapon_autocomplete,
-        성유물1=genshin_core.genshin_artifact_autocomplete,
-        성유물2=genshin_core.genshin_artifact_autocomplete,
+        캐릭터1=_AC_GENSHIN_5STAR_CHAR,
+        캐릭터2=_AC_GENSHIN_5STAR_CHAR,
+        사성1=_AC_GENSHIN_4STAR_CHAR,
+        사성2=_AC_GENSHIN_4STAR_CHAR,
+        사성3=_AC_GENSHIN_4STAR_CHAR,
+        무기1=_AC_GENSHIN_5STAR_WEAPON,
+        무기2=_AC_GENSHIN_5STAR_WEAPON,
+        성유물1=_AC_GENSHIN_ARTIFACT,
+        성유물2=_AC_GENSHIN_ARTIFACT,
     )
     async def setup_pickup_cmd(
         self,
