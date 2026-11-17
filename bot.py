@@ -475,6 +475,40 @@ class NorosiBot(commands.Bot):
         except Exception:
             pass
 
+        # 구버전 community_core.py가 서버에 남아있어도 cogs.community / cogs.dashboard 로드 시 AttributeError가 발생하지 않도록 사전 보정
+        try:
+            import community_core as _cc
+            if not hasattr(_cc, "STICKY_COLOR_MAP"):
+                _cc.STICKY_COLOR_MAP = {
+                    "gold": 0xF1C40F,
+                    "blue": 0x3498DB,
+                    "green": 0x2ECC71,
+                    "pink": 0xFF69B4,
+                    "purple": 0x9B59B6,
+                    "red": 0xE74C3C,
+                }
+            if not hasattr(_cc, "STICKY_COLOR_LABELS"):
+                _cc.STICKY_COLOR_LABELS = {
+                    "gold": "🌟 골드 (노랑)",
+                    "blue": "💙 블루 (파랑)",
+                    "green": "💚 그린 (초록)",
+                    "pink": "🩷 핑크 (분홍)",
+                    "purple": "💜 퍼플 (보라)",
+                    "red": "❤️ 레드 (빨강)",
+                }
+            if not hasattr(_cc, "RAID_ACTION_LABELS"):
+                _cc.RAID_ACTION_LABELS = {
+                    "timeout": "⏳ 60분 타임아웃(활동 제한)",
+                    "kick": "👢 즉시 추방 (Kick)",
+                    "quarantine": "🔒 격리 역할 부여 (신규 격리)",
+                }
+            if not hasattr(_cc, "get_relay_completed_list") and hasattr(_cc, "get_completed_relay_novels"):
+                _cc.get_relay_completed_list = _cc.get_completed_relay_novels
+            if not hasattr(_cc, "get_relay_archives") and hasattr(_cc, "get_completed_relay_novels"):
+                _cc.get_relay_archives = _cc.get_completed_relay_novels
+        except Exception:
+            pass
+
         ext_list = [
             "cogs.gacha",
             "cogs.genshin",
