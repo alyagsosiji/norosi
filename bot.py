@@ -481,41 +481,7 @@ class NorosiBot(commands.Bot):
         if len(failed_exts) == len(ext_list):
             raise failed_exts[0][1]
 
-        # 등록된 반응역할 메시지의 Persistent View 동적 복원 (버튼 상호작용 영구 작동)
-        try:
-            from cogs.roles import PersistentReactionRoleView
-            cached_d = core.get_cached_data()
-            restored_cnt = 0
-            for mid_s, cfg in core.as_dict(cached_d.get("reaction_roles")).items():
-                if not isinstance(cfg, dict):
-                    continue
-                r_list = cfg.get("roles", [])
-                if r_list and str(mid_s).isdigit():
-                    self.add_view(PersistentReactionRoleView(r_list), message_id=int(mid_s))
-                    restored_cnt += 1
-            if restored_cnt > 0:
-                print(f"🎭 반응역할 지속 View {restored_cnt}개 복원 완료", flush=True)
-        except Exception as e:
-            print(f"ℹ️ 반응역할 지속 View 복원 건너뜀: {e}", flush=True)
-
-        # 1:1 문의 티켓 영구 View 등록 (봇 재시작 후에도 패널/제어 버튼 즉시 반응)
-        try:
-            from cogs.tickets import TicketPanelView, TicketControlView
-            self.add_view(TicketPanelView())
-            self.add_view(TicketControlView())
-            print("🎫 1:1 티켓 영구 View (패널/제어) 등록 완료", flush=True)
-        except Exception as e:
-            print(f"ℹ️ 1:1 티켓 영구 View 등록 건너뜀: {e}", flush=True)
-
-        # 커뮤니티(링크 닫기 · 레이드 비상제어 · 릴레이 소설) 영구 View 등록
-        try:
-            from cogs.community import LinkCleanupView, RaidAlertControlView, RelayNovelView
-            self.add_view(LinkCleanupView())
-            self.add_view(RaidAlertControlView())
-            self.add_view(RelayNovelView())
-            print("🛡️ 커뮤니티 영구 View (링크/비상방어/릴레이소설) 등록 완료", flush=True)
-        except Exception as e:
-            print(f"ℹ️ 커뮤니티 영구 View 등록 건너뜀: {e}", flush=True)
+        self.register_persistent_views()
 
         print("📚 [3/4] 프로세카 · 원신 · 스타레일 한국어 DB 백그라운드 캐시 워밍 시작...", flush=True)
         asyncio.create_task(asyncio.to_thread(core.load_proseka_kr_db))
@@ -737,6 +703,41 @@ class NorosiBot(commands.Bot):
 
             await self.handle_persistent_button_fallback(interaction)
 
+    def register_persistent_views(self):
+        """영구(Persistent) View들을 봇 ViewStore에 등록/재등록합니다 (초기 부팅 및 핫 리로드 시 호출)."""
+        try:
+            from cogs.roles import PersistentReactionRoleView
+            cached_d = core.get_cached_data()
+            restored_cnt = 0
+            for mid_s, cfg in core.as_dict(cached_d.get("reaction_roles")).items():
+                if not isinstance(cfg, dict):
+                    continue
+                r_list = cfg.get("roles", [])
+                if r_list and str(mid_s).isdigit():
+                    self.add_view(PersistentReactionRoleView(r_list), message_id=int(mid_s))
+                    restored_cnt += 1
+            if restored_cnt > 0:
+                print(f"🎭 반응역할 지속 View {restored_cnt}개 복원 완료", flush=True)
+        except Exception as e:
+            print(f"ℹ️ 반응역할 지속 View 복원 건너뜀: {e}", flush=True)
+
+        try:
+            from cogs.tickets import TicketPanelView, TicketControlView
+            self.add_view(TicketPanelView())
+            self.add_view(TicketControlView())
+            print("🎫 1:1 티켓 영구 View (패널/제어) 등록 완료", flush=True)
+        except Exception as e:
+            print(f"ℹ️ 1:1 티켓 영구 View 등록 건너뜀: {e}", flush=True)
+
+        try:
+            from cogs.community import LinkCleanupView, RaidAlertControlView, RelayNovelView
+            self.add_view(LinkCleanupView())
+            self.add_view(RaidAlertControlView())
+            self.add_view(RelayNovelView())
+            print("🛡️ 커뮤니티 영구 View (링크/비상방어/릴레이소설) 등록 완료", flush=True)
+        except Exception as e:
+            print(f"ℹ️ 커뮤니티 영구 View 등록 건너뜀: {e}", flush=True)
+
     async def handle_persistent_button_fallback(self, interaction: discord.Interaction):
         """
         봇 재시작 또는 코드 업데이트로 인해 discord.py의 메모리 ViewStore에서 유실된
@@ -756,6 +757,31 @@ class NorosiBot(commands.Bot):
                 return
             except Exception as e:
                 print(f"⚠️ [반응역할 폴백 예외] {e}", flush=True)
+
+        # 1-B. 커뮤니티 및 1:1 티켓 전용 고정 custom_id 폴백
+        non_prefix_view_map = {
+            "link_preview:delete": ("LinkCleanupView",),
+            "raid_defense:unlock": ("RaidAlertControlView",),
+            "raid_defense:logs": ("RaidAlertControlView",),
+            "relay_novel:write": ("RelayNovelView",),
+            "relay_novel:preview": ("RelayNovelView",),
+            "relay_novel:finish": ("RelayNovelView",),
+        }
+        if custom_id in non_prefix_view_map or custom_id.startswith("norosi:Ticket"):
+            try:
+                target_cls_name = non_prefix_view_map.get(custom_id, (None,))[0]
+                if not target_cls_name and custom_id.startswith("norosi:Ticket"):
+                    target_cls_name = custom_id.split(":", 2)[1]
+                v_cls = core.SAFE_VIEW_REGISTRY.get(target_cls_name or "")
+                if v_cls:
+                    v_inst = core.reconstruct_safe_view(v_cls, interaction)
+                    if v_inst:
+                        for ch_item in v_inst.children:
+                            if getattr(ch_item, "custom_id", None) == custom_id and hasattr(ch_item, "callback"):
+                                await ch_item.callback(interaction)
+                                return
+            except Exception as e:
+                print(f"⚠️ [전용 영구 뷰 폴백 예외] {custom_id}: {e}", flush=True)
 
         # 2. 결정론적 커스텀 ID 패턴: norosi:{ViewClassName}:{item_name}
         if custom_id.startswith("norosi:"):
@@ -786,21 +812,38 @@ class NorosiBot(commands.Bot):
                                 elif "스타레일" in e_title:
                                     view.current_tab = "hsr"
                                 elif "프로세카" in e_title or "가챠" in e_title:
-                                    view.current_tab = "gacha"
-                                elif "통합 경제" in e_title or "생활 라이프" in e_title or "경제" in e_title:
-                                    view.current_tab = "economy"
-                                elif "라이프" in e_title or "D-Day" in e_title:
+                                    view.current_tab = "proseka"
+                                elif "낚시" in e_title:
+                                    view.current_tab = "fishing"
+                                elif "타인의 인생" in e_title:
+                                    view.current_tab = "other_life"
+                                elif "D-Day" in e_title or "기념일" in e_title or "투두" in e_title:
+                                    view.current_tab = "dday"
+                                elif "생활 라이프" in e_title or "미니홈피" in e_title or "펫" in e_title or "농장" in e_title:
                                     view.current_tab = "life"
-                                elif "음악" in e_title or "플레이리스트" in e_title:
+                                elif "통합 경제" in e_title or "경제" in e_title:
+                                    view.current_tab = "economy"
+                                elif "음악" in e_title or "플레이리스트" in e_title or "DJ" in e_title:
                                     view.current_tab = "music"
-                                elif "역할" in e_title or "서버 관리" in e_title:
-                                    view.current_tab = "admin"
-                                elif "미니게임" in e_title or "파티 모집" in e_title:
-                                    view.current_tab = "game"
-                                elif "통계" in e_title or "호스트" in e_title:
-                                    view.current_tab = "stats"
+                                elif "커뮤니티" in e_title or "티켓" in e_title or "역할" in e_title or "서버 관리" in e_title:
+                                    view.current_tab = "community"
                                 if hasattr(view, "refresh_components"):
                                     view.refresh_components()
+                            elif view_name == "OtherLifeCollectionView" and msg and msg.embeds:
+                                e_title = (msg.embeds[0].title or "")
+                                if "수집 요약" in e_title:
+                                    view.tab = "summary"
+                                elif "전기 아카이브" in e_title:
+                                    view.tab = "history"
+                                else:
+                                    view.tab = "endings"
+                                if hasattr(view, "_rebuild"):
+                                    view._rebuild()
+                            elif view_name == "OtherLifeGameView":
+                                if item_name in ("origin_select", "start_life", "resume_life") and getattr(view, "mode", "") != "setup":
+                                    view.mode = "setup"
+                                    if hasattr(view, "_rebuild"):
+                                        view._rebuild()
 
                             target_item = None
                             for child in view.children:
@@ -815,7 +858,7 @@ class NorosiBot(commands.Bot):
                                         getattr(cb_obj, "__name__", ""),
                                         getattr(inner_cb, "__name__", ""),
                                     }
-                                    if item_name in cb_names:
+                                    if item_name in cb_names or f"_on_{item_name}" in cb_names:
                                         target_item = child
                                         break
                                     if getattr(child, "label", None) == item_name:
@@ -842,6 +885,34 @@ class NorosiBot(commands.Bot):
                                         await view.on_error(interaction, cb_err, target_item)
                                     except Exception:
                                         pass
+                                if msg:
+                                    self.attach_view_to_message(view, message_id=msg.id)
+                                return
+
+                            # 다른 탭/모드/배너 상태에서 동적으로 생성된 버튼 메서드 직접 호출 폴백
+                            direct_cb = None
+                            if view_name == "OtherLifeGameView" and item_name.startswith("choice:") and hasattr(view, "_make_choice_cb"):
+                                direct_cb = view._make_choice_cb(item_name.split(":", 1)[1])
+                            else:
+                                cand = getattr(view, item_name, None) or getattr(view, f"_on_{item_name}", None)
+                                if callable(cand):
+                                    direct_cb = cand
+                            if direct_cb is not None:
+                                if hasattr(view, "interaction_check"):
+                                    try:
+                                        allowed = await view.interaction_check(interaction)
+                                        if not allowed:
+                                            return
+                                    except Exception as chk_err:
+                                        print(f"⚠️ [norosi interaction_check 예외] {chk_err}", flush=True)
+                                try:
+                                    sig_params = list(inspect.signature(direct_cb).parameters.values())
+                                    if len(sig_params) <= 1:
+                                        await direct_cb(interaction)
+                                    else:
+                                        await direct_cb(interaction, None)
+                                except Exception as cb_err:
+                                    print(f"⚠️ [norosi 직접 메서드 실행 예외] {view_name}.{item_name}: {cb_err}", flush=True)
                                 if msg:
                                     self.attach_view_to_message(view, message_id=msg.id)
                                 return
@@ -2149,6 +2220,7 @@ class SyncControlView(core.SafeView):
                 reloaded.append(ext)
             except Exception as e:
                 failed.append(f"{ext}: {e}")
+        bot.register_persistent_views()
 
         try:
             if self.guild:
@@ -2201,6 +2273,7 @@ async def sync_guild_command(ctx: commands.Context, *args):
                 await bot.reload_extension(ext)
             except Exception as e:
                 print(f"⚠️ [{ext}] 리로드 실패: {e}", flush=True)
+        bot.register_persistent_views()
 
     try:
         app_id = bot.application_id or (bot.application.id if bot.application else bot.user.id)
