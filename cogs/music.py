@@ -60,11 +60,11 @@ class MusicRecommendView(core.SafeView):
         self.bot_instance = bot_instance
         self.prefs = prefs
         self.is_morning = is_morning
-        self.track_info = dict(track_info or {})
+        self.track_info = dict(track_info)
 
         self.add_item(discord.ui.Button(
-            label=f"{self.track_info.get('platform', 'YouTube')}에서 바로 듣기",
-            url=self.track_info.get("url") or "https://www.youtube.com",
+            label=f"{track_info['platform']}에서 바로 듣기",
+            url=track_info["url"],
             style=discord.ButtonStyle.link
         ))
 
@@ -92,35 +92,24 @@ class MusicRecommendView(core.SafeView):
             liked_list = []
             profile["liked_music"] = liked_list
 
-        track_title = self.track_info.get("title")
-        if not track_title and interaction.message and interaction.message.embeds:
-            emb0 = interaction.message.embeds[0]
-            track_title = (emb0.title or "").replace("🎵", "").strip() or "추천 곡"
-        track_title = track_title or "추천 곡"
-        track_url = self.track_info.get("url") or ""
-
-        found_idx = next((i for i, t in enumerate(liked_list) if t.get("url") == track_url and track_url), None)
+        found_idx = next((i for i, t in enumerate(liked_list) if t.get("url") == self.track_info.get("url")), None)
         if found_idx is not None:
             liked_list.pop(found_idx)
             await asyncio.to_thread(core.save_data, data)
             await interaction.followup.send(
-                f"💔 **{track_title}** 곡을 보관함에서 삭제했습니다.",
+                f"💔 **{self.track_info['title']}** 곡을 보관함에서 삭제했습니다.",
                 ephemeral=True
             )
             return
 
         saved_item = dict(self.track_info)
-        saved_item.setdefault("title", track_title)
-        saved_item.setdefault("artist", self.track_info.get("artist", "아티스트 미지정"))
-        saved_item.setdefault("platform", self.track_info.get("platform", "YouTube"))
-        saved_item.setdefault("url", track_url)
         saved_item["added_at"] = core.get_now_datetime_str()
         saved_item["added_by"] = interaction.user.display_name
         liked_list.append(saved_item)
         await asyncio.to_thread(core.save_data, data)
 
         await interaction.followup.send(
-            f"❤️ **{track_title}** 곡이 보관함에 저장되었습니다!\n*(💡 다시 버튼을 누르면 보관함에서 언제든 삭제할 수 있습니다)*",
+            f"❤️ **{self.track_info['title']}** 곡이 보관함에 저장되었습니다!\n*(💡 다시 버튼을 누르면 보관함에서 언제든 삭제할 수 있습니다)*",
             ephemeral=True
         )
 
@@ -319,10 +308,13 @@ class MusicScheduleAddModal(core.SafeModal, title="⏰ 새 맞춤 음악 추천 
             return
 
         await core.safe_defer(interaction)
+        data = await asyncio.to_thread(core.load_data)
+        schedules = data.setdefault("music_schedules", [])
         sched_id = f"sched_{int(time.time())}_{random.randint(100, 999)}"
         ch_id = self.default_channel.id if self.default_channel else (interaction.channel_id or 0)
         genre_val = self.sched_genre.value.strip() if self.sched_genre.value and self.sched_genre.value.strip() else None
-        new_entry = {
+
+        schedules.append({
             "id": sched_id,
             "time": clean_time,
             "channel_id": ch_id,
@@ -330,17 +322,9 @@ class MusicScheduleAddModal(core.SafeModal, title="⏰ 새 맞춤 음악 추천 
             "name": self.sched_name.value.strip() or "맞춤 음악 추천",
             "genre": genre_val,
             "last_sent": ""
-        }
+        })
+        await asyncio.to_thread(core.save_data, data)
 
-        def _append_schedule():
-            with core._DATA_LOCK:
-                data = core.load_data()
-                schedules = data.setdefault("music_schedules", [])
-                schedules.append(new_entry)
-                core.save_data(data)
-                return list(schedules)
-
-        schedules = await asyncio.to_thread(_append_schedule)
         self.hub_view.set_schedules(schedules)
         await interaction.edit_original_response(embed=self.hub_view.build_embed(), view=self.hub_view)
 
@@ -406,20 +390,15 @@ class MusicScheduleHubView(core.SafeView):
             await core.safe_defer(interaction)
             return
         await core.safe_defer(interaction)
+        data = await asyncio.to_thread(core.load_data)
+        schedules = data.get("music_schedules", [])
+        data["music_schedules"] = [
+            s for s in schedules
+            if not (str(s.get("id")) == val and core.is_schedule_in_guild(s, self.guild))
+        ]
+        await asyncio.to_thread(core.save_data, data)
 
-        def _delete_schedule():
-            with core._DATA_LOCK:
-                data = core.load_data()
-                schedules = data.get("music_schedules", [])
-                data["music_schedules"] = [
-                    s for s in schedules
-                    if not (str(s.get("id")) == val and core.is_schedule_in_guild(s, self.guild))
-                ]
-                core.save_data(data)
-                return list(data["music_schedules"])
-
-        remaining = await asyncio.to_thread(_delete_schedule)
-        self.set_schedules(remaining)
+        self.set_schedules(data["music_schedules"])
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
 
@@ -1460,7 +1439,7 @@ class VoicePlayerControlView(core.SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         await super().interaction_check(interaction)
-        vc = getattr(self.player.guild, "voice_client", None)
+        vc = self.player.guild.voice_client
         if not vc or not vc.channel:
             await core.safe_send_response(interaction, "❌ 봇이 현재 음성채널에 연결되어 있지 않습니다.", ephemeral=True)
             return False
@@ -1474,7 +1453,7 @@ class VoicePlayerControlView(core.SafeView):
         return True
 
     def update_components(self):
-        vc = getattr(self.player.guild, "voice_client", None)
+        vc = self.player.guild.voice_client
         connected = bool(vc and vc.is_connected())
         has_tracks = len(self.player.tracks) > 0
 
@@ -1557,7 +1536,7 @@ class VoicePlayerControlView(core.SafeView):
 
     def build_embed(self) -> discord.Embed:
         self.update_components()
-        vc = getattr(self.player.guild, "voice_client", None)
+        vc = self.player.guild.voice_client
         connected = bool(vc and vc.is_connected())
         vc_name = vc.channel.name if (connected and vc.channel) else "연결 종료됨"
         p_meta = core.PLAYLIST_PLATFORMS.get(self.player.playlist_platform, core.PLAYLIST_PLATFORMS["YouTube"])
@@ -1769,9 +1748,10 @@ class VoicePlayerControlView(core.SafeView):
     # Row 3: 헤드셋(청각 차단) 토글 및 오디오 스트림 재연결
     @discord.ui.button(label="🎧 헤드셋: 끔", style=discord.ButtonStyle.secondary, row=3)
     async def toggle_deaf_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        new_state = await self.player.toggle_deafen()
+        await core.safe_defer(interaction)
+        await self.player.toggle_deafen()
         try:
-            await interaction.response.edit_message(embed=self.build_embed(), view=self)
+            await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
         except Exception:
             pass
 
@@ -2245,9 +2225,9 @@ class PlaylistTrackDeleteView(core.SafeView):
             lines.append(f"*…외 {n_sel - 10}곡*")
         return header + f"\n\n🗑️ **선택된 곡 ({n_sel}곡):**\n" + "\n".join(lines)
 
-    async def _refresh_delete_view(self, interaction: discord.Interaction):
+    async def _refresh(self, interaction: discord.Interaction):
         self._rebuild()
-        await core.safe_edit_response(interaction, content=self.build_content(), view=self)
+        await interaction.response.edit_message(content=self.build_content(), view=self)
 
     @discord.ui.select(placeholder="🗑️ 삭제할 곡 선택...", min_values=0, max_values=1, row=0,
                        options=[discord.SelectOption(label="불러오는 중", value="NONE")])
@@ -2264,17 +2244,17 @@ class PlaylistTrackDeleteView(core.SafeView):
             idx = int(v)
             if 0 <= idx < len(tracks):
                 self.selected[idx] = _track_key(tracks[idx])
-        await self._refresh_delete_view(interaction)
+        await self._refresh(interaction)
 
     @discord.ui.button(label="◀ 이전", style=discord.ButtonStyle.secondary, row=1)
     async def prev_page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.page = max(0, self.page - 1)
-        await self._refresh_delete_view(interaction)
+        await self._refresh(interaction)
 
     @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.secondary, row=1)
     async def next_page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.page = min(self.max_page, self.page + 1)
-        await self._refresh_delete_view(interaction)
+        await self._refresh(interaction)
 
     @discord.ui.button(label="☑️ 이 페이지 전체 선택", style=discord.ButtonStyle.secondary, row=1)
     async def select_page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2282,12 +2262,12 @@ class PlaylistTrackDeleteView(core.SafeView):
         start = self.page * self.PAGE_SIZE
         for idx in range(start, min(start + self.PAGE_SIZE, len(tracks))):
             self.selected[idx] = _track_key(tracks[idx])
-        await self._refresh_delete_view(interaction)
+        await self._refresh(interaction)
 
     @discord.ui.button(label="↩️ 선택 해제", style=discord.ButtonStyle.secondary, row=1)
     async def clear_sel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.selected.clear()
-        await self._refresh_delete_view(interaction)
+        await self._refresh(interaction)
 
     @discord.ui.button(label="🗑️ 선택한 곡 삭제", style=discord.ButtonStyle.danger, row=2)
     async def confirm_delete_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2389,23 +2369,18 @@ class PlaylistSearchResultView(core.SafeView):
     def __init__(self, studio_view: "PlaylistStudioView", matches: list, parent_message: Optional[discord.Message] = None):
         super().__init__(timeout=300)
         self.studio_view = studio_view
-        self.matches = (matches or [])[:25]
-        self.total_matches = len(matches or [])
+        self.matches = matches[:25]
+        self.total_matches = len(matches)
         self.parent_message = parent_message
-        if self.matches:
-            self.result_select.options = [
-                discord.SelectOption(
-                    label=f"#{i + 1:02d}. {t.get('title', '제목 없음')}"[:95],
-                    value=str(i),
-                    description=f"{t.get('artist', '-')} · 선택 시 재생/순번 변경/삭제"[:95],
-                    emoji="🎵"
-                )
-                for i, t in self.matches
-            ]
-        else:
-            self.result_select.options = [discord.SelectOption(label="검색 결과 없음", value="NONE")]
-            self.result_select.disabled = True
-            self.delete_all_matches_btn.disabled = True
+        self.result_select.options = [
+            discord.SelectOption(
+                label=f"#{i + 1:02d}. {t.get('title', '제목 없음')}"[:95],
+                value=str(i),
+                description=f"{t.get('artist', '-')} · 선택 시 재생/순번 변경/삭제"[:95],
+                emoji="🎵"
+            )
+            for i, t in self.matches
+        ]
         self.delete_all_matches_btn.label = f"🗑️ 검색된 {len(self.matches)}곡 모두 삭제"
 
     def build_content(self, keyword: str) -> str:
@@ -2416,9 +2391,6 @@ class PlaylistSearchResultView(core.SafeView):
     @discord.ui.select(placeholder="🎵 곡을 선택하면 재생 / 순번 변경 / 삭제 메뉴가 열립니다...", row=0,
                        options=[discord.SelectOption(label="결과 없음", value="NONE")])
     async def result_select(self, interaction: discord.Interaction, select: discord.ui.Select):
-        if not select.values or select.values[0] == "NONE":
-            await core.safe_send_response(interaction, "ℹ️ 선택할 수 있는 검색 결과가 없습니다.", ephemeral=True)
-            return
         idx = int(select.values[0])
         cur_pl = self.studio_view.get_current_playlist()
         tracks = cur_pl.get("tracks", [])
@@ -2730,7 +2702,18 @@ class PlaylistTrackDetailView(core.SafeView):
 
     @discord.ui.button(label="🔊 이 순번부터 음성채널 재생", style=discord.ButtonStyle.success, row=1)
     async def play_from_here_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        data = await asyncio.to_thread(core.load_data)
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await core.safe_send_response(interaction, "❌ 음성채널 자동재생은 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+        voice_state = interaction.user.voice
+        if not voice_state or not voice_state.channel:
+            await core.safe_send_response(
+                interaction,
+                "🔊 먼저 **디스코드 음성채널**에 입장하신 뒤 버튼을 눌러주세요!",
+                ephemeral=True,
+            )
+            return
+        data = core.get_cached_data()
         prof = core.ensure_user_profile(data, self.owner_id)
         pls = core.ensure_user_playlists(prof)
         target_pl = next((p for p in pls if p["id"] == self.playlist_id), pls[0])
@@ -2829,10 +2812,10 @@ class PlaylistTrackDetailView(core.SafeView):
 
 class ImportLikedMusicView(core.SafeView):
     """내 음악보관함(하트 누른 곡)에서 원하는 곡들을 골라 플레이리스트로 한 번에 가져오는 뷰"""
-    def __init__(self, studio_view: "PlaylistStudioView" = None, liked_music: list = None, parent_message: Optional[discord.Message] = None):
+    def __init__(self, studio_view: "PlaylistStudioView", liked_music: list, parent_message: Optional[discord.Message] = None):
         super().__init__(timeout=300)
         self.studio_view = studio_view
-        self.liked_music = list(reversed(liked_music or []))[:25]
+        self.liked_music = list(reversed(liked_music))[:25]
         self.parent_message = parent_message
 
         opts = []
@@ -2846,20 +2829,13 @@ class ImportLikedMusicView(core.SafeView):
                 description=f"{artist} · {plat}"[:95],
                 emoji="❤️"
             ))
-        if not opts:
-            opts = [discord.SelectOption(label="보관함에 저장된 곡이 없습니다", value="NONE")]
         self.import_select.options = opts
-        self.import_select.max_values = max(1, min(10, len(opts)))
+        self.import_select.max_values = min(10, len(opts))
 
     @discord.ui.select(placeholder="❤️ 플레이리스트에 담을 보관함 곡을 선택하세요 (최대 10곡 동시 선택)...", min_values=1, max_values=1, row=0)
     async def import_select(self, interaction: discord.Interaction, select: discord.ui.Select):
-        if "NONE" in select.values:
-            await core.safe_defer(interaction, ephemeral=True)
-            return
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
-        if not self.studio_view:
-            self.studio_view = PlaylistStudioView(interaction.user, interaction.user, data)
         u_key = str(self.studio_view.owner.id)
         profile = core.ensure_user_profile(data, u_key, self.studio_view.owner.display_name)
         pls = core.ensure_user_playlists(profile, self.studio_view.owner.display_name)
@@ -3384,13 +3360,14 @@ class PlaylistStudioView(core.SafeView):
         if val == "NONE":
             await core.safe_defer(interaction)
             return
+        await core.safe_defer(interaction)
         pls = self.get_playlists()
         if any(p["id"] == val for p in pls):
             self.current_pl_id = val
         else:
             self.current_pl_id = pls[0]["id"]
         self.current_page = 0
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.select(placeholder="🎵 수록곡 선택 (이 순번부터 음성채널 재생 / 순번 변경 / 삭제)...", row=2, options=[discord.SelectOption(label="수록곡 없음", value="NONE")])
     async def track_select(self, interaction: discord.Interaction, select: discord.ui.Select):
@@ -4189,7 +4166,7 @@ class MusicCog(commands.Cog):
                 return
             sched_id = f"sched_{int(time.time())}_{random.randint(100, 999)}"
             ch_id = target_ch.id if target_ch else (interaction.channel_id or 0)
-            new_entry = {
+            schedules.append({
                 "id": sched_id,
                 "time": clean_time,
                 "channel_id": ch_id,
@@ -4197,17 +4174,9 @@ class MusicCog(commands.Cog):
                 "name": 이름,
                 "genre": 장르.strip() if 장르 and 장르.strip() else None,
                 "last_sent": ""
-            }
+            })
+            await asyncio.to_thread(core.save_data, data)
 
-            def _add_sched():
-                with core._DATA_LOCK:
-                    d_add = core.load_data()
-                    lst = d_add.setdefault("music_schedules", [])
-                    lst.append(new_entry)
-                    core.save_data(d_add)
-                    return list(lst)
-
-            schedules = await asyncio.to_thread(_add_sched)
             hub_view = MusicScheduleHubView(schedules, target_ch, interaction.guild)
             embed = hub_view.build_embed()
             embed.title = f"✅ 새 음악 타이머 등록 완료 (`{clean_time}` — {이름})"
@@ -4218,27 +4187,16 @@ class MusicCog(commands.Cog):
                 hub_view = MusicScheduleHubView(schedules, target_ch, interaction.guild)
                 await interaction.followup.send("ℹ️ 아래 드롭다운 메뉴에서 삭제할 음악 알림을 선택해 주세요.", embed=hub_view.build_embed(), view=hub_view)
                 return
-
-            def _del_sched():
-                with core._DATA_LOCK:
-                    d_del = core.load_data()
-                    lst = d_del.get("music_schedules", [])
-                    before_cnt = len(lst)
-                    filtered = [
-                        s for s in lst
-                        if not (s.get("id") == 삭제할알림 and core.is_schedule_in_guild(s, interaction.guild))
-                    ]
-                    if len(filtered) == before_cnt:
-                        return None
-                    d_del["music_schedules"] = filtered
-                    core.save_data(d_del)
-                    return list(filtered)
-
-            remaining = await asyncio.to_thread(_del_sched)
-            if remaining is None:
+            before_cnt = len(schedules)
+            data["music_schedules"] = [
+                s for s in schedules
+                if not (s.get("id") == 삭제할알림 and core.is_schedule_in_guild(s, interaction.guild))
+            ]
+            if len(data["music_schedules"]) == before_cnt:
                 await interaction.followup.send("❌ 현재 서버에서 해당 알림을 찾을 수 없습니다.", ephemeral=True)
                 return
-            hub_view = MusicScheduleHubView(remaining, target_ch, interaction.guild)
+            await asyncio.to_thread(core.save_data, data)
+            hub_view = MusicScheduleHubView(data["music_schedules"], target_ch, interaction.guild)
             await interaction.followup.send("🗑️ 선택한 음악 알림 타이머가 삭제되었습니다.", embed=hub_view.build_embed(), view=hub_view)
 
     @app_commands.command(name="음악추천설정", description="매일 오전 7시 음악 추천을 받을 채널과 조건을 설정합니다.")
@@ -4278,6 +4236,7 @@ class MusicCog(commands.Cog):
             return
 
         await core.safe_defer(interaction)
+        data = await asyncio.to_thread(core.load_data)
         selected_platform = 플랫폼.value if 플랫폼 else "all"
         g_id = str(interaction.guild_id or 0)
         pref_obj = {
@@ -4285,19 +4244,12 @@ class MusicCog(commands.Cog):
             "platform": selected_platform,
             "genre": 장르,
             "artist": 아티스트,
-            "playlist_url": 플레이리스트링크,
-            "updated_at": datetime.datetime.now(core.KST).isoformat(),
+            "playlist_url": 플레이리스트링크
         }
-
-        def _save_music_prefs():
-            with core._DATA_LOCK:
-                data = core.load_data()
-                guild_prefs = core.ensure_dict_path(data, "guild_music_prefs")
-                guild_prefs[g_id] = copy.deepcopy(pref_obj)
-                data["music_prefs"] = copy.deepcopy(pref_obj)
-                core.save_data(data)
-
-        await asyncio.to_thread(_save_music_prefs)
+        guild_prefs = core.ensure_dict_path(data, "guild_music_prefs")
+        guild_prefs[g_id] = pref_obj
+        data["music_prefs"] = pref_obj
+        await asyncio.to_thread(core.save_data, data)
 
         embed = discord.Embed(title="🎧 모닝 음악 추천 설정 완료", color=discord.Color.from_rgb(0, 204, 221))
         embed.add_field(name="📢 전송 채널", value=채널.mention, inline=False)
