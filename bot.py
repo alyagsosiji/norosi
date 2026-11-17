@@ -420,6 +420,8 @@ class NorosiBot(commands.Bot):
             integrity_checks = [
                 ("fishing_core.py", "FISH_BY_HABITAT", "class FishingCog", "cogs/fishing.py가 fishing_core.py로 잘못 저장되었습니다"),
                 (os.path.join("cogs", "gacha.py"), "class GachaCog", "class HSRCog", "cogs/hsr.py가 cogs/gacha.py로 잘못 저장되었습니다"),
+                ("genshin_core.py", "genshin_artifact_autocomplete", None, "서버의 genshin_core.py가 구버전입니다 (최신 genshin_core.py로 교체 필요)"),
+                ("hsr_core.py", "hsr_relic_autocomplete", None, "서버의 hsr_core.py가 구버전입니다 (최신 hsr_core.py로 교체 필요)"),
             ]
             for rel_path, must_have, must_not_have, hint in integrity_checks:
                 full_path = os.path.join(base_dir, rel_path)
