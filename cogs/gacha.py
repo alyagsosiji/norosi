@@ -1766,16 +1766,16 @@ class CharacterCostumeWardrobeView(core.SafeView):
                 continue
             seen_eq.add(c_val)
             is_active = (c_val == eq_id)
-            tag = "[착용 중] " if is_active else ""
-            label = f"{tag}{c['name']}"[:75]
-            desc = f"{c.get('obtained_how', '기본')}"[:60]
+            tag = "[착용] " if is_active else ""
+            label = f"{tag}{c['name']}"[:50]
+            desc = f"{c.get('obtained_how', '기본')}"[:40]
             equip_opts.append(discord.SelectOption(
                 label=label,
                 value=c_val[:100],
                 description=desc,
                 default=is_active
             ))
-            if len(equip_opts) >= 12:
+            if len(equip_opts) >= 10:
                 break
         if not equip_opts:
             equip_opts = [discord.SelectOption(label="기본 의상", value=f"default_{self.current_char_id}", default=True)]
@@ -1791,14 +1791,14 @@ class CharacterCostumeWardrobeView(core.SafeView):
             if not c_val or c_val in seen_shop:
                 continue
             seen_shop.add(c_val)
-            label = f"💎 [300💎] {c['name']}"[:75]
-            desc = f"★4 [{c.get('card_prefix')}] ({c.get('char_name')})"[:60]
+            label = f"💎 [300💎] {c['name']}"[:50]
+            desc = f"★4 [{c.get('card_prefix')}] ({c.get('char_name')})"[:40]
             shop_opts.append(discord.SelectOption(
                 label=label,
                 value=c_val[:100],
                 description=desc
             ))
-            if len(shop_opts) >= 12:
+            if len(shop_opts) >= 10:
                 break
         if not shop_opts:
             self.shop_select.options = [
@@ -3436,7 +3436,7 @@ class MasterRankView(core.SafeView):
         super().__init__(timeout=600)
         self.user = user
         self.guild_id = guild_id
-        self.per_page = 10
+        self.per_page = 8
         self.card_page = 0
         self.selected_unit: str = "ALL"
         self.selected_char_id: int | None = None
@@ -3504,7 +3504,8 @@ class MasterRankView(core.SafeView):
         )
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         if not self.guild_id and interaction.guild_id:
             self.guild_id = interaction.guild_id
         if self.user and interaction.user.id != self.user.id:
@@ -3523,10 +3524,17 @@ class MasterRankView(core.SafeView):
 
     @staticmethod
     def _safe_int(val, default: int = 0) -> int:
+        if val is None or val == "":
+            return default
         try:
             return int(val)
         except Exception:
             return default
+
+    @classmethod
+    def _card_star_num(cls, card: dict, default: int = 3) -> int:
+        raw = card.get("star_num") if card.get("star_num") is not None else card.get("rarity")
+        return cls._safe_int(raw, default)
 
     def _get_all_owned_cards(self, data: dict) -> list[dict]:
         g_key = str(self.guild_id or 0)
@@ -3555,7 +3563,7 @@ class MasterRankView(core.SafeView):
         if filter_val == "DUP_ONLY":
             return cls._safe_int(card.get("count", 1), 1) >= 2 and cls._safe_int(card.get("master_rank", 0), 0) < 5
         if filter_val == "STAR4_ONLY":
-            return cls._safe_int(card.get("star_num", 1), 1) >= 4 or card.get("rarity_type") == "rarity_birthday"
+            return cls._card_star_num(card, 1) >= 4 or card.get("rarity_type") == "rarity_birthday"
         if filter_val == "COSTUME_ONLY":
             return core.get_costume_for_card(card.get("id")) is not None
         return MyInventoryView._card_matches_unit(card, filter_val)
@@ -3576,22 +3584,22 @@ class MasterRankView(core.SafeView):
 
         unit_opts = [
             discord.SelectOption(
-                label=f"🌐 전체 보유 카드 ({total_cnt}종)"[:60],
+                label=f"🌐 전체 카드 ({total_cnt}종)"[:42],
                 value="ALL",
                 default=(self.selected_unit == "ALL"),
             ),
             discord.SelectOption(
-                label=f"🃏 중복 보유 카드만 ({dup_cnt}종 · 0💎)"[:60],
+                label=f"🃏 중복 카드만 ({dup_cnt}종·0💎)"[:42],
                 value="DUP_ONLY",
                 default=(self.selected_unit == "DUP_ONLY"),
             ),
             discord.SelectOption(
-                label=f"⭐ ★4 · 🎀생일 카드만 ({s4_cnt}종)"[:60],
+                label=f"⭐ ★4·생일만 ({s4_cnt}종)"[:42],
                 value="STAR4_ONLY",
                 default=(self.selected_unit == "STAR4_ONLY"),
             ),
             discord.SelectOption(
-                label=f"👗 3D 의상 카드만 ({cos_cnt}종 · MR.2)"[:60],
+                label=f"👗 3D 의상만 ({cos_cnt}종·MR2)"[:42],
                 value="COSTUME_ONLY",
                 default=(self.selected_unit == "COSTUME_ONLY"),
             ),
@@ -3601,7 +3609,7 @@ class MasterRankView(core.SafeView):
             u_emoji = unit_emojis.get(u_name, "🏷️")
             unit_opts.append(
                 discord.SelectOption(
-                    label=f"{u_emoji} {u_name} ({len(u_list)}종)"[:60],
+                    label=f"{u_emoji} {u_name} ({len(u_list)}종)"[:42],
                     value=u_name,
                     default=(self.selected_unit == u_name),
                 )
@@ -3615,7 +3623,7 @@ class MasterRankView(core.SafeView):
             if cid is None:
                 continue
             prev_u, prev_dup = char_counts.get(cid, (0, 0))
-            is_dup = 1 if self._safe_int(c.get("count", 1), 1) >= 2 else 0
+            is_dup = 1 if (self._safe_int(c.get("count", 1), 1) >= 2 and self._safe_int(c.get("master_rank", 0), 0) < 5) else 0
             char_counts[cid] = (prev_u + 1, prev_dup + is_dup)
 
         if self.selected_unit in core.UNIT_ORDER:
@@ -3637,7 +3645,7 @@ class MasterRankView(core.SafeView):
 
         char_opts = [
             discord.SelectOption(
-                label=f"🌐 전체 캐릭터 ({len(base_pool)}종)"[:55],
+                label=f"🌐 전체 ({len(base_pool)}종)"[:34],
                 value="ALL",
                 default=(self.selected_char_id is None),
             )
@@ -3645,10 +3653,10 @@ class MasterRankView(core.SafeView):
         for cid in display_cids:
             c_info = core.CHARACTER_MAP.get(cid, {"name": f"캐릭터 #{cid}", "unit": "-"})
             u_cnt, d_cnt = char_counts.get(cid, (0, 0))
-            dup_note = f"/중{d_cnt}" if d_cnt > 0 else ""
+            dup_note = f"·중{d_cnt}" if d_cnt > 0 else ""
             char_opts.append(
                 discord.SelectOption(
-                    label=f"👤 {c_info['name']} ({u_cnt}종{dup_note})"[:55],
+                    label=f"{c_info['name']} ({u_cnt}{dup_note})"[:34],
                     value=str(cid),
                     default=(self.selected_char_id == cid),
                 )
@@ -3663,7 +3671,7 @@ class MasterRankView(core.SafeView):
             cards = [c for c in cards if MyInventoryView._resolve_card_char_id(c) == self.selected_char_id]
         cards.sort(key=lambda c: (
             -int(self._safe_int(c.get("master_rank", 0), 0) < 5),
-            -self._safe_int(c.get("star_num", 1), 1),
+            -self._card_star_num(c, 1),
             -int(self._safe_int(c.get("count", 1), 1) >= 2),
             -self._safe_int(c.get("master_rank", 0), 0),
             -core.get_card_power(c),
@@ -3707,13 +3715,13 @@ class MasterRankView(core.SafeView):
                 seen_vals.add(cid_val)
                 mr = self._safe_int(c.get("master_rank", 0), 0)
                 cnt = self._safe_int(c.get("count", 1), 1)
-                dup_txt = f"중복{cnt - 1}" if cnt >= 2 else "1장"
+                dup_txt = f"중{cnt - 1}" if cnt >= 2 else "1장"
                 cos = core.get_costume_for_card(c.get("id"))
                 cos_badge = "👗" if cos else ""
-                r_lbl = c.get("rarity_label") or f"★{c.get('star_num', 1)}"
-                prefix = (c.get("prefix") or "카드")[:16]
+                r_lbl = c.get("rarity_label") or f"★{self._card_star_num(c, 1)}"
+                prefix = (c.get("prefix") or "카드")[:10]
                 cname = c.get("char_name") or "알 수 없음"
-                label = f"{cos_badge}[MR.{mr}] {r_lbl} [{prefix}] {cname} ({dup_txt})"[:55]
+                label = f"{cos_badge}[MR{mr}]{r_lbl} {prefix}·{cname}({dup_txt})"[:42]
                 opts.append(discord.SelectOption(
                     label=label,
                     value=cid_val[:100],
@@ -3735,7 +3743,7 @@ class MasterRankView(core.SafeView):
         else:
             cur_mr = self._safe_int(selected.get("master_rank", 0), 0)
             cnt = self._safe_int(selected.get("count", 1), 1)
-            star_num = self._safe_int(selected.get("star_num", 3), 3)
+            star_num = self._card_star_num(selected, 3)
             self.btn_goto_wardrobe.disabled = False
             if cur_mr >= 5:
                 self.btn_upgrade_dup.disabled = True
@@ -3771,14 +3779,16 @@ class MasterRankView(core.SafeView):
             if self.selected_char_id is not None
             else "전체 캐릭터"
         )
+        notice_block = f"\n🎉 {self.status_notice}\n\n" if self.status_notice else ""
 
         if not selected:
             return discord.Embed(
                 title=f"🏆 {u_name}님의 마스터 랭크 (한계 돌파)",
                 description=(
-                    f"• **현재 필터:** `{u_lbl}` · `{c_lbl}`\n\n"
+                    f"{notice_block}"
+                    f"• **현재 필터:** `{u_lbl}` · `{c_lbl}` · **보유 크리스탈:** **`{crystals:,} 💎`**\n\n"
                     "📭 해당 필터 조건에 맞는 프로세카 카드가 없습니다.\n"
-                    "위 드롭다운에서 **`🌐 전체 보유 카드 보기`** 또는 다른 캐릭터를 선택해 보세요!"
+                    "위 드롭다운에서 **`🌐 전체 카드`** 또는 다른 캐릭터를 선택해 보세요!"
                 ),
                 color=discord.Color.dark_grey(),
                 timestamp=datetime.datetime.now(core.KST)
@@ -3790,7 +3800,7 @@ class MasterRankView(core.SafeView):
         max_lvl = core.get_card_max_level(selected)
         cur_pwr = core.get_card_power(selected)
         cnt = self._safe_int(selected.get("count", 1), 1)
-        star_num = self._safe_int(selected.get("star_num", 3), 3)
+        star_num = self._card_star_num(selected, 3)
         cos = core.get_costume_for_card(selected.get("id"))
 
         # 다음 MR 예상 종합력 미리보기
@@ -3809,7 +3819,7 @@ class MasterRankView(core.SafeView):
         perk_lines = []
         if cos:
             ac_state = "✅ 해금 완료!" if mr >= 2 else "🔒 ✦MR.2 달성 시 해금"
-            perk_lines.append(f"• 👗 **3D 의상 어나더 컬러 3종:** `[{cos['name']}]` ({ac_state})")
+            perk_lines.append(f"• 👗 **3D 의상 어나더 컬러 3종:** `[{cos.get('name', '3D 의상')}]` ({ac_state})")
             if selected.get("is_limited"):
                 hair_state = "✅ 해금 완료!" if mr >= 2 else "🔒 ✦MR.2 달성 시 해금"
                 perk_lines.append(f"• 💇 **한정 헤어스타일 특전:** ({hair_state})")
@@ -3820,11 +3830,11 @@ class MasterRankView(core.SafeView):
         prefix = selected.get("prefix") or "카드"
         cname = selected.get("char_name") or "알 수 없음"
         cid_disp = selected.get("id", "-")
-        notice_block = f"\n🎉 {self.status_notice}\n" if self.status_notice else ""
+        notice_block_sel = f"\n🎉 {self.status_notice}\n" if self.status_notice else ""
         embed = discord.Embed(
             title=f"🏆 {u_name}님의 마스터 랭크 한계 돌파",
             description=(
-                f"{notice_block}"
+                f"{notice_block_sel}"
                 f"• **필터:** `{u_lbl}` · `{c_lbl}` (총 `{len(cards)}종`)\n"
                 f"• **선택 카드:** `[{selected.get('limit_label', '통상')}]` **{r_lbl} [{prefix}] {cname}** (ID: `{cid_disp}`)\n"
                 f"• **마스터 랭크:** {mr_gauge} **`✦MR.{mr} / 5`** (`종합력 +{mr * 8}%`)\n"
@@ -3843,26 +3853,36 @@ class MasterRankView(core.SafeView):
     @discord.ui.select(
         placeholder="🏷️ 1단계: 유닛 / 돌파 조건 필터 선택 (전체·중복·★4·의상·유닛)...",
         row=0,
-        options=[discord.SelectOption(label="🌐 전체 보유 카드 보기", value="ALL")]
+        options=[discord.SelectOption(label="🌐 전체 카드", value="ALL")]
     )
     async def unit_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         await core.safe_defer(interaction)
         chosen_unit = select.values[0]
         self.selected_unit = chosen_unit
-        if self.selected_char_id is not None and chosen_unit in core.UNIT_ORDER:
-            char_unit = core.CHARACTER_MAP.get(self.selected_char_id, {}).get("unit")
-            if char_unit != chosen_unit:
-                self.selected_char_id = None
+        data = await asyncio.to_thread(core.load_data)
+        if self.selected_char_id is not None:
+            if chosen_unit in core.UNIT_ORDER:
+                char_unit = core.CHARACTER_MAP.get(self.selected_char_id, {}).get("unit")
+                if char_unit != chosen_unit:
+                    self.selected_char_id = None
+            if self.selected_char_id is not None:
+                all_cards = self._get_all_owned_cards(data)
+                has_char_cards = any(
+                    self._matches_unit_or_quick_filter(c, chosen_unit)
+                    and MyInventoryView._resolve_card_char_id(c) == self.selected_char_id
+                    for c in all_cards
+                )
+                if not has_char_cards:
+                    self.selected_char_id = None
         self.card_page = 0
         self.selected_card_id = None
         self.status_notice = ""
-        data = await asyncio.to_thread(core.load_data)
         await core.safe_edit_response(interaction, embed=self.build_embed(data=data, sync_page_to_selected=False), view=self)
 
     @discord.ui.select(
         placeholder="👤 2단계: 캐릭터별 필터 선택 (원하는 캐릭터 카드만 모아보기)...",
         row=1,
-        options=[discord.SelectOption(label="🌐 전체 캐릭터 보기", value="ALL")]
+        options=[discord.SelectOption(label="🌐 전체", value="ALL")]
     )
     async def char_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         await core.safe_defer(interaction)
@@ -3896,8 +3916,9 @@ class MasterRankView(core.SafeView):
             await core.safe_send_response(interaction, "❌ 선택된 카드가 없습니다. 위 목록에서 카드를 먼저 선택해 주세요.", ephemeral=True)
             return
         gid = self.guild_id or (interaction.guild_id or 0)
+        target_uid = self.user.id if self.user else interaction.user.id
         ok, msg, info = await asyncio.to_thread(
-            core.upgrade_card_master_rank, gid, interaction.user.id, self.selected_card_id, True
+            core.upgrade_card_master_rank, gid, target_uid, self.selected_card_id, True
         )
         if not ok:
             await core.safe_send_response(interaction, f"❌ {msg}", ephemeral=True)
@@ -3918,8 +3939,9 @@ class MasterRankView(core.SafeView):
             await core.safe_send_response(interaction, "❌ 선택된 카드가 없습니다. 위 목록에서 카드를 먼저 선택해 주세요.", ephemeral=True)
             return
         gid = self.guild_id or (interaction.guild_id or 0)
+        target_uid = self.user.id if self.user else interaction.user.id
         ok, msg, info = await asyncio.to_thread(
-            core.upgrade_card_master_rank, gid, interaction.user.id, self.selected_card_id, False
+            core.upgrade_card_master_rank, gid, target_uid, self.selected_card_id, False
         )
         if not ok:
             await core.safe_send_response(interaction, f"❌ {msg}", ephemeral=True)
@@ -3945,7 +3967,8 @@ class MasterRankView(core.SafeView):
         card = u_cards.get(str(self.selected_card_id))
         if not isinstance(card, dict):
             card = next((c for c in u_cards.values() if isinstance(c, dict) and str(c.get("id")) == str(self.selected_card_id)), None)
-        init_cid = self._safe_int(card.get("char_id", 1), 1) if isinstance(card, dict) else 1
+        resolved_cid = MyInventoryView._resolve_card_char_id(card) if isinstance(card, dict) else None
+        init_cid = resolved_cid if (resolved_cid in core.CHARACTER_MAP) else 1
         view = CharacterCostumeWardrobeView(u_obj, guild_id=gid, initial_char_id=init_cid)
         await interaction.followup.send(embed=view.build_embed(), view=view)
 

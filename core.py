@@ -1616,12 +1616,23 @@ def cycle_user_costume_color(guild_id: int, user_id: int, char_id: int) -> tuple
         return True, f"🎨 **{target_name}**의 **[{cos['name']}]** 색상을 **{v_info['name']}**(으)로 변경했습니다!", v_info
 
 
+def _safe_card_int(val, default: int = 0) -> int:
+    if val is None or val == "":
+        return default
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
 def get_master_rank_crystal_cost(star_num: int, current_rank: int) -> int:
     """다음 마스터 랭크(current_rank -> current_rank + 1) 돌파에 필요한 크리스탈 비용"""
-    step = max(1, min(5, int(current_rank) + 1))
-    if star_num >= 4:
+    s_num = _safe_card_int(star_num, 3)
+    c_rank = _safe_card_int(current_rank, 0)
+    step = max(1, min(5, c_rank + 1))
+    if s_num >= 4:
         return step * 300
-    elif star_num == 3:
+    elif s_num == 3:
         return step * 100
     else:
         return step * 30
@@ -1651,24 +1662,24 @@ def upgrade_card_master_rank(guild_id: int, user_id: int, card_id_str: str, use_
         if card.get("id") is None and cid_str.isdigit():
             card["id"] = int(cid_str)
 
-        cur_mr = int(card.get("master_rank", 0))
+        cur_mr = max(0, _safe_card_int(card.get("master_rank"), 0))
         if cur_mr >= 5:
-            return False, f"**[{card.get('prefix')}] {card.get('char_name')}** 카드는 이미 최고 **마스터 랭크 5(✦5/5)**에 도달했습니다!", {}
+            return False, f"**[{card.get('prefix') or '카드'}] {card.get('char_name') or '캐릭터'}** 카드는 이미 최고 **마스터 랭크 5(✦5/5)**에 도달했습니다!", {}
 
-        star_num = card.get("star_num", 3)
+        star_num = _safe_card_int(card.get("star_num") if card.get("star_num") is not None else card.get("rarity"), 3)
         old_power = get_card_power(card)
         cost_crystals = 0
         consumed_dup = 0
 
         if use_duplicate:
-            cnt = int(card.get("count", 1))
+            cnt = _safe_card_int(card.get("count"), 1)
             if cnt < 2:
                 return False, "중복 보유 카드가 부족합니다! (최소 2장 보유 시 중복 1장 소모 가능 — 크리스탈 돌파를 이용해 보세요)", {}
             card["count"] = cnt - 1
             consumed_dup = 1
         else:
             cost_crystals = get_master_rank_crystal_cost(star_num, cur_mr)
-            cur_crystals = int(prof.get("crystals", 0))
+            cur_crystals = _safe_card_int(prof.get("crystals"), 0)
             if cur_crystals < cost_crystals:
                 return False, f"크리스탈이 부족합니다! (필요: `{cost_crystals:,}💎` / 보유: `{cur_crystals:,}💎`)", {}
             prof["crystals"] = cur_crystals - cost_crystals
@@ -3186,19 +3197,21 @@ def get_card_power(card: dict) -> int:
     """보유 카드의 성급, 레벨, 각성 여부, 마스터 랭크(0~5)를 바탕으로 정확한 종합력(전투력)을 계산합니다."""
     if not isinstance(card, dict):
         return 0
-    star_num = card.get("star_num", 3)
-    cur_lvl = max(1, int(card.get("level", 1)))
+    raw_star = card.get("star_num") if card.get("star_num") is not None else card.get("rarity")
+    star_num = _safe_card_int(raw_star, 3)
+    cur_lvl = max(1, _safe_card_int(card.get("level"), 1))
     base_p = 3000 if star_num <= 1 else 7500 if star_num == 2 else 18000 if star_num == 3 else 32000
     p_per_lvl = 150 if star_num <= 1 else 350 if star_num == 2 else 750 if star_num == 3 else 1200
     raw_pwr = base_p + (cur_lvl - 1) * p_per_lvl + (3000 if card.get("awakened") else 0)
-    mr = max(0, min(5, int(card.get("master_rank", 0))))
+    mr = max(0, min(5, _safe_card_int(card.get("master_rank"), 0)))
     if mr > 0:
         raw_pwr = int(raw_pwr * (1.0 + 0.08 * mr))
     return raw_pwr
 
 
 def get_card_max_level(card: dict) -> int:
-    star_num = card.get("star_num", 3) if isinstance(card, dict) else 3
+    raw_star = (card.get("star_num") if card.get("star_num") is not None else card.get("rarity")) if isinstance(card, dict) else 3
+    star_num = _safe_card_int(raw_star, 3)
     return 20 if star_num <= 1 else 30 if star_num == 2 else 40 if star_num == 3 else 50
 
 
@@ -7129,23 +7142,27 @@ async def owned_card_autocomplete(interaction: discord.Interaction, current: str
     cmd_name = getattr(getattr(interaction, "command", None), "name", "") or ""
     if cmd_name == "마스터랭크":
         cards.sort(key=lambda pair: (
-            -int(int(pair[1].get("master_rank", 0)) < 5),
-            -int(pair[1].get("star_num", 1)),
-            -int(int(pair[1].get("count", 1)) >= 2),
-            -int(pair[1].get("master_rank", 0)),
-            int(pair[1].get("char_id", 99)),
+            -int(_safe_card_int(pair[1].get("master_rank"), 0) < 5),
+            -_safe_card_int(pair[1].get("star_num") if pair[1].get("star_num") is not None else pair[1].get("rarity"), 1),
+            -int(_safe_card_int(pair[1].get("count"), 1) >= 2),
+            -_safe_card_int(pair[1].get("master_rank"), 0),
+            _safe_card_int(pair[1].get("char_id"), 99),
         ))
     else:
-        cards.sort(key=lambda pair: (-pair[1].get("star_num", 1), -int(pair[1].get("is_limited", False)), pair[1].get("char_id", 99)))
+        cards.sort(key=lambda pair: (
+            -_safe_card_int(pair[1].get("star_num") if pair[1].get("star_num") is not None else pair[1].get("rarity"), 1),
+            -int(bool(pair[1].get("is_limited", False))),
+            _safe_card_int(pair[1].get("char_id"), 99),
+        ))
 
     choices = []
     cur_low = (current or "").lower()
     for cid_str, c in cards:
-        cnt = int(c.get("count", 1))
-        mr = int(c.get("master_rank", 0))
+        cnt = _safe_card_int(c.get("count"), 1)
+        mr = _safe_card_int(c.get("master_rank"), 0)
         lock_prefix = "🔒 " if c.get("locked", False) else ""
         mr_tag = f"[✦MR.{mr}/5] " if (cmd_name == "마스터랭크" or mr > 0) else ""
-        label = f"{lock_prefix}{mr_tag}{c.get('rarity_label', '')} [{c.get('prefix', '')}] {c.get('char_name', '')} (보유:{cnt}장 | ID:{cid_str})"[:100]
+        label = f"{lock_prefix}{mr_tag}{c.get('rarity_label') or ''} [{c.get('prefix') or '카드'}] {c.get('char_name') or ''} (보유:{cnt}장 | ID:{cid_str})"[:100]
         if not cur_low or cur_low in label.lower() or cur_low == cid_str.lower():
             choices.append(app_commands.Choice(name=label, value=cid_str[:100]))
         if len(choices) >= 25:
