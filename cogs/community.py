@@ -1571,7 +1571,7 @@ class TempVoiceGeneratorSelect(discord.ui.ChannelSelect):
         view.cfg = await asyncio.to_thread(_save_gen)
         await interaction.edit_original_response(embed=view.build_embed(), view=view)
         await interaction.followup.send(
-            f"✅ <#{selected.id}> 채널이 **임시 음성방 생성기(Join-to-Create)**로 지정되어 활성화되었습니다!",
+            f"✅ <#{selected.id}> 채널이 **임시 음성방 생성기(Join-to-Create)** 로 지정되어 활성화되었습니다!",
             ephemeral=True,
         )
 
@@ -2333,7 +2333,7 @@ class CommunityCog(commands.Cog):
             await interaction.followup.send("❌ 소설 개설자 또는 관리자만 중단할 수 있습니다.", ephemeral=True)
             return
         title_s = removed.get("title", "릴레이 소설") if removed else "릴레이 소설"
-        await interaction.followup.send(f"🛑 진행 중이던 릴레이 소설 **『{title_s}』**이(가) 중단되었습니다.", ephemeral=True)
+        await interaction.followup.send(f"🛑 진행 중이던 릴레이 소설 **『{title_s}』** 이(가) 중단되었습니다.", ephemeral=True)
 
     # ------------------------------------------
     # 내부 헬퍼: 레이드 방어 집행

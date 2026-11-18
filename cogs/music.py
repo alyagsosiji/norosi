@@ -1061,7 +1061,7 @@ class GuildVoicePlaylistPlayer:
                 await self.stop_and_disconnect()
                 if ch:
                     try:
-                        await ch.send(f"🌙 **취침 예약 타이머(`{minutes}분`)**가 완료되어 음성채널 자동재생을 마치고 퇴장했습니다.")
+                        await ch.send(f"🌙 **취침 예약 타이머(`{minutes}분`)** 가 완료되어 음성채널 자동재생을 마치고 퇴장했습니다.")
                     except Exception:
                         pass
             except asyncio.CancelledError:
@@ -4516,10 +4516,10 @@ class MusicCog(commands.Cog):
         embed = discord.Embed(
             title="🔊 봇 오디오 및 음성 파이프라인 정밀 진단",
             description=(
-                f"**{voice_state.channel.name}** 음성채널에서 **5.0초간 고음량 C-메이저 팡파르 화음 멜로디(도-미-솔-도)**을 재생 중입니다!\n\n"
+                f"**{voice_state.channel.name}** 음성채널에서 **5.0초간 고음량 C-메이저 팡파르 화음 멜로디(도-미-솔-도)** 를 재생 중입니다!\n\n"
                 f"### 🎧 소리가 정상적으로 들리시나요?\n"
                 f"• **도-미-솔-도 화음 멜로디가 들림:** 봇의 음성 송출 / 패킷 암호화 / 네트워크가 100% 정상 작동 중입니다. 이제 `/플레이리스트`의 음성채널 자동재생을 마음껏 즐기실 수 있습니다!\n"
-                f"• **소리가 전혀 안 들림:** 아래 진단 결과 및 **[소리가 안 날 때 필수 조치]**를 꼭 확인해 주세요."
+                f"• **소리가 전혀 안 들림:** 아래 진단 결과 및 **[소리가 안 날 때 필수 조치]** 를 꼭 확인해 주세요."
             ),
             color=discord.Color.green() if is_actively_playing else discord.Color.gold(),
             timestamp=datetime.datetime.now(core.KST)
@@ -4782,10 +4782,10 @@ class MusicCog(commands.Cog):
         embed = discord.Embed(
             title="🔊 봇 오디오 및 음성 파이프라인 정밀 진단 (!오디오테스트)",
             description=(
-                f"**{voice_state.channel.name}** 음성채널에서 **5.0초간 고음량 C-메이저 팡파르 화음 멜로디(도-미-솔-도)**을 재생 중입니다!\n\n"
+                f"**{voice_state.channel.name}** 음성채널에서 **5.0초간 고음량 C-메이저 팡파르 화음 멜로디(도-미-솔-도)** 를 재생 중입니다!\n\n"
                 f"### 🎧 소리가 정상적으로 들리시나요?\n"
                 f"• **도-미-솔-도 화음 멜로디가 들림:** 봇의 음성 송출 / 패킷 암호화 / 네트워크가 100% 정상 작동 중입니다. 이제 `!플레이리스트` 또는 `/플레이리스트` 자동재생을 안심하고 사용하실 수 있습니다!\n"
-                f"• **소리가 전혀 안 들림:** 아래 진단 결과 및 **[소리가 안 날 때 필수 조치]**를 꼭 확인해 주세요."
+                f"• **소리가 전혀 안 들림:** 아래 진단 결과 및 **[소리가 안 날 때 필수 조치]** 를 꼭 확인해 주세요."
             ),
             color=discord.Color.green() if is_actively_playing else discord.Color.gold(),
             timestamp=datetime.datetime.now(core.KST)

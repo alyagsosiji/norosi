@@ -373,7 +373,7 @@ class DuplicateConvertConfirmView(core.SafeView):
         if tot_excess <= 0:
             skip_note = f"\n*(🔒 잠금 보호된 중복 카드 `{locked_skip}장`은 변환 대상에서 제외되었습니다)*" if locked_skip > 0 else ""
             embed.description = (
-                "📭 현재 변환 가능한 **중복 카드(2장 이상 보유)**가 없습니다!\n"
+                "📭 현재 변환 가능한 **중복 카드(2장 이상 보유)** 가 없습니다!\n"
                 "모든 카드의 원본 1장은 도감 수집률과 덱 유지를 위해 안전하게 보존됩니다."
                 f"{skip_note}"
             )
@@ -646,7 +646,7 @@ class GachaPullAgainView(core.SafeView):
         if not await _is_interaction_bot_owner(interaction):
             await core.safe_send_response(
                 interaction,
-                "❌ 프로세카 가챠 배너 변경은 **봇주인(Bot Owner)**만 사용할 수 있습니다.",
+                "❌ 프로세카 가챠 배너 변경은 **봇주인(Bot Owner)** 만 사용할 수 있습니다.",
                 ephemeral=True,
             )
             return
@@ -886,7 +886,7 @@ class RerollSimulatorView(core.SafeView):
         if not await _is_interaction_bot_owner(interaction):
             await core.safe_send_response(
                 interaction,
-                "❌ 프로세카 가챠 배너 변경은 **봇주인(Bot Owner)**만 사용할 수 있습니다.",
+                "❌ 프로세카 가챠 배너 변경은 **봇주인(Bot Owner)** 만 사용할 수 있습니다.",
                 ephemeral=True,
             )
             return
@@ -2015,7 +2015,7 @@ class CharacterCostumeWardrobeView(core.SafeView):
             "• **의상 획득 (가챠 연동):**\n"
             "  - `/프로세카뽑기`에서 3D 의상이 포함된 ★4 카드를 뽑으면, 해당 원본 캐릭터에게 의상이 **자동 무료 해금**됩니다.\n\n"
             "• **어나더 컬러 & 한정 헤어 (✦MR.2 해금):**\n"
-            "  - 원본 카드를 `/마스터랭크`에서 **✦MR.2 이상**으로 돌파하면 **어나더 컬러 3종(파스텔·다크·골드)**과 **한정 헤어스타일**(한정 카드)이 해금됩니다!\n"
+            "  - 원본 카드를 `/마스터랭크`에서 **✦MR.2 이상**으로 돌파하면 **어나더 컬러 3종(파스텔·다크·골드)** 과 **한정 헤어스타일**(한정 카드)이 해금됩니다!\n"
             "  - 어나더 컬러 적용 시 `/라이브`에서 멤버당 **+10% 시너지 보너스**를 받습니다.\n\n"
             "• **다른 캐릭터에게 의상 제작/입히기:**\n"
             "  - 뽑기로 보유 중인 카드의 의상은 **동일 체형(여성/남성)의 다른 캐릭터**에게 `300 💎`로 제작하여 입혀줄 수 있습니다."
@@ -3384,7 +3384,7 @@ class EventInfoView(core.SafeView):
         if not bot_ref or not hasattr(bot_ref, "is_bot_owner_user") or not await bot_ref.is_bot_owner_user(interaction.user):
             await core.safe_send_response(
                 interaction,
-                content="❌ 이 기능은 **봇주인(Bot Owner)**만 사용할 수 있습니다.",
+                content="❌ 이 기능은 **봇주인(Bot Owner)** 만 사용할 수 있습니다.",
                 ephemeral=True
             )
             return
@@ -3805,7 +3805,7 @@ class MasterRankView(core.SafeView):
                 hair_state = "✅ 해금 완료!" if mr >= 2 else "🔒 ✦MR.2 달성 시 해금"
                 perk_lines.append(f"• 💇 **한정 헤어스타일 특전:** ({hair_state})")
         else:
-            perk_lines.append("• 💡 이 카드는 3D 의상이 없는 카드지만, 돌파마다 **종합력 +8% (최대 +40%)**가 영구 상승합니다!")
+            perk_lines.append("• 💡 이 카드는 3D 의상이 없는 카드지만, 돌파마다 **종합력 +8% (최대 +40%)** 가 영구 상승합니다!")
 
         r_lbl = selected.get("rarity_label") or f"★{star_num}"
         prefix = selected.get("prefix") or "카드"
@@ -4207,7 +4207,7 @@ class GachaCog(commands.Cog):
         if 배너 is not None and not is_owner:
             await core.safe_send_response(
                 interaction,
-                content="❌ 프로세카 가챠 배너 선택은 **봇주인(Bot Owner)**만 사용할 수 있습니다.",
+                content="❌ 프로세카 가챠 배너 선택은 **봇주인(Bot Owner)** 만 사용할 수 있습니다.",
                 ephemeral=True,
             )
             return
@@ -5053,7 +5053,7 @@ class GachaCog(commands.Cog):
         배너: app_commands.Choice[str] = None,
     ):
         if not await self.bot.is_bot_owner_user(interaction.user):
-            await core.safe_send_response(interaction, content="❌ 이 명령어는 **봇주인(Bot Owner)**만 사용할 수 있습니다.", ephemeral=True)
+            await core.safe_send_response(interaction, content="❌ 이 명령어는 **봇주인(Bot Owner)** 만 사용할 수 있습니다.", ephemeral=True)
             return
 
         await core.safe_defer(interaction)
@@ -5304,7 +5304,7 @@ class GachaCog(commands.Cog):
             return
         if status == "ALREADY_MAX":
             t_card = res["target"]
-            await interaction.followup.send(f"ℹ️ **[{t_card.get('prefix')}] {t_card.get('char_name')}** 카드는 이미 **MAX 레벨(Lv.{res['max_lvl']})**에 도달했습니다!", ephemeral=True)
+            await interaction.followup.send(f"ℹ️ **[{t_card.get('prefix')}] {t_card.get('char_name')}** 카드는 이미 **MAX 레벨(Lv.{res['max_lvl']})** 에 도달했습니다!", ephemeral=True)
             return
         if status == "NO_CRYSTALS":
             await interaction.followup.send(

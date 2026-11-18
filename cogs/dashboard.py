@@ -993,7 +993,7 @@ class MasterDashboardView(core.SafeView):
         embed = discord.Embed(
             title="👑 [봇 주인 전용] 접근 제한 안내",
             description=(
-                f"**`{action_name}`** 기능은 **👑 봇 주인(Bot Owner)**만 조작할 수 있는 시스템/글로벌 설정입니다.\n\n"
+                f"**`{action_name}`** 기능은 **👑 봇 주인(Bot Owner)** 만 조작할 수 있는 시스템/글로벌 설정입니다.\n\n"
                 "• **👤 일반 이용자:** `🌐 일반`, `🎮 미니게임`, `👤 개인` 카테고리의 모든 기능 이용 가능\n"
                 "• **🛡️ 서버 관리자:** `⚙️ 고급 (1~3페이지)`의 서버 관리 기능 이용 가능\n"
                 "• **👑 봇 주인:** `⚙️ 고급 (4페이지)` 글로벌 픽업 · VM 터미널 · 전체 DB 백업 제어 가능"

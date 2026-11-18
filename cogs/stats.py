@@ -862,7 +862,7 @@ class StatsCog(commands.Cog):
         if not await self.bot.is_bot_owner_user(interaction.user):
             await core.safe_send_response(
                 interaction,
-                content="🚨 **권한 부족:** 봇 상태(호스트 시스템 리소스) 조회는 **👑 봇 주인(소유자)**만 실행할 수 있습니다.",
+                content="🚨 **권한 부족:** 봇 상태(호스트 시스템 리소스) 조회는 **👑 봇 주인(소유자)** 만 실행할 수 있습니다.",
                 ephemeral=True
             )
             return

@@ -677,7 +677,7 @@ class GithubWebhookView(core.SafeView):
         if not await self.bot.is_bot_owner_user(interaction.user):
             await core.safe_send_response(
                 interaction,
-                "🚨 **권한 부족:** GitHub 연동 및 배포 알림 설정은 **👑 봇 주인(소유자)**만 조작할 수 있습니다.",
+                "🚨 **권한 부족:** GitHub 연동 및 배포 알림 설정은 **👑 봇 주인(소유자)** 만 조작할 수 있습니다.",
                 ephemeral=True,
             )
             return False
@@ -715,7 +715,7 @@ class GithubWebhookView(core.SafeView):
         if not await self.bot.is_bot_owner_user(interaction.user):
             await core.safe_send_response(
                 interaction,
-                "🚨 **권한 부족:** GitHub 연동 해제는 **👑 봇 주인(소유자)**만 실행할 수 있습니다.",
+                "🚨 **권한 부족:** GitHub 연동 해제는 **👑 봇 주인(소유자)** 만 실행할 수 있습니다.",
                 ephemeral=True,
             )
             return
@@ -767,7 +767,7 @@ class LoggerCog(commands.Cog):
         상태: app_commands.Choice[str] = None
     ):
         if not interaction.guild or not interaction.user.guild_permissions.administrator:
-            await core.safe_send_response(interaction, content="❌ 이 명령어는 **서버 관리자(Administrator)**만 사용할 수 있습니다.", ephemeral=True)
+            await core.safe_send_response(interaction, content="❌ 이 명령어는 **서버 관리자(Administrator)** 만 사용할 수 있습니다.", ephemeral=True)
             return
 
         await core.safe_defer(interaction, ephemeral=True)
@@ -808,7 +808,7 @@ class LoggerCog(commands.Cog):
         키워드: str = None
     ):
         if not interaction.guild or not interaction.user.guild_permissions.administrator:
-            await core.safe_send_response(interaction, content="❌ 이 명령어는 **서버 관리자(Administrator)**만 사용할 수 있습니다.", ephemeral=True)
+            await core.safe_send_response(interaction, content="❌ 이 명령어는 **서버 관리자(Administrator)** 만 사용할 수 있습니다.", ephemeral=True)
             return
 
         if not isinstance(interaction.channel, (discord.TextChannel, discord.VoiceChannel, discord.Thread)):
@@ -911,7 +911,7 @@ class LoggerCog(commands.Cog):
         배너이미지: discord.Attachment = None
     ):
         if not interaction.guild or not interaction.user.guild_permissions.administrator:
-            await core.safe_send_response(interaction, "❌ 이 명령어는 **서버 관리자(Administrator)**만 사용할 수 있습니다.", ephemeral=True)
+            await core.safe_send_response(interaction, "❌ 이 명령어는 **서버 관리자(Administrator)** 만 사용할 수 있습니다.", ephemeral=True)
             return
 
         target_ch = 채널 or interaction.channel
@@ -968,7 +968,7 @@ class LoggerCog(commands.Cog):
         기준일수: app_commands.Choice[int] = None
     ):
         if not interaction.guild or not interaction.user.guild_permissions.administrator:
-            await core.safe_send_response(interaction, "❌ 이 명령어는 **서버 관리자(Administrator)**만 사용할 수 있습니다.", ephemeral=True)
+            await core.safe_send_response(interaction, "❌ 이 명령어는 **서버 관리자(Administrator)** 만 사용할 수 있습니다.", ephemeral=True)
             return
 
         await core.safe_defer(interaction, ephemeral=True)
@@ -1059,7 +1059,7 @@ class LoggerCog(commands.Cog):
         if not await self.bot.is_bot_owner_user(interaction.user):
             await core.safe_send_response(
                 interaction,
-                "🚨 **권한 부족:** GitHub 연동 및 배포 알림 설정은 **👑 봇 주인(소유자)**만 실행할 수 있습니다.",
+                "🚨 **권한 부족:** GitHub 연동 및 배포 알림 설정은 **👑 봇 주인(소유자)** 만 실행할 수 있습니다.",
                 ephemeral=True,
             )
             return
@@ -1117,7 +1117,7 @@ class LoggerCog(commands.Cog):
                 f"• 🌐 **전체 연동 서버:** 총 {total_linked}개 서버 채널에 실시간 동시 전파됩니다.\n\n"
                 f"### 📋 GitHub 등록용 Webhook URL\n"
                 f"```{primary_url}```\n"
-                f"👉 깃허브 저장소 > **Settings** > **Webhooks** > **[Add webhook]**에서\n"
+                f"👉 깃허브 저장소 > **Settings** > **Webhooks** > **[Add webhook]** 에서\n"
                 f"**Payload URL**에 위 주소를 붙여넣고 Content type을 `application/json`으로 저장하면 연동된 **모든 서버 채널**에 동시 공지됩니다!"
             ),
             color=discord.Color.from_rgb(46, 204, 113),

@@ -1831,7 +1831,7 @@ class OtherLifeGameView(core.SafeView):
         embed = discord.Embed(
             title="🔁 진행 중인 인생을 새로 시작할까요?",
             description=(
-                f"현재 **{active.get('name')} ({active.get('age')}세 · {active.get('beat')}/18장)**의 이야기가 진행 중입니다.\n"
+                f"현재 **{active.get('name')} ({active.get('age')}세 · {active.get('beat')}/18장)** 의 이야기가 진행 중입니다.\n"
                 "지금 새로 시작하면 현재 생애는 완결 기록(도감)에 저장되지 않고 덮어써집니다.\n\n"
                 "어떻게 하시겠어요?"
             ),

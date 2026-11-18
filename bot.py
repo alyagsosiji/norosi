@@ -355,6 +355,10 @@ class NorosiBot(commands.Bot):
             print(f"⚠️ [handle_github_webhook 예외] {e}", flush=True)
             return web.json_response({"error": "Internal webhook handler error"}, status=500)
 
+    async def handle_emote_index(self, request: web.Request) -> web.Response:
+        from cogs.emoji_upscale import handle_emote_index_http_request
+        return await handle_emote_index_http_request(request)
+
     async def handle_emote_favicon(self, request: web.Request) -> web.Response:
         from cogs.emoji_upscale import handle_emote_favicon_http_request
         return await handle_emote_favicon_http_request(request)
@@ -373,6 +377,7 @@ class NorosiBot(commands.Bot):
         try:
             app = web.Application()
             app.router.add_get("/", self.handle_health_check)
+            app.router.add_get("/cdn", self.handle_emote_index)
             app.router.add_get("/healthz", lambda _req: web.Response(text="ok"))
             app.router.add_get("/favicon.ico", self.handle_emote_favicon)
             app.router.add_get("/emoji/{id}", self.handle_emote_emoji)
@@ -388,11 +393,20 @@ class NorosiBot(commands.Bot):
 
             runner = web.AppRunner(app)
             await runner.setup()
-            site = web.TCPSite(runner, "0.0.0.0", core.PORT)
-            await site.start()
-            self._web_runner = runner
-            self._web_started = True
-            print(f"✅ norosi 헬스체크 · Emote CDN · GitHub 웹훅 서버 가동 완료 (포트: {core.PORT})", flush=True)
+            bound_ports = []
+            for p in dict.fromkeys([core.PORT, 53292]):
+                try:
+                    site = web.TCPSite(runner, "0.0.0.0", p)
+                    await site.start()
+                    bound_ports.append(p)
+                except Exception:
+                    continue
+            if bound_ports:
+                self._web_runner = runner
+                self._web_started = True
+                print(f"✅ norosi 헬스체크 · Emote CDN · GitHub 웹훅 서버 가동 완료 (포트: {', '.join(map(str, bound_ports))})", flush=True)
+            else:
+                await runner.cleanup()
         except Exception as e:
             print(f"ℹ️ 웹 서버 시작 건너뜀 (포트 {core.PORT} 점유 중이거나 불필요 환경): {e}", flush=True)
 
