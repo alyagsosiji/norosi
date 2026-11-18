@@ -1347,16 +1347,16 @@ def build_help_embed(
         desc_lines = [
             header_links,
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            "### ⚙️ 명령어 입력 없이 버튼 하나로! — `/설정` (`!설정`)",
-            "> 기존의 복잡한 대시보드/메뉴가 **`/설정`** 하나로 통합되었습니다.\n"
-            "> **`🌐 일반`** · **`⚙️ 고급`** · **`🎮 미니게임`** · **`👤 개인`** 버튼을 누르면 세부 기능 버튼과 **`⬅️ 뒤로가기`**, **`◀ 이전 / 다음 ▶` 통합 페이지네이션(1~14p)**으로 모든 기능을 조작할 수 있습니다.",
+            "### ⚙️ 슬래시 명령어 완전 통합 안내 — `/설정` & `/도움말` 단일화!",
+            "> 복잡한 개별 슬래시 명령어들을 모두 정리하고 **`/설정`**과 **`/도움말`** 2개만 남겼습니다!\n"
+            "> 채팅창에 **`/설정`**(`!설정`)을 입력한 뒤 **`🌐 일반`** · **`⚙️ 고급`** · **`🎮 미니게임`** · **`👤 개인`** 버튼과 **`⬅️ 뒤로가기`**, **`◀ 이전 / 다음 ▶` 통합 페이지네이션(1~14p)**으로 모든 기능을 오류 없이 조작할 수 있습니다.",
             "",
             "### 🔐 권한 등급 안내 (누가 사용할 수 있나요?)",
             f"• **`👤 일반 이용자` ({user_cnt}종):** 출석, 가챠, 낚시, 농장, 인생게임, 음악, 내 프로필/보관함 (`🌐 일반` · `🎮 미니게임` · `👤 개인`)\n"
-            f"• **`🛡️ 서버 관리자` ({admin_cnt}종):** 감사로그, 공지발송, 반응역할, 티켓/음성방/고정메시지/비상모드, 서버 데이터 초기화 (`⚙️ 고급 1~3p`)\n"
-            f"• **`👑 봇 주인` ({owner_cnt}종):** 3대 게임 픽업 배너 로테이션, 터미널 로그, 전체 DB 백업/동기화 (`⚙️ 고급 4p`)",
+            f"• **`🛡️ 서버 관리자` ({admin_cnt}종):** 감사로그, 공지발송, 반응역할, 이모지 업스케일(스티커 크기·모바일 호환), 티켓/음성방/고정메시지/비상모드 (`⚙️ 고급 1~3p`)\n"
+            f"• **`👑 봇 주인` ({owner_cnt}종):** 3대 게임 픽업 배너 로테이션, 터미널 로그, 전체 DB 백업/동기화/봇배너 (`⚙️ 고급 4p`)",
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            "👇 **드롭다운**으로 카테고리를 고르거나, **권한 필터 버튼** / **`다음 ▶`** 버튼으로 상세 설명을 확인하세요!",
+            "👇 **드롭다운**으로 카테고리를 고르거나, **권한 필터 버튼** / **`다음 ▶`** 버튼으로 `/설정` 내 정확한 버튼 위치를 확인하세요!",
         ]
         embed = discord.Embed(
             title="📖 norosi 통합 도움말 & `/설정` 가이드",
@@ -1387,7 +1387,7 @@ def build_help_embed(
             )
 
         embed.set_footer(
-            text=f"총 {total_cmds}종 핵심 명령어 & /설정 84개 버튼 완벽 연동  •  [⚙️ 통합 설정 (/설정) 열기] 버튼으로 즉시 실행"
+            text=f"슬래시 명령어는 /설정 · /도움말 2종으로 통합 완료! (총 {total_cmds}종 기능 수록)  •  [⚙️ 통합 설정 (/설정) 열기] 버튼으로 즉시 실행"
         )
         return embed
 
@@ -1400,7 +1400,7 @@ def build_help_embed(
             description=(
                 f"{header_links}\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"⚠️ 요청하신 조건(검색어: `{search_kw or '없음'}` / 권한: `{PERM_BADGE_MAP.get(perm_filter, '전체')}`)과 일치하는 명령어가 없습니다.\n\n"
+                f"⚠️ 요청하신 조건(검색어: `{search_kw or '없음'}` / 권한: `{PERM_BADGE_MAP.get(perm_filter, '전체')}`)과 일치하는 기능이 없습니다.\n\n"
                 "💡 **추천 검색어:** `설정`, `마스터랭크`, `원신`, `스타레일`, `낚시`, `농장`, `인생`, `티켓`, `임시음성방`, `이모지업스케일`\n"
                 "👉 아래 **`[🏠 전체 요약]`** 버튼을 눌러 전체 카테고리를 확인해 보세요!"
             ),
@@ -1420,7 +1420,7 @@ def build_help_embed(
     start_i = eff_page * per_page
     page_items = filtered[start_i : start_i + per_page]
 
-    cat_header = "🌟 전체 명령어 상세" if category == "all" else page_items[0]["cat_label"]
+    cat_header = "🌟 전체 기능 상세" if category == "all" else page_items[0]["cat_label"]
     perm_header = "👥 전체 권한" if perm_filter == "all" else PERM_BADGE_MAP.get(perm_filter, "👥 전체")
     display_curr_page = eff_page + 1
 
@@ -1429,7 +1429,7 @@ def build_help_embed(
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         f"📂 **분류:** **{cat_header}**  ·  🔐 **권한 필터:** **{perm_header}**",
         f"📄 **표시 범위:** 총 **`{len(filtered)}개`** 중 **`{start_i + 1}~{start_i + len(page_items)}번째`**  (페이지 **`{display_curr_page} / {total_pages}`**)",
-        "💡 *각 기능은 슬래시 명령어뿐 아니라 `/설정`의 안내된 버튼 위치에서도 즉시 실행할 수 있습니다.*",
+        "💡 *모든 기능은 `/설정`으로 통합되었으며, 각 항목 우측의 **`⚙️ /설정 위치`** 버튼을 눌러 즉시 실행할 수 있습니다.*",
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
     ]
 
@@ -1444,10 +1444,11 @@ def build_help_embed(
         perm_key = item.get("perm", "user")
         perm_tag = PERM_SHORT_BADGE.get(perm_key, "[👤일반]")
         settings_loc = item.get("settings_path") or "⚙️ /설정 허브"
-        field_name = f"🔹 `{item['name']}`  {perm_tag}  ·  `{settings_loc}`"
+        cmd_label = item["name"] if item["name"] in ("/설정", "/도움말") else f"{item['name'].lstrip('/')} (통합됨)"
+        field_name = f"🔹 `{cmd_label}`  {perm_tag}  ·  📍 `{settings_loc}`"
         field_value = (
             f"> {item['desc']}\n"
-            f"• **옵션:** `{item['params']}`  ｜  **예시:** `{item['example']}`"
+            f"• **실행 위치:** `{settings_loc}`  ｜  **세부 기능:** `{item['params']}`"
         )
         embed.add_field(name=field_name, value=field_value, inline=False)
 

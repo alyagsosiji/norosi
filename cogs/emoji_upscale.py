@@ -42,8 +42,10 @@ from PIL import Image, ImageSequence
 
 import core
 
-# 순수 커스텀 이모지 메시지(1~3개, 앞뒤 공백만 허용) 매칭용 정규식
-CUSTOM_EMOJI_RE = re.compile(r"<(a?):([a-zA-Z0-9_]{1,64}):(\d{15,22})>")
+# 순수 커스텀 이모지 메시지(1~3개, 앞뒤 공백 및 모바일 제로폭 문자 허용) 매칭용 정규식
+CUSTOM_EMOJI_RE = re.compile(r"<(a?):([^:>\s]{1,64}):(\d{15,25})>")
+INVISIBLE_CHARS_RE = re.compile(r"[\s\u200b-\u200d\u2060\ufeff\ufe0e\ufe0f\u00a0\u2800]+")
+BRAILLE_BLANK = "\u2800"  # '⠀' 마스킹 링크([⠀](url))용 점자 공백 문자
 
 MAX_EMOJIS_PER_MESSAGE = 3
 # emote-cdn-rust 표준: 160x160 종횡비 유지 리사이징 박스
@@ -59,9 +61,9 @@ MULTI_EMOJI_GAP = 8
 
 MAX_UPLOAD_BYTES = 24 * 1024 * 1024  # Discord 25MB 제한 안전 마진
 WEBHOOK_NAME = "norosi-emoji-upscale"
-USER_AGENT = "emoji-resizer/0.1 (+https://example.local) norosi/1.0"
+USER_AGENT = "emoji-resizer/0.1 (+https://example.local) reqwest/0.12"
 CACHE_TTL_SECONDS = 24 * 3600  # 24시간 TTL (emote-cdn-rust 동일)
-CACHE_MAX_CAPACITY = 4096      # 인메모리 WebP 바이트 캐시 엔트리 상한
+CACHE_MAX_CAPACITY = 50000     # 인메모리 WebP 바이트 캐시 엔트리 상한 (emote-cdn-rust 동일)
 RESAMPLE_LANCZOS = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.LANCZOS)
 
 try:
@@ -574,9 +576,82 @@ def upscale_animated_emoji_bytes(raw_bytes: bytes, target_size: int = ANIMATED_T
     return process_emote_bytes_to_webp(raw_bytes, target_size, target_size)
 
 
+def get_emote_cdn_base_url() -> str:
+    """
+    emote-cdn-rust 호환 외부 CDN 베이스 URL을 반환합니다.
+    우선순위: 환경변수(EMOTE_CDN_BASE_URL / KAMIBOT_CDN_URL) -> DB 설정(settings.emote_cdn_base_url) -> 기본값(https://cdn.kamibot.app)
+    """
+    for env_key in ("EMOTE_CDN_BASE_URL", "KAMIBOT_CDN_URL", "CDN_BASE_URL"):
+        env_val = (os.getenv(env_key) or "").strip().rstrip("/")
+        if env_val.startswith(("http://", "https://")):
+            return env_val
+    try:
+        data = core.get_cached_data_ro()
+        cfg_url = str(core.as_dict(data.get("settings")).get("emote_cdn_base_url") or "").strip().rstrip("/")
+        if cfg_url.startswith(("http://", "https://")):
+            return cfg_url
+    except Exception:
+        pass
+    return "https://cdn.kamibot.app"
+
+
+def get_emote_cdn_signing_key() -> str:
+    """SIGNING_KEY 환경변수 또는 DB 설정에서 HMAC-SHA256 서명 키를 조회합니다."""
+    env_key = (os.getenv("SIGNING_KEY") or "").strip()
+    if env_key:
+        return env_key
+    try:
+        data = core.get_cached_data_ro()
+        return str(core.as_dict(data.get("settings")).get("emote_cdn_signing_key") or "").strip()
+    except Exception:
+        return ""
+
+
+def sign_emote_id(clean_id: str, signing_key: str, ttl_seconds: int = CACHE_TTL_SECONDS) -> tuple[int, str]:
+    """
+    emote-cdn-rust (src/auth/mod.rs) 호환 HMAC-SHA256 서명(ex, hm)을 생성합니다.
+    페이로드: "{id}.{exp}", 인코딩: URL_SAFE_NO_PAD base64.
+    """
+    exp = int(time.time()) + max(60, int(ttl_seconds))
+    payload = f"{clean_id}.{exp}".encode("utf-8")
+    digest = hmac.new(signing_key.encode("utf-8"), payload, hashlib.sha256).digest()
+    hm = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    return exp, hm
+
+
+def generate_emote_cdn_url(
+    item_id: str,
+    content_type: str = "emoji",
+    dup_index: int = 0,
+    base_url: Optional[str] = None,
+) -> str:
+    """
+    emote-cdn-rust 엔드포인트 URL(/e/{id}.webp 또는 /s/{id}.webp)을 생성합니다.
+    - SIGNING_KEY가 설정된 경우 ?ex={exp}&hm={hm} 쿼리 파라미터를 자동 부착합니다.
+    - 한 메시지에 동일 이모지가 여러 번 포함된 경우 dup_index로 URL 중복 언펄 생략을 방지합니다.
+    """
+    clean_id = clean_id_from_path(item_id)
+    cdn_base = (base_url or get_emote_cdn_base_url()).strip().rstrip("/")
+    route_prefix = "s" if content_type == "sticker" else "e"
+    url = f"{cdn_base}/{route_prefix}/{clean_id}.webp"
+
+    params: list[str] = []
+    signing_key = get_emote_cdn_signing_key()
+    if signing_key:
+        exp, hm = sign_emote_id(clean_id, signing_key)
+        params.append(f"ex={exp}")
+        params.append(f"hm={hm}")
+    if dup_index > 0:
+        params.append(f"v={dup_index}")
+
+    if params:
+        url = f"{url}?{'&'.join(params)}"
+    return url
+
+
 def extract_pure_custom_emojis(content: str, max_count: int = MAX_EMOJIS_PER_MESSAGE) -> list[dict]:
     """
-    메시지 본문이 오직 커스텀 디스코드 이모지(1~max_count개)와 공백으로만 이루어져 있으면
+    메시지 본문이 오직 커스텀 디스코드 이모지(1~max_count개)와 공백(모바일 제로폭/변형 선택자 포함)으로만 이루어져 있으면
     각 이모지 메타정보 리스트를 반환하고, 일반 텍스트나 표준 이모지가 섞여 있으면 빈 리스트를 반환합니다.
     """
     if not content:
@@ -589,7 +664,7 @@ def extract_pure_custom_emojis(content: str, max_count: int = MAX_EMOJIS_PER_MES
     if not matches or len(matches) > max_count:
         return []
 
-    leftover = CUSTOM_EMOJI_RE.sub("", stripped).strip()
+    leftover = INVISIBLE_CHARS_RE.sub("", CUSTOM_EMOJI_RE.sub("", stripped))
     if leftover:
         return []
 
@@ -636,7 +711,7 @@ def is_delete_reaction_emoji(emoji: discord.PartialEmoji | discord.Emoji | str |
 
 
 # ==========================================
-# 5. emote-cdn-rust 호환 HTTP 핸들러 (/emoji/:id, /e/:id, /sticker/:id, /s/:id)
+# 5. emote-cdn-rust 호환 HTTP 핸들러 (/emoji/:id, /e/:id, /sticker/:id, /s/:id, /:name)
 # ==========================================
 async def fetch_and_resize_cdn_item(
     session: aiohttp.ClientSession,
@@ -658,12 +733,13 @@ async def fetch_and_resize_cdn_item(
         return cached
 
     if content_type == "sticker":
+        # emote-cdn-rust handlers::process_sticker 동일: PNG(?size=160) 우선 시도 후 WebP 폴백
         src_urls = [
-            f"https://media.discordapp.com/stickers/{clean_id}.webp?size=160",
-            f"https://media.discordapp.com/stickers/{clean_id}.png?size=160",
+            f"https://media.discordapp.net/stickers/{clean_id}.png?size=160",
+            f"https://media.discordapp.net/stickers/{clean_id}.webp?size=160",
         ]
     else:
-        # emote-cdn-rust 동일: WebP(?size=160&animated=true) 우선 시도 후 PNG 폴백
+        # emote-cdn-rust handlers::process_emoji 동일: WebP(?size=160&animated=true) 우선 시도 후 PNG 폴백
         src_urls = [
             f"https://cdn.discordapp.com/emojis/{clean_id}.webp?size=160&animated=true",
             f"https://cdn.discordapp.com/emojis/{clean_id}.png?size=160&animated=true",
@@ -687,6 +763,11 @@ async def fetch_and_resize_cdn_item(
     if not body:
         return None
 
+    # 알 수 없는 포맷이면 415 처리를 위해 None 반환 (emote-cdn-rust DetectedFormat::Unknown)
+    fmt = detect_image_format(body)
+    if fmt == DetectedFormat.UNKNOWN:
+        return None
+
     try:
         webp_bytes, _ = await asyncio.to_thread(
             process_emote_bytes_to_webp,
@@ -704,17 +785,22 @@ async def fetch_and_resize_cdn_item(
     return webp_bytes, actual_src
 
 
+async def handle_emote_favicon_http_request(_request: web.Request) -> web.Response:
+    """emote-cdn-rust handlers::favicon_handler 동일 (204 No Content)."""
+    return web.Response(status=204)
+
+
 async def handle_emote_cdn_http_request(request: web.Request, content_type: str = "emoji") -> web.Response:
     """
-    aiohttp 웹 서버에서 /emoji/{id}, /e/{id}, /sticker/{id}, /s/{id} 요청을 처리합니다
-    (emote-cdn-rust handlers::emoji_handler / sticker_handler).
+    aiohttp 웹 서버에서 /emoji/{id}, /e/{id}, /sticker/{id}, /s/{id}, /{name} 요청을 처리합니다
+    (emote-cdn-rust handlers::emoji_handler / sticker_handler / legacy_handler).
     """
     raw_id = request.match_info.get("id") or request.match_info.get("name") or ""
     clean_id = clean_id_from_path(raw_id)
     if not validate_id(clean_id):
         return web.Response(status=400, text="Invalid ID format")
 
-    signing_key = (os.getenv("SIGNING_KEY") or "").strip()
+    signing_key = get_emote_cdn_signing_key()
     if signing_key:
         ex_param = request.query.get("ex")
         hm_param = request.query.get("hm")
@@ -770,16 +856,19 @@ def build_emoji_upscale_embed(
     enabled: bool,
 ) -> discord.Embed:
     status_badge = "🟢 **ON (활성화됨)**" if enabled else "🔴 **OFF (비활성화됨 · 기본값)**"
+    cdn_base = get_emote_cdn_base_url()
     desc_lines = [
         "커스텀 디스코드 이모지(1~3개)만 포함된 채팅을 보내면 원본 메시지를 삭제한 뒤,",
-        "원본 종횡비를 그대로 유지하며 **`160×160` WebP (Lanczos3 · 정적/애니메이션 WebP · 24시간 캐시)** 포맷으로 리사이징하여",
+        "원본 종횡비를 그대로 유지하며 **`160×160` 스티커 크기 WebP (`emote-cdn-rust` · Lanczos3 · 24시간 캐시)** 마스킹 링크(`[⠀](url)`)로",
         "**보낸 사람의 프로필 사진과 서버 닉네임**으로 즉시 전송합니다.",
+        "• **📱 모바일 & PC 완벽 호환:** 파일 첨부(`attachments`)가 아닌 CDN 언펄 방식을 사용하여 **모바일에서도 화면이 가득 차지 않고 스티커 크기(`160×160`)와 원본 종횡비·애니메이션이 그대로 유지**됩니다.",
         "• **🗑️ 삭제 방법:** 전송된 이모지 메시지에 직접 `:x:`(❌) 반응을 추가하면 즉시 삭제됩니다.",
         "",
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         f"• **🏠 대상 서버:** `{guild.name}`",
         f"• **⚡ 현재 기능 상태:** {status_badge}",
-        "• **🖼️ 리사이징 엔진:** `160×160 WebP` (종횡비 유지 · Lanczos3 · Animated WebP 지원)",
+        f"• **🌐 연동 CDN 엔드포인트:** `{cdn_base}/e/{{id}}.webp`",
+        "• **🖼️ 리사이징 엔진:** `160×160 WebP` (원본 종횡비 유지 · Lanczos3 · Animated WebP / APNG 지원)",
         "• **🛡️ 변경 가능 권한:** 서버 관리자 (`Administrator` / `서버 관리`)",
         "• **🔒 기본 동작 정책:** 모든 서버 최초 기본값은 **OFF**입니다.",
     ]
@@ -791,26 +880,74 @@ def build_emoji_upscale_embed(
             missing.append("메시지 관리(`Manage Messages` - 원본 이모지 삭제용)")
         if not perms.manage_webhooks:
             missing.append("웹후크 관리(`Manage Webhooks` - 발신자 프로필 재전송용)")
-        if not perms.attach_files:
-            missing.append("파일 첨부(`Attach Files` - WebP 이모지 업로드용)")
+        can_send = perms.send_messages_in_threads if isinstance(channel, discord.Thread) else perms.send_messages
+        if not can_send:
+            missing.append("메시지 보내기(`Send Messages` - 채널/스레드 전송용)")
         if missing:
             desc_lines.append("")
             desc_lines.append("⚠️ **현재 채널 봇 권한 확인 필요:**")
             for m in missing:
                 desc_lines.append(f"  - ❌ `{m}`")
         else:
-            desc_lines.append("• **🤖 현재 채널 봇 권한:** ✅ 정상 작동 가능 (메시지 관리 · 웹후크 · 파일 첨부 보유)")
+            desc_lines.append("• **🤖 현재 채널 봇 권한:** ✅ 정상 작동 가능 (메시지 관리 · 웹후크 보유)")
 
     desc_lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
     embed = discord.Embed(
-        title="🔍 커스텀 이모지 160×160 WebP 리사이저 설정",
+        title="🔍 커스텀 이모지 160×160 스티커 리사이저 설정",
         description="\n".join(desc_lines),
         color=discord.Color.from_rgb(87, 242, 135) if enabled else discord.Color.from_rgb(149, 165, 166),
         timestamp=datetime.datetime.now(core.KST),
     )
-    embed.set_footer(text="서버 관리자만 아래 버튼 또는 /이모지업스케일 명령어로 ON/OFF를 전환할 수 있습니다.")
+    embed.set_footer(text="서버 관리자만 아래 버튼(/설정 → 일반 → 이모지업스케일)으로 ON/OFF를 전환할 수 있습니다.")
     return embed
+
+
+class EmoteCdnConfigModal(core.SafeModal, title="🌐 Emote CDN 서버 주소 설정"):
+    cdn_url_input = discord.ui.TextInput(
+        label="emote-cdn-rust 서버 주소 (비우면 기본값 복원)",
+        placeholder="https://cdn.kamibot.app",
+        required=False,
+        max_length=200,
+    )
+
+    def __init__(self, parent_view: "EmojiUpscaleConfigView"):
+        super().__init__()
+        self.parent_view = parent_view
+        self.cdn_url_input.default = get_emote_cdn_base_url()
+
+    async def on_submit(self, interaction: discord.Interaction):
+        raw_url = (self.cdn_url_input.value or "").strip().rstrip("/")
+        if raw_url and not raw_url.startswith(("http://", "https://")):
+            await core.safe_send_response(
+                interaction,
+                "❌ CDN 서버 주소는 `https://` 또는 `http://`로 시작해야 합니다. (예: `https://cdn.kamibot.app`)",
+                ephemeral=True,
+            )
+            return
+
+        await core.safe_defer(interaction, ephemeral=True)
+
+        def _save_cdn_url():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                settings_d = core.ensure_dict_path(data, "settings")
+                if raw_url:
+                    settings_d["emote_cdn_base_url"] = raw_url
+                else:
+                    settings_d.pop("emote_cdn_base_url", None)
+                core.save_data(data)
+
+        await asyncio.to_thread(_save_cdn_url)
+        gid = self.parent_view.guild_id or (interaction.guild.id if interaction.guild else 0)
+        enabled = core.is_emoji_upscale_enabled(gid) if gid else False
+        if interaction.guild:
+            emb = build_emoji_upscale_embed(interaction.guild, interaction.channel, enabled)
+            await core.safe_edit_response(interaction, embed=emb, view=self.parent_view)
+        await interaction.followup.send(
+            f"✅ **Emote CDN 서버 주소가 `{get_emote_cdn_base_url()}`(으)로 적용되었습니다!**",
+            ephemeral=True,
+        )
 
 
 class EmojiUpscaleConfigView(core.SafeView):
@@ -861,6 +998,10 @@ class EmojiUpscaleConfigView(core.SafeView):
         self._sync_buttons()
         emb = build_emoji_upscale_embed(interaction.guild, interaction.channel, False)
         await core.safe_edit_response(interaction, embed=emb, view=self)
+
+    @discord.ui.button(label="🌐 CDN 서버 주소 설정", style=discord.ButtonStyle.secondary, row=0)
+    async def btn_cdn_config(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(EmoteCdnConfigModal(self))
 
 
 # ==========================================
@@ -917,6 +1058,81 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
             except Exception:
                 continue
         return None
+
+    async def _prewarm_and_verify_emoji(self, emoji_id: str, cdn_url: str) -> bool:
+        """
+        웹훅 전송 전 emote-cdn-rust 서버(https://cdn.kamibot.app/e/{id}.webp)와 로컬 인메모리 캐시를 동시에 예열합니다.
+        - Discordbot/2.0 언펄러가 웹훅 메시지 직후 요청할 때 0ms 캐시 히트로 즉시 160x160 WebP를 반환하게 합니다.
+        - 존재하지 않는 이모지(404/400)인 경우 False를 반환하여 원본 메시지 삭제를 방지합니다.
+        """
+        clean_id = clean_id_from_path(emoji_id)
+        if not validate_id(clean_id):
+            return False
+
+        # 이미 로컬 24시간 캐시에 존재하면 유효한 이모지로 즉시 통과 (백그라운드로 외부 CDN 예열)
+        if GLOBAL_EMOTE_CACHE.get(f"emoji:{clean_id}") is not None:
+            async def _bg_warm():
+                try:
+                    session = await self._get_session()
+                    async with session.get(cdn_url, timeout=aiohttp.ClientTimeout(total=4)) as resp:
+                        await resp.read()
+                except Exception:
+                    pass
+            try:
+                asyncio.create_task(_bg_warm())
+            except Exception:
+                pass
+            return True
+
+        session = await self._get_session()
+        # 1차: emote-cdn-rust 엔드포인트(cdn_url) 직접 호출로 원격 moka 캐시 예열 + 유효성 검증
+        try:
+            async with session.get(cdn_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if 200 <= resp.status < 300:
+                    raw = await resp.read()
+                    if raw and len(raw) >= 12:
+                        GLOBAL_EMOTE_CACHE.insert(f"emoji:{clean_id}", raw, cdn_url)
+                        return True
+                elif resp.status in (400, 404, 415):
+                    return False
+        except Exception:
+            pass
+
+        # 2차 폴백: 컨테이너 네트워크에서 외부 CDN 직접 연결이 제한된 경우 Discord CDN으로 로컬 캐시 예열 및 검증
+        res = await fetch_and_resize_cdn_item(session, clean_id, content_type="emoji")
+        return res is not None
+
+    async def _prepare_upscaled_masked_link(self, emojis: list[dict]) -> Optional[str]:
+        """
+        1~3개의 커스텀 이모지를 emote-cdn-rust 마스킹 링크([⠀](https://cdn.kamibot.app/e/{id}.webp))로 변환합니다.
+        - 모바일과 PC 모두에서 파일 첨부(attachments)로 인한 가로 100% 확대 현상 없이,
+          원본 종횡비를 유지한 정확한 스티커 크기(160x160 박스)와 애니메이션 WebP로 렌더링됩니다.
+        """
+        items = emojis[:MAX_EMOJIS_PER_MESSAGE]
+        if not items:
+            return None
+
+        cdn_base = get_emote_cdn_base_url()
+        seen_counts: dict[str, int] = {}
+        masked_links: list[str] = []
+
+        for em in items:
+            clean_id = clean_id_from_path(em["id"])
+            if not validate_id(clean_id):
+                return None
+            occ = seen_counts.get(clean_id, 0)
+            seen_counts[clean_id] = occ + 1
+
+            cdn_url = generate_emote_cdn_url(clean_id, content_type="emoji", dup_index=occ, base_url=cdn_base)
+            if occ == 0:
+                ok = await self._prewarm_and_verify_emoji(clean_id, cdn_url)
+                if not ok:
+                    return None
+            masked_links.append(f"[{BRAILLE_BLANK}]({cdn_url})")
+
+        if not masked_links:
+            return None
+        return " ".join(masked_links)
 
     async def _build_sticker_strip_file(self, emojis: list[dict]) -> Optional[discord.File]:
         items = emojis[:MAX_EMOJIS_PER_MESSAGE]
@@ -1083,7 +1299,7 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         if not core.is_emoji_upscale_enabled(message.guild.id):
             return
 
-        # 순수 커스텀 이모지 메시지(1~3개)인지 검사
+        # 순수 커스텀 이모지 메시지(1~3개, 모바일 제로폭 문자 허용)인지 검사
         emojis = extract_pure_custom_emojis(message.content)
         if not emojis:
             return
@@ -1101,13 +1317,15 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         if not me:
             return
         perms = channel.permissions_for(me)
-        if not (perms.manage_messages and perms.manage_webhooks and perms.send_messages and perms.attach_files):
+        can_send = perms.send_messages_in_threads if isinstance(channel, discord.Thread) else perms.send_messages
+        if not (perms.manage_messages and perms.manage_webhooks and can_send):
             return
 
-        # 1. 이모지 다운로드 및 160x160 종횡비 유지 WebP 리사이즈 수행 (실패 시 원본 메시지를 절대 삭제하지 않음)
+        # 1. emote-cdn-rust 마스킹 링크([⠀](https://cdn.kamibot.app/e/{id}.webp)) 생성 및 캐시 예열
+        #    (파일 첨부 대신 CDN 언펄을 사용하여 모바일에서도 가로 100% 늘어남 없이 160x160 스티커 크기 & 애니메이션 유지)
         try:
-            sticker_file = await self._build_sticker_strip_file(emojis)
-            if not sticker_file:
+            masked_content = await self._prepare_upscaled_masked_link(emojis)
+            if not masked_content:
                 return
         except Exception as e:
             print(f"⚠️ [이모지 업스케일 변환 예외] {e}", flush=True)
@@ -1124,11 +1342,11 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
             return
 
-        # 4. 보낸 사람 프로필 사진 & 닉네임으로 웹훅 전송
+        # 4. 보낸 사람 프로필 사진 & 닉네임으로 웹훅 마스킹 링크 전송
         sender_name = sanitize_webhook_username(message.author.display_name)
         sender_avatar = message.author.display_avatar.url if hasattr(message.author, "display_avatar") else None
         send_kwargs = {
-            "file": sticker_file,
+            "content": masked_content,
             "username": sender_name,
             "avatar_url": sender_avatar,
             "allowed_mentions": discord.AllowedMentions.none(),
@@ -1146,10 +1364,6 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
             if not fresh_webhook:
                 return
             try:
-                try:
-                    sticker_file.fp.seek(0)
-                except Exception:
-                    pass
                 sent_msg = await fresh_webhook.send(**send_kwargs)
             except Exception as retry_err:
                 print(f"⚠️ [이모지 업스케일 웹훅 재전송 실패] {retry_err}", flush=True)

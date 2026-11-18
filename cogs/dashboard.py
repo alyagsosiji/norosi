@@ -256,10 +256,10 @@ class DashboardPomodoroModal(core.SafeModal, title="⏳ 뽀모도로 집중모�
             await core.safe_send_response(interaction, "❌ 시간과 세트 수는 숫자로만 입력해 주세요.", ephemeral=True)
             return
 
-        target_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "focus_pomodoro_cmd")), None)
+        target_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "pomodoro_cmd")), None)
         if target_cog:
             choice_start = app_commands.Choice(name="▶️ 집중모드 시작", value="start")
-            await target_cog.focus_pomodoro_cmd.callback(
+            await target_cog.pomodoro_cmd.callback(
                 target_cog,
                 interaction,
                 동작=choice_start,
@@ -267,7 +267,6 @@ class DashboardPomodoroModal(core.SafeModal, title="⏳ 뽀모도로 집중모�
                 휴식시간=b_m,
                 세트수=c_cnt,
                 음성채널=None,
-                자동음소거=True,
             )
         else:
             await core.safe_send_response(interaction, "❌ 집중모드 모듈을 찾을 수 없습니다.", ephemeral=True)
@@ -632,7 +631,253 @@ class RelayStartQuickModal(core.SafeModal, title="✍️ 새 협동 릴레이 �
             await core.safe_send_response(interaction, "❌ 릴레이 소설 모듈을 찾을 수 없습니다.", ephemeral=True)
 
 
-# ==========================================
+class PartnerProposeUserSelectView(core.SafeView):
+    """/설정 안에서 파트너를 신청할 유저를 UserSelect로 선택하는 뷰"""
+
+    def __init__(self, user: discord.abc.User, bot: commands.Bot):
+        super().__init__(timeout=180)
+        self.user = user
+        self.bot = bot
+        u_sel = discord.ui.UserSelect(
+            placeholder="💌 파트너(짝꿍)를 신청할 서버 멤버를 선택하세요...",
+            min_values=1,
+            max_values=1,
+            row=0,
+        )
+        u_sel.callback = self._on_user_picked
+        self.add_item(u_sel)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 본인의 파트너 신청 창만 조작할 수 있습니다.", ephemeral=True)
+            return False
+        return True
+
+    async def _on_user_picked(self, interaction: discord.Interaction):
+        uid_str = (interaction.data.get("values") or [None])[0] if isinstance(interaction.data, dict) else None
+        if not uid_str or not str(uid_str).isdigit():
+            await core.safe_send_response(interaction, "❌ 대상을 확인할 수 없습니다.", ephemeral=True)
+            return
+        target_id = int(uid_str)
+        target_obj = (interaction.guild.get_member(target_id) if interaction.guild else None) or interaction.client.get_user(target_id)
+        if target_obj is None:
+            try:
+                target_obj = await interaction.client.fetch_user(target_id)
+            except Exception:
+                pass
+        if target_obj is None:
+            await core.safe_send_response(interaction, "❌ 선택한 유저 정보를 불러올 수 없습니다.", ephemeral=True)
+            return
+        dday_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "partner_cmd")), None)
+        if dday_cog:
+            choice_req = app_commands.Choice(name="💌 파트너 신청하기", value="request")
+            await dday_cog.partner_cmd.callback(dday_cog, interaction, 동작=choice_req, 유저=target_obj)
+        else:
+            await core.safe_send_response(interaction, "❌ 파트너 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+
+class CardTradeUserSelectView(core.SafeView):
+    """/설정 안에서 1:1 카드 교환 상대방을 UserSelect로 선택해 교환 장터 스튜디오를 여는 뷰"""
+
+    def __init__(self, user: discord.abc.User, bot: commands.Bot):
+        super().__init__(timeout=180)
+        self.user = user
+        self.bot = bot
+        u_sel = discord.ui.UserSelect(
+            placeholder="🔄 1:1 카드를 교환할 서버 멤버를 선택하세요 (100💎)...",
+            min_values=1,
+            max_values=1,
+            row=0,
+        )
+        u_sel.callback = self._on_user_picked
+        self.add_item(u_sel)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 본인의 카드 교환 창만 조작할 수 있습니다.", ephemeral=True)
+            return False
+        return True
+
+    async def _on_user_picked(self, interaction: discord.Interaction):
+        uid_str = (interaction.data.get("values") or [None])[0] if isinstance(interaction.data, dict) else None
+        if not uid_str or not str(uid_str).isdigit():
+            await core.safe_send_response(interaction, "❌ 대상을 확인할 수 없습니다.", ephemeral=True)
+            return
+        target_id = int(uid_str)
+        target_obj = (interaction.guild.get_member(target_id) if interaction.guild else None) or interaction.client.get_user(target_id)
+        if target_obj is None:
+            try:
+                target_obj = await interaction.client.fetch_user(target_id)
+            except Exception:
+                pass
+        if target_obj is None:
+            await core.safe_send_response(interaction, "❌ 선택한 유저 정보를 불러올 수 없습니다.", ephemeral=True)
+            return
+        gacha_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "card_trade_cmd")), None)
+        if gacha_cog:
+            await gacha_cog.card_trade_cmd.callback(gacha_cog, interaction, 상대유저=target_obj, 내카드=None, 상대카드=None)
+        else:
+            await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+
+class CardGiftQuickModal(core.SafeModal, title="🎁 파트너에게 보유 카드 선물 (50💎)"):
+    card_query = discord.ui.TextInput(
+        label="선물할 보유 카드 ID 또는 캐릭터/카드명",
+        placeholder="예: 101 또는 카나데",
+        required=True,
+        max_length=60,
+    )
+    gift_msg = discord.ui.TextInput(
+        label="파트너에게 함께 전할 선물 메시지 (선택)",
+        placeholder="예: 생일 축하해! 이 카드 선물할게 💖",
+        required=False,
+        max_length=100,
+    )
+
+    def __init__(self, bot: commands.Bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        gacha_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "card_gift_cmd")), None)
+        if not gacha_cog:
+            await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
+            return
+        data = await asyncio.to_thread(core.load_data)
+        g_key = str(interaction.guild_id or 0)
+        u_key = str(interaction.user.id)
+        u_cards = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
+        cid, _ = gacha.GachaCog._find_user_card_by_query(u_cards, self.card_query.value.strip())
+        await gacha_cog.card_gift_cmd.callback(
+            gacha_cog,
+            interaction,
+            내카드=cid or self.card_query.value.strip(),
+            메시지=(self.gift_msg.value or "").strip() or None,
+        )
+
+
+class SekaiDeckCustomModal(core.SafeModal, title="✏️ 프로세카 5인 유닛 덱 직접 편성"):
+    slot1 = discord.ui.TextInput(label="1번 슬롯 (👑 리더) 카드 ID 또는 이름", placeholder="예: 101 또는 카나데", required=True, max_length=50)
+    slot2 = discord.ui.TextInput(label="2번 슬롯 카드 ID 또는 이름 (선택)", placeholder="비워두면 1인/일부 슬롯만 편성", required=False, max_length=50)
+    slot3 = discord.ui.TextInput(label="3번 슬롯 카드 ID 또는 이름 (선택)", required=False, max_length=50)
+    slot4 = discord.ui.TextInput(label="4번 슬롯 카드 ID 또는 이름 (선택)", required=False, max_length=50)
+    slot5 = discord.ui.TextInput(label="5번 슬롯 카드 ID 또는 이름 (선택)", required=False, max_length=50)
+
+    def __init__(self, bot: commands.Bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        gacha_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "set_deck_cmd")), None)
+        if not gacha_cog:
+            await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
+            return
+        data = await asyncio.to_thread(core.load_data)
+        g_key = str(interaction.guild_id or 0)
+        u_key = str(interaction.user.id)
+        u_cards = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
+        raw_inputs = [self.slot1.value, self.slot2.value, self.slot3.value, self.slot4.value, self.slot5.value]
+        resolved_ids: List[Optional[str]] = []
+        for q in raw_inputs:
+            q_s = (q or "").strip()
+            if not q_s:
+                resolved_ids.append(None)
+                continue
+            cid, _ = gacha.GachaCog._find_user_card_by_query(u_cards, q_s)
+            resolved_ids.append(cid or q_s)
+        await gacha_cog.set_deck_cmd.callback(
+            gacha_cog,
+            interaction,
+            리더=resolved_ids[0] or "",
+            멤버2=resolved_ids[1],
+            멤버3=resolved_ids[2],
+            멤버4=resolved_ids[3],
+            멤버5=resolved_ids[4],
+        )
+
+
+class SekaiDeckManageView(core.SafeView):
+    """5인 유닛 덱 현황 창에서 자동 최고 종합력 편성 또는 직접 편성을 수행하는 뷰"""
+
+    def __init__(self, user: discord.abc.User, bot: commands.Bot):
+        super().__init__(timeout=180)
+        self.user = user
+        self.bot = bot
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 본인의 덱 편성 창만 조작할 수 있습니다.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="⚡ 최고 종합력 5인 자동 편성", style=discord.ButtonStyle.success, emoji="⚡", row=0)
+    async def auto_deck_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction, ephemeral=True)
+        data = await asyncio.to_thread(core.load_data)
+        g_key = str(interaction.guild_id or 0)
+        u_key = str(interaction.user.id)
+        u_cards = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
+        if not u_cards:
+            await interaction.followup.send("❌ 보유한 카드가 없습니다. 프로세카 뽑기로 먼저 카드를 획득해 주세요!", ephemeral=True)
+            return
+        sorted_items = sorted(
+            [(str(cid), c) for cid, c in u_cards.items() if isinstance(c, dict)],
+            key=lambda item: (-core.get_card_power(item[1]), -int(item[1].get("star_num", 1))),
+        )
+        chosen_ids: List[str] = []
+        chosen_chars = set()
+        for cid, c in sorted_items:
+            char_ident = c.get("char_id") or c.get("char_name")
+            if char_ident in chosen_chars:
+                continue
+            chosen_chars.add(char_ident)
+            chosen_ids.append(cid)
+            if len(chosen_ids) >= 5:
+                break
+        if not chosen_ids:
+            await interaction.followup.send("❌ 편성 가능한 카드를 찾을 수 없습니다.", ephemeral=True)
+            return
+        profile = core.ensure_user_profile(data, u_key, interaction.user.display_name)
+        profile["deck"] = chosen_ids
+        await asyncio.to_thread(core.save_data, data)
+
+        total_power = 0
+        lines = []
+        for idx, cid in enumerate(chosen_ids, start=1):
+            c = u_cards[cid]
+            p_val = core.get_card_power(c)
+            total_power += p_val
+            badge = "👑 **[리더]**" if idx == 1 else f"🎸 **[슬롯 {idx}]**"
+            lines.append(f"{badge} **{c.get('rarity_label', '★1')} [{c.get('prefix', '')}] {c.get('char_name', '')}** (`Lv.{c.get('level', 1)}` · `⚔️ {p_val:,}`)")
+        embed = discord.Embed(
+            title=f"⚡ {interaction.user.display_name}님의 최고 종합력 5인 덱 자동 편성 완료! (⚔️ {total_power:,})",
+            description="\n".join(lines),
+            color=discord.Color.from_rgb(0, 204, 221),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        await interaction.edit_original_response(embed=embed, view=self)
+
+    @discord.ui.button(label="✏️ 카드 ID·이름으로 5인 직접 편성", style=discord.ButtonStyle.primary, emoji="✏️", row=0)
+    async def manual_deck_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(SekaiDeckCustomModal(self.bot))
+
+
+class BotBannerModal(core.SafeModal, title="🖼️ [봇주 전용] 봇 프로필 배너 변경/초기화"):
+    banner_url = discord.ui.TextInput(
+        label="배너 이미지 URL (초기화 시 '초기화' 입력)",
+        placeholder="https://... (PNG/JPG/GIF/WEBP) 또는 '초기화'",
+        required=True,
+        max_length=400,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        import bot as bot_mod
+        raw = (self.banner_url.value or "").strip()
+        if raw.lower() in ("초기화", "제거", "삭제", "reset", "none", "clear"):
+            await bot_mod.set_bot_banner_slash(interaction, 이미지파일=None, 이미지url=None, 초기화=True)
+        else:
+            await bot_mod.set_bot_banner_slash(interaction, 이미지파일=None, 이미지url=raw, 초기화=False)
+
 # 🎛️ 통합 설정 허브 뷰 (MasterDashboardView / SettingsHubView)
 # ==========================================
 class MasterDashboardView(core.SafeView):
@@ -2048,13 +2293,14 @@ class MasterDashboardView(core.SafeView):
                 ],
             },
             "owner_backup_sync": {
-                "title": "💾 [봇 주인 전용] 서버/DB JSON 백업 & 슬래시 명령어 동기화",
-                "desc": "현재 서버 구조 또는 봇 전체 DB를 JSON으로 백업하고 슬래시 명령어를 즉시 동기화합니다.",
+                "title": "💾 [봇 주인 전용] 서버/DB 백업 · 슬래시 동기화 · 봇 배너",
+                "desc": "현재 서버 구조 또는 봇 전체 DB를 JSON으로 백업하고 슬래시 명령어 동기화 및 봇 프로필 배너를 제어합니다.",
                 "perm": PERM_OWNER,
                 "buttons": [
                     ("현재 서버 구조 JSON 백업", "🏢", discord.ButtonStyle.primary, self._sub_owner_backup_guild),
                     ("봇 전체 DB JSON 백업", "🗄️", discord.ButtonStyle.success, self._sub_owner_backup_db),
                     ("슬래시 명령어 즉시 동기화 패널", "⚡", discord.ButtonStyle.secondary, self._sub_owner_sync_panel),
+                    ("봇 프로필 배너 변경/초기화", "🖼️", discord.ButtonStyle.secondary, self._sub_owner_bot_banner),
                 ],
             },
             "pokedex_hub": {
@@ -2084,14 +2330,16 @@ class MasterDashboardView(core.SafeView):
                 ],
             },
             "sekai_deck": {
-                "title": "🎴 프로세카 5인 유닛 덱 & 카드 강화 · 교환 허브",
-                "desc": "내 5인 덱 구성을 확인하고 보유 카드를 레벨업(강화)하거나 마스터 랭크를 돌파합니다.",
+                "title": "🎴 프로세카 5인 유닛 덱 & 카드 강화 · 교환 · 선물 허브",
+                "desc": "내 5인 덱 구성을 확인·편성(자동/직접)하고 보유 카드를 강화·마스터랭크 돌파하거나 1:1 교환·선물합니다.",
                 "perm": PERM_USER,
                 "buttons": [
-                    ("내 5인 유닛 덱 현황", "🎴", discord.ButtonStyle.primary, self._sub_sekai_deck_view),
+                    ("내 5인 덱 현황 & 편성", "🎴", discord.ButtonStyle.primary, self._sub_sekai_deck_view),
                     ("보유 카드 레벨업 강화", "🔨", discord.ButtonStyle.success, self._sub_sekai_card_enhance),
                     ("마스터 랭크(✦MR) 돌파", "🏆", discord.ButtonStyle.secondary, self._act_sekai_master_rank),
                     ("중복 카드 크리스탈 환전", "💎", discord.ButtonStyle.secondary, self._act_sekai_dup_convert),
+                    ("1:1 카드 교환 장터 (100💎)", "🔄", discord.ButtonStyle.primary, self._sub_sekai_card_trade),
+                    ("파트너 카드 선물 (50💎)", "🎁", discord.ButtonStyle.secondary, self._sub_sekai_card_gift),
                 ],
             },
             "gi_personal": {
@@ -2129,11 +2377,13 @@ class MasterDashboardView(core.SafeView):
             },
             "bday_partner": {
                 "title": "🎂 내 생일 등록 & 💑 파트너 스튜디오",
-                "desc": "내 생일을 등록해 당일 자정 축하와 +500💎 보너스를 받고, 파트너와 공동 D-Day·공유 음악을 관리합니다.",
+                "desc": "내 생일을 등록해 당일 자정 축하와 +500💎 보너스를 받고, 파트너 신청/해제 및 공동 D-Day·공유 음악을 관리합니다.",
                 "perm": PERM_USER,
                 "buttons": [
                     ("생일 전광판 & 내 생일 등록", "🎂", discord.ButtonStyle.success, self._act_birthday_board),
                     ("내 파트너 스튜디오 열기", "💑", discord.ButtonStyle.primary, self._act_partner_studio),
+                    ("파트너(짝꿍) 신청하기", "💌", discord.ButtonStyle.primary, self._sub_partner_propose),
+                    ("파트너 관계 해제하기", "💔", discord.ButtonStyle.danger, self._sub_partner_break),
                     ("나만의 비밀 D-Day 보드", "🔒", discord.ButtonStyle.secondary, self._act_secret_dday),
                 ],
             },
@@ -2594,9 +2844,9 @@ class MasterDashboardView(core.SafeView):
 
     async def _act_music_headset_toggle(self, interaction: discord.Interaction):
         try:
-            music_cog = self._find_cog_with_attr("headset_deafen_cmd")
+            music_cog = self._find_cog_with_attr("headset_toggle_cmd")
             if music_cog:
-                await music_cog.headset_deafen_cmd.callback(music_cog, interaction, 모드=None)
+                await music_cog.headset_toggle_cmd.callback(music_cog, interaction, 모드=None)
             else:
                 await core.safe_send_response(interaction, "❌ 음악 모듈을 찾을 수 없습니다.", ephemeral=True)
         except Exception as e:
@@ -2716,9 +2966,9 @@ class MasterDashboardView(core.SafeView):
     async def _act_admin_role_list(self, interaction: discord.Interaction):
         if not await self.check_admin_permission(interaction, action_name="반응역할 전체 목록", require_roles_perm=True):
             return
-        roles_cog = self._find_cog_with_attr("list_reaction_roles_cmd")
+        roles_cog = self._find_cog_with_attr("slash_list_reaction_roles")
         if roles_cog:
-            await roles_cog.list_reaction_roles_cmd.callback(roles_cog, interaction)
+            await roles_cog.slash_list_reaction_roles.callback(roles_cog, interaction)
         else:
             await core.safe_defer(interaction, ephemeral=True)
             data = await asyncio.to_thread(core.load_data)
@@ -3069,48 +3319,20 @@ class MasterDashboardView(core.SafeView):
     async def _sub_owner_gi_auto(self, interaction: discord.Interaction):
         if not await self.check_bot_owner_permission(interaction, action_name="원신 KST 자동 로테이션 설정"):
             return
-        gi_cog = self._find_cog_with_attr("genshin_pickup_cmd")
-        if gi_cog:
-            choice_auto = app_commands.Choice(name="⏰ KST 시각별 자동 로테이션", value="auto_kst")
-            await gi_cog.genshin_pickup_cmd.callback(
-                gi_cog,
-                interaction,
-                프리셋=choice_auto,
-                캐릭터1=None,
-                캐릭터2=None,
-                사성1=None,
-                사성2=None,
-                사성3=None,
-                무기1=None,
-                무기2=None,
-                성유물1=None,
-                성유물2=None,
-                배너이름=None,
-            )
+        bot_ref = self.bot or interaction.client
+        gi_cog = bot_ref.get_cog("GenshinCog") or self._find_cog_with_attr("setup_pickup_cmd")
+        if gi_cog and hasattr(gi_cog, "setup_pickup_cmd"):
+            await gi_cog.setup_pickup_cmd.callback(gi_cog, interaction, 프리셋="time_rotation")
         else:
             await core.safe_send_response(interaction, "❌ 원신 모듈을 찾을 수 없습니다.", ephemeral=True)
 
     async def _sub_owner_gi_reset(self, interaction: discord.Interaction):
         if not await self.check_bot_owner_permission(interaction, action_name="원신 기본 픽업 초기화"):
             return
-        gi_cog = self._find_cog_with_attr("genshin_pickup_cmd")
-        if gi_cog:
-            choice_def = app_commands.Choice(name="🔄 기본 픽업으로 초기화", value="default")
-            await gi_cog.genshin_pickup_cmd.callback(
-                gi_cog,
-                interaction,
-                프리셋=choice_def,
-                캐릭터1=None,
-                캐릭터2=None,
-                사성1=None,
-                사성2=None,
-                사성3=None,
-                무기1=None,
-                무기2=None,
-                성유물1=None,
-                성유물2=None,
-                배너이름=None,
-            )
+        bot_ref = self.bot or interaction.client
+        gi_cog = bot_ref.get_cog("GenshinCog") or self._find_cog_with_attr("setup_pickup_cmd")
+        if gi_cog and hasattr(gi_cog, "setup_pickup_cmd"):
+            await gi_cog.setup_pickup_cmd.callback(gi_cog, interaction, 프리셋="reset")
         else:
             await core.safe_send_response(interaction, "❌ 원신 모듈을 찾을 수 없습니다.", ephemeral=True)
 
@@ -3122,48 +3344,20 @@ class MasterDashboardView(core.SafeView):
     async def _sub_owner_hsr_auto(self, interaction: discord.Interaction):
         if not await self.check_bot_owner_permission(interaction, action_name="스타레일 KST 자동 로테이션 설정"):
             return
-        hsr_cog = self._find_cog_with_attr("hsr_pickup_cmd")
-        if hsr_cog:
-            choice_auto = app_commands.Choice(name="⏰ KST 시각별 자동 로테이션", value="auto_kst")
-            await hsr_cog.hsr_pickup_cmd.callback(
-                hsr_cog,
-                interaction,
-                프리셋=choice_auto,
-                캐릭터1=None,
-                캐릭터2=None,
-                사성1=None,
-                사성2=None,
-                사성3=None,
-                광추1=None,
-                광추2=None,
-                유물1=None,
-                유물2=None,
-                배너이름=None,
-            )
+        bot_ref = self.bot or interaction.client
+        hsr_cog = bot_ref.get_cog("HSRCog")
+        if hsr_cog and hasattr(hsr_cog, "setup_pickup_cmd"):
+            await hsr_cog.setup_pickup_cmd.callback(hsr_cog, interaction, 프리셋="time_rotation")
         else:
             await core.safe_send_response(interaction, "❌ 스타레일 모듈을 찾을 수 없습니다.", ephemeral=True)
 
     async def _sub_owner_hsr_reset(self, interaction: discord.Interaction):
         if not await self.check_bot_owner_permission(interaction, action_name="스타레일 기본 픽업 초기화"):
             return
-        hsr_cog = self._find_cog_with_attr("hsr_pickup_cmd")
-        if hsr_cog:
-            choice_def = app_commands.Choice(name="🔄 기본 픽업으로 초기화", value="default")
-            await hsr_cog.hsr_pickup_cmd.callback(
-                hsr_cog,
-                interaction,
-                프리셋=choice_def,
-                캐릭터1=None,
-                캐릭터2=None,
-                사성1=None,
-                사성2=None,
-                사성3=None,
-                광추1=None,
-                광추2=None,
-                유물1=None,
-                유물2=None,
-                배너이름=None,
-            )
+        bot_ref = self.bot or interaction.client
+        hsr_cog = bot_ref.get_cog("HSRCog")
+        if hsr_cog and hasattr(hsr_cog, "setup_pickup_cmd"):
+            await hsr_cog.setup_pickup_cmd.callback(hsr_cog, interaction, 프리셋="reset")
         else:
             await core.safe_send_response(interaction, "❌ 스타레일 모듈을 찾을 수 없습니다.", ephemeral=True)
 
@@ -3254,6 +3448,11 @@ class MasterDashboardView(core.SafeView):
             timestamp=datetime.datetime.now(core.KST),
         )
         await core.safe_send_response(interaction, embed=embed, view=sync_view, ephemeral=True)
+
+    async def _sub_owner_bot_banner(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="봇 프로필 배너 변경/초기화"):
+            return
+        await interaction.response.send_modal(BotBannerModal())
 
     async def _act_bot_host_status(self, interaction: discord.Interaction):
         bot_ref = self.bot or interaction.client
@@ -3557,9 +3756,9 @@ class MasterDashboardView(core.SafeView):
             await core.safe_send_response(interaction, f"❌ 낚시 도감 로드 오류: {e}", ephemeral=True)
 
     async def _sub_sekai_rates(self, interaction: discord.Interaction):
-        gacha_cog = self._find_cog_with_attr("gacha_rates_list_cmd")
+        gacha_cog = self._find_cog_with_attr("proseka_rate_list_cmd")
         if gacha_cog:
-            await gacha_cog.gacha_rates_list_cmd.callback(gacha_cog, interaction, 배너=None)
+            await gacha_cog.proseka_rate_list_cmd.callback(gacha_cog, interaction, 배너=None)
         else:
             await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
 
@@ -3728,21 +3927,39 @@ class MasterDashboardView(core.SafeView):
 
             desc = (
                 "현재 편성된 5인 유닛 덱 목록입니다:\n\n" + "\n".join(deck_cards_lines)
+                + "\n\n💡 아래 **`[⚡ 최고 종합력 5인 자동 편성]`** 또는 **`[✏️ 카드 ID·이름으로 5인 직접 편성]`** 버튼으로 즉시 편성을 변경할 수 있습니다!"
                 if deck_cards_lines
-                else "현재 편성된 덱이 없습니다. `/덱편성` 명령어의 카드 자동완성으로 5장을 선택해 편성해 보세요!"
+                else "현재 편성된 덱이 없습니다.\n아래 **`[⚡ 최고 종합력 5인 자동 편성]`** 또는 **`[✏️ 카드 ID·이름으로 5인 직접 편성]`** 버튼을 눌러 5장을 편성해 보세요!"
             )
             embed = discord.Embed(
-                title=f"🎴 {interaction.user.display_name}님의 5인 유닛 덱 현황",
+                title=f"🎴 {interaction.user.display_name}님의 5인 유닛 덱 현황 & 편성",
                 description=desc,
                 color=discord.Color.from_rgb(235, 69, 158),
                 timestamp=datetime.datetime.now(core.KST),
             )
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            deck_view = SekaiDeckManageView(interaction.user, self.bot or interaction.client)
+            await interaction.followup.send(embed=embed, view=deck_view, ephemeral=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 덱 현황 조회 오류: {e}", ephemeral=True)
 
     async def _sub_sekai_card_enhance(self, interaction: discord.Interaction):
         await interaction.response.send_modal(CardEnhanceQuickModal(self.bot or interaction.client))
+
+    async def _sub_sekai_card_trade(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 1:1 카드 교환을 이용할 수 있습니다.", ephemeral=True)
+            return
+        view = CardTradeUserSelectView(interaction.user, self.bot or interaction.client)
+        embed = discord.Embed(
+            title="🔄 프로세카 1:1 카드 교환 장터 (100💎)",
+            description="아래 드롭다운에서 **카드를 교환할 서버 멤버**를 선택하면 1:1 카드 교환 스튜디오가 열립니다!",
+            color=discord.Color.from_rgb(0, 204, 221),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        await core.safe_send_response(interaction, embed=embed, view=view, ephemeral=True)
+
+    async def _sub_sekai_card_gift(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(CardGiftQuickModal(self.bot or interaction.client))
 
     async def _act_gi_personal_hub(self, interaction: discord.Interaction):
         await self._enter_sub_mode(interaction, "gi_personal")
@@ -3915,17 +4132,38 @@ class MasterDashboardView(core.SafeView):
             profile = core.ensure_user_profile(data, interaction.user.id, interaction.user.display_name)
             partner_id = profile.get("partner_id")
             if not partner_id:
-                await core.safe_send_response(
-                    interaction,
-                    "ℹ️ 아직 등록된 파트너가 없습니다. `/파트너` 명령어(`동작: 파트너 신청`)로 소중한 친구나 연인과 파트너를 맺어보세요! 💖",
-                    ephemeral=True,
+                view = PartnerProposeUserSelectView(interaction.user, self.bot or interaction.client)
+                embed = discord.Embed(
+                    title="💌 파트너(짝꿍) 신청하기",
+                    description="현재 등록된 파트너가 없습니다.\n아래 드롭다운에서 소중한 친구나 연인을 선택해 **파트너를 신청**해 보세요! 💖",
+                    color=discord.Color.from_rgb(255, 105, 180),
+                    timestamp=datetime.datetime.now(core.KST),
                 )
+                await core.safe_send_response(interaction, embed=embed, view=view, ephemeral=True)
                 return
             await core.safe_defer(interaction, ephemeral=True)
             view = dday.PartnerHubView(interaction.user, partner_id, data)
             await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 파트너 스튜디오 조회 오류: {e}", ephemeral=True)
+
+    async def _sub_partner_propose(self, interaction: discord.Interaction):
+        view = PartnerProposeUserSelectView(interaction.user, self.bot or interaction.client)
+        embed = discord.Embed(
+            title="💌 파트너(짝꿍) 신청 대상 선택",
+            description="아래 드롭다운에서 파트너를 맺을 서버 멤버를 선택하면 상대방에게 파트너 수락 버튼이 발송됩니다!",
+            color=discord.Color.from_rgb(255, 105, 180),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        await core.safe_send_response(interaction, embed=embed, view=view, ephemeral=True)
+
+    async def _sub_partner_break(self, interaction: discord.Interaction):
+        dday_cog = self._find_cog_with_attr("partner_cmd")
+        if dday_cog:
+            choice_brk = app_commands.Choice(name="💔 파트너 해제하기", value="break")
+            await dday_cog.partner_cmd.callback(dday_cog, interaction, 동작=choice_brk)
+        else:
+            await core.safe_send_response(interaction, "❌ 파트너 모듈을 찾을 수 없습니다.", ephemeral=True)
 
 
 # 외부 참조용 별칭

@@ -355,6 +355,10 @@ class NorosiBot(commands.Bot):
             print(f"⚠️ [handle_github_webhook 예외] {e}", flush=True)
             return web.json_response({"error": "Internal webhook handler error"}, status=500)
 
+    async def handle_emote_favicon(self, request: web.Request) -> web.Response:
+        from cogs.emoji_upscale import handle_emote_favicon_http_request
+        return await handle_emote_favicon_http_request(request)
+
     async def handle_emote_emoji(self, request: web.Request) -> web.Response:
         from cogs.emoji_upscale import handle_emote_cdn_http_request
         return await handle_emote_cdn_http_request(request, content_type="emoji")
@@ -370,6 +374,7 @@ class NorosiBot(commands.Bot):
             app = web.Application()
             app.router.add_get("/", self.handle_health_check)
             app.router.add_get("/healthz", lambda _req: web.Response(text="ok"))
+            app.router.add_get("/favicon.ico", self.handle_emote_favicon)
             app.router.add_get("/emoji/{id}", self.handle_emote_emoji)
             app.router.add_get("/e/{id}", self.handle_emote_emoji)
             app.router.add_get("/sticker/{id}", self.handle_emote_sticker)
@@ -378,6 +383,8 @@ class NorosiBot(commands.Bot):
             app.router.add_post("/github/webhook", self.handle_github_webhook)
             app.router.add_post("/webhook/github", self.handle_github_webhook)
             app.router.add_post("/github", self.handle_github_webhook)
+            # emote-cdn-rust 하위 호환 레거시 라우팅 (/{id}.webp)
+            app.router.add_get("/{name}", self.handle_emote_emoji)
 
             runner = web.AppRunner(app)
             await runner.setup()
@@ -428,6 +435,18 @@ class NorosiBot(commands.Bot):
         await self.ensure_fresh_http_session()
         await super().login(token)
 
+    def prune_slash_tree_to_core(self) -> list[str]:
+        """
+        슬래시 명령어 트리(self.tree)에서 '/설정'과 '/도움말'만 남기고
+        나머지 모든 개별 슬래시 명령어를 트리에서 제거합니다.
+        (각 Cog 인스턴스와 내부 커맨드 콜백은 그대로 보존되어 '/설정'에서 100% 정상 작동합니다.)
+        """
+        allowed_names = {"설정", "도움말"}
+        for cmd in list(self.tree.get_commands()):
+            if cmd.name not in allowed_names:
+                self.tree.remove_command(cmd.name)
+        return [c.name for c in self.tree.get_commands()]
+
     async def add_cog(self, cog: commands.Cog, /, *, override: bool = False, **kwargs) -> None:
         cog_name = getattr(cog, "__cog_name__", type(cog).__name__)
         if not override and self.get_cog(cog_name) is not None:
@@ -438,6 +457,7 @@ class NorosiBot(commands.Bot):
             )
             override = True
         await super().add_cog(cog, override=override, **kwargs)
+        self.prune_slash_tree_to_core()
 
     async def setup_hook(self):
         # 0. VM 터미널 로그 실시간 캡처 활성화
@@ -449,7 +469,7 @@ class NorosiBot(commands.Bot):
         # 글로벌 슬래시 커맨드 에러 핸들러 등록 ("명령어 응답 안함" 3초 타임아웃 차단)
         self.tree.on_error = self.on_app_command_error
 
-        print("🔌 [2/4] Cogs 확장 모듈 등록 중 (전체 18종 Cogs)...", flush=True)
+        print("🔌 [2/4] Cogs 확장 모듈 등록 중 (전체 17종 Cogs · 슬래시 '/설정', '/도움말' 단일화)...", flush=True)
         # 서버 배포 파일 뒤바뀜(예: fishing_core.py에 cogs/fishing.py 덮어쓰기, cogs/gacha.py에 cogs/hsr.py 덮어쓰기) 사전 진단
         try:
             base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -517,6 +537,9 @@ class NorosiBot(commands.Bot):
                 failed_exts.append((ext, e))
         if len(failed_exts) == len(ext_list):
             raise failed_exts[0][1]
+
+        kept_slashes = self.prune_slash_tree_to_core()
+        print(f"🧹 [슬래시 명령어 통합 완료] 활성 슬래시 명령어 ({len(kept_slashes)}개): {', '.join('/' + n for n in kept_slashes)}", flush=True)
 
         # 등록된 반응역할 메시지의 Persistent View 동적 복원 (버튼 상호작용 영구 작동)
         try:
@@ -1112,15 +1135,21 @@ class NorosiBot(commands.Bot):
 
     async def _safe_startup_sync(self):
         """
-        봇 부팅 시 백그라운드에서 안전하게 글로벌 슬래시 명령어를 동기화합니다.
-        길드 루프 동기화(copy_global_to)를 제거하여 Discord HTTP 429(Rate Limit)를 방지하고,
-        on_ready가 멈추지 않도록 비동기 백그라운드 태스크로 처리합니다.
-        특정 길드 즉시 반영은 '!동기화' 또는 '!싱크' 명령어로 언제든 수행 가능합니다.
+        봇 부팅 시 백그라운드에서 슬래시 명령어를 '/설정'과 '/도움말' 2개로 단일화하여 동기화합니다.
+        기존 길드별 잔류 슬래시 캐시도 정리하여 디스코드에서 '/설정', '/도움말' 외의 슬래시 명령어가 남지 않게 합니다.
         """
         try:
-            print("🌐 [백그라운드 동기화] 글로벌 슬래시 명령어 동기화 시작...", flush=True)
+            kept = self.prune_slash_tree_to_core()
+            print(f"🌐 [백그라운드 동기화] 슬래시 명령어 단일화({', '.join('/' + k for k in kept)}) 동기화 시작...", flush=True)
+            for g in list(self.guilds):
+                try:
+                    self.tree.clear_commands(guild=g)
+                    await self.tree.sync(guild=g)
+                    await asyncio.sleep(0.4)
+                except Exception:
+                    pass
             synced_cmds = await self.tree.sync()
-            print(f"✅ [동기화 완료] 슬래시 명령어 총 {len(synced_cmds)}개 글로벌 등록 완료!", flush=True)
+            print(f"✅ [동기화 완료] 슬래시 명령어 총 {len(synced_cmds)}개(/설정, /도움말) 글로벌 등록 완료!", flush=True)
         except discord.HTTPException as e:
             if e.status == 429:
                 print(f"⏳ [동기화 알림] Discord API 속도 제한(429 Rate Limit) 감지: {e}. 백그라운드에서 대기 후 자동 재시도됩니다.", flush=True)
@@ -1135,7 +1164,7 @@ class NorosiBot(commands.Bot):
 
         await self.change_presence(
             status=discord.Status.online,
-            activity=discord.Game(name="🌠ㅣ/설정 · /출석체크 · /도움말")
+            activity=discord.Game(name="🌠ㅣ/설정 · /도움말")
         )
 
         if not self._commands_synced:
@@ -1652,11 +1681,8 @@ bot = NorosiBot()
 
 
 # ==========================================
-# 🖥️ VM 서버 터미널 로그 수신 채널 지정 명령어 (/터미널로그채널, !터미널로그)
+# 🖥️ VM 서버 터미널 로그 수신 채널 지정 명령어 (/설정 연동, !터미널로그)
 # ==========================================
-@bot.tree.command(name="터미널로그채널", description="[봇주 전용] VM 서버 터미널(stdout/stderr)로 출력되는 실시간 로그를 기록할 채널을 지정하거나 해제합니다.")
-@app_commands.describe(채널="터미널 로그를 실시간으로 받아볼 텍스트 채널 (비워두면 전송 해제)")
-@app_commands.default_permissions(administrator=True)
 async def set_terminal_log_channel_slash(interaction: discord.Interaction, 채널: Optional[discord.TextChannel] = None):
     if not await bot.is_bot_owner_user(interaction.user):
         await core.safe_send_response(interaction, "❌ 이 명령어는 **봇 소유자(봇주)**만 사용할 수 있습니다.", ephemeral=True)
@@ -1693,7 +1719,7 @@ async def set_terminal_log_channel_slash(interaction: discord.Interaction, 채�
                 f"• **현재 채널:** {채널.mention} (`#{채널.name}`)\n"
                 f"• **전체 연동 서버:** 총 {total_ch_cnt}개 서버 채널에 실시간 동시 전송 중\n"
                 "• **전송 주기:** `3초` 단위 버퍼링 묶음 전송 (도배 및 Rate Limit 완벽 방어)\n"
-                "• **해제 방법:** `/터미널로그채널` 명령어를 채널 옵션 없이 실행"
+                "• **해제 방법:** `/설정` → `⚙️ 고급 (4p)` → `VM 터미널 로그`에서 해제"
             ),
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST)
@@ -1735,7 +1761,7 @@ async def set_terminal_log_channel_prefix(ctx: commands.Context, channel: Option
 
 
 # ==========================================
-# 🖼️ 봇주 전용 봇 프로필 배너 변경 명령어 (/봇배너, !봇배너)
+# 🖼️ 봇주 전용 봇 프로필 배너 변경 명령어 (/설정 연동, !봇배너)
 # ==========================================
 MAX_BOT_BANNER_BYTES = 10 * 1024 * 1024  # 10MB
 
@@ -1795,13 +1821,6 @@ async def _download_banner_bytes_from_url(url: str) -> bytes:
             return raw_bytes
 
 
-@bot.tree.command(name="봇배너", description="[봇주 전용] 봇의 디스코드 프로필 배너 이미지를 조회, 변경 또는 초기화합니다.")
-@app_commands.describe(
-    이미지="새 배너로 설정할 이미지 파일 (PNG, JPG, GIF, WEBP · 최대 10MB)",
-    이미지url="새 배너로 설정할 이미지 URL (파일 미첨부 시 사용)",
-    초기화="True 선택 시 봇 프로필 배너를 제거합니다."
-)
-@app_commands.default_permissions(administrator=True)
 async def set_bot_banner_slash(
     interaction: discord.Interaction,
     이미지: Optional[discord.Attachment] = None,
@@ -1999,6 +2018,7 @@ class SyncControlView(core.SafeView):
 
         await core.safe_defer(interaction)
         try:
+            bot.prune_slash_tree_to_core()
             g_cnt = 0
             target_guild = self.guild or interaction.guild
             if target_guild:
@@ -2011,9 +2031,9 @@ class SyncControlView(core.SafeView):
             embed = discord.Embed(
                 title="⚡ 슬래시 명령어 현재 서버에 0초 즉시 반영 완료!",
                 description=(
-                    f"✅ **현재 서버({target_guild.name if target_guild else '글로벌'})**에 슬래시 명령어 **`{g_cnt}개`**(반응역할·터미널로그 포함)가 0초 만에 즉시 등록되었습니다!\n"
+                    f"✅ **현재 서버({target_guild.name if target_guild else '글로벌'})**에 슬래시 명령어 **`{g_cnt}개`**(`/설정`, `/도움말`)가 0초 만에 즉시 등록되었습니다!\n"
                     f"👉 글로벌 슬래시 커맨드 총 **`{len(synced_global)}개`**도 전역 등록 완료되었습니다.\n\n"
-                    "💡 지금 즉시 채팅창에서 `/`를 누르시면 모든 신규 명령어가 나타납니다!"
+                    "💡 모든 기능은 `/설정` 통합 허브 안에서 버튼으로 오류 없이 이용하실 수 있습니다!"
                 ),
                 color=discord.Color.green(),
                 timestamp=datetime.datetime.now(core.KST)
@@ -2030,12 +2050,13 @@ class SyncControlView(core.SafeView):
 
         await core.safe_defer(interaction)
         try:
+            bot.prune_slash_tree_to_core()
             synced = await bot.tree.sync()
             embed = discord.Embed(
                 title="🌐 글로벌 슬래시 명령어 전역 동기화 완료!",
                 description=(
-                    f"✅ **총 `{len(synced)}개`**의 슬래시 명령어가 Discord API에 글로벌 등록되었습니다.\n"
-                    "모든 참가 서버에서 사용 가능합니다."
+                    f"✅ **총 `{len(synced)}개`**(`/설정`, `/도움말`)의 슬래시 명령어가 Discord API에 글로벌 등록되었습니다.\n"
+                    "나머지 모든 기능은 `/설정` 통합 허브에서 이용 가능합니다."
                 ),
                 color=discord.Color.blue(),
                 timestamp=datetime.datetime.now(core.KST)
@@ -2052,6 +2073,7 @@ class SyncControlView(core.SafeView):
 
         await core.safe_defer(interaction)
         try:
+            bot.prune_slash_tree_to_core()
             app_id = bot.application_id or (bot.application.id if bot.application else bot.user.id)
             if self.guild:
                 try:
@@ -2069,7 +2091,7 @@ class SyncControlView(core.SafeView):
             embed = discord.Embed(
                 title="✨ 슬래시 명령어 중복 정리 완료!",
                 description=(
-                    "✅ 현재 서버의 길드 전용 캐시를 비우고 글로벌 단일 세트로 정돈했습니다.\n"
+                    "✅ 현재 서버의 길드 전용 캐시를 비우고 글로벌 단일 세트(`/설정`, `/도움말`)로 정돈했습니다.\n"
                     f"👉 글로벌 슬래시 명령어: **`{len(synced_global)}개`**"
                 ),
                 color=discord.Color.green(),
@@ -2095,6 +2117,7 @@ class SyncControlView(core.SafeView):
             except Exception as e:
                 failed.append(f"{ext}: {e}")
 
+        bot.prune_slash_tree_to_core()
         try:
             if self.guild:
                 try:
@@ -2103,7 +2126,7 @@ class SyncControlView(core.SafeView):
                 except Exception:
                     pass
             synced = await bot.tree.sync()
-            sync_ok = f"글로벌 `{len(synced)}개` 명령어 갱신 완료"
+            sync_ok = f"글로벌 `{len(synced)}개` (`/설정`, `/도움말`) 갱신 완료"
         except Exception as e:
             sync_ok = f"동기화 오류: {e}"
 
@@ -2147,6 +2170,8 @@ async def sync_guild_command(ctx: commands.Context, *args):
             except Exception as e:
                 print(f"⚠️ [{ext}] 리로드 실패: {e}", flush=True)
 
+    bot.prune_slash_tree_to_core()
+
     try:
         app_id = bot.application_id or (bot.application.id if bot.application else bot.user.id)
         is_clean_mode = any(k in mode for k in ("정리", "clean", "삭제", "초기화"))
@@ -2187,18 +2212,18 @@ async def sync_guild_command(ctx: commands.Context, *args):
         view = SyncControlView(author=ctx.author, guild=ctx.guild)
         if is_guild_only:
             reg_status = (
-                f"• 🏠 현재 서버({g_name}) 즉시 등록: **`{guild_cnt}개`**\n"
+                f"• 🏠 현재 서버({g_name}) 즉시 등록: **`{guild_cnt}개`** (`/설정`, `/도움말`)\n"
                 f"• 💡 길드 전용 즉시 동기화 모드로 반영되었습니다."
             )
             title_text = f"⚡ [{g_name}] 길드 슬래시 명령어 동기화 완료!"
             desc_lead = f"🎉 **현재 서버에 길드 전용 슬래시 명령어 총 `{guild_cnt}개`가 등록되었습니다!**"
         else:
             reg_status = (
-                f"• 🌐 글로벌 전역 명령어: **`{len(synced_global)}개`**\n"
-                f"• 🧹 길드 캐시 정리: 중복 슬래시 커맨드 방지 완료"
+                f"• 🌐 글로벌 전역 명령어: **`{len(synced_global)}개`** (`/설정`, `/도움말`)\n"
+                f"• 🧹 길드 캐시 정리: 중복 및 구 슬래시 커맨드 완전 제거 완료"
             )
             title_text = f"⚡ [{g_name}] 글로벌 슬래시 명령어 동기화 완료!"
-            desc_lead = f"🎉 **글로벌 슬래시 명령어 총 `{len(synced_global)}개`가 동기화되었습니다! (중복 방지됨)**"
+            desc_lead = f"🎉 **글로벌 슬래시 명령어 총 `{len(synced_global)}개`(`/설정`, `/도움말`)로 단일화 동기화되었습니다!**"
 
         embed = discord.Embed(
             title=title_text,
@@ -2207,11 +2232,9 @@ async def sync_guild_command(ctx: commands.Context, *args):
                 "📊 **등록 상태:**\n"
                 f"{reg_status}\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "💡 **지금 바로 채팅창에서 `/`를 눌러 사용해 보세요!**\n"
-                "• `/깃허브연동` 또는 `/깃허브알림` : GitHub 푸시 및 Actions 알림 채널 연동\n"
-                "• `/터미널로그채널` 또는 `!터미널로그 #채널` : VM 터미널 로그 실시간 채널 기록\n"
-                "• `/반응역할` 또는 `!반응역할` : 이모지 반응역할 스튜디오 호출\n"
-                "• `/플레이리스트` 또는 `!플레이리스트` : 플레이리스트 스튜디오 호출"
+                "💡 **핵심 슬래시 명령어 2종 안내**\n"
+                "• `/설정` (`!설정`) : 일반 · 고급 · 미니게임 · 개인 4대 분류 통합 설정 대시보드\n"
+                "• `/도움말` (`!도움말`) : 전체 기능의 `/설정` 경로 및 권한별 가독성 가이드"
             ),
             color=discord.Color.green(),
             timestamp=datetime.datetime.now(core.KST)
