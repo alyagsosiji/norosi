@@ -1084,19 +1084,10 @@ class LoggerCog(commands.Cog):
         except Exception:
             pass
 
-        # 4. 봇 전용 aiohttp 웹훅 URL 계산
+        # 4. 봇 전용 aiohttp 웹훅 URL 계산 (기본 도메인: n.kami.live)
         ext_host = os.getenv("EXTERNAL_URL") or os.getenv("WEBHOOK_HOST")
         if not ext_host:
-            try:
-                req = urllib.request.Request("https://api.ipify.org", headers={"User-Agent": "norosi"})
-                with urllib.request.urlopen(req, timeout=1.5) as r:
-                    ext_ip = r.read().decode("utf-8").strip()
-                    if ext_ip:
-                        ext_host = f"http://{ext_ip}:{core.PORT}"
-            except Exception:
-                pass
-        if not ext_host:
-            ext_host = f"http://<서버IP>:{core.PORT}"
+            ext_host = f"http://n.kami.live:{core.PORT}"
 
         bot_webhook_url = f"{ext_host.rstrip('/')}/api/github/webhook"
         primary_url = bot_webhook_url if "http" in ext_host and "<" not in ext_host else (discord_webhook_url or bot_webhook_url)

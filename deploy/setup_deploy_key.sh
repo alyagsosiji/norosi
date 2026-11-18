@@ -56,14 +56,11 @@ echo "===================================================================="
 SUDOERS_FILE="/etc/sudoers.d/norosi-restart"
 CURRENT_USER=$(whoami)
 
-if [ -f "$SUDOERS_FILE" ]; then
-    echo "ℹ️ 이미 systemctl 비밀번호 면제 권한이 설정되어 있습니다."
-else
-    echo "비밀번호 없이 GitHub Actions가 norosi 봇 서비스를 재시작할 수 있도록 권한을 부여합니다..."
-    echo "$CURRENT_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart norosi, /bin/systemctl status norosi, /bin/systemctl is-active norosi" | sudo tee "$SUDOERS_FILE" > /dev/null
-    sudo chmod 0440 "$SUDOERS_FILE"
-    echo "✅ sudoers 권한 설정 완료!"
-fi
+echo "비밀번호 없이 GitHub Actions가 norosi 봇 서비스를 재시작할 수 있도록 권한을 부여합니다..."
+echo "$CURRENT_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart norosi, /bin/systemctl status norosi, /bin/systemctl is-active norosi, /usr/bin/systemctl restart norosi, /usr/bin/systemctl status norosi, /usr/bin/systemctl is-active norosi, /bin/journalctl -u norosi *, /usr/bin/journalctl -u norosi *" | sudo tee "$SUDOERS_FILE" > /dev/null
+sudo chmod 0440 "$SUDOERS_FILE"
+echo "✅ sudoers 권한 설정 완료!"
+
 
 echo ""
 echo "===================================================================="
