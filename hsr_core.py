@@ -1080,9 +1080,10 @@ def fetch_hsr_item_image_bytes(item: dict, splash: bool = True) -> tuple[bytes |
 
     urls = get_hsr_item_urls(item, splash=splash)
     raw_bytes = None
+    sess = core._get_http_session()
     for url in urls:
         try:
-            r = requests.get(url, timeout=10)
+            r = sess.get(url, timeout=10)
             if r.status_code == 200 and len(r.content) > 512:
                 raw_bytes = r.content
                 break
@@ -1110,9 +1111,10 @@ def fetch_hsr_thumb_bytes(item: dict) -> bytes | None:
 
     urls = get_hsr_item_urls(item, splash=False) + get_hsr_item_urls(item, splash=True)
     raw = None
+    sess = core._get_http_session()
     for url in urls:
         try:
-            r = requests.get(url, timeout=8)
+            r = sess.get(url, timeout=8)
             if r.status_code == 200 and len(r.content) > 512:
                 raw = r.content
                 break
@@ -1125,6 +1127,54 @@ def fetch_hsr_thumb_bytes(item: dict) -> bytes | None:
             while len(_HSR_THUMB_CACHE) > 220:
                 _HSR_THUMB_CACHE.popitem(last=False)
     return raw
+
+
+_HSR_BG_CACHE: dict[tuple[int, int, int], Any] = {}
+_HSR_CARD_BG_CACHE: dict[tuple[int, int, int], Any] = {}
+
+
+def _get_hsr_base_canvas(width: int, height: int, seed_n: int):
+    key = (width, height, seed_n)
+    base = _HSR_BG_CACHE.get(key)
+    if base is not None:
+        return base.copy()
+    canvas = Image.new("RGBA", (width, height), (14, 9, 30, 255))
+    bg_draw = ImageDraw.Draw(canvas)
+    for y in range(height):
+        t = y / max(1, height - 1)
+        r = int(13 + 17 * t)
+        g = int(8 + 11 * t)
+        b = int(30 + 30 * t)
+        bg_draw.line([(0, y), (width, y)], fill=(r, g, b, 255))
+
+    srng = random.Random(42 + seed_n)
+    for _ in range(95):
+        sx = srng.randint(8, width - 8)
+        sy = srng.randint(8, height - 8)
+        sb = srng.randint(150, 255)
+        bg_draw.point((sx, sy), fill=(sb, int(sb * 0.92), 255, 190))
+
+    bg_draw.rectangle([0, 0, width, 4], fill=(248, 200, 92, 255))
+    bg_draw.rectangle([0, height - 3, width, height], fill=(166, 108, 255, 210))
+    _HSR_BG_CACHE[key] = canvas
+    return canvas.copy()
+
+
+def _get_hsr_card_base(card_w: int, card_h: int, rank: int, card_top: tuple, card_bot: tuple):
+    key = (card_w, card_h, rank)
+    base = _HSR_CARD_BG_CACHE.get(key)
+    if base is not None:
+        return base.copy()
+    card_im = Image.new("RGBA", (card_w, card_h), card_bot + (255,))
+    cd = ImageDraw.Draw(card_im)
+    for cy in range(card_h):
+        t = cy / max(1, card_h - 1)
+        cr = int(card_top[0] + (card_bot[0] - card_top[0]) * t)
+        cg = int(card_top[1] + (card_bot[1] - card_top[1]) * t)
+        cb = int(card_top[2] + (card_bot[2] - card_top[2]) * t)
+        cd.line([(0, cy), (card_w, cy)], fill=(cr, cg, cb, 255))
+    _HSR_CARD_BG_CACHE[key] = card_im
+    return card_im.copy()
 
 
 # ==========================================
@@ -1145,27 +1195,8 @@ def build_hsr_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1", he
     width = margin_x * 2 + cols * card_w + (cols - 1) * pad_x
     height = top_h + rows * card_h + (rows - 1) * pad_y + bot_h
 
-    # 코스믹 성간 우주 배경 (#0D081C -> #1D1138)
-    canvas = Image.new("RGBA", (width, height), (14, 9, 30, 255))
+    canvas = _get_hsr_base_canvas(width, height, len(drawn))
     bg_draw = ImageDraw.Draw(canvas)
-    for y in range(height):
-        t = y / max(1, height - 1)
-        r = int(13 + 17 * t)
-        g = int(8 + 11 * t)
-        b = int(30 + 30 * t)
-        bg_draw.line([(0, y), (width, y)], fill=(r, g, b, 255))
-
-    # 성간 별빛 입자
-    srng = random.Random(42 + len(drawn))
-    for _ in range(95):
-        sx = srng.randint(8, width - 8)
-        sy = srng.randint(8, height - 8)
-        sb = srng.randint(150, 255)
-        bg_draw.point((sx, sy), fill=(sb, int(sb * 0.92), 255, 190))
-
-    # 은하열차 홀로그램 상단/하단 골드 라인
-    bg_draw.rectangle([0, 0, width, 4], fill=(248, 200, 92, 255))
-    bg_draw.rectangle([0, height - 3, width, height], fill=(166, 108, 255, 210))
 
     b_cfg = HSR_BANNER_CONFIGS.get(banner_key, HSR_BANNER_CONFIGS["char1"])
     f_hdr = core._get_grid_font(18, bold=True)
@@ -1180,16 +1211,12 @@ def build_hsr_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1", he
         tw = bg_draw.textlength(ht, font=f_sub)
         bg_draw.text((width - margin_x - tw, 18), ht, font=f_sub, fill=(208, 186, 255, 235))
 
-    # 썸네일 병렬 다운로드
-    thumb_map: dict[int, bytes | None] = {}
-    from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=5) as ex:
-        futs = {idx: ex.submit(fetch_hsr_thumb_bytes, item) for idx, item in enumerate(drawn)}
-        for idx, fut in futs.items():
-            try:
-                thumb_map[idx] = fut.result(timeout=10)
-            except Exception:
-                thumb_map[idx] = None
+    # 썸네일 병렬 다운로드 (영구 스레드풀 재사용)
+    try:
+        thumb_list = list(core._THUMB_FETCH_POOL.map(fetch_hsr_thumb_bytes, drawn))
+    except Exception:
+        thumb_list = [fetch_hsr_thumb_bytes(item) for item in drawn]
+    thumb_map: dict[int, bytes | None] = {idx: tb for idx, tb in enumerate(thumb_list)}
 
     for idx, item in enumerate(drawn):
         r_idx = idx // cols
@@ -1224,14 +1251,8 @@ def build_hsr_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1", he
             stars_txt = "★★★"
             star_c = (146, 214, 255, 255)
 
-        card_im = Image.new("RGBA", (card_w, card_h), card_bot + (255,))
+        card_im = _get_hsr_card_base(card_w, card_h, rank, card_top, card_bot)
         cd = ImageDraw.Draw(card_im)
-        for cy in range(card_h):
-            t = cy / max(1, card_h - 1)
-            cr = int(card_top[0] + (card_bot[0] - card_top[0]) * t)
-            cg = int(card_top[1] + (card_bot[1] - card_top[1]) * t)
-            cb = int(card_top[2] + (card_bot[2] - card_top[2]) * t)
-            cd.line([(0, cy), (card_w, cy)], fill=(cr, cg, cb, 255))
 
         if rank >= 4:
             glow_w = card_w - 20
@@ -1304,7 +1325,7 @@ def build_hsr_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1", he
         canvas.alpha_composite(card_im, (x0, y0))
 
     out = io.BytesIO()
-    canvas.save(out, format="PNG", optimize=True)
+    canvas.save(out, format="PNG", compress_level=1)
     out.seek(0)
     return out
 

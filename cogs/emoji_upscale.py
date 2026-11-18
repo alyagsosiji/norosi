@@ -1076,6 +1076,9 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         if message.attachments or message.stickers:
             return
 
+        if not message.content or "<" not in message.content or ":" not in message.content:
+            return
+
         # 서버 설정 확인 (기본값 OFF)
         if not core.is_emoji_upscale_enabled(message.guild.id):
             return

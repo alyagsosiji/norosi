@@ -781,6 +781,30 @@ def get_economy_leaderboard(guild_id: int | str) -> Dict[str, Any]:
 # ==========================================
 # 5. 통합 프로필 카드 고화질 PNG 렌더러
 # ==========================================
+_PROFILE_BG_CACHE: Dict[Tuple[int, int, int], Any] = {}
+
+
+def _get_profile_base_canvas(w: int, h: int, t_rgb: Tuple[int, int, int]):
+    tr, tg, tb = int(t_rgb[0]), int(t_rgb[1]), int(t_rgb[2])
+    key = (tr, tg, tb)
+    base = _PROFILE_BG_CACHE.get(key)
+    if base is not None:
+        return base.copy()
+    img = Image.new("RGBA", (w, h), (12, 16, 30, 255))
+    draw = ImageDraw.Draw(img)
+    for y in range(h):
+        ratio = y / h
+        r = int(12 + tr * 0.10 * (1.0 - ratio) + 18 * ratio)
+        g = int(16 + tg * 0.11 * (1.0 - ratio) + 12 * ratio)
+        b = int(32 + tb * 0.18 * (1.0 - ratio) + 34 * ratio)
+        draw.line([(0, y), (w, y)], fill=(min(255, r), min(255, g), min(255, b), 255))
+    draw.rounded_rectangle([14, 14, w - 14, h - 14], radius=24, outline=(tr, tg, tb, 210), width=4)
+    draw.rounded_rectangle([24, 24, w - 24, h - 24], radius=18, outline=(255, 255, 255, 35), width=1)
+    draw.rounded_rectangle([38, 36, w - 38, 212], radius=18, fill=(20, 27, 48, 230), outline=(tr, tg, tb, 140), width=2)
+    _PROFILE_BG_CACHE[key] = img
+    return img.copy()
+
+
 def render_unified_profile_card_png(
     stats: Dict[str, Any],
     avatar_bytes: Optional[bytes] = None,
@@ -791,26 +815,10 @@ def render_unified_profile_card_png(
     img = None
     try:
         w, h = 1080, 720
-        img = Image.new("RGBA", (w, h), (12, 16, 30, 255))
-        draw = ImageDraw.Draw(img)
-
         t_rgb = stats.get("title", {}).get("rgb", (56, 189, 248))
         tr, tg, tb = t_rgb
-
-        # 은은한 네온 그라데이션 배경
-        for y in range(h):
-            ratio = y / h
-            r = int(12 + tr * 0.10 * (1.0 - ratio) + 18 * ratio)
-            g = int(16 + tg * 0.11 * (1.0 - ratio) + 12 * ratio)
-            b = int(32 + tb * 0.18 * (1.0 - ratio) + 34 * ratio)
-            draw.line([(0, y), (w, y)], fill=(min(255, r), min(255, g), min(255, b), 255))
-
-        # 외곽 프레임
-        draw.rounded_rectangle([14, 14, w - 14, h - 14], radius=24, outline=(tr, tg, tb, 210), width=4)
-        draw.rounded_rectangle([24, 24, w - 24, h - 24], radius=18, outline=(255, 255, 255, 35), width=1)
-
-        # 헤더 카드
-        draw.rounded_rectangle([38, 36, w - 38, 212], radius=18, fill=(20, 27, 48, 230), outline=(tr, tg, tb, 140), width=2)
+        img = _get_profile_base_canvas(w, h, (tr, tg, tb))
+        draw = ImageDraw.Draw(img)
 
         f_name = core._get_grid_font(34, bold=True)
         f_sub = core._get_grid_font(20, bold=True)
@@ -974,7 +982,7 @@ def render_unified_profile_card_png(
         draw.text((44, h - 42), core._sanitize_grid_text(f"norosi Unified Profile Card  ·  Issued at {now_str}"), font=f_sm, fill=(148, 163, 184, 220))
 
         buf = io.BytesIO()
-        img.save(buf, format="PNG")
+        img.save(buf, format="PNG", compress_level=1)
         buf.seek(0)
         return buf
     except Exception as e:

@@ -1038,9 +1038,10 @@ def fetch_genshin_item_image_bytes(item: dict, splash: bool = True) -> tuple[byt
             return _GENSHIN_IMG_CACHE[cache_key]
 
     safe_id = re.sub(r"[^a-zA-Z0-9_-]", "_", f"gi_{kind}_{iid}_{'sp' if splash else 'ic'}")
+    sess = core._get_http_session()
     for url in get_genshin_item_urls(item, splash=splash):
         try:
-            r = requests.get(url, timeout=10)
+            r = sess.get(url, timeout=10)
             if r.status_code == 200 and r.content and len(r.content) > 512:
                 b, fn = _compress_splash_if_needed(r.content, safe_id, splash)
                 with _GENSHIN_IMG_LOCK:
@@ -1062,9 +1063,10 @@ def fetch_genshin_thumb_bytes(item: dict) -> bytes | None:
             _GENSHIN_THUMB_CACHE.move_to_end(cache_key)
             return _GENSHIN_THUMB_CACHE[cache_key]
 
+    sess = core._get_http_session()
     for url in get_genshin_item_urls(item, splash=False):
         try:
-            r = requests.get(url, timeout=8)
+            r = sess.get(url, timeout=8)
             if r.status_code == 200 and r.content and len(r.content) > 256:
                 with _GENSHIN_IMG_LOCK:
                     _GENSHIN_THUMB_CACHE[cache_key] = r.content
@@ -1074,6 +1076,54 @@ def fetch_genshin_thumb_bytes(item: dict) -> bytes | None:
         except Exception:
             continue
     return None
+
+
+_GENSHIN_BG_CACHE: dict[tuple[int, int, int], Any] = {}
+_GENSHIN_TILE_BG_CACHE: dict[tuple[int, int, int], Any] = {}
+
+
+def _get_genshin_base_canvas(canvas_w: int, canvas_h: int, seed_n: int):
+    key = (canvas_w, canvas_h, seed_n)
+    base = _GENSHIN_BG_CACHE.get(key)
+    if base is not None:
+        return base.copy()
+    canvas = Image.new("RGBA", (canvas_w, canvas_h), (11, 16, 38, 255))
+    draw = ImageDraw.Draw(canvas)
+    for y in range(canvas_h):
+        t = y / max(1, canvas_h - 1)
+        r_c = int(10 + 14 * t)
+        g_c = int(15 + 18 * t)
+        b_c = int(38 + 30 * t)
+        draw.line([(0, y), (canvas_w, y)], fill=(r_c, g_c, b_c, 255))
+
+    rng = random.Random(42 + seed_n)
+    for _ in range(95):
+        sx = rng.randint(15, canvas_w - 15)
+        sy = rng.randint(15, canvas_h - 15)
+        sr = rng.choice([1, 1, 2])
+        alpha = rng.randint(90, 220)
+        col = (245, 212, 130, alpha) if rng.random() < 0.35 else (195, 220, 255, alpha)
+        draw.ellipse([sx - sr, sy - sr, sx + sr, sy + sr], fill=col)
+    _GENSHIN_BG_CACHE[key] = canvas
+    return canvas.copy()
+
+
+def _get_genshin_tile_base(tile_w: int, tile_h: int, rank: int, bg_top: tuple, bg_bot: tuple):
+    key = (tile_w, tile_h, rank)
+    base = _GENSHIN_TILE_BG_CACHE.get(key)
+    if base is not None:
+        return base.copy()
+    tile = Image.new("RGBA", (tile_w, tile_h), (0, 0, 0, 0))
+    tdraw = ImageDraw.Draw(tile)
+    tdraw.rounded_rectangle([0, 0, tile_w - 1, tile_h - 1], radius=18, fill=(*bg_bot, 250))
+    for ly in range(4, 210):
+        alpha_f = 1.0 - (ly / 210.0)
+        rc = int(bg_bot[0] + (bg_top[0] - bg_bot[0]) * alpha_f)
+        gc = int(bg_bot[1] + (bg_top[1] - bg_bot[1]) * alpha_f)
+        bc = int(bg_bot[2] + (bg_top[2] - bg_bot[2]) * alpha_f)
+        tdraw.line([(6, ly), (tile_w - 7, ly)], fill=(rc, gc, bc, 245))
+    _GENSHIN_TILE_BG_CACHE[key] = tile
+    return tile.copy()
 
 
 # ==========================================
@@ -1087,14 +1137,7 @@ def build_genshin_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1"
     load_genshin_kr_db()
     thumb_results: list[bytes | None] = [None] * len(drawn)
     try:
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            futs = [pool.submit(fetch_genshin_thumb_bytes, c) for c in drawn]
-            for idx, fut in enumerate(futs):
-                try:
-                    thumb_results[idx] = fut.result(timeout=7)
-                except Exception:
-                    thumb_results[idx] = None
+        thumb_results = list(core._THUMB_FETCH_POOL.map(fetch_genshin_thumb_bytes, drawn))
     except Exception:
         for idx, c in enumerate(drawn):
             thumb_results[idx] = fetch_genshin_thumb_bytes(c)
@@ -1107,23 +1150,8 @@ def build_genshin_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1"
         canvas_w = pad_x * 2 + cols * tile_w + (cols - 1) * gap_x
         canvas_h = pad_top + rows * tile_h + (rows - 1) * gap_y + pad_bot
 
-        canvas = Image.new("RGBA", (canvas_w, canvas_h), (11, 16, 38, 255))
+        canvas = _get_genshin_base_canvas(canvas_w, canvas_h, len(drawn))
         draw = ImageDraw.Draw(canvas)
-        for y in range(canvas_h):
-            t = y / max(1, canvas_h - 1)
-            r_c = int(10 + 14 * t)
-            g_c = int(15 + 18 * t)
-            b_c = int(38 + 30 * t)
-            draw.line([(0, y), (canvas_w, y)], fill=(r_c, g_c, b_c, 255))
-
-        rng = random.Random(42 + len(drawn))
-        for _ in range(95):
-            sx = rng.randint(15, canvas_w - 15)
-            sy = rng.randint(15, canvas_h - 15)
-            sr = rng.choice([1, 1, 2])
-            alpha = rng.randint(90, 220)
-            col = (245, 212, 130, alpha) if rng.random() < 0.35 else (195, 220, 255, alpha)
-            draw.ellipse([sx - sr, sy - sr, sx + sr, sy + sr], fill=col)
 
         b_cfg = GENSHIN_BANNER_CONFIGS.get(banner_key, GENSHIN_BANNER_CONFIGS["char1"])
         font_hdr = core._get_grid_font(28, bold=True)
@@ -1167,15 +1195,8 @@ def build_genshin_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1"
                 inner_col = (158, 212, 255, 150)
                 star_col = (130, 200, 255, 255)
 
-            tile = Image.new("RGBA", (tile_w, tile_h), (0, 0, 0, 0))
+            tile = _get_genshin_tile_base(tile_w, tile_h, rank, bg_top, bg_bot)
             tdraw = ImageDraw.Draw(tile)
-            tdraw.rounded_rectangle([0, 0, tile_w - 1, tile_h - 1], radius=18, fill=(*bg_bot, 250))
-            for ly in range(4, 210):
-                alpha_f = 1.0 - (ly / 210.0)
-                rc = int(bg_bot[0] + (bg_top[0] - bg_bot[0]) * alpha_f)
-                gc = int(bg_bot[1] + (bg_top[1] - bg_bot[1]) * alpha_f)
-                bc = int(bg_bot[2] + (bg_top[2] - bg_bot[2]) * alpha_f)
-                tdraw.line([(6, ly), (tile_w - 7, ly)], fill=(rc, gc, bc, 245))
 
             elem_code = item.get("element")
             orb_rgb = GENSHIN_ELEMENT_MAP.get(elem_code, {}).get("color", border_col[:3])
@@ -1258,7 +1279,7 @@ def build_genshin_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1"
             canvas.alpha_composite(tile, (tx, ty))
 
         out = io.BytesIO()
-        canvas.convert("RGB").save(out, format="PNG", optimize=True)
+        canvas.convert("RGB").save(out, format="PNG", compress_level=1)
         fn = f"genshin_10pull_{int(time.time())}.png"
         return out.getvalue(), fn
     except Exception as e:

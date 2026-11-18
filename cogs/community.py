@@ -2417,39 +2417,40 @@ class CommunityCog(commands.Cog):
         if not message.guild or message.author.bot or message.webhook_id:
             return
 
-        cached = core.get_cached_data()
+        cached = core.get_cached_data_ro()
 
-        # 1) #12 SNS 링크 미리보기 개선 & 추적 파라미터 제거
-        try:
-            link_cfg = community_core.get_link_preview_config(cached, message.guild.id)
-            if link_cfg.get("enabled", True) and message.channel.id not in link_cfg.get("ignored_channels", []):
-                items = community_core.extract_and_transform_urls(message.content, link_cfg)
-                if items:
-                    if link_cfg.get("suppress_original", True):
-                        me = message.guild.me
-                        if me and message.channel.permissions_for(me).manage_messages:
-                            try:
-                                await message.edit(suppress=True)
-                            except Exception:
-                                pass
+        # 1) #12 SNS 링크 미리보기 개선 & 추적 파라미터 제거 ("http" 미포함 일반 채팅은 정규식 검사 즉시 생략)
+        if message.content and "http" in message.content:
+            try:
+                link_cfg = community_core.get_link_preview_config(cached, message.guild.id)
+                if link_cfg.get("enabled", True) and message.channel.id not in link_cfg.get("ignored_channels", []):
+                    items = community_core.extract_and_transform_urls(message.content, link_cfg)
+                    if items:
+                        if link_cfg.get("suppress_original", True):
+                            me = message.guild.me
+                            if me and message.channel.permissions_for(me).manage_messages:
+                                try:
+                                    await message.edit(suppress=True)
+                                except Exception:
+                                    pass
 
-                    sns_lines = []
-                    track_lines = []
-                    for it in items:
-                        if it["kind"] == "sns":
-                            sns_lines.append(f"🔗 **{it['service']} 미리보기:** {it['cleaned']}")
-                        else:
-                            params_str = ", ".join(f"`{p}`" for p in it.get("stripped_params", [])[:4])
-                            tag_note = f" *(추적 태그 {params_str} 제거)*" if params_str else ""
-                            track_lines.append(f"🧹 **클린 링크:** {it['cleaned']}{tag_note}")
+                        sns_lines = []
+                        track_lines = []
+                        for it in items:
+                            if it["kind"] == "sns":
+                                sns_lines.append(f"🔗 **{it['service']} 미리보기:** {it['cleaned']}")
+                            else:
+                                params_str = ", ".join(f"`{p}`" for p in it.get("stripped_params", [])[:4])
+                                tag_note = f" *(추적 태그 {params_str} 제거)*" if params_str else ""
+                                track_lines.append(f"🧹 **클린 링크:** {it['cleaned']}{tag_note}")
 
-                    body = "\n".join(sns_lines + track_lines)
-                    try:
-                        await message.reply(body, view=LinkCleanupView(), mention_author=False)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                        body = "\n".join(sns_lines + track_lines)
+                        try:
+                            await message.reply(body, view=LinkCleanupView(), mention_author=False)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
 
         # 2) #8 자동 고정 메시지 (Sticky Message)
         try:

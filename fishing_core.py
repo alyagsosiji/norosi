@@ -1080,13 +1080,14 @@ def get_user_fishing_summary(guild_id: int | str, user_id: int | str, user_name:
         data = core.load_data()
         g_key = str(guild_id or 0)
         u_key = str(user_id)
-        before_u = copy.deepcopy(core.safe_get_dict(data, "fishing_users", g_key, u_key))
-        before_prof = copy.deepcopy(core.safe_get_dict(data, "user_profiles", u_key))
+        had_u = isinstance(core.safe_get_dict(data, "fishing_users", g_key).get(u_key), dict)
+        had_prof = isinstance(core.safe_get_dict(data, "user_profiles").get(u_key), dict)
         u = ensure_fishing_user(data, guild_id, user_id, user_name)
         prof = core.ensure_user_profile(data, user_id, user_name)
         env = get_current_fishing_env()
         pending_tank, hourly_tank = get_tank_pending_gold(u, env["now"])
         lvl, rem_exp, need_exp = _calc_level_from_exp(u.get("exp", 0))
+        prev_lvl = u.get("level")
         u["level"] = lvl
         life_buffs = {}
         try:
@@ -1094,10 +1095,10 @@ def get_user_fishing_summary(guild_id: int | str, user_id: int | str, user_name:
             life_buffs = life_core.get_active_life_buffs(guild_id, user_id, data=data)
         except Exception:
             life_buffs = {}
-        if u != before_u or prof != before_prof:
+        if not had_u or not had_prof or prev_lvl != lvl:
             core.save_data(data)
         return {
-            "user": copy.deepcopy(u),
+            "user": u,
             "crystals": max(0, _safe_int(prof.get("crystals"), 0)),
             "env": env,
             "rod": RODS[u["rod_id"]],
@@ -1179,6 +1180,68 @@ def prepare_cast_parameters(guild_id: int | str, user_id: int | str, user_name: 
         }
 
 
+import itertools
+
+_SPECIES_CUM_WEIGHT_CACHE: Dict[Tuple[str, int, str, str, str, bool, str], Tuple[List[Dict[str, Any]], List[float]]] = {}
+
+
+def _get_cached_species_cum_weights(
+    habitat: str,
+    chosen_rarity: int,
+    time_phase: str,
+    weather_id: str,
+    bait_id: str,
+    use_zone_focus: bool,
+    zone_filter: str,
+) -> Tuple[List[Dict[str, Any]], List[float]]:
+    cache_key = (
+        habitat,
+        chosen_rarity,
+        time_phase,
+        weather_id,
+        bait_id,
+        use_zone_focus,
+        zone_filter if use_zone_focus else "all",
+    )
+    cached = _SPECIES_CUM_WEIGHT_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    pool = FISH_BY_HABITAT.get(habitat) or FISH_SPECIES_DB
+    bucket = FISH_BY_HABITAT_RARITY.get((habitat, chosen_rarity)) or pool
+    weights: List[float] = []
+    for sp in bucket:
+        w = 1.0
+        atime = sp["active_time"]
+        if atime == time_phase:
+            w *= 1.65
+        elif atime != "all":
+            w *= 0.50
+
+        pw = sp["prefer_weather"]
+        if pw == weather_id:
+            w *= 1.55
+        elif pw != "all" and weather_id != pw:
+            w *= 0.85
+
+        if sp["prefer_bait"] == bait_id:
+            w *= 1.45
+
+        if _IS_HANGUL_SP_CACHE.get(sp["id"], False):
+            w *= 1.85
+
+        if use_zone_focus and (sp.get("zone") == zone_filter or sp.get("sub_zone") == zone_filter):
+            w *= 3.20
+
+        weights.append(max(0.05, w))
+
+    cum_weights = list(itertools.accumulate(weights))
+    if len(_SPECIES_CUM_WEIGHT_CACHE) > 256:
+        _SPECIES_CUM_WEIGHT_CACHE.clear()
+    _SPECIES_CUM_WEIGHT_CACHE[cache_key] = (bucket, cum_weights)
+    return bucket, cum_weights
+
+
 def _roll_species_weighted(
     habitat: str,
     rod: Dict[str, Any],
@@ -1189,10 +1252,9 @@ def _roll_species_weighted(
     net: Optional[Dict[str, Any]] = None,
     life_rare_bonus: float = 0.0,
 ) -> Dict[str, Any]:
-    """2단계 성급 정규화 추첨: (1) 장비·미끼·날씨·생활버프 기반 성급 결정 → (2) 해당 성급 풀 내 수역·시간·한글·신규 도감 가중 추첨"""
+    """2단계 성급 정규화 추첨: (1) 장비·미끼·날씨·생활버프 기반 성급 결정 → (2) 누적 가중치 캐시 기반 O(log N) 이진 탐색 추첨"""
     if habitat not in HABITATS:
         habitat = "lake"
-    pool = FISH_BY_HABITAT.get(habitat) or FISH_SPECIES_DB
     net_rare = float((net or {}).get("rare_bonus", 0.0))
     rare_factor = (
         (1.0 + rod["rare_bonus"] + net_rare + max(0.0, float(life_rare_bonus or 0.0)))
@@ -1222,49 +1284,23 @@ def _roll_species_weighted(
         tier_weights.append(max(0.2, tw))
 
     chosen_rarity = random.choices(avail_rarities, weights=tier_weights, k=1)[0]
-    bucket = FISH_BY_HABITAT_RARITY.get((habitat, chosen_rarity)) or pool
 
-    # 2단계: 선택된 (서식지, 성급) 버킷 내부에서 생태 조건 · 세부 수역 · 한국어명 · 미수집 도감 가중치 적용
-    weights: List[float] = []
-    time_phase = env["time_phase"]
-    weather_id = env["weather_id"]
-    bait_id = bait["id"]
-    for sp in bucket:
-        w = 1.0
-
-        # 시간대 보정
-        atime = sp["active_time"]
-        if atime == time_phase:
-            w *= 1.65
-        elif atime != "all":
-            w *= 0.50
-
-        # 날씨 선호 보정
-        pw = sp["prefer_weather"]
-        if pw == weather_id:
-            w *= 1.55
-        elif pw != "all" and weather_id != pw:
-            w *= 0.85
-
-        # 미끼 선호 보정
-        if sp["prefer_bait"] == bait_id:
-            w *= 1.45
-
-        # 한국어 공식 명칭·원본 대표 어종 친숙도 밸런스
-        if _IS_HANGUL_SP_CACHE.get(sp["id"], False):
-            w *= 1.85
-
-        # 세부 수역 집중 탐색 보너스 (3.2x 가중치)
-        if use_zone_focus and (sp.get("zone") == zone_filter or sp.get("sub_zone") == zone_filter):
-            w *= 3.20
-
-        # 도감 미보유 신어종 발견 보너스
-        if pokedex_ids is not None and sp["id"] not in pokedex_ids:
-            w *= 1.35
-
-        weights.append(max(0.05, w))
-
-    return random.choices(bucket, weights=weights, k=1)[0]
+    # 2단계: 캐시된 누적 가중치(cum_weights)로 C 레벨 이진 탐색 추첨 (11,500종 순회 생략)
+    bucket, cum_weights = _get_cached_species_cum_weights(
+        habitat,
+        chosen_rarity,
+        env["time_phase"],
+        env["weather_id"],
+        bait["id"],
+        use_zone_focus,
+        zone_filter,
+    )
+    pick = random.choices(bucket, cum_weights=cum_weights, k=1)[0]
+    if pokedex_ids is not None and pick["id"] in pokedex_ids and random.random() < 0.26:
+        alt = random.choices(bucket, cum_weights=cum_weights, k=1)[0]
+        if alt["id"] not in pokedex_ids:
+            return alt
+    return pick
 
 
 def finalize_fish_catch(
