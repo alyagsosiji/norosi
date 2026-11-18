@@ -674,8 +674,12 @@ class GithubWebhookView(core.SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         await super().interaction_check(interaction)
-        if interaction.user.id != self.author.id:
-            await core.safe_send_response(interaction, "❌ 연동을 설정한 관리자만 조작할 수 있습니다.", ephemeral=True)
+        if not await self.bot.is_bot_owner_user(interaction.user):
+            await core.safe_send_response(
+                interaction,
+                "🚨 **권한 부족:** GitHub 연동 및 배포 알림 설정은 **👑 봇 주인(소유자)**만 조작할 수 있습니다.",
+                ephemeral=True,
+            )
             return False
         return True
 
@@ -708,8 +712,12 @@ class GithubWebhookView(core.SafeView):
 
     @discord.ui.button(label="연동 해제", style=discord.ButtonStyle.danger, emoji="🛑", row=0)
     async def disable_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.manage_guild and not interaction.user.guild_permissions.administrator:
-            await core.safe_send_response(interaction, "❌ 관리자 권한이 필요합니다.", ephemeral=True)
+        if not await self.bot.is_bot_owner_user(interaction.user):
+            await core.safe_send_response(
+                interaction,
+                "🚨 **권한 부족:** GitHub 연동 해제는 **👑 봇 주인(소유자)**만 실행할 수 있습니다.",
+                ephemeral=True,
+            )
             return
         data = await asyncio.to_thread(core.load_data)
         core.remove_github_webhook_config(data, interaction.guild_id)
@@ -1048,8 +1056,12 @@ class LoggerCog(commands.Cog):
             await core.safe_send_response(interaction, "❌ 이 명령어는 서버(길드)에서만 사용할 수 있습니다.", ephemeral=True)
             return
 
-        if not interaction.user.guild_permissions.manage_guild and not interaction.user.guild_permissions.administrator:
-            await core.safe_send_response(interaction, "❌ 이 명령어를 사용하려면 **서버 관리(Manage Server)** 권한이 필요합니다.", ephemeral=True)
+        if not await self.bot.is_bot_owner_user(interaction.user):
+            await core.safe_send_response(
+                interaction,
+                "🚨 **권한 부족:** GitHub 연동 및 배포 알림 설정은 **👑 봇 주인(소유자)**만 실행할 수 있습니다.",
+                ephemeral=True,
+            )
             return
 
         await core.safe_defer(interaction, ephemeral=True)
@@ -1098,7 +1110,7 @@ class LoggerCog(commands.Cog):
 
         total_linked = len(core.get_github_webhook_configs(data))
         embed = discord.Embed(
-            title="🚀 GitHub 업데이트 알림 연동 완료",
+            title="🚀 [👑 봇 주인 전용] GitHub 업데이트 알림 연동 완료",
             description=(
                 f"• 📢 **수신 채널:** {target_ch.mention} (`#{target_ch.name}`)\n"
                 f"• 👥 **멘션 역할:** {역할멘션.mention if 역할멘션 else '지정 안함'}\n"
@@ -1121,7 +1133,7 @@ class LoggerCog(commands.Cog):
 
     @app_commands.command(
         name="깃허브연동",
-        description="현재 채널 또는 지정한 채널에 GitHub 푸시 및 Actions 배포 알림을 즉시 연동합니다."
+        description="[봇 주인 전용] 현재 채널 또는 지정한 채널에 GitHub 푸시 및 Actions 배포 알림을 즉시 연동합니다."
     )
     @app_commands.describe(
         채널="(선택) 알림을 수신할 채널 (미입력 시 현재 채널로 즉시 연동)",

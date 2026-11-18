@@ -1396,11 +1396,11 @@ class MasterDashboardView(core.SafeView):
                             "cb": self._act_admin_music_sched_hub,
                         },
                         {
-                            "label": "GitHub 배포알림",
+                            "label": "[봇주인] GitHub 배포알림",
                             "emoji": "🐙",
-                            "style": discord.ButtonStyle.secondary,
-                            "perm": PERM_ADMIN,
-                            "desc": "[🛡️서버관리자] GitHub Push 및 Actions 배포 알림 수신 채널 원클릭 연동",
+                            "style": discord.ButtonStyle.danger,
+                            "perm": PERM_OWNER,
+                            "desc": "[👑봇주인 전용] GitHub Push 및 Actions 배포 알림 수신 채널 원클릭 연동",
                             "cb": self._act_admin_github_webhook,
                         },
                         {
@@ -1414,7 +1414,7 @@ class MasterDashboardView(core.SafeView):
                     ],
                 },
                 {
-                    "page_title": "👑 [봇 주인 전용] 글로벌 픽업 · VM 터미널 · DB 백업 · 명령어 동기화",
+                    "page_title": "👑 [봇 주인 전용] 글로벌 픽업 · VM 터미널 · GitHub 연동 · 봇 상태 · DB 백업",
                     "perm": PERM_OWNER,
                     "items": [
                         {
@@ -1442,11 +1442,11 @@ class MasterDashboardView(core.SafeView):
                             "cb": self._act_owner_hsr_pickup_hub,
                         },
                         {
-                            "label": "[봇주인] 터미널 로그",
+                            "label": "[봇주인] 터미널·GitHub",
                             "emoji": "🖥️",
                             "style": discord.ButtonStyle.danger,
                             "perm": PERM_OWNER,
-                            "desc": "[👑봇주인 전용] VM 서버 터미널(stdout/stderr) 실시간 콘솔 로그 채널 연동",
+                            "desc": "[👑봇주인 전용] VM 서버 터미널(stdout/stderr) 로그 및 GitHub 배포알림 채널 연동",
                             "cb": self._act_owner_terminal_hub,
                         },
                         {
@@ -1458,11 +1458,11 @@ class MasterDashboardView(core.SafeView):
                             "cb": self._act_owner_backup_sync_hub,
                         },
                         {
-                            "label": "호스트 시스템 상태",
+                            "label": "[봇주인] 봇 상태 진단",
                             "emoji": "🤖",
-                            "style": discord.ButtonStyle.secondary,
-                            "perm": PERM_ADMIN,
-                            "desc": "[🛡️서버관리자 / 👑봇주인] 봇 호스트 RAM, CPU, 디스크, 핑, 업타임 진단",
+                            "style": discord.ButtonStyle.danger,
+                            "perm": PERM_OWNER,
+                            "desc": "[👑봇주인 전용] 봇 호스트 RAM, CPU, 디스크, 핑, 업타임 실시간 상태 진단",
                             "cb": self._act_bot_host_status,
                         },
                     ],
@@ -2284,12 +2284,14 @@ class MasterDashboardView(core.SafeView):
                 ],
             },
             "owner_terminal": {
-                "title": "🖥️ [봇 주인 전용] VM 서버 터미널 실시간 로그 브릿지",
-                "desc": "VM 서버의 stdout / stderr / logging 출력을 현재 채널로 실시간 중계하거나 해제합니다.",
+                "title": "🖥️ [봇 주인 전용] VM 터미널 로그 & GitHub 배포 알림 제어판",
+                "desc": "VM 서버의 실시간 터미널 출력(stdout/stderr) 중계 및 GitHub Push/Actions 배포 알림 채널을 연동·해제합니다.",
                 "perm": PERM_OWNER,
                 "buttons": [
                     ("현재 채널에 터미널로그 연동", "🟢", discord.ButtonStyle.success, self._sub_owner_term_bind),
                     ("현재 서버 터미널로그 해제", "🛑", discord.ButtonStyle.danger, self._sub_owner_term_unbind),
+                    ("현재 채널 GitHub 배포알림 연동", "🐙", discord.ButtonStyle.primary, self._act_admin_github_webhook),
+                    ("현재 서버 GitHub 배포알림 해제", "🚫", discord.ButtonStyle.secondary, self._sub_owner_github_unbind),
                 ],
             },
             "owner_backup_sync": {
@@ -2469,7 +2471,7 @@ class MasterDashboardView(core.SafeView):
         if tier == PERM_OWNER:
             return "👑 **내 권한 등급: `봇 주인 (Bot Owner)`** — `일반` · `미니게임` · `개인` · `고급(서버관리자 + 봇주인 시스템)` 전체 제어 가능"
         if tier == PERM_ADMIN:
-            return "🛡️ **내 권한 등급: `서버 관리자 (Server Admin)`** — `일반` · `미니게임` · `개인` + `고급(서버 관리 1~3p)` 제어 가능 (`4p 봇주인 전용` 제외)"
+            return "🛡️ **내 권한 등급: `서버 관리자 (Server Admin)`** — `일반` · `미니게임` · `개인` + `고급(서버 관리 1~3p)` 제어 가능 (`봇주인 전용` 제외)"
         return "👤 **내 권한 등급: `일반 이용자 (Member)`** — `일반` · `미니게임` · `개인` 전체 이용 가능 (`고급` 카테고리는 관리자/봇주인 전용)"
 
     def _build_home_embed(self) -> discord.Embed:
@@ -2508,8 +2510,8 @@ class MasterDashboardView(core.SafeView):
                 "1️⃣ **`[🌐 일반]`** *(3페이지 · `👤 일반 이용자`)*\n"
                 "└ 출석체크·달력·랭킹, D-Day·생일 전광판, 프로세카 미래시, 음악·플리·배속, 서버통계, 파티모집, 날씨, 릴레이소설\n"
                 "2️⃣ **`[⚙️ 고급]`** *(4페이지 · `🛡️ 서버 관리자` & `👑 봇 주인` 구분)*\n"
-                "└ `[🛡️관리자 1~3p]` 역할버튼·반응역할·공지·1:1티켓·임시음성방·고정글·레이드방어·이모지업스케일·감사로그·청소·초기화\n"
-                "└ `[👑봇주인 4p]` 프로세카/원신/스타레일 글로벌 픽업 설정 · VM 터미널 로그 연동 · 전체 DB 백업 & 동기화\n"
+                "└ `[🛡️관리자]` 역할버튼·반응역할·공지·1:1티켓·임시음성방·고정글·레이드방어·이모지업스케일·감사로그·청소·초기화\n"
+                "└ `[👑봇주인]` 3대 게임 글로벌 픽업 · VM 터미널 로그 · **GitHub 연동/배포알림** · **봇 상태 진단** · DB 백업 & 동기화\n"
                 "3️⃣ **`[🎮 미니게임]`** *(4페이지 · `👤 일반 이용자`)*\n"
                 "└ 프로세카 뽑기·라이브·마스터랭크·의상·마이세카이, 원신 기원, 스타레일 워프, 낚시·대회·수족관, 농장·펫, 타인의삶, 끝말잇기, 룰렛\n"
                 "4️⃣ **`[👤 개인]`** *(3페이지 · `👤 일반 이용자`)*\n"
@@ -3210,11 +3212,20 @@ class MasterDashboardView(core.SafeView):
         await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
 
     async def _act_admin_github_webhook(self, interaction: discord.Interaction):
-        if not await self.check_admin_permission(interaction, action_name="GitHub 배포알림 연동"):
+        if not await self.check_bot_owner_permission(interaction, action_name="GitHub 연동 및 배포알림"):
             return
         logger_cog = self._find_cog_with_attr("_execute_github_webhook")
         if logger_cog:
             await logger_cog._execute_github_webhook(interaction, 채널=None, 역할멘션=None, 연동해제=False, 동작=None)
+        else:
+            await core.safe_send_response(interaction, "❌ 로거 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_owner_github_unbind(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="GitHub 배포알림 연동 해제"):
+            return
+        logger_cog = self._find_cog_with_attr("_execute_github_webhook")
+        if logger_cog:
+            await logger_cog._execute_github_webhook(interaction, 채널=None, 역할멘션=None, 연동해제=True, 동작="disable")
         else:
             await core.safe_send_response(interaction, "❌ 로거 모듈을 찾을 수 없습니다.", ephemeral=True)
 
@@ -3455,17 +3466,7 @@ class MasterDashboardView(core.SafeView):
         await interaction.response.send_modal(BotBannerModal())
 
     async def _act_bot_host_status(self, interaction: discord.Interaction):
-        bot_ref = self.bot or interaction.client
-        is_owner = await bot_ref.is_bot_owner_user(interaction.user) if hasattr(bot_ref, "is_bot_owner_user") else False
-        is_admin = False
-        if interaction.guild and isinstance(interaction.user, discord.Member):
-            is_admin = interaction.user.guild_permissions.administrator or interaction.user.guild_permissions.manage_guild
-        if not (is_owner or is_admin):
-            await core.safe_send_response(
-                interaction,
-                "🚨 **권한 부족:** 호스트 시스템 리소스 모니터링은 **🛡️ 서버 관리자** 또는 **👑 봇 주인**만 열람할 수 있습니다.",
-                ephemeral=True,
-            )
+        if not await self.check_bot_owner_permission(interaction, action_name="봇 상태(호스트 시스템 리소스) 진단"):
             return
         stats_cog = self._find_cog_with_attr("host_system_stats_cmd")
         if stats_cog:

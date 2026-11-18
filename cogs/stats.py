@@ -855,19 +855,14 @@ class StatsCog(commands.Cog):
         view = ServerStatsDashboardView(interaction.guild, data, tf, mode, user=interaction.user)
         await interaction.followup.send(embed=embed, view=view)
 
-    @app_commands.command(name="봇상태", description="[서버 관리자 전용] norosi 봇의 호스트 시스템 리소스(RAM, CPU, 디스크, 핑, 업타임) 상태를 확인합니다.")
-    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.command(name="봇상태", description="[봇 주인 전용] norosi 봇의 호스트 시스템 리소스(RAM, CPU, 디스크, 핑, 업타임) 상태를 확인합니다.")
+    @app_commands.default_permissions(administrator=True)
     async def host_system_stats_cmd(self, interaction: discord.Interaction):
-        # 관리자 권한 안전 검증
-        is_owner = await self.bot.is_bot_owner_user(interaction.user)
-        is_admin = False
-        if interaction.guild and isinstance(interaction.user, discord.Member):
-            is_admin = interaction.user.guild_permissions.administrator or interaction.user.guild_permissions.manage_guild
-
-        if not (is_owner or is_admin):
+        # 봇 주인(소유자) 전용 권한 안전 검증
+        if not await self.bot.is_bot_owner_user(interaction.user):
             await core.safe_send_response(
                 interaction,
-                content="🚨 **권한 부족:** `/봇상태` 명령어는 **디스코드 서버 관리자(서버 관리/관리자 권한)** 또는 **봇 소유자**만 실행할 수 있습니다.",
+                content="🚨 **권한 부족:** 봇 상태(호스트 시스템 리소스) 조회는 **👑 봇 주인(소유자)**만 실행할 수 있습니다.",
                 ephemeral=True
             )
             return
@@ -939,7 +934,7 @@ class StatsCog(commands.Cog):
         embed = discord.Embed(
             title="🖥️ norosi 봇 호스트 서버 실시간 시스템 상태",
             description=(
-                "**[서버 관리자 전용]** 봇 인스턴스의 하드웨어 자원, 네트워크 레이턴시 및 런타임 현황입니다.\n"
+                "**[👑 봇 주인 전용]** 봇 인스턴스의 하드웨어 자원, 네트워크 레이턴시 및 런타임 현황입니다.\n"
                 "───────────────────────────────────────"
             ),
             color=discord.Color.from_rgb(0, 204, 221),
