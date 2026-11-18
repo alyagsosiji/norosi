@@ -87,7 +87,7 @@ async def execute_and_build_attendance_response(interaction: discord.Interaction
             value="\n".join(ms_summary_lines),
             inline=False
         )
-        dup_embed.set_footer(text="아래 버튼으로 월간 캘린더 상세, 출석 랭킹, 카드도감, 빠른 메뉴(/메뉴)를 바로 열어보세요!")
+        dup_embed.set_footer(text="아래 버튼으로 월간 캘린더 상세, 출석 랭킹, 카드도감, 통합 설정(/설정)을 바로 열어보세요!")
         return dup_embed, None, quick_view
 
     # 현재 서버 오늘 첫 출석 성공 시
@@ -328,12 +328,13 @@ class AttendanceQuickActionView(core.SafeView):
         view = CardPokedexView(interaction.user, stats, guild_id=guild_id)
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
-    @discord.ui.button(label="🧭 빠른 메뉴 (/메뉴)", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="⚙️ 통합 설정 (/설정)", style=discord.ButtonStyle.secondary, row=0)
     async def open_quick_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
         menu_view = QuickMenuHubView(self.bot_instance, interaction.user, interaction.guild, data)
-        await interaction.followup.send(embed=menu_view.build_embed(), view=menu_view)
+        msg = await interaction.followup.send(embed=menu_view.build_embed(), view=menu_view, wait=True)
+        menu_view.message = msg
 
 
 # ==========================================
@@ -607,248 +608,10 @@ class CommandRemoteSelect(discord.ui.Select):
 
 
 class QuickMenuHubView(core.SafeView):
-    """명령어를 일일이 입력하지 않고 버튼 하나로 주요 기능을 즉시 실행하는 올인원 리모컨"""
-    def __init__(self, bot_instance, user: discord.User, guild: discord.Guild | None, data: dict):
-        super().__init__(timeout=600)
-        self.bot_instance = bot_instance
-        self.user = user
-        self.guild = guild
-        self.data = data
-        self.add_item(CommandRemoteSelect(bot_instance, user))
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.user.id:
-            await core.safe_send_response(
-                interaction,
-                content="❌ 본인의 리모컨 메뉴만 조작할 수 있습니다.",
-                ephemeral=True
-            )
-            return False
-        return True
-
-    def build_embed(self):
-        g_key = str(self.guild.id if self.guild else 0)
-        u_key = str(self.user.id)
-        today_str = core.get_today_str()
-
-        profile = core.ensure_user_profile(self.data, u_key, self.user.display_name)
-        guild_att = core.safe_get_dict(self.data, "guild_attendance", g_key, u_key)
-        checked_today = (guild_att.get("last_date") == today_str)
-
-        crystals = profile.get("crystals", 0)
-        oshi_name = profile.get("oshi") or "미설정 (`/오시설정`)"
-        partner_id = profile.get("partner_id")
-        partner_tag = f"<@{partner_id}>" if partner_id else "미등록 (`/파트너`)"
-
-        todo = core.ensure_user_todo_today(profile)
-        tasks_list = [t for t in (todo.get("tasks") or []) if isinstance(t, dict)]
-        done_cnt = sum(1 for t in tasks_list if t.get("done"))
-        tot_cnt = len(tasks_list)
-        grass_bar, _ = core.get_todo_galaxy_grass(profile)
-
-        user_cards = core.safe_get_dict(self.data, "gacha_users", g_key, u_key, "cards")
-        unique_cnt = len(user_cards)
-        dup_excess = sum(max(0, c.get("count", 1) - 1) for c in user_cards.values() if isinstance(c, dict) and not c.get("locked", False))
-
-        # 가장 가까운 D-Day 1건 요약
-        ddays = core.as_dict(self.data.get("ddays"))
-        nearest_dday_str = "등록된 일정 없음 (`/디데이추가`)"
-        upcoming = []
-        for d_name, d_info in ddays.items():
-            if not isinstance(d_info, dict):
-                continue
-            date_val = d_info.get("date")
-            if not date_val:
-                continue
-            try:
-                diff, d_txt = core.get_dday_info(date_val, plus_one=bool(d_info.get("plus_one", False)))
-                if diff >= 0:
-                    upcoming.append((diff, d_name, date_val, d_txt))
-            except Exception:
-                continue
-        if upcoming:
-            upcoming.sort(key=lambda x: x[0])
-            _, n_name, n_date, n_txt = upcoming[0]
-            nearest_dday_str = f"**{n_name}** (`{n_date}` · **`{n_txt}`**)"
-
-        guild_label = self.guild.name if self.guild else "개인 메시지(DM)"
-        ms_bonus = core.get_my_sekai_daily_bonus(profile)
-        att_badge = (
-            f"✅ **오늘 출석 완료** (연속 `{guild_att.get('streak', 1)}일 🔥` / 누적 `{guild_att.get('total_days', 1)}일`)"
-            if checked_today else
-            f"⬜ **오늘 미출석** (`[📅 즉시 출석체크]` 버튼으로 `+{100 + ms_bonus}💎` 받기!)"
-        )
-
-        embed = discord.Embed(
-            title=f"🧭 {self.user.display_name}님의 norosi 올인원 슈퍼 리모컨",
-            description=(
-                f"명령어를 타이핑할 필요 없이 **상단 드롭다운 메뉴** 또는 **하단 핫키 버튼**으로 원하는 기능을 1초 만에 실행하세요!\n\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"• **🏠 `{guild_label}` 출석:** {att_badge}\n"
-                f"• **💎 보유 크리스탈:** **`{crystals:,}개`** (마이세카이 이자 `+{ms_bonus}💎/일`)  ·  **💖 오시:** `{oshi_name}`  ·  **💑 파트너:** {partner_tag}\n"
-                f"• **🎒 보유 캐릭터:** `{unique_cnt:,}종` (환전 가능 중복: `{dup_excess:,}장`)\n"
-                f"• **📅 가장 가까운 D-Day:** {nearest_dday_str}\n"
-                f"• **🌱 오늘 목표 달성률 (`{done_cnt}/{tot_cnt}`):** {grass_bar}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            ),
-            color=discord.Color.from_rgb(0, 204, 221),
-            timestamp=datetime.datetime.now(core.KST)
-        )
-        embed.set_thumbnail(url=self.user.display_avatar.url)
-        embed.set_footer(text="💡 드롭다운 또는 핫키 버튼으로 모든 슬래시 명령어 기능을 즉시 실행할 수 있습니다.")
-        return embed
-
-    @discord.ui.button(label="📅 즉시 출석체크", style=discord.ButtonStyle.primary, row=1)
-    async def btn_attendance(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction)
-        embed, file, view = await execute_and_build_attendance_response(interaction, self.bot_instance)
-        self.data = await asyncio.to_thread(core.load_data)
-        try:
-            await interaction.message.edit(embed=self.build_embed(), view=self)
-        except Exception:
-            pass
-        if file:
-            await interaction.followup.send(embed=embed, file=file, view=view)
-        else:
-            await interaction.followup.send(embed=embed, view=view)
-
-    @discord.ui.button(label="🎵 1회 뽑기", style=discord.ButtonStyle.success, row=1)
-    async def btn_pull_1(self, interaction: discord.Interaction, button: discord.ui.Button):
-        repull_view = GachaPullAgainView(interaction.user)
-        await repull_view._handle_repull(interaction, 1)
-
-    @discord.ui.button(label="🌈 10회 뽑기", style=discord.ButtonStyle.success, row=1)
-    async def btn_pull_10(self, interaction: discord.Interaction, button: discord.ui.Button):
-        repull_view = GachaPullAgainView(interaction.user)
-        await repull_view._handle_repull(interaction, 10)
-
-    @discord.ui.button(label="🌱 오늘목표 잔디", style=discord.ButtonStyle.primary, row=1)
-    async def btn_todo(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        profile = core.ensure_user_profile(data, interaction.user.id, interaction.user.display_name)
-        core.ensure_user_todo_today(profile)
-        await asyncio.to_thread(core.save_data, data)
-        view = TodoTrackerView(interaction.user, profile)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
-
-    @discord.ui.button(label="🎣 낚시 출조", style=discord.ButtonStyle.success, row=1)
-    async def btn_fishing(self, interaction: discord.Interaction, button: discord.ui.Button):
-        fishing_cog = self.bot_instance.get_cog("FishingCog")
-        if fishing_cog:
-            await fishing_cog._open_cast_hub(interaction)
-        else:
-            await core.safe_send_response(interaction, "❌ 낚시 모듈이 로드되지 않았습니다.", ephemeral=True)
-
-    @discord.ui.button(label="📅 미래시 달력", style=discord.ButtonStyle.primary, row=2)
-    async def btn_forecast(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction)
-        now = datetime.datetime.now(core.KST)
-        view = EventForecastView(interaction.user, now.year, now.month)
-        embed = await asyncio.to_thread(view.build_embed)
-        await interaction.followup.send(embed=embed, view=view)
-
-    @discord.ui.button(label="🎒 내캐릭터", style=discord.ButtonStyle.secondary, row=2)
-    async def btn_my_chars(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        g_key = str(interaction.guild_id or 0)
-        u_key = str(interaction.user.id)
-        user_cards_dict = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
-        view = MyInventoryView(interaction.user, list(user_cards_dict.values()), items_per_page=10, guild_id=interaction.guild_id or 0)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
-
-    @discord.ui.button(label="📖 카드도감", style=discord.ButtonStyle.secondary, row=2)
-    async def btn_pokedex(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction)
-        guild_id = interaction.guild_id or 0
-        stats = await asyncio.to_thread(core.get_card_pokedex_stats, guild_id, interaction.user.id)
-        view = CardPokedexView(interaction.user, stats, guild_id=guild_id)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
-
-    @discord.ui.button(label="🏆 통합 랭킹", style=discord.ButtonStyle.secondary, row=2)
-    async def btn_att_rank(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        init_scope = "guild" if interaction.guild else "global"
-        view = AttendanceRankingView(interaction, data, initial_scope=init_scope, initial_sort="total")
-        await interaction.followup.send(embed=view.build_embed(), view=view)
-
-    @discord.ui.button(label="🎧 지금 음악추천", style=discord.ButtonStyle.secondary, row=3)
-    async def btn_music_now(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        prefs = core.as_dict(data.get("music_prefs")) or core.DEFAULT_CONFIG["music_prefs"]
-        track_info, error = await core.get_recommended_music(prefs)
-        if error or not track_info:
-            await interaction.followup.send(f"❌ **음악 추천 실패:** {error}", ephemeral=True)
-            return
-        embed, view = self.bot_instance.build_music_embed_and_view(track_info, prefs, is_morning=False)
-        await interaction.followup.send(embed=embed, view=view)
-
-    @discord.ui.button(label="💎 중복카드 변환", style=discord.ButtonStyle.secondary, row=3)
-    async def btn_dup_convert(self, interaction: discord.Interaction, button: discord.ui.Button):
-        guild_id = interaction.guild_id or 0
-        preview = await asyncio.to_thread(core.preview_duplicate_cards, guild_id, interaction.user.id)
-        view = DuplicateConvertConfirmView(
-            guild_id,
-            interaction.user,
-            preview,
-            parent_menu_view=self,
-            parent_menu_message=interaction.message
-        )
-        await core.safe_send_response(interaction, embed=view.build_preview_embed(), view=view, ephemeral=True)
-
-    @discord.ui.button(label="🎸 내프로필&덱", style=discord.ButtonStyle.secondary, row=3)
-    async def btn_profile(self, interaction: discord.Interaction, button: discord.ui.Button):
-        gacha_cog = self.bot_instance.get_cog("GachaCog")
-        if gacha_cog:
-            await gacha_cog.my_profile_cmd.callback(gacha_cog, interaction, None)
-
-    @discord.ui.button(label="🐳 낚시 대물랭킹", style=discord.ButtonStyle.secondary, row=3)
-    async def btn_fishing_rank(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction)
-        from cogs.fishing import FishingRankingView
-        view = FishingRankingView(interaction.user, guild_id=interaction.guild_id or 0)
-        msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
-        view.message = msg
-
-    @discord.ui.button(label="❓ 도움말", style=discord.ButtonStyle.secondary, row=3)
-    async def btn_help(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = build_help_embed("all")
-        await core.safe_send_response(interaction, embed=embed, view=HelpCategoryView(bot_instance=self.bot_instance), ephemeral=True)
-
-    @discord.ui.button(label="⚔️ 세카이 라이브", style=discord.ButtonStyle.success, row=4)
-    async def btn_sekai_live(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction)
-        view = SekaiLiveView(interaction.user, guild_id=interaction.guild_id or 0)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
-
-    @discord.ui.button(label="🏆 마스터 랭크", style=discord.ButtonStyle.primary, row=4)
-    async def btn_master_rank(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction)
-        view = MasterRankView(interaction.user, guild_id=interaction.guild_id or 0)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
-
-    @discord.ui.button(label="🏠 마이세카이 꾸미기", style=discord.ButtonStyle.success, row=4)
-    async def btn_my_sekai(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        view = MySekaiHubView(interaction.user, interaction.user, interaction.guild_id or 0, data)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
-
-    @discord.ui.button(label="💿 내 플레이리스트", style=discord.ButtonStyle.primary, row=4)
-    async def btn_playlist(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        studio = PlaylistStudioView(interaction.user, interaction.user, data)
-        await interaction.followup.send(embed=studio.build_embed(), view=studio)
-
-    @discord.ui.button(label="🔄 상태 새로고침", style=discord.ButtonStyle.primary, row=4)
-    async def btn_refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction)
-        self.data = await asyncio.to_thread(core.load_data)
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+    """이전 빠른 메뉴 호환 래퍼 — 통합 설정 허브(/설정, MasterDashboardView)로 즉시 연결"""
+    def __new__(cls, bot_instance, user: discord.User | discord.Member, guild: discord.Guild | None, data: dict):
+        from cogs.dashboard import MasterDashboardView
+        return MasterDashboardView(bot_instance, user, guild, data)
 
 
 # ==========================================
@@ -1422,12 +1185,13 @@ class DDayListBoardView(core.SafeView):
     async def quick_add_dday_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(DDayQuickAddModal(self))
 
-    @discord.ui.button(label="🧭 빠른 메뉴 (/메뉴)", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="⚙️ 통합 설정 (/설정)", style=discord.ButtonStyle.secondary, row=1)
     async def open_menu_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
         view = QuickMenuHubView(self.bot_instance, interaction.user, interaction.guild, data)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        view.message = msg
 
 
 # ==========================================

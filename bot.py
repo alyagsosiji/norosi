@@ -898,8 +898,8 @@ class NorosiBot(commands.Bot):
                 except Exception as e:
                     print(f"⚠️ [음성 플레이어 리모컨 구버전 복구 예외] {e}", flush=True)
 
-            # 3-2. 올인원 마스터 대시보드
-            if "마스터 대시보드" in embed_text or "norosi 통합 제어" in embed_text:
+            # 3-2. 올인원 통합 설정 (/설정) & 마스터 대시보드
+            if "통합 설정" in embed_text or "마스터 대시보드" in embed_text or "norosi 통합 제어" in embed_text:
                 try:
                     from cogs.dashboard import MasterDashboardView
                     data = core.get_cached_data()
@@ -1135,7 +1135,7 @@ class NorosiBot(commands.Bot):
 
         await self.change_presence(
             status=discord.Status.online,
-            activity=discord.Game(name="🌠ㅣ/메뉴 · /출석체크 · /도움말")
+            activity=discord.Game(name="🌠ㅣ/설정 · /출석체크 · /도움말")
         )
 
         if not self._commands_synced:

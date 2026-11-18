@@ -4772,7 +4772,7 @@ class GachaCog(commands.Cog):
 
         embed = discord.Embed(
             title=f"🎸 {interaction.user.display_name}님의 5인 유닛 덱 편성 완료! (총 종합력: ⚔️ {total_deck_power:,})",
-            description="\n".join(deck_lines) + "\n\n*편성된 덱은 `/내프로필` 및 `/메뉴`에서 언제든 함께 확인할 수 있습니다. (`/카드강화`로 종합력 상승 가능!)*",
+            description="\n".join(deck_lines) + "\n\n*편성된 덱은 `/내프로필` 및 `/설정`에서 언제든 함께 확인할 수 있습니다. (`/카드강화`로 종합력 상승 가능!)*",
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST)
         )

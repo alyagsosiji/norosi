@@ -1,58 +1,167 @@
 """
-norosi Bot - 올인원 마스터 대시보드 (All-in-One Master Dashboard) Cog
-- 9대 핵심 기능 영역(홈, 프로세카 가챠, 원신, 스타레일, 일정, 음악, 역할·관리, 게임, 통계)을 탭(Tab)으로 자유롭게 오가는 슈퍼 컨트롤 타워
-- 모든 상호작용(모달/뷰/슬래시 콜백) 시그니처 불일치 버그 완벽 해결본
+cogs/dashboard.py - norosi 통합 설정 (/설정) 컨트롤 허브 (Component V2 스타일 계층형 내비게이션 & 통합 페이지네이션)
+- 1단계 (홈): [🌐 일반] · [⚙️ 고급] · [🎮 미니게임] · [👤 개인] 4대 메인 카테고리 버튼 + 빠른 실행 + 통합 페이지네이션
+- 2단계 (카테고리 내부): 카테고리별 세부 기능 버튼 (페이지당 6개, 총 14페이지 · 84개 기능) + [⬅️ 뒤로가기] + [◀ 이전 / 📄 현재·통합 / 다음 ▶]
+- 3단계 (세부 제어판): 도감/랭킹/티켓/픽업/백업/초기화 등 하위 버튼 패널 + [⬅️ 뒤로가기] + [🏠 설정 홈으로]
+- 권한 3단계 완벽 분리: [👤 일반 이용자] / [🛡️ 서버 관리자] / [👑 봇 주인] 배지 표시 및 서버 측 이중 권한 검증
 """
 
+import os
+import io
+import json
+import copy
+import random
 import asyncio
 import datetime
-import random
-from typing import Optional
-
 import discord
-from discord import app_commands
 from discord.ext import commands
+from discord import app_commands
+from typing import Optional, Callable, Awaitable, List, Dict, Any, Tuple
 
 import core
 import genshin_core
 import hsr_core
-from cogs import dday, gacha, genshin, hsr, music, roles, stats, logger
+import fishing_core
+import economy_core
+import life_core
+import other_life_core
+import ticket_core
+import community_core
+
+from cogs import (
+    gacha,
+    genshin,
+    hsr,
+    fishing,
+    economy,
+    life,
+    other_life,
+    tickets,
+    community,
+    dday,
+    music,
+    roles,
+    logger,
+    stats,
+    emoji_upscale,
+    help as help_cog,
+)
 
 
 # ==========================================
-# 📝 대시보드 전용 모달: 빠른 D-Day 등록
+# 권한 등급 상수 및 헬퍼 함수
 # ==========================================
-class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 등록"):
+PERM_USER = "user"      # 👤 일반 이용자 (누구나 사용 가능)
+PERM_ADMIN = "admin"    # 🛡️ 서버 관리자 (Administrator / Manage Guild / Manage Roles / Manage Channels / Manage Messages)
+PERM_OWNER = "owner"    # 👑 봇 주인 (Bot Owner 전용 시스템/글로벌 픽업/백업/터미널 제어)
+
+PERM_BADGES = {
+    PERM_USER: "👤 일반 이용자",
+    PERM_ADMIN: "🛡️ 서버 관리자 전용",
+    PERM_OWNER: "👑 봇 주인 전용",
+}
+
+PERM_SHORT_BADGES = {
+    PERM_USER: "👤일반",
+    PERM_ADMIN: "🛡️관리자",
+    PERM_OWNER: "👑봇주인",
+}
+
+CATEGORY_ORDER = ["general", "advanced", "minigame", "personal"]
+
+CATEGORY_INFO = {
+    "general": {
+        "label": "🌐 일반",
+        "title": "🌐 일반 설정 & 공통 기능",
+        "emoji": "🌐",
+        "perm_summary": "👤 일반 이용자 (누구나 사용 가능)",
+        "color": (0, 204, 221),
+        "short_desc": "출석체크 · 달력 · D-Day · 생일 · 프로세카 미래시 · 음악 · 날씨 · 서버통계 · 파티모집",
+    },
+    "advanced": {
+        "label": "⚙️ 고급",
+        "title": "⚙️ 고급 설정 (서버 관리자 & 봇 주인 제어판)",
+        "emoji": "⚙️",
+        "perm_summary": "🛡️ 서버 관리자 (1~3p)  ·  👑 봇 주인 전용 (4p)",
+        "color": (237, 66, 69),
+        "short_desc": "역할버튼 · 반응역할 · 공지 · 1:1티켓 · 임시음성방 · 고정글 · 레이드방어 · 업스케일 · 감사로그 · 백업 · 픽업",
+    },
+    "minigame": {
+        "label": "🎮 미니게임",
+        "title": "🎮 미니게임 & 4대 가챠/생활 허브",
+        "emoji": "🎮",
+        "perm_summary": "👤 일반 이용자 (누구나 플레이 가능)",
+        "color": (87, 242, 135),
+        "short_desc": "프로세카 · 원신 · 스타레일 · 통합 낚시 & 대회 · 농장/펫/요리 · 타인의 삶 · 끝말잇기 · 룰렛 · 도감/랭킹",
+    },
+    "personal": {
+        "label": "👤 개인",
+        "title": "👤 개인 맞춤 설정 & 보관함/집중 허브",
+        "emoji": "👤",
+        "perm_summary": "👤 일반 이용자 (본인 데이터 관리)",
+        "color": (155, 89, 182),
+        "short_desc": "통합 PNG 프로필카드 · 오시 · 칭호/배지 · 송금 · 4대 보관함 & 덱/파티 · 오늘목표 · 집중모드 · 비밀디데이 · 파트너",
+    },
+}
+
+
+def detect_user_perm_tier_sync(user: Optional[discord.abc.User], guild: Optional[discord.Guild]) -> str:
+    """동기 컨텍스트(임베드/버튼 렌더링)에서 호출자의 권한 등급(owner / admin / user) 판별"""
+    if not user:
+        return PERM_USER
+    if core.BOT_OWNER_ID and user.id == core.BOT_OWNER_ID:
+        return PERM_OWNER
+    extra_owners = os.getenv("BOT_OWNER_IDS", "")
+    if extra_owners:
+        try:
+            owner_ids = {int(x.strip()) for x in extra_owners.split(",") if x.strip().isdigit()}
+            if user.id in owner_ids:
+                return PERM_OWNER
+        except Exception:
+            pass
+    if guild:
+        if getattr(guild, "owner_id", None) == user.id:
+            return PERM_ADMIN
+        perms = getattr(user, "guild_permissions", None)
+        if perms and (
+            perms.administrator
+            or perms.manage_guild
+            or perms.manage_roles
+            or perms.manage_channels
+            or perms.manage_messages
+        ):
+            return PERM_ADMIN
+    return PERM_USER
+
+
+# ==========================================
+# 📝 대시보드 전용 보조 모달 & 선택 뷰
+# ==========================================
+class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 빠른 등록"):
     d_name = discord.ui.TextInput(
         label="D-Day 일정 이름",
-        placeholder="예: 기말고사, 프로세카 이벤트 마감, 생일, 기념일",
+        placeholder="예: 기말고사, 프로세카 주년, 자격증 시험",
         required=True,
-        max_length=50
+        max_length=40,
     )
     d_date = discord.ui.TextInput(
         label="목표 날짜 (YYYY-MM-DD)",
-        placeholder="예: 2026-11-20",
+        placeholder="예: 2026-12-25",
         required=True,
-        max_length=10
-    )
-    d_start = discord.ui.TextInput(
-        label="진행률 시작일 (YYYY-MM-DD, 비워두면 오늘)",
-        placeholder="예: 2026-11-01 (은하수 잔디 진행률 0% 기준일)",
-        required=False,
-        max_length=10
+        max_length=10,
     )
     d_emoji = discord.ui.TextInput(
-        label="대표 이모지 (기본: 🌠)",
-        placeholder="예: 🌠, 🔥, 🎶, 🎯, 🎂",
+        label="대표 이모지 (선택, 기본: 🌠)",
+        placeholder="예: 🌠, 🔥, 🎂, 🎯",
         required=False,
         default="🌠",
-        max_length=5
+        max_length=5,
     )
     d_plus_one = discord.ui.TextInput(
-        label="지나간 날짜 +1일 계산 (날짜가 지난 경우 전용)",
-        placeholder="이미 지난 날짜에 +1일 적용 시 '+1' 또는 '예' 입력 (미입력 시 미적용)",
+        label="지나간 날짜 +1일 계산 여부 (선택)",
+        placeholder="지난 날짜에 D+1부터 세려면 '+1' 또는 '예' 입력",
         required=False,
-        max_length=10
+        max_length=10,
     )
 
     def __init__(self, dashboard_view: "MasterDashboardView"):
@@ -60,79 +169,78 @@ class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 등록"
         self.dashboard_view = dashboard_view
 
     async def on_submit(self, interaction: discord.Interaction):
-        target_val = self.d_date.value.strip()
-        start_val = self.d_start.value.strip() or core.get_today_str()
+        await core.safe_defer(interaction, ephemeral=True)
+        name_val = self.d_name.value.strip()
+        date_val = self.d_date.value.strip()
+        emoji_val = self.d_emoji.value.strip() or "🌠"
+        plus_raw = (self.d_plus_one.value or "").strip().lower()
+        use_plus_one = plus_raw in ("+1", "1", "예", "y", "yes", "true", "on", "적용")
+
         try:
-            target_dt = datetime.datetime.strptime(target_val, "%Y-%m-%d").date()
-            start_dt = datetime.datetime.strptime(start_val, "%Y-%m-%d").date()
+            datetime.datetime.strptime(date_val, "%Y-%m-%d")
         except ValueError:
-            await core.safe_send_response(interaction, "❌ 날짜 형식은 `YYYY-MM-DD` (예: `2026-11-20`)로 입력해 주세요.", ephemeral=True)
+            await interaction.followup.send(
+                "❌ 날짜 형식이 올바르지 않습니다. `YYYY-MM-DD` (예: `2026-12-25`) 형식으로 입력해 주세요.",
+                ephemeral=True,
+            )
             return
 
-        if start_dt > target_dt:
-            start_val = min(core.get_today_str(), target_val)
+        def _save_dday():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                ddays_dict = core.ensure_dict_path(data, "ddays")
+                ddays_dict[name_val] = {
+                    "date": date_val,
+                    "start_date": core.get_today_str(),
+                    "emoji": emoji_val,
+                    "channel_id": None,
+                    "annual": False,
+                    "plus_one": use_plus_one,
+                }
+                core.save_data(data)
+                return data
 
-        plus_one_val = core.parse_dday_plus_one_flag(self.d_plus_one.value)
+        data = await asyncio.to_thread(_save_dday)
+        _, dday_str = core.get_dday_info(date_val, plus_one=use_plus_one)
 
-        await core.safe_defer(interaction, ephemeral=True)
-        data = await asyncio.to_thread(core.load_data)
-        name_val = self.d_name.value.strip()
-        emoji_val = (self.d_emoji.value.strip() or "🌠")
-
-        ddays_root = core.ensure_dict_path(data, "ddays")
-        existing = core.as_dict(ddays_root.get(name_val))
-        ddays_root[name_val] = {
-            "date": target_val,
-            "repeat": existing.get("repeat", False),
-            "plus_one": plus_one_val,
-            "start_date": start_val,
-            "emoji": emoji_val,
-            "channel_id": existing.get("channel_id"),
-            "category_id": existing.get("category_id"),
-            "guild_id": interaction.guild_id or existing.get("guild_id"),
-        }
-        await asyncio.to_thread(core.save_data, data)
-
-        if hasattr(self.dashboard_view.bot, "update_all_dday_channels"):
+        self.dashboard_view.data = data
+        self.dashboard_view.refresh_components()
+        if self.dashboard_view.message:
             try:
-                await self.dashboard_view.bot.update_all_dday_channels()
+                await self.dashboard_view.message.edit(
+                    embed=self.dashboard_view.build_current_embed(),
+                    view=self.dashboard_view,
+                )
             except Exception:
                 pass
 
-        _, diff_str = core.get_dday_info(target_val, plus_one=plus_one_val)
         await interaction.followup.send(
-            f"🎉 **새 D-Day 일정이 성공적으로 등록되었습니다!**\n"
-            f"• **일정:** {emoji_val} **`{name_val}`**\n"
-            f"• **목표일:** `{target_val}` (**`{diff_str}`**)\n"
-            f"• 대시보드의 `[🔄 새로고침]` 버튼을 누르면 현황판에 즉시 반영됩니다.",
-            ephemeral=True
+            f"✅ **{emoji_val} {name_val}** 일정이 성공적으로 등록되었습니다! (현재 상태: **`{dday_str}`**)",
+            ephemeral=True,
         )
 
 
-# ==========================================
-# ⏱️ 대시보드 전용 모달: 뽀모도로 타이머 설정
-# ==========================================
-class DashboardPomodoroModal(core.SafeModal, title="⏳ 뽀모도로 집중모드 타이머 설정"):
-    focus_time = discord.ui.TextInput(
-        label="집중 시간 (분 단위, 1~180분)",
-        placeholder="기본값: 25",
+class DashboardPomodoroModal(core.SafeModal, title="⏳ 뽀모도로 집중모드 타이머 시작"):
+    focus_min = discord.ui.TextInput(
+        label="집중 시간 (분, 1~180)",
+        placeholder="예: 25",
         default="25",
         required=True,
-        max_length=3
+        max_length=3,
     )
-    rest_time = discord.ui.TextInput(
-        label="휴식 시간 (분 단위, 1~60분)",
-        placeholder="기본값: 5",
+    break_min = discord.ui.TextInput(
+        label="휴식 시간 (분, 1~60)",
+        placeholder="예: 5",
         default="5",
         required=True,
-        max_length=2
+        max_length=2,
     )
-    sets_count = discord.ui.TextInput(
-        label="반복 세트 수 (1~10세트)",
-        placeholder="기본값: 1",
-        default="1",
+    cycles = discord.ui.TextInput(
+        label="반복 세트 수 (1~10)",
+        placeholder="예: 4",
+        default="2",
         required=True,
-        max_length=2
+        max_length=2,
     )
 
     def __init__(self, bot: commands.Bot):
@@ -141,43 +249,37 @@ class DashboardPomodoroModal(core.SafeModal, title="⏳ 뽀모도로 집중모�
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            f_min = int(self.focus_time.value.strip())
-            r_min = int(self.rest_time.value.strip())
-            s_cnt = int(self.sets_count.value.strip())
+            f_m = max(1, min(180, int(self.focus_min.value.strip())))
+            b_m = max(1, min(60, int(self.break_min.value.strip())))
+            c_cnt = max(1, min(10, int(self.cycles.value.strip())))
         except ValueError:
-            await core.safe_send_response(interaction, "❌ 시간과 세트 수는 정수 숫자로만 입력해 주세요.", ephemeral=True)
+            await core.safe_send_response(interaction, "❌ 시간과 세트 수는 숫자로만 입력해 주세요.", ephemeral=True)
             return
 
-        f_min = max(1, min(180, f_min))
-        r_min = max(1, min(60, r_min))
-        s_cnt = max(1, min(10, s_cnt))
-
-        target_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "pomodoro_cmd")), None)
+        target_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "focus_pomodoro_cmd")), None)
         if target_cog:
-            choice_start = app_commands.Choice(name="🔥 집중모드 시작", value="start")
-            await target_cog.pomodoro_cmd.callback(
+            choice_start = app_commands.Choice(name="▶️ 집중모드 시작", value="start")
+            await target_cog.focus_pomodoro_cmd.callback(
                 target_cog,
                 interaction,
                 동작=choice_start,
-                집중시간=f_min,
-                휴식시간=r_min,
-                세트수=s_cnt,
-                음성채널=None
+                집중시간=f_m,
+                휴식시간=b_m,
+                세트수=c_cnt,
+                음성채널=None,
+                자동음소거=True,
             )
         else:
-            await core.safe_send_response(interaction, "❌ 집중모드 모듈을 찾을 수 없습니다. `/집중모드` 명령어를 이용해 주세요.", ephemeral=True)
+            await core.safe_send_response(interaction, "❌ 집중모드 모듈을 찾을 수 없습니다.", ephemeral=True)
 
 
-# ==========================================
-# 👻 대시보드 전용 모달: 비활성 유저 기준일수 입력
-# ==========================================
 class DashboardInactiveAuditModal(core.SafeModal, title="👻 비활성(잠수) 유저 스캔"):
     days_input = discord.ui.TextInput(
-        label="미활동 기준 일수 (7 / 14 / 30 / 60 / 90)",
-        placeholder="예: 30 (최근 30일 이상 무활동 멤버 스캔)",
+        label="비활성 기준 미활동 일수 (7 / 14 / 30 / 60 / 90)",
+        placeholder="예: 30 (최근 30일 이상 출석/채팅 기록 없는 멤버 조회)",
         default="30",
         required=True,
-        max_length=3
+        max_length=3,
     )
 
     def __init__(self, bot: commands.Bot):
@@ -185,112 +287,364 @@ class DashboardInactiveAuditModal(core.SafeModal, title="👻 비활성(잠수) 
         self.bot = bot
 
     async def on_submit(self, interaction: discord.Interaction):
-        raw = self.days_input.value.strip()
-        days_val = int(raw) if raw.isdigit() else 30
-        days_val = max(1, min(365, days_val))
+        try:
+            d_val = max(1, min(365, int(self.days_input.value.strip())))
+        except ValueError:
+            d_val = 30
 
-        logger_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "inactive_users_cmd")), None)
-        if logger_cog:
-            choice_obj = app_commands.Choice(name=f"⏳ 최근 {days_val}일 이상 미활동", value=days_val)
-            await logger_cog.inactive_users_cmd.callback(logger_cog, interaction, 기준일수=choice_obj)
+        target_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "inactive_users_cmd")), None)
+        if target_cog:
+            choice_days = app_commands.Choice(name=f"⏳ 최근 {d_val}일 이상 미활동", value=d_val)
+            await target_cog.inactive_users_cmd.callback(target_cog, interaction, 기준일수=choice_days)
         else:
-            await core.safe_send_response(interaction, "❌ 감사 로그 모듈을 찾을 수 없습니다. `/비활성유저조회` 명령어를 이용해 주세요.", ephemeral=True)
+            await core.safe_send_response(interaction, "❌ 감사 모듈을 찾을 수 없습니다.", ephemeral=True)
 
 
-# ==========================================
-# 🧭 마스터 대시보드 카테고리 네비게이션 드롭다운
-# ==========================================
-class DashboardTabSelect(discord.ui.Select):
-    def __init__(self, current_tab: str = "home"):
-        options = [
-            discord.SelectOption(
-                label="🧭 종합 관제 대시보드",
-                value="home",
-                description="내 출석, 크리스탈, 멀티가챠 요약, D-Day, 오늘 목표 한눈에 보기",
-                emoji="🧭",
-                default=(current_tab == "home")
+class DashboardMessagePurgeModal(core.SafeModal, title="🧹 채널 메시지 조건부 일괄 청소"):
+    count_input = discord.ui.TextInput(
+        label="검사 및 삭제할 메시지 개수 (1~100)",
+        placeholder="예: 30",
+        default="20",
+        required=True,
+        max_length=3,
+    )
+    keyword_input = discord.ui.TextInput(
+        label="포함 키워드 필터 (선택, 비워두면 전체 대상)",
+        placeholder="특정 단어가 포함된 메시지만 지우려면 입력",
+        required=False,
+        max_length=60,
+    )
+    bot_only_input = discord.ui.TextInput(
+        label="봇 메시지만 삭제 여부 (선택)",
+        placeholder="봇 메시지만 지우려면 '예' 또는 'bot' 입력",
+        required=False,
+        max_length=10,
+    )
+
+    def __init__(self, bot: commands.Bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+        perms = interaction.user.guild_permissions
+        is_owner = await self.bot.is_bot_owner_user(interaction.user)
+        if not (perms.administrator or perms.manage_messages or is_owner):
+            await core.safe_send_response(interaction, "❌ **메시지 관리(Manage Messages)** 또는 **서버 관리자** 권한이 필요합니다.", ephemeral=True)
+            return
+
+        try:
+            limit_cnt = max(1, min(100, int(self.count_input.value.strip())))
+        except ValueError:
+            await core.safe_send_response(interaction, "❌ 삭제할 메시지 개수는 1~100 사이의 숫자로 입력해 주세요.", ephemeral=True)
+            return
+
+        kw = (self.keyword_input.value or "").strip() or None
+        bot_raw = (self.bot_only_input.value or "").strip().lower()
+        bots_only = bot_raw in ("예", "y", "yes", "true", "1", "bot", "봇")
+
+        if not isinstance(interaction.channel, (discord.TextChannel, discord.VoiceChannel, discord.Thread)):
+            await core.safe_send_response(interaction, "❌ 텍스트 채널 또는 스레드에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+
+        await core.safe_defer(interaction, ephemeral=True)
+
+        def _check(m: discord.Message) -> bool:
+            if bots_only and not m.author.bot:
+                return False
+            if kw and kw.lower() not in (m.content or "").lower():
+                return False
+            return True
+
+        try:
+            deleted = await interaction.channel.purge(limit=limit_cnt, check=_check)
+            await interaction.followup.send(
+                f"🧹 {interaction.channel.mention} 채널에서 최근 `{limit_cnt}개` 메시지 중 조건에 맞는 **`{len(deleted)}개`** 메시지를 삭제했습니다!",
+                ephemeral=True,
+            )
+        except discord.Forbidden:
+            await interaction.followup.send("❌ 봇에게 `메시지 관리(Manage Messages)` 권한이 없습니다.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ 메시지 청소 중 오류 발생: `{e}`", ephemeral=True)
+
+
+class OshiQuickSelectView(core.SafeView):
+    """26인 프로세카 캐릭터 중 최애(오시)를 드롭다운으로 즉시 선택하는 뷰"""
+
+    def __init__(self, user: discord.abc.User, parent_dashboard: Optional["MasterDashboardView"] = None):
+        super().__init__(timeout=300)
+        self.user = user
+        self.parent_dashboard = parent_dashboard
+
+        all_chars = list(core.ALL_CHARACTERS)
+        group_a = all_chars[:14]
+        group_b = all_chars[14:]
+
+        sel_a = discord.ui.Select(
+            placeholder="💖 [그룹 A] 버츄얼 싱어 · 레오니 · 모모점 캐릭터 선택...",
+            options=[
+                discord.SelectOption(
+                    label=ch_name,
+                    value=ch_name,
+                    description=f"소속 유닛: {core.CHAR_UNIT_MAP.get(ch_name, '세카이')}",
+                    emoji="🌟",
+                )
+                for ch_name in group_a
+            ],
+            row=0,
+        )
+        sel_a.callback = self._on_select_oshi
+        self.add_item(sel_a)
+
+        if group_b:
+            sel_b = discord.ui.Select(
+                placeholder="💖 [그룹 B] 비배스 · 원더쇼 · 니고 캐릭터 선택...",
+                options=[
+                    discord.SelectOption(
+                        label=ch_name,
+                        value=ch_name,
+                        description=f"소속 유닛: {core.CHAR_UNIT_MAP.get(ch_name, '세카이')}",
+                        emoji="🎶",
+                    )
+                    for ch_name in group_b
+                ],
+                row=1,
+            )
+            sel_b.callback = self._on_select_oshi
+            self.add_item(sel_b)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 본인의 오시 설정 창만 조작할 수 있습니다.", ephemeral=True)
+            return False
+        return True
+
+    async def _on_select_oshi(self, interaction: discord.Interaction):
+        picked = (interaction.data.get("values") or [None])[0] if isinstance(interaction.data, dict) else None
+        if not picked:
+            await core.safe_defer(interaction, ephemeral=True)
+            return
+
+        await core.safe_defer(interaction, ephemeral=True)
+
+        def _save():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                prof = core.ensure_user_profile(data, interaction.user.id, interaction.user.display_name)
+                prof["oshi"] = picked
+                core.save_data(data)
+                return data
+
+        data = await asyncio.to_thread(_save)
+        if self.parent_dashboard:
+            self.parent_dashboard.data = data
+            if self.parent_dashboard.message:
+                try:
+                    await self.parent_dashboard.message.edit(
+                        embed=self.parent_dashboard.build_current_embed(),
+                        view=self.parent_dashboard,
+                    )
+                except Exception:
+                    pass
+
+        embed = discord.Embed(
+            title="💖 최애(오시) 캐릭터 설정 완료!",
+            description=(
+                f"**{interaction.user.display_name}**님의 대표 오시 캐릭터가 **`{picked}`** ({core.CHAR_UNIT_MAP.get(picked, '세카이')})로 변경되었습니다!\n"
+                "• `/내프로필` 및 `/프로필카드`에 우선 반영됩니다.\n"
+                "• `/출석체크` 시 오시 캐릭터의 세카이 보이스 대사가 매칭됩니다."
             ),
-            discord.SelectOption(
-                label="🎮 프로세카 카드·뽑기·덱",
-                value="gacha",
-                description="프로세카 10회/1회 가챠, 보관함, 중복 변환, 덱 편성, 도감",
-                emoji="🎮",
-                default=(current_tab == "gacha")
-            ),
-            discord.SelectOption(
-                label="🌠 원신 기원·보관함·상점",
-                value="genshin",
-                description="원신 10회/1회 기원, 운명의궤도, 보관함, 티바트 도감, 페이몬 상점, 파티",
-                emoji="🌠",
-                default=(current_tab == "genshin")
-            ),
-            discord.SelectOption(
-                label="🚄 스타레일 워프·상점·편대",
-                value="hsr",
-                description="스타레일 10회/1회 워프, 상시300, 보관함, 아카이브, 별빛·헤르타 상점, 편대",
-                emoji="🚄",
-                default=(current_tab == "hsr")
-            ),
-            discord.SelectOption(
-                label="📅 D-Day·생일·집중 대시보드",
-                value="life",
-                description="D-Day 현황, 생일 전광판, 뽀모도로 타이머, 파트너, 미래시",
-                emoji="📅",
-                default=(current_tab == "life")
-            ),
-            discord.SelectOption(
-                label="🎵 플레이리스트·사운드 대시보드",
-                value="music",
-                description="내 플리 관리, 감성 추천곡 선곡, 오디오 진단, 볼륨 제어",
-                emoji="🎵",
-                default=(current_tab == "music")
-            ),
-            discord.SelectOption(
-                label="🎭 역할버튼·공지·서버관리 대시보드",
-                value="admin",
-                description="사진 스타일 역할 버튼 제작, 반응역할 스튜디오, 공지 발송",
-                emoji="🎭",
-                default=(current_tab == "admin")
-            ),
-            discord.SelectOption(
-                label="🎲 미니게임·모집·날씨 대시보드",
-                value="game",
-                description="파티원 모집, 끝말잇기, 러시안룰렛, 실시간 날씨, 알림 예약",
-                emoji="🎲",
-                default=(current_tab == "game")
-            ),
-            discord.SelectOption(
-                label="📊 서버통계·유저정보 대시보드",
-                value="stats",
-                description="서버 실시간 통계 보드, 내 활동량 정보, 봇 상태, 건의함",
-                emoji="📊",
-                default=(current_tab == "stats")
-            ),
-        ]
-        super().__init__(
-            placeholder="🔍 이동할 기능 대시보드를 선택하세요...",
+            color=discord.Color.from_rgb(255, 105, 180),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        await interaction.edit_original_response(embed=embed, view=self)
+
+
+class CrystalTransferAmountModal(core.SafeModal, title="💸 크리스탈 송금 금액 입력"):
+    amount_input = discord.ui.TextInput(
+        label="송금할 크리스탈 금액 (10 ~ 5,000💎)",
+        placeholder="예: 500 (5% 송금 수수료 자동 차감)",
+        required=True,
+        max_length=5,
+    )
+
+    def __init__(self, target_member: discord.abc.User):
+        super().__init__()
+        self.target_member = target_member
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            amt = int(self.amount_input.value.strip().replace(",", ""))
+        except ValueError:
+            await core.safe_send_response(interaction, "❌ 금액은 숫자로만 입력해 주세요.", ephemeral=True)
+            return
+
+        await core.safe_defer(interaction)
+        ok, msg, _ = await asyncio.to_thread(
+            economy_core.transfer_crystals,
+            interaction.user.id,
+            interaction.user.display_name,
+            self.target_member.id,
+            self.target_member.display_name,
+            amt,
+            bool(getattr(self.target_member, "bot", False)),
+        )
+        if not ok:
+            await interaction.followup.send(msg, ephemeral=True)
+            return
+        embed = discord.Embed(
+            title="💸 크리스탈 송금 영수증",
+            description=msg,
+            color=discord.Color.green(),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.set_footer(text="송금 수수료 5% 차감 · 일일 한도 5,000💎")
+        await interaction.followup.send(embed=embed)
+
+
+class CrystalTransferUserSelectView(core.SafeView):
+    """크리스탈을 송금할 대상을 UserSelect 드롭다운으로 선택하는 뷰"""
+
+    def __init__(self, user: discord.abc.User):
+        super().__init__(timeout=180)
+        self.user = user
+        u_sel = discord.ui.UserSelect(
+            placeholder="💸 크리스탈을 송금할 서버 멤버를 선택하세요...",
             min_values=1,
             max_values=1,
-            options=options,
-            row=0
+            row=0,
         )
+        u_sel.callback = self._on_user_picked
+        self.add_item(u_sel)
 
-    async def callback(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
-        view: "MasterDashboardView" = self.view
-        selected_tab = self.values[0]
-        view.current_tab = selected_tab
-        view.data = await asyncio.to_thread(core.load_data)
-        view.refresh_components()
-        embed = view.build_current_embed()
-        await core.safe_edit_response(interaction, embed=embed, view=view)
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 본인의 송금 창만 조작할 수 있습니다.", ephemeral=True)
+            return False
+        return True
+
+    async def _on_user_picked(self, interaction: discord.Interaction):
+        resolved_users = (
+            interaction.data.get("resolved", {}).get("users", {})
+            if isinstance(interaction.data, dict)
+            else {}
+        )
+        uid_str = (interaction.data.get("values") or [None])[0] if isinstance(interaction.data, dict) else None
+        if not uid_str or not str(uid_str).isdigit():
+            await core.safe_send_response(interaction, "❌ 대상을 확인할 수 없습니다.", ephemeral=True)
+            return
+        target_id = int(uid_str)
+        target_obj = (interaction.guild.get_member(target_id) if interaction.guild else None) or interaction.client.get_user(target_id)
+        if target_obj is None:
+            u_raw = resolved_users.get(str(target_id), {})
+            if u_raw:
+                try:
+                    target_obj = await interaction.client.fetch_user(target_id)
+                except Exception:
+                    pass
+        if target_obj is None:
+            await core.safe_send_response(interaction, "❌ 선택한 유저 정보를 불러올 수 없습니다.", ephemeral=True)
+            return
+        await interaction.response.send_modal(CrystalTransferAmountModal(target_obj))
+
+
+class CardEnhanceQuickModal(core.SafeModal, title="🔨 보유 프로세카 카드 빠른 강화"):
+    card_query = discord.ui.TextInput(
+        label="강화할 카드 ID 또는 캐릭터/카드명",
+        placeholder="예: 101 또는 카나데",
+        required=True,
+        max_length=60,
+    )
+    step_mode = discord.ui.TextInput(
+        label="강화 단계 (1 / 10 / MAX)",
+        placeholder="1, 10, 또는 MAX 입력 (기본: MAX)",
+        default="MAX",
+        required=True,
+        max_length=10,
+    )
+
+    def __init__(self, bot: commands.Bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        raw_step = (self.step_mode.value or "MAX").strip().upper()
+        if raw_step not in ("1", "10", "MAX"):
+            raw_step = "MAX"
+        gacha_cog = self.bot.get_cog("GachaCog")
+        if gacha_cog and hasattr(gacha_cog, "enhance_card_cmd"):
+            choice_obj = app_commands.Choice(name=f"강화 ({raw_step})", value=raw_step)
+            await gacha_cog.enhance_card_cmd.callback(
+                gacha_cog,
+                interaction,
+                카드선택=self.card_query.value.strip(),
+                강화단계=choice_obj,
+            )
+        else:
+            await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+
+class RelayStartQuickModal(core.SafeModal, title="✍️ 새 협동 릴레이 소설 시작"):
+    novel_title = discord.ui.TextInput(
+        label="릴레이 소설 제목",
+        placeholder="예: 자정의 세카이에서 생긴 일",
+        required=True,
+        max_length=80,
+    )
+    first_line = discord.ui.TextInput(
+        label="이야기를 여는 첫 문장 (2~280자)",
+        style=discord.TextStyle.paragraph,
+        placeholder="예: 시계탑 바늘이 12시를 가리키자 교실 창문 너머로 푸른 별똥별이 떨어졌다.",
+        required=True,
+        min_length=2,
+        max_length=280,
+    )
+    max_turns = discord.ui.TextInput(
+        label="완결까지 목표 줄 수 (3~30, 기본 10)",
+        default="10",
+        required=False,
+        max_length=2,
+    )
+
+    def __init__(self, bot: commands.Bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            turns = max(3, min(30, int((self.max_turns.value or "10").strip())))
+        except ValueError:
+            turns = 10
+        comm_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "relay_start_cmd")), None)
+        if comm_cog:
+            await comm_cog.relay_start_cmd.callback(
+                comm_cog,
+                interaction,
+                제목=self.novel_title.value.strip(),
+                첫문장=self.first_line.value.strip(),
+                목표턴=turns,
+                공개모드=None,
+                연속작성=None,
+            )
+        else:
+            await core.safe_send_response(interaction, "❌ 릴레이 소설 모듈을 찾을 수 없습니다.", ephemeral=True)
 
 
 # ==========================================
-# 🎛️ 올인원 마스터 대시보드 뷰 (MasterDashboardView)
+# 🎛️ 통합 설정 허브 뷰 (MasterDashboardView / SettingsHubView)
 # ==========================================
 class MasterDashboardView(core.SafeView):
-    """norosi 봇의 모든 기능을 통합 제어하는 슈퍼 대시보드 뷰"""
+    """
+    Component V2 스타일 계층형 통합 `/설정` 뷰:
+    - 1단계 (홈 `current_category == 'home'`):
+      [🌐 일반] · [⚙️ 고급] · [🎮 미니게임] · [👤 개인] 4대 카테고리 진입 버튼 + 즉시 실행 + 통합 페이지네이션
+    - 2단계 (카테고리 내부 `current_category in ('general', 'advanced', 'minigame', 'personal')`):
+      세부 기능 버튼 (페이지당 6개, 총 14페이지 · 84종 기능) + 카테고리 스위처 + [⬅️ 뒤로가기] + [◀ 이전 / 📄 페이지 / 다음 ▶]
+    - 3단계 (`sub_mode is not None`):
+      도감/랭킹/티켓/픽업/백업/초기화 등 세부 제어 패널 + [⬅️ 뒤로가기] + [🏠 설정 홈으로]
+    """
 
     def __init__(
         self,
@@ -299,740 +653,1262 @@ class MasterDashboardView(core.SafeView):
         guild: Optional[discord.Guild] = None,
         data: Optional[dict] = None,
         initial_tab: str = "home",
+        initial_page: int = 0,
     ):
-        super().__init__(timeout=600)
+        super().__init__(timeout=900)
         self.bot = bot
         self.user = user
         self.guild = guild
-        self.data = data if data is not None else core.get_cached_data()
-        self.current_tab = initial_tab
+        self.data = data if isinstance(data, dict) else core.get_cached_data()
+        self.message: Optional[discord.Message] = None
+
+        # 레거시 탭 키 호환 매핑 (기존 코드/복구 핸들러 완벽 호환)
+        mapped_cat, mapped_page = self._resolve_initial_target(initial_tab, initial_page)
+        self.current_category: str = mapped_cat
+        self.current_page: int = mapped_page
+        self.sub_mode: Optional[str] = None
+
+        self._pages_cache: Dict[str, List[Dict[str, Any]]] = self._build_catalog_pages()
         self.refresh_components()
 
-    def _find_cog_with_attr(self, attr_name: str):
-        if not self.bot:
-            return None
-        for cog in self.bot.cogs.values():
-            if hasattr(cog, attr_name):
-                return cog
-        return None
+    @staticmethod
+    def _resolve_initial_target(tab_key: str, page_idx: int = 0) -> Tuple[str, int]:
+        tk = (tab_key or "home").strip().lower()
+        if tk in ("home", "main", "홈"):
+            return "home", 0
+        if tk in ("general", "일반", "life"):
+            return "general", max(0, min(2, page_idx))
+        if tk == "music":
+            return "general", 1
+        if tk == "stats":
+            return "general", 2
+        if tk in ("advanced", "admin", "고급", "관리"):
+            return "advanced", max(0, min(3, page_idx))
+        if tk in ("minigame", "미니게임", "gacha"):
+            return "minigame", max(0, min(3, page_idx))
+        if tk in ("genshin", "hsr"):
+            return "minigame", 1
+        if tk == "fishing":
+            return "minigame", 2
+        if tk == "game":
+            return "minigame", 3
+        if tk in ("personal", "개인", "profile"):
+            return "personal", max(0, min(2, page_idx))
+        return "home", 0
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+    @property
+    def current_tab(self) -> str:
+        """하위 호환 프로퍼티"""
+        return self.current_category
+
+    @current_tab.setter
+    def current_tab(self, val: str):
+        cat, pg = self._resolve_initial_target(val, 0)
+        self.current_category = cat
+        self.current_page = pg
+        self.sub_mode = None
+
+    def _hydrate_context(self, interaction: discord.Interaction):
         if self.bot is None:
             self.bot = interaction.client
-        if self.guild is None:
-            self.guild = interaction.guild
         if self.user is None:
             self.user = interaction.user
-            return True
-        if interaction.user.id != self.user.id:
+        if self.guild is None and interaction.guild is not None:
+            self.guild = interaction.guild
+        if not self.data:
+            self.data = core.get_cached_data()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        self._hydrate_context(interaction)
+        if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
-                f"❌ 이 대시보드는 **{self.user.display_name}**님의 개인 세션입니다. 본인의 대시보드는 `/대시보드` 또는 `/메뉴`로 열어주세요!",
-                ephemeral=True
+                f"❌ 이 설정 패널은 **{self.user.display_name}**님의 세션입니다.\n"
+                "👉 본인의 설정 패널은 **`/설정`** 명령어로 언제든 새로 열 수 있습니다!",
+                ephemeral=True,
             )
             return False
         return True
 
-    async def check_admin_permission(self, interaction: discord.Interaction, action_name: str = "이 작업", require_roles_perm: bool = False) -> bool:
-        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+    def _find_cog_with_attr(self, attr_name: str):
+        if not self.bot:
+            return None
+        return next((c for c in self.bot.cogs.values() if hasattr(c, attr_name)), None)
+
+    # ----------------------------------------------------
+    # 🛡️ 권한 검증 (일반 이용자 / 서버 관리자 / 봇 주인)
+    # ----------------------------------------------------
+    async def check_bot_owner_permission(self, interaction: discord.Interaction, action_name: str = "봇 주인 전용 기능") -> bool:
+        bot_ref = self.bot or interaction.client
+        is_owner = await bot_ref.is_bot_owner_user(interaction.user) if hasattr(bot_ref, "is_bot_owner_user") else (
+            bool(core.BOT_OWNER_ID and interaction.user.id == core.BOT_OWNER_ID)
+        )
+        if is_owner:
+            return True
+        embed = discord.Embed(
+            title="👑 [봇 주인 전용] 접근 제한 안내",
+            description=(
+                f"**`{action_name}`** 기능은 **👑 봇 주인(Bot Owner)**만 조작할 수 있는 시스템/글로벌 설정입니다.\n\n"
+                "• **👤 일반 이용자:** `🌐 일반`, `🎮 미니게임`, `👤 개인` 카테고리의 모든 기능 이용 가능\n"
+                "• **🛡️ 서버 관리자:** `⚙️ 고급 (1~3페이지)`의 서버 관리 기능 이용 가능\n"
+                "• **👑 봇 주인:** `⚙️ 고급 (4페이지)` 글로벌 픽업 · VM 터미널 · 전체 DB 백업 제어 가능"
+            ),
+            color=discord.Color.red(),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        await core.safe_send_response(interaction, embed=embed, ephemeral=True)
+        return False
+
+    async def check_admin_permission(
+        self,
+        interaction: discord.Interaction,
+        action_name: str = "서버 관리자 기능",
+        require_roles_perm: bool = False,
+        require_channels_perm: bool = False,
+        require_messages_perm: bool = False,
+        require_strict_admin: bool = False,
+    ) -> bool:
+        perms = getattr(interaction.user, "guild_permissions", None)
+        if not interaction.guild or perms is None:
             await core.safe_send_response(
                 interaction,
-                f"❌ **{action_name}**(은)는 개인 DM이 아닌 **디스코드 서버 채널** 내에서만 실행하실 수 있습니다.",
-                ephemeral=True
+                f"❌ **`{action_name}`** 기능은 디스코드 서버 채널 내에서만 사용할 수 있습니다.",
+                ephemeral=True,
             )
             return False
 
         bot_ref = self.bot or interaction.client
-        is_owner = await bot_ref.is_bot_owner_user(interaction.user)
-        user_perms = interaction.user.guild_permissions
-        is_admin = is_owner or user_perms.administrator or user_perms.manage_guild or (require_roles_perm and user_perms.manage_roles)
+        is_owner = await bot_ref.is_bot_owner_user(interaction.user) if hasattr(bot_ref, "is_bot_owner_user") else (
+            bool(core.BOT_OWNER_ID and interaction.user.id == core.BOT_OWNER_ID)
+        )
+        is_guild_owner = (getattr(interaction.guild, "owner_id", None) == interaction.user.id)
 
-        if not is_admin:
-            role_hint = "역할 관리(Manage Roles) 또는 " if require_roles_perm else ""
-            await core.safe_send_response(
-                interaction,
-                f"🚨 **관리자 권한 부족:** **{action_name}**(은)는 서버의 **{role_hint}관리자(Administrator)** 또는 **서버 관리(Manage Server)** 권한이 있는 멤버만 조작할 수 있습니다.",
-                ephemeral=True
+        if is_owner or is_guild_owner or perms.administrator:
+            has_user_perm = True
+        elif require_strict_admin:
+            has_user_perm = False
+        elif require_roles_perm:
+            has_user_perm = perms.manage_roles or perms.manage_guild
+        elif require_channels_perm:
+            has_user_perm = perms.manage_channels or perms.manage_guild
+        elif require_messages_perm:
+            has_user_perm = perms.manage_messages or perms.manage_guild
+        else:
+            has_user_perm = (
+                perms.manage_guild
+                or perms.manage_roles
+                or perms.manage_channels
+                or perms.manage_messages
             )
+
+        if not has_user_perm:
+            req_txt = "서버 관리자(Administrator)" if require_strict_admin else "서버 관리자(Administrator / 서버·역할·채널 관리)"
+            embed = discord.Embed(
+                title="🛡️ [서버 관리자 전용] 권한 부족 안내",
+                description=(
+                    f"**`{action_name}`** 설정은 **{req_txt}** 권한을 보유한 관리자만 변경할 수 있습니다.\n\n"
+                    "• 현재 회원님은 **`🌐 일반`**, **`🎮 미니게임`**, **`👤 개인`** 카테고리의 모든 기능을 자유롭게 이용하실 수 있습니다!"
+                ),
+                color=discord.Color.orange(),
+                timestamp=datetime.datetime.now(core.KST),
+            )
+            await core.safe_send_response(interaction, embed=embed, ephemeral=True)
             return False
 
         if require_roles_perm and interaction.guild.me:
             bot_perms = interaction.guild.me.guild_permissions
-            if not bot_perms.administrator and not bot_perms.manage_roles:
+            if not (bot_perms.manage_roles or bot_perms.administrator):
                 await core.safe_send_response(
                     interaction,
-                    "⚠️ **봇 권한 부족:** 봇에게 **역할 관리(Manage Roles)** 권한이 부여되어 있지 않아 역할을 지급하거나 버튼을 만들 수 없습니다.\n"
-                    "👉 서버 설정 > [역할] 메뉴에서 `norosi` 봇 역할에 **'역할 관리'** 권한을 체크해 주세요!",
-                    ephemeral=True
+                    "⚠️ **봇 권한 확인 필요:** 봇에게 서버 설정 > 역할에서 **`역할 관리(Manage Roles)`** 권한을 부여해 주세요!",
+                    ephemeral=True,
                 )
                 return False
 
         return True
 
+    # ----------------------------------------------------
+    # 🗂️ 4대 카테고리 × 14페이지 (총 84개 기능) 통합 카탈로그
+    # ----------------------------------------------------
+    def _build_catalog_pages(self) -> Dict[str, List[Dict[str, Any]]]:
+        return {
+            # ==========================================
+            # 1. 🌐 일반 (General) — 3 Pages (18 items)
+            # ==========================================
+            "general": [
+                {
+                    "page_title": "📅 출석체크 · D-Day · 생일 · 프로세카 일정",
+                    "perm": PERM_USER,
+                    "items": [
+                        {
+                            "label": "오늘 출석체크",
+                            "emoji": "📅",
+                            "style": discord.ButtonStyle.success,
+                            "perm": PERM_USER,
+                            "desc": "하루 1회 서버별 출석 도장 및 크리스탈(100~2000💎) 수령",
+                            "cb": self._act_attendance,
+                        },
+                        {
+                            "label": "월간 출석달력",
+                            "emoji": "🗓️",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "이번 달 출석 캘린더 및 7/14/21/28일 개근 마일스톤 확인",
+                            "cb": self._act_att_calendar,
+                        },
+                        {
+                            "label": "출석체크 랭킹",
+                            "emoji": "🏆",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "현재 서버 및 전체 서버 누적·연속 출석 순위표",
+                            "cb": self._act_att_ranking,
+                        },
+                        {
+                            "label": "D-Day 전광판",
+                            "emoji": "📋",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "등록된 모든 D-Day 은하수 잔디 진행률 보드 및 지난 디데이",
+                            "cb": self._act_dday_list,
+                        },
+                        {
+                            "label": "생일 전광판",
+                            "emoji": "🎂",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "다가오는 서버 멤버 생일 목록 확인 및 내 생일 등록(+500💎)",
+                            "cb": self._act_birthday_board,
+                        },
+                        {
+                            "label": "프로세카 미래시·이벤트",
+                            "emoji": "🔭",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "프로세카 한섭 미래시 캘린더 및 한섭/일섭 실시간 이벤트",
+                            "cb": self._act_sekai_schedule_hub,
+                        },
+                    ],
+                },
+                {
+                    "page_title": "🎵 음악 추천 · 플레이리스트 · 음성 컨트롤",
+                    "perm": PERM_USER,
+                    "items": [
+                        {
+                            "label": "플리 스튜디오",
+                            "emoji": "💿",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "유튜브·스포티파이·사클 플레이리스트 제작·가져오기·자동재생",
+                            "cb": self._act_playlist_studio,
+                        },
+                        {
+                            "label": "지금 음악추천",
+                            "emoji": "🎧",
+                            "style": discord.ButtonStyle.success,
+                            "perm": PERM_USER,
+                            "desc": "현재 시간대 감성에 어울리는 프로세카/보컬로이드 곡 즉시 선곡",
+                            "cb": self._act_music_now,
+                        },
+                        {
+                            "label": "내 애청곡 보관함",
+                            "emoji": "❤️",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "하트(❤️)로 스크랩한 추천 음악 목록 조회 및 셔플 감상",
+                            "cb": self._act_music_vault,
+                        },
+                        {
+                            "label": "재생 배속 조절",
+                            "emoji": "⏩",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "음성채널 플레이리스트 재생 속도(0.75x ~ 2.0x) 실시간 변경",
+                            "cb": self._act_music_voice_hub,
+                        },
+                        {
+                            "label": "봇 헤드셋 제어",
+                            "emoji": "🎧",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "음성채널 봇 청각 차단(Deafen) 상태 켜기/끄기 제어",
+                            "cb": self._act_music_headset_toggle,
+                        },
+                        {
+                            "label": "440Hz 오디오 진단",
+                            "emoji": "🔊",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "음성채널 DAVE E2EE 암호화 및 비프음 출력 자가진단",
+                            "cb": self._act_audio_test,
+                        },
+                    ],
+                },
+                {
+                    "page_title": "📊 서버 통계 · 파티 모집 · 날씨 · 협동 · 안내",
+                    "perm": PERM_USER,
+                    "items": [
+                        {
+                            "label": "실시간 서버통계",
+                            "emoji": "📊",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "서버 일간/주간 채팅량, 활성 채널 Top3, 음성 통화 현황 분석",
+                            "cb": self._act_server_stats,
+                        },
+                        {
+                            "label": "게임 파티모집",
+                            "emoji": "🎮",
+                            "style": discord.ButtonStyle.success,
+                            "perm": PERM_USER,
+                            "desc": "프로세카·원신·롤·발로란트 등 자유 양식 팀원 실시간 모집",
+                            "cb": self._act_recruit,
+                        },
+                        {
+                            "label": "실시간 날씨",
+                            "emoji": "🌤️",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "기상청/ECMWF 실시간 기온·체감온도·미세먼지·강수확률 조회",
+                            "cb": self._act_weather,
+                        },
+                        {
+                            "label": "협동 릴레이소설",
+                            "emoji": "✍️",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "한 줄씩 이어 쓰는 채널 협동 릴레이 소설 시작·이어쓰기·명작집",
+                            "cb": self._act_relay_novel_hub,
+                        },
+                        {
+                            "label": "봇 건의 & 피드백",
+                            "emoji": "📬",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "개발진/운영진에게 익명 또는 계정 공개로 건의사항 전달",
+                            "cb": self._act_suggestion,
+                        },
+                        {
+                            "label": "통합 도움말",
+                            "emoji": "📖",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "전체 명령어 카탈로그 및 권한 등급별 상세 가이드 열기",
+                            "cb": self._act_open_help,
+                        },
+                    ],
+                },
+            ],
+
+            # ==========================================
+            # 2. ⚙️ 고급 (Advanced) — 4 Pages (24 items)
+            #    * 1~3페이지: 🛡️ 서버 관리자 전용
+            #    * 4페이지: 👑 봇 주인 전용 (+ 호스트 상태)
+            # ==========================================
+            "advanced": [
+                {
+                    "page_title": "🛡️ [서버 관리자] 역할 · 공지 · 1:1 티켓 관리",
+                    "perm": PERM_ADMIN,
+                    "items": [
+                        {
+                            "label": "역할버튼 빠른제작",
+                            "emoji": "🚀",
+                            "style": discord.ButtonStyle.success,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] 팝업 모달로 사진 스타일 역할 부여 버튼 즉시 발행",
+                            "cb": self._act_admin_quick_role,
+                        },
+                        {
+                            "label": "반응역할 스튜디오",
+                            "emoji": "🎭",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] 이모지/버튼 반응역할 생성, 기존 메시지 바인딩 및 관리",
+                            "cb": self._act_admin_role_studio,
+                        },
+                        {
+                            "label": "반응역할 전체목록",
+                            "emoji": "📜",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] 서버에 등록된 모든 반응역할 패널 조회 및 해제",
+                            "cb": self._act_admin_role_list,
+                        },
+                        {
+                            "label": "스마트 공지발송",
+                            "emoji": "📢",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] 6대 테마 컬러·추천 템플릿·사전 미리보기 공지 스튜디오",
+                            "cb": self._act_admin_announce,
+                        },
+                        {
+                            "label": "1:1 문의티켓 설정",
+                            "emoji": "🎫",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] 1:1 비공개 문의 티켓 패널 설치 및 담당자 역할 설정",
+                            "cb": self._act_admin_ticket_hub,
+                        },
+                        {
+                            "label": "티켓 내역 조회",
+                            "emoji": "📋",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] 서버의 진행 중 / 종료된 1:1 문의 티켓 전체 목록",
+                            "cb": self._act_admin_ticket_list,
+                        },
+                    ],
+                },
+                {
+                    "page_title": "🛡️ [서버 관리자] 음성방 · 고정글 · 보안 · 업스케일 · 감사로그",
+                    "perm": PERM_ADMIN,
+                    "items": [
+                        {
+                            "label": "임시음성방 설정",
+                            "emoji": "🔊",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] 입장 시 자동 생성·퇴장 시 삭제되는 임시 음성방 설정",
+                            "cb": self._act_admin_temp_voice,
+                        },
+                        {
+                            "label": "자동 고정메시지",
+                            "emoji": "📌",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] 채널 하단에 항상 유지되는 안내 고정 메시지(Sticky) 관리",
+                            "cb": self._act_admin_sticky_hub,
+                        },
+                        {
+                            "label": "SNS 링크보정 설정",
+                            "emoji": "🔗",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] X/인스타/픽시브 임베드 보정 및 추적 파라미터 제거 설정",
+                            "cb": self._act_admin_link_fix,
+                        },
+                        {
+                            "label": "레이드 비상방어",
+                            "emoji": "🚨",
+                            "style": discord.ButtonStyle.danger,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] 동시 입장(Raid) 자동 감지 및 서버 긴급 잠금(Lockdown)",
+                            "cb": self._act_admin_raid_def,
+                        },
+                        {
+                            "label": "이모지 업스케일",
+                            "emoji": "🔍",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] 커스텀 이모지 160px Lanczos3 WebP 자동 업스케일 ON/OFF",
+                            "cb": self._act_admin_emoji_upscale,
+                        },
+                        {
+                            "label": "실시간 감사로그",
+                            "emoji": "📜",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] 메시지 삭제/수정·입퇴장·음성 등 7대 감사 로그 채널 설정",
+                            "cb": self._act_admin_audit_log,
+                        },
+                    ],
+                },
+                {
+                    "page_title": "🛡️ [서버 관리자] 메시지 청소 · 잠수 감사 · 스케줄 · 데이터 초기화",
+                    "perm": PERM_ADMIN,
+                    "items": [
+                        {
+                            "label": "채널 메시지청소",
+                            "emoji": "🧹",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] 채널 메시지를 개수·키워드·봇 여부 조건으로 일괄 삭제",
+                            "cb": self._act_admin_purge,
+                        },
+                        {
+                            "label": "비활성 멤버감사",
+                            "emoji": "👻",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] 최근 7~90일간 출석·채팅 기록이 없는 잠수 멤버 스캔",
+                            "cb": self._act_admin_inactive,
+                        },
+                        {
+                            "label": "서버 D-Day 관리",
+                            "emoji": "📅",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] 새 D-Day 추가, 기존 D-Day 삭제, 오전 9시 알림채널 지정",
+                            "cb": self._act_admin_dday_hub,
+                        },
+                        {
+                            "label": "음악 스케줄러 설정",
+                            "emoji": "🌅",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] 오전 7시 모닝 음악추천 채널 및 맞춤 시간 음악알람 설정",
+                            "cb": self._act_admin_music_sched_hub,
+                        },
+                        {
+                            "label": "GitHub 배포알림",
+                            "emoji": "🐙",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] GitHub Push 및 Actions 배포 알림 수신 채널 원클릭 연동",
+                            "cb": self._act_admin_github_webhook,
+                        },
+                        {
+                            "label": "서버 데이터초기화",
+                            "emoji": "⚠️",
+                            "style": discord.ButtonStyle.danger,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] 서버 D-Day/음악 · 프로세카 · 원신 · 스타레일 데이터 초기화",
+                            "cb": self._act_admin_reset_hub,
+                        },
+                    ],
+                },
+                {
+                    "page_title": "👑 [봇 주인 전용] 글로벌 픽업 · VM 터미널 · DB 백업 · 명령어 동기화",
+                    "perm": PERM_OWNER,
+                    "items": [
+                        {
+                            "label": "[봇주인] 프로세카 픽업",
+                            "emoji": "🎯",
+                            "style": discord.ButtonStyle.danger,
+                            "perm": PERM_OWNER,
+                            "desc": "[👑봇주인 전용] 한섭 실시간 이벤트 픽업 자동 연동 및 페스/초기화 제어",
+                            "cb": self._act_owner_sekai_pickup_hub,
+                        },
+                        {
+                            "label": "[봇주인] 원신 픽업",
+                            "emoji": "🌠",
+                            "style": discord.ButtonStyle.danger,
+                            "perm": PERM_OWNER,
+                            "desc": "[👑봇주인 전용] 원신 기원 KST 2시간 자동 로테이션 및 배너 픽업 제어",
+                            "cb": self._act_owner_gi_pickup_hub,
+                        },
+                        {
+                            "label": "[봇주인] 스타레일 픽업",
+                            "emoji": "🚄",
+                            "style": discord.ButtonStyle.danger,
+                            "perm": PERM_OWNER,
+                            "desc": "[👑봇주인 전용] 스타레일 워프 KST 2시간 자동 로테이션 및 픽업 제어",
+                            "cb": self._act_owner_hsr_pickup_hub,
+                        },
+                        {
+                            "label": "[봇주인] 터미널 로그",
+                            "emoji": "🖥️",
+                            "style": discord.ButtonStyle.danger,
+                            "perm": PERM_OWNER,
+                            "desc": "[👑봇주인 전용] VM 서버 터미널(stdout/stderr) 실시간 콘솔 로그 채널 연동",
+                            "cb": self._act_owner_terminal_hub,
+                        },
+                        {
+                            "label": "[봇주인] 백업 & 동기화",
+                            "emoji": "💾",
+                            "style": discord.ButtonStyle.danger,
+                            "perm": PERM_OWNER,
+                            "desc": "[👑봇주인 전용] 전체 DB / 서버 구조 JSON 백업 및 슬래시 명령어 즉시 동기화",
+                            "cb": self._act_owner_backup_sync_hub,
+                        },
+                        {
+                            "label": "호스트 시스템 상태",
+                            "emoji": "🤖",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자 / 👑봇주인] 봇 호스트 RAM, CPU, 디스크, 핑, 업타임 진단",
+                            "cb": self._act_bot_host_status,
+                        },
+                    ],
+                },
+            ],
+
+            # ==========================================
+            # 3. 🎮 미니게임 (Minigames) — 4 Pages (24 items)
+            # ==========================================
+            "minigame": [
+                {
+                    "page_title": "🎤 프로젝트 세카이 가챠 & 세카이 컨텐츠",
+                    "perm": PERM_USER,
+                    "items": [
+                        {
+                            "label": "프로세카 10회 뽑기",
+                            "emoji": "🌈",
+                            "style": discord.ButtonStyle.success,
+                            "perm": PERM_USER,
+                            "desc": "한섭 프로세카 10회 연속 뽑기 (★3 이상 최소 1장 확정)",
+                            "cb": self._act_sekai_pull_10,
+                        },
+                        {
+                            "label": "프로세카 1회 뽑기",
+                            "emoji": "🎵",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "한섭 프로세카 1회 단차 뽑기 즉시 실행",
+                            "cb": self._act_sekai_pull_1,
+                        },
+                        {
+                            "label": "세카이 라이브",
+                            "emoji": "⚔️",
+                            "style": discord.ButtonStyle.success,
+                            "perm": PERM_USER,
+                            "desc": "5인 유닛 덱 & 3D 의상 시너지 라이브 플레이 (일일 3회 보상 & 스탬프)",
+                            "cb": self._act_sekai_live,
+                        },
+                        {
+                            "label": "마스터 랭크 돌파",
+                            "emoji": "🏆",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "중복 카드(0💎) 또는 크리스탈로 마스터 랭크(✦1~5) 돌파 & 헤어 해금",
+                            "cb": self._act_sekai_master_rank,
+                        },
+                        {
+                            "label": "3D 의상실 & 헤어",
+                            "emoji": "👗",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "캐릭터별 3D 의상 착용, 어나더 컬러 전환 및 새 의상 제작(300💎)",
+                            "cb": self._act_sekai_wardrobe,
+                        },
+                        {
+                            "label": "마이세카이 미니룸",
+                            "emoji": "🏠",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "나만의 세카이 미니룸 테마·가구 배치 및 출석 추가 크리스탈 보너스",
+                            "cb": self._act_sekai_myroom,
+                        },
+                    ],
+                },
+                {
+                    "page_title": "🌠 원신 기원 & 🚄 붕괴: 스타레일 워프",
+                    "perm": PERM_USER,
+                    "items": [
+                        {
+                            "label": "원신 10회 기원",
+                            "emoji": "🌠",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "원신 캐릭터 이벤트 기원 10연차 즉시 실행 (90천장·포착된 광휘)",
+                            "cb": self._act_gi_pull_10,
+                        },
+                        {
+                            "label": "원신 운명의 궤도",
+                            "emoji": "🧭",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "신의 주조(무기 기원) 목표 5성 무기 지정 및 명정 포인트(1/1) 확인",
+                            "cb": self._act_gi_fate,
+                        },
+                        {
+                            "label": "원신 페이몬 상점",
+                            "emoji": "🧚",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "스타라이트 월간 ★4 캐릭터·무기 및 스타더스트 인연·경험치 교환",
+                            "cb": self._act_gi_shop,
+                        },
+                        {
+                            "label": "스타레일 10회 워프",
+                            "emoji": "🚆",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "붕괴: 스타레일 캐릭터 이벤트 워프 10연차 즉시 실행",
+                            "cb": self._act_hsr_warp_10,
+                        },
+                        {
+                            "label": "스타레일 상시300",
+                            "emoji": "🎁",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "상시 워프 300회 달성 시 상시 5성 캐릭터 7명 중 1명 확정 선택",
+                            "cb": self._act_hsr_300,
+                        },
+                        {
+                            "label": "스타레일 상점",
+                            "emoji": "🛍️",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "별빛 교환(5성 광추), 헤르타의 상점(채권 광추·중첩기), 잔재 교환",
+                            "cb": self._act_hsr_shop,
+                        },
+                    ],
+                },
+                {
+                    "page_title": "🎣 통합 낚시 (36,700종) & 🌾 농장·펫·요리 생활",
+                    "perm": PERM_USER,
+                    "items": [
+                        {
+                            "label": "낚시 출조 (3대수역)",
+                            "emoji": "🎣",
+                            "style": discord.ButtonStyle.success,
+                            "perm": PERM_USER,
+                            "desc": "🏞️호수·🌊강·⚓바다 13개 세부 수역 출조 & 입질 타이밍 미니게임",
+                            "cb": self._act_fishing_cast,
+                        },
+                        {
+                            "label": "주말·제철 낚시대회",
+                            "emoji": "🏅",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "실시간 낚시 토너먼트 순위표 & 계절 한정 제철 어종 보너스 확인",
+                            "cb": self._act_fishing_tourney,
+                        },
+                        {
+                            "label": "내 프라이빗 수족관",
+                            "emoji": "🐠",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "포획한 대물을 어항에 전시하고 시간당 낚시 골드(🪙) 패시브 수익 수확",
+                            "cb": self._act_fishing_aquarium,
+                        },
+                        {
+                            "label": "낚시 장비·미끼상점",
+                            "emoji": "🛒",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "낚싯대 6티어·릴 5티어 업그레이드, 특급 미끼 및 어항 확장권 구매",
+                            "cb": self._act_fishing_shop,
+                        },
+                        {
+                            "label": "생활 통합 대시보드",
+                            "emoji": "🌿",
+                            "style": discord.ButtonStyle.success,
+                            "perm": PERM_USER,
+                            "desc": "개인 농장 · 서버 공동농장 · 펫 돌보기 · 생선 요리 통합 현황판",
+                            "cb": self._act_life_dashboard,
+                        },
+                        {
+                            "label": "개인농장 & 펫 육성",
+                            "emoji": "🌾",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "나만의 밭 씨앗 파종·물주기·수확 및 6종 귀여운 펫 입양·교감",
+                            "cb": self._act_life_farm,
+                        },
+                    ],
+                },
+                {
+                    "page_title": "👶 타인의 삶 & 🎲 캐주얼 미니게임 · 통합 도감/랭킹",
+                    "perm": PERM_USER,
+                    "items": [
+                        {
+                            "label": "타인의 삶 플레이",
+                            "emoji": "👶",
+                            "style": discord.ButtonStyle.success,
+                            "perm": PERM_USER,
+                            "desc": "0세부터 노년까지 살아가는 스토리 인생 시뮬레이션 (1,000종 멀티엔딩)",
+                            "cb": self._act_other_life_play,
+                        },
+                        {
+                            "label": "타인의 삶 엔딩도감",
+                            "emoji": "📜",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "해금한 멀티 엔딩 도감 수집률 및 내가 살아온 인생 연대기 아카이브",
+                            "cb": self._act_other_life_codex,
+                        },
+                        {
+                            "label": "실시간 끝말잇기",
+                            "emoji": "🔤",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "표준 두음법칙이 자동 적용되는 1:1 / 멀티 단어 배틀 (+150💎)",
+                            "cb": self._act_word_chain,
+                        },
+                        {
+                            "label": "스릴 러시안룰렛",
+                            "emoji": "🔫",
+                            "style": discord.ButtonStyle.danger,
+                            "perm": PERM_USER,
+                            "desc": "6연발 실린더 생존 서바이벌 게임 (생존 시 보너스 크리스탈 획득)",
+                            "cb": self._act_roulette,
+                        },
+                        {
+                            "label": "통합 도감 & 확률표",
+                            "emoji": "📖",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "프로세카 · 원신 · 스타레일 · 낚시 · 타인의삶 도감 및 확률표 허브",
+                            "cb": self._act_pokedex_hub,
+                        },
+                        {
+                            "label": "통합 랭킹 보드",
+                            "emoji": "🏆",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "가챠 · 원신 · 스타레일 · 낚시 · 타인의삶 · 순자산 서버 랭킹 허브",
+                            "cb": self._act_ranking_hub,
+                        },
+                    ],
+                },
+            ],
+
+            # ==========================================
+            # 4. 👤 개인 (Personal) — 3 Pages (18 items)
+            # ==========================================
+            "personal": [
+                {
+                    "page_title": "🪪 내 프로필 · 오시 · 칭호/배지 · 크리스탈 송금",
+                    "perm": PERM_USER,
+                    "items": [
+                        {
+                            "label": "통합 PNG 프로필카드",
+                            "emoji": "🪪",
+                            "style": discord.ButtonStyle.success,
+                            "perm": PERM_USER,
+                            "desc": "프로세카·원신·스타레일·낚시·생활·칭호·배지 고화질 PNG 카드 발급",
+                            "cb": self._act_profile_card_png,
+                        },
+                        {
+                            "label": "프로세카 내 프로필",
+                            "emoji": "🎸",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "오시 일러스트, 5인 덱, 마이세카이, 라이브, 출석, 잔디 종합 프로필",
+                            "cb": self._act_sekai_profile,
+                        },
+                        {
+                            "label": "최애(오시) 설정",
+                            "emoji": "💖",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "26인 프로세카 캐릭터 중 내 대표 오시 캐릭터를 드롭다운으로 설정",
+                            "cb": self._act_oshi_setup,
+                        },
+                        {
+                            "label": "칭호 상점 & 배지",
+                            "emoji": "🏷️",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "한정 칭호 구매·장착 및 업적 자동 해금 배지 쇼케이스 열람",
+                            "cb": self._act_title_shop,
+                        },
+                        {
+                            "label": "크리스탈 송금",
+                            "emoji": "💸",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "서버 멤버를 선택해 보유 크리스탈 송금 (수수료 5% · 일일 5,000💎)",
+                            "cb": self._act_crystal_transfer,
+                        },
+                        {
+                            "label": "내 디스코드 정보",
+                            "emoji": "📊",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "내 디스코드 가입일, 서버 입장 순번(#N번째), 보유 역할, 활동량 조회",
+                            "cb": self._act_user_info,
+                        },
+                    ],
+                },
+                {
+                    "page_title": "🎒 4대 게임 개인 보관함 · 덱/파티 편성 · 카드 강화",
+                    "perm": PERM_USER,
+                    "items": [
+                        {
+                            "label": "프로세카 보관함",
+                            "emoji": "🎒",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "보유 프로세카 카드 조회, 일러스트(각성 전·후) 전환 및 🔒잠금 관리",
+                            "cb": self._act_sekai_inv,
+                        },
+                        {
+                            "label": "중복카드 일괄환전",
+                            "emoji": "💎",
+                            "style": discord.ButtonStyle.success,
+                            "perm": PERM_USER,
+                            "desc": "2장 이상 중복 보유 카드(원본·잠금 제외)를 성급별 크리스탈로 환전",
+                            "cb": self._act_sekai_dup_convert,
+                        },
+                        {
+                            "label": "5인 덱 & 카드강화",
+                            "emoji": "🎴",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "내 프로세카 5인 유닛 덱 현황 확인 및 보유 카드 레벨업 강화",
+                            "cb": self._act_sekai_deck_hub,
+                        },
+                        {
+                            "label": "원신 보관함 & 파티",
+                            "emoji": "🌠",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "원신 보유 캐릭터·무기·성유물 육성 및 4인 원소 공명 파티 편성",
+                            "cb": self._act_gi_personal_hub,
+                        },
+                        {
+                            "label": "스타레일 보관함·편대",
+                            "emoji": "🚄",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "스타레일 보유 캐릭터·광추·유물 육성 및 4인 개척 편대 시너지 편성",
+                            "cb": self._act_hsr_personal_hub,
+                        },
+                        {
+                            "label": "낚시 가방 & 퀘스트",
+                            "emoji": "👜",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "포획한 물고기 보관함 판매·잠금 및 일일 낚시 의뢰 3종 보상 수령",
+                            "cb": self._act_fishing_personal_hub,
+                        },
+                    ],
+                },
+                {
+                    "page_title": "🌱 오늘목표 잔디 · 집중 스터디 · 개인 일정 · 파트너",
+                    "perm": PERM_USER,
+                    "items": [
+                        {
+                            "label": "오늘목표 & 은하수잔디",
+                            "emoji": "🌱",
+                            "style": discord.ButtonStyle.success,
+                            "perm": PERM_USER,
+                            "desc": "오늘의 할 일(To-Do) 체크리스트 관리 및 최근 7일 은하수 잔디 보드",
+                            "cb": self._act_todo_grass,
+                        },
+                        {
+                            "label": "뽀모도로 집중모드",
+                            "emoji": "⏳",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "집중/휴식 스터디 타이머 실행 및 음성채널 자동 음소거 제어",
+                            "cb": self._act_pomodoro,
+                        },
+                        {
+                            "label": "하드코어 스터디",
+                            "emoji": "🔥",
+                            "style": discord.ButtonStyle.danger,
+                            "perm": PERM_USER,
+                            "desc": "50분 집중/10분 휴식 음성 안내 사이클 & 은하수 보라잔디(🟪) 획득",
+                            "cb": self._act_hardcore_study,
+                        },
+                        {
+                            "label": "개인 스마트 알림예약",
+                            "emoji": "⏰",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "지정한 시각이나 N분 뒤에 나에게 DM/채널 멘션으로 개인 알림 발송",
+                            "cb": self._act_reminder_hub,
+                        },
+                        {
+                            "label": "나만의 비밀 D-Day",
+                            "emoji": "🔒",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "나만 볼 수 있는 비공개 개인 D-Day 및 목표일 오전 9시 타임캡슐",
+                            "cb": self._act_secret_dday,
+                        },
+                        {
+                            "label": "내 생일 & 파트너",
+                            "emoji": "💑",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "내 생일 등록/수정(+500💎) 및 연인·친구 파트너 공동 D-Day·공유음악",
+                            "cb": self._act_bday_partner_hub,
+                        },
+                    ],
+                },
+            ],
+        }
+
+    # ----------------------------------------------------
+    # 🔢 통합 페이지네이션 인덱스 계산 헬퍼 (총 14페이지)
+    # ----------------------------------------------------
+    def _get_flat_pages(self) -> List[Tuple[str, int]]:
+        flat: List[Tuple[str, int]] = []
+        for cat_k in CATEGORY_ORDER:
+            pages = self._pages_cache.get(cat_k, [])
+            for p_idx in range(len(pages)):
+                flat.append((cat_k, p_idx))
+        return flat
+
+    def _get_global_page_info(self, category: str, page: int) -> Tuple[int, int]:
+        flat = self._get_flat_pages()
+        total = len(flat)
+        try:
+            idx = flat.index((category, page))
+            return idx + 1, total
+        except ValueError:
+            return 1, total
+
+    def _step_global_page(self, delta: int):
+        flat = self._get_flat_pages()
+        if not flat:
+            return
+        if self.current_category == "home":
+            target_idx = 0 if delta > 0 else (len(flat) - 1)
+        else:
+            try:
+                cur_idx = flat.index((self.current_category, self.current_page))
+            except ValueError:
+                cur_idx = 0
+            target_idx = (cur_idx + delta) % len(flat)
+        self.current_category, self.current_page = flat[target_idx]
+        self.sub_mode = None
+
+    # ----------------------------------------------------
+    # 🧩 동적 UI 컴포넌트 빌더 (1단계 홈 / 2단계 카테고리 / 3단계 세부패널)
+    # ----------------------------------------------------
     def refresh_components(self):
         self.clear_items()
-        self.add_item(DashboardTabSelect(self.current_tab))
-
-        if self.current_tab == "home":
-            self._setup_home_buttons()
-        elif self.current_tab == "gacha":
-            self._setup_gacha_buttons()
-        elif self.current_tab == "genshin":
-            self._setup_genshin_buttons()
-        elif self.current_tab == "hsr":
-            self._setup_hsr_buttons()
-        elif self.current_tab == "life":
-            self._setup_life_buttons()
-        elif self.current_tab == "music":
-            self._setup_music_buttons()
-        elif self.current_tab == "admin":
-            self._setup_admin_buttons()
-        elif self.current_tab == "game":
-            self._setup_game_buttons()
-        elif self.current_tab == "stats":
-            self._setup_stats_buttons()
-
-        btn_refresh = discord.ui.Button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=2)
-        btn_refresh.callback = self._on_refresh_clicked
-        self.add_item(btn_refresh)
-
-    def _setup_home_buttons(self):
-        btn_att = discord.ui.Button(label="📅 즉시 출석체크", style=discord.ButtonStyle.primary, row=1)
-        btn_att.callback = self._on_attendance_clicked
-        self.add_item(btn_att)
-
-        btn_pull = discord.ui.Button(label="🎰 10회 뽑기", style=discord.ButtonStyle.success, row=1)
-        btn_pull.callback = self._on_pull_10_clicked
-        self.add_item(btn_pull)
-
-        btn_todo = discord.ui.Button(label="🌱 오늘 목표 체크", style=discord.ButtonStyle.secondary, row=1)
-        btn_todo.callback = self._on_todo_clicked
-        self.add_item(btn_todo)
-
-        btn_dup = discord.ui.Button(label="💎 중복 일괄 환전", style=discord.ButtonStyle.secondary, row=1)
-        btn_dup.callback = self._on_dup_convert_clicked
-        self.add_item(btn_dup)
-
-        btn_music = discord.ui.Button(label="🎧 감성 음악 추천", style=discord.ButtonStyle.secondary, row=2)
-        btn_music.callback = self._on_music_now_clicked
-        self.add_item(btn_music)
-
-    def _setup_gacha_buttons(self):
-        btn_p10 = discord.ui.Button(label="🌈 10회 뽑기", style=discord.ButtonStyle.success, row=1)
-        btn_p10.callback = self._on_pull_10_clicked
-        self.add_item(btn_p10)
-
-        btn_p1 = discord.ui.Button(label="🎲 1회 뽑기", style=discord.ButtonStyle.success, row=1)
-        btn_p1.callback = self._on_pull_1_clicked
-        self.add_item(btn_p1)
-
-        btn_inv = discord.ui.Button(label="🎒 내 보관함", style=discord.ButtonStyle.primary, row=1)
-        btn_inv.callback = self._on_my_inventory_clicked
-        self.add_item(btn_inv)
-
-        btn_dup = discord.ui.Button(label="💎 중복 일괄 환전", style=discord.ButtonStyle.secondary, row=1)
-        btn_dup.callback = self._on_dup_convert_clicked
-        self.add_item(btn_dup)
-
-        btn_deck = discord.ui.Button(label="🎴 덱 편성 현황", style=discord.ButtonStyle.primary, row=2)
-        btn_deck.callback = self._on_deck_edit_clicked
-        self.add_item(btn_deck)
-
-        btn_pokedex = discord.ui.Button(label="📖 카드 도감", style=discord.ButtonStyle.secondary, row=2)
-        btn_pokedex.callback = self._on_pokedex_clicked
-        self.add_item(btn_pokedex)
-
-        btn_mr = discord.ui.Button(label="🏆 마스터 랭크", style=discord.ButtonStyle.secondary, row=2)
-        btn_mr.callback = self._on_master_rank_clicked
-        self.add_item(btn_mr)
-
-        btn_rank = discord.ui.Button(label="📊 가챠 랭킹", style=discord.ButtonStyle.secondary, row=2)
-        btn_rank.callback = self._on_gacha_rank_clicked
-        self.add_item(btn_rank)
-
-    def _setup_genshin_buttons(self):
-        b10 = discord.ui.Button(label="🌠 10회 기원", style=discord.ButtonStyle.success, row=1)
-        b10.callback = self._on_gi_pull_10
-        self.add_item(b10)
-
-        b1 = discord.ui.Button(label="✨ 1회 기원", style=discord.ButtonStyle.success, row=1)
-        b1.callback = self._on_gi_pull_1
-        self.add_item(b1)
-
-        binv = discord.ui.Button(label="🎒 원신 보관함", style=discord.ButtonStyle.primary, row=1)
-        binv.callback = self._on_gi_inv
-        self.add_item(binv)
-
-        bfate = discord.ui.Button(label="🧭 운명의 궤도", style=discord.ButtonStyle.secondary, row=1)
-        bfate.callback = self._on_gi_fate
-        self.add_item(bfate)
-
-        bdex = discord.ui.Button(label="📖 티바트 도감", style=discord.ButtonStyle.secondary, row=2)
-        bdex.callback = self._on_gi_pokedex
-        self.add_item(bdex)
-
-        bshop = discord.ui.Button(label="🧚 페이몬 상점", style=discord.ButtonStyle.primary, row=2)
-        bshop.callback = self._on_gi_shop
-        self.add_item(bshop)
-
-        bparty = discord.ui.Button(label="⚔️ 4인 파티·공명", style=discord.ButtonStyle.secondary, row=2)
-        bparty.callback = self._on_gi_party
-        self.add_item(bparty)
-
-        brank = discord.ui.Button(label="🏆 원신 랭킹", style=discord.ButtonStyle.secondary, row=2)
-        brank.callback = self._on_gi_rank
-        self.add_item(brank)
-
-    def _setup_hsr_buttons(self):
-        b10 = discord.ui.Button(label="🚆 10회 워프", style=discord.ButtonStyle.success, row=1)
-        b10.callback = self._on_hsr_warp_10
-        self.add_item(b10)
-
-        b1 = discord.ui.Button(label="🎫 1회 워프", style=discord.ButtonStyle.success, row=1)
-        b1.callback = self._on_hsr_warp_1
-        self.add_item(b1)
-
-        binv = discord.ui.Button(label="🎒 스타레일 보관함", style=discord.ButtonStyle.primary, row=1)
-        binv.callback = self._on_hsr_inv
-        self.add_item(binv)
-
-        b300 = discord.ui.Button(label="🎁 상시 300 선택", style=discord.ButtonStyle.secondary, row=1)
-        b300.callback = self._on_hsr_300
-        self.add_item(b300)
-
-        bdex = discord.ui.Button(label="📖 은하 아카이브", style=discord.ButtonStyle.secondary, row=2)
-        bdex.callback = self._on_hsr_pokedex
-        self.add_item(bdex)
-
-        bshop = discord.ui.Button(label="🛍️ 별빛·헤르타 상점", style=discord.ButtonStyle.primary, row=2)
-        bshop.callback = self._on_hsr_shop
-        self.add_item(bshop)
-
-        bparty = discord.ui.Button(label="🚄 4인 개척 편대", style=discord.ButtonStyle.secondary, row=2)
-        bparty.callback = self._on_hsr_party
-        self.add_item(bparty)
-
-        brank = discord.ui.Button(label="🏆 스타레일 랭킹", style=discord.ButtonStyle.secondary, row=2)
-        brank.callback = self._on_hsr_rank
-        self.add_item(brank)
-
-    def _setup_life_buttons(self):
-        btn_add_dday = discord.ui.Button(label="➕ 새 D-Day 등록", style=discord.ButtonStyle.primary, row=1)
-        btn_add_dday.callback = self._on_add_dday_clicked
-        self.add_item(btn_add_dday)
-
-        btn_dday_list = discord.ui.Button(label="📋 D-Day 전체 목록", style=discord.ButtonStyle.secondary, row=1)
-        btn_dday_list.callback = self._on_dday_list_clicked
-        self.add_item(btn_dday_list)
-
-        btn_bday = discord.ui.Button(label="🎂 멤버 생일 전광판", style=discord.ButtonStyle.secondary, row=1)
-        btn_bday.callback = self._on_birthday_clicked
-        self.add_item(btn_bday)
-
-        btn_pomo = discord.ui.Button(label="⏳ 뽀모도로 집중모드", style=discord.ButtonStyle.primary, row=1)
-        btn_pomo.callback = self._on_pomodoro_clicked
-        self.add_item(btn_pomo)
-
-        btn_hardcore = discord.ui.Button(label="🔥 하드코어 스터디", style=discord.ButtonStyle.success, row=1)
-        btn_hardcore.callback = self._on_hardcore_study_clicked
-        self.add_item(btn_hardcore)
-
-        btn_partner = discord.ui.Button(label="💑 파트너 관리", style=discord.ButtonStyle.secondary, row=2)
-        btn_partner.callback = self._on_partner_clicked
-        self.add_item(btn_partner)
-
-        btn_forecast = discord.ui.Button(label="📅 미래시 달력", style=discord.ButtonStyle.secondary, row=2)
-        btn_forecast.callback = self._on_forecast_clicked
-        self.add_item(btn_forecast)
-
-    def _setup_music_buttons(self):
-        btn_pl = discord.ui.Button(label="💿 플레이리스트 스튜디오", style=discord.ButtonStyle.primary, row=1)
-        btn_pl.callback = self._on_playlist_studio_clicked
-        self.add_item(btn_pl)
-
-        btn_rec = discord.ui.Button(label="🎲 감성 음악 선곡", style=discord.ButtonStyle.success, row=1)
-        btn_rec.callback = self._on_music_now_clicked
-        self.add_item(btn_rec)
-
-        btn_audio = discord.ui.Button(label="🔊 440Hz 오디오 자가진단", style=discord.ButtonStyle.secondary, row=1)
-        btn_audio.callback = self._on_audio_test_clicked
-        self.add_item(btn_audio)
-
-    def _setup_admin_buttons(self):
-        btn_quick_btn = discord.ui.Button(label="🚀 사진 스타일 역할버튼 제작", style=discord.ButtonStyle.primary, emoji="🚀", row=1)
-        btn_quick_btn.callback = self._on_quick_role_btn_clicked
-        self.add_item(btn_quick_btn)
-
-        btn_studio = discord.ui.Button(label="🎭 반응역할 종합 스튜디오", style=discord.ButtonStyle.secondary, row=1)
-        btn_studio.callback = self._on_role_studio_clicked
-        self.add_item(btn_studio)
-
-        btn_notice = discord.ui.Button(label="📢 스마트 공지 발송", style=discord.ButtonStyle.secondary, row=1)
-        btn_notice.callback = self._on_announcement_clicked
-        self.add_item(btn_notice)
-
-        btn_temp_vc = discord.ui.Button(label="🔊 임시 음성방 (Join-to-Create)", style=discord.ButtonStyle.success, row=1)
-        btn_temp_vc.callback = self._on_temp_voice_clicked
-        self.add_item(btn_temp_vc)
-
-        btn_audit = discord.ui.Button(label="🛡️ 비활성 유저 감사", style=discord.ButtonStyle.secondary, row=2)
-        btn_audit.callback = self._on_inactive_audit_clicked
-        self.add_item(btn_audit)
-
-    def _setup_game_buttons(self):
-        btn_fish = discord.ui.Button(label="🎣 낚시 출조", style=discord.ButtonStyle.primary, row=1)
-        btn_fish.callback = self._on_fishing_cast_clicked
-        self.add_item(btn_fish)
-
-        btn_tourney = discord.ui.Button(label="🏅 주말·제철 낚시대회", style=discord.ButtonStyle.success, row=1)
-        btn_tourney.callback = self._on_fishing_tourney_clicked
-        self.add_item(btn_tourney)
-
-        btn_recruit = discord.ui.Button(label="🎮 파티/팀원 모집", style=discord.ButtonStyle.primary, row=1)
-        btn_recruit.callback = self._on_recruit_clicked
-        self.add_item(btn_recruit)
-
-        btn_word = discord.ui.Button(label="🔤 끝말잇기", style=discord.ButtonStyle.secondary, row=1)
-        btn_word.callback = self._on_word_chain_clicked
-        self.add_item(btn_word)
-
-        btn_roulette = discord.ui.Button(label="🔫 러시안룰렛", style=discord.ButtonStyle.danger, row=2)
-        btn_roulette.callback = self._on_roulette_clicked
-        self.add_item(btn_roulette)
-
-        btn_weather = discord.ui.Button(label="🌤️ 실시간 날씨", style=discord.ButtonStyle.secondary, row=2)
-        btn_weather.callback = self._on_weather_clicked
-        self.add_item(btn_weather)
-
-        btn_remind = discord.ui.Button(label="⏰ 스마트 알림 예약", style=discord.ButtonStyle.secondary, row=2)
-        btn_remind.callback = self._on_remind_clicked
-        self.add_item(btn_remind)
-
-    def _setup_stats_buttons(self):
-        btn_sstats = discord.ui.Button(label="📊 서버 실시간 통계", style=discord.ButtonStyle.primary, row=1)
-        btn_sstats.callback = self._on_server_stats_clicked
-        self.add_item(btn_sstats)
-
-        btn_uinfo = discord.ui.Button(label="🪪 내 상세 유저정보", style=discord.ButtonStyle.secondary, row=1)
-        btn_uinfo.callback = self._on_user_info_clicked
-        self.add_item(btn_uinfo)
-
-        btn_bstat = discord.ui.Button(label="🤖 봇 호스트 상태", style=discord.ButtonStyle.secondary, row=1)
-        btn_bstat.callback = self._on_bot_status_clicked
-        self.add_item(btn_bstat)
-
-        btn_sugg = discord.ui.Button(label="📬 건의사항 보내기", style=discord.ButtonStyle.secondary, row=2)
-        btn_sugg.callback = self._on_suggestion_clicked
-        self.add_item(btn_sugg)
-
-    # ----------------------------------------------------
-    # 탭별 대시보드 임베드 빌더
-    # ----------------------------------------------------
-    def build_embed(self) -> discord.Embed:
-        return self.build_current_embed()
-
-    def build_current_embed(self) -> discord.Embed:
-        if self.current_tab == "home":
-            return self.build_home_embed()
-        elif self.current_tab == "gacha":
-            return self.build_gacha_embed()
-        elif self.current_tab == "genshin":
-            return self.build_genshin_embed()
-        elif self.current_tab == "hsr":
-            return self.build_hsr_embed()
-        elif self.current_tab == "life":
-            return self.build_life_embed()
-        elif self.current_tab == "music":
-            return self.build_music_embed()
-        elif self.current_tab == "admin":
-            return self.build_admin_embed()
-        elif self.current_tab == "game":
-            return self.build_game_embed()
-        elif self.current_tab == "stats":
-            return self.build_stats_embed()
-        return self.build_home_embed()
-
-    def build_home_embed(self) -> discord.Embed:
-        g_key = str(self.guild.id if self.guild else 0)
-        uid_int = self.user.id if self.user else 0
-        u_key = str(uid_int)
-        u_name = self.user.display_name if self.user else "노로시 유저"
-        today_str = core.get_today_str()
-
-        profile = core.ensure_user_profile(self.data, u_key, u_name)
-        guild_att = core.safe_get_dict(self.data, "guild_attendance", g_key, u_key)
-        checked_today = (guild_att.get("last_date") == today_str)
-
-        crystals = profile.get("crystals", 0)
-        oshi_name = profile.get("oshi") or "미설정 (`/오시설정`)"
-        partner_id = profile.get("partner_id")
-        partner_tag = f"<@{partner_id}>" if partner_id else "미등록 (`/파트너`)"
-
-        todo = core.ensure_user_todo_today(profile)
-        tasks_list = [t for t in (todo.get("tasks") or []) if isinstance(t, dict)]
-        done_cnt = sum(1 for t in tasks_list if t.get("done"))
-        tot_cnt = len(tasks_list)
-        grass_bar, _ = core.get_todo_galaxy_grass(profile)
-
-        user_cards = core.safe_get_dict(self.data, "gacha_users", g_key, u_key, "cards")
-        unique_cnt = len(user_cards)
-        dup_excess = sum(max(0, c.get("count", 1) - 1) for c in user_cards.values() if isinstance(c, dict) and not c.get("locked", False))
-        gi_cnt = len(core.safe_get_dict(self.data, "genshin_users", g_key, u_key, "items"))
-        hsr_cnt = len(core.safe_get_dict(self.data, "hsr_users", g_key, u_key, "items"))
-
-        ddays_dict = core.as_dict(self.data.get("ddays"))
-        nearest_dday_str = "등록된 일정 없음 (`/디데이추가`)"
-        upcoming = []
-        for d_name, d_info in ddays_dict.items():
-            if not isinstance(d_info, dict):
-                continue
-            date_val = d_info.get("date")
-            if not date_val:
-                continue
-            try:
-                diff, d_txt = core.get_dday_info(date_val, plus_one=bool(d_info.get("plus_one", False)))
-                if diff >= 0:
-                    upcoming.append((diff, d_name, date_val, d_txt))
-            except Exception:
-                continue
-        if upcoming:
-            upcoming.sort(key=lambda x: x[0])
-            _, n_name, n_date, n_txt = upcoming[0]
-            nearest_dday_str = f"**{n_name}** (`{n_date}` · **`{n_txt}`**)"
-
-        guild_label = self.guild.name if self.guild else "개인 메시지(DM)"
-        ms_bonus = core.get_my_sekai_daily_bonus(profile)
-        att_badge = (
-            f"✅ **오늘 출석 완료** (연속 `{guild_att.get('streak', 1)}일 🔥` / 누적 `{guild_att.get('total_days', 1)}일`)"
-            if checked_today else
-            f"⬜ **오늘 미출석** (`[📅 즉시 출석체크]` 버튼으로 `+{100 + ms_bonus}💎` 받기!)"
-        )
-
-        embed = discord.Embed(
-            title=f"🧭 {u_name}님의 norosi 종합 관제 대시보드",
-            description=(
-                "norosi 봇의 모든 기능을 한곳에서 시각적으로 제어할 수 있는 올인원 마스터 컨트롤 타워입니다.\n"
-                "**상단 드롭다운**을 눌러 **프로세카 · 원신 · 스타레일** 등 원하는 탭으로 이동하거나 **하단 핫키 버튼**을 누르세요!\n\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"• **🏠 `{guild_label}` 출석:** {att_badge}\n"
-                f"• **💎 보유 크리스탈:** **`{crystals:,}개`** (마이세카이 일일 보너스 `+{ms_bonus}💎`)\n"
-                f"• **💖 오시 캐릭터:** `{oshi_name}`  ·  **💑 파트너:** {partner_tag}\n"
-                f"• **🌌 멀티가챠 보유:** 프로세카 `{unique_cnt:,}종` (중복 `{dup_excess:,}장`) · 🌠 원신 `{gi_cnt:,}종` · 🚄 스타레일 `{hsr_cnt:,}종`\n"
-                f"• **📅 가장 가까운 D-Day:** {nearest_dday_str}\n"
-                f"• **🌱 오늘 목표 달성률 (`{done_cnt}/{tot_cnt}`):** {grass_bar}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            ),
-            color=discord.Color.from_rgb(0, 204, 221),
-            timestamp=datetime.datetime.now(core.KST)
-        )
-        if self.user and hasattr(self.user, "display_avatar"):
-            embed.set_thumbnail(url=self.user.display_avatar.url)
-        embed.set_footer(text="💡 상단 드롭다운에서 프로세카, 원신, 스타레일, 일정, 음악, 역할, 통계 대시보드로 이동할 수 있습니다.")
-        return embed
-
-    def build_gacha_embed(self) -> discord.Embed:
-        g_key = str(self.guild.id if self.guild else 0)
-        u_key = str(self.user.id if self.user else 0)
-        u_name = self.user.display_name if self.user else "노로시 유저"
-        profile = core.ensure_user_profile(self.data, u_key, u_name)
-        crystals = profile.get("crystals", 0)
-
-        user_cards = core.safe_get_dict(self.data, "gacha_users", g_key, u_key, "cards")
-        total_unique = len(user_cards)
-        total_cards_count = sum(c.get("count", 1) for c in user_cards.values() if isinstance(c, dict))
-        dup_excess = sum(max(0, c.get("count", 1) - 1) for c in user_cards.values() if isinstance(c, dict) and not c.get("locked", False))
-
-        four_stars = sum(1 for c in user_cards.values() if isinstance(c, dict) and c.get("rarity_type") == "rarity_4")
-        birthdays = sum(1 for c in user_cards.values() if isinstance(c, dict) and c.get("rarity_type") == "rarity_birthday")
-
-        deck = profile.get("deck", [])
-        deck_str = ", ".join(f"`{cid}`" for cid in deck) if deck else "편성된 덱 없음 (`/덱편성`)"
-
-        embed = discord.Embed(
-            title="🎮 프로세카 카드 & 가챠 대시보드",
-            description=(
-                f"**{u_name}**님의 카드 컬렉션 및 뽑기 종합 현황입니다.\n\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"• **💎 보유 크리스탈:** **`{crystals:,}개`**\n"
-                f"• **🎒 보유 카드 현황:** 총 `{total_cards_count:,}장` (고유 수집: `{total_unique:,}종`)\n"
-                f"• **🌟 최고 희귀도 보유:** ★4 카드 **`{four_stars}장`**  ·  🎂 생일 카드 **`{birthdays}장`**\n"
-                f"• **💎 환전 가능 중복:** **`{dup_excess}장`** *(아래 `[💎 중복 일괄 환전]` 버튼으로 크리스탈 수령)*\n"
-                f"• **🎴 현재 편성 덱:** {deck_str}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            ),
-            color=discord.Color.from_rgb(235, 69, 158),
-            timestamp=datetime.datetime.now(core.KST)
-        )
-        embed.set_footer(text="버튼을 눌러 10회 뽑기, 보관함, 중복 환전, 덱 편성, 도감을 바로 실행하세요!")
-        return embed
-
-    def build_genshin_embed(self) -> discord.Embed:
-        g_key = str(self.guild.id if self.guild else 0)
-        u_key = str(self.user.id if self.user else 0)
-        u_name = self.user.display_name if self.user else "여행자"
-        u_data = core.safe_get_dict(self.data, "genshin_users", g_key, u_key)
-        items = core.as_dict(u_data.get("items"))
-        r5_cnt = sum(1 for v in items.values() if isinstance(v, dict) and v.get("rank") == 5)
-        r4_cnt = sum(1 for v in items.values() if isinstance(v, dict) and v.get("rank") == 4)
-
-        try:
-            eff = genshin_core.resolve_effective_genshin_pickup(self.data.get("genshin_pickup"))
-        except Exception:
-            eff = {}
-        c1_name = eff["char1"]["name"] if eff.get("char1") else "픽업 ①"
-        c2_name = eff["char2"]["name"] if eff.get("char2") else "픽업 ②"
-        w_names = " / ".join(w["name"] for w in (eff.get("weapon_1"), eff.get("weapon_2")) if w) or "픽업 무기"
-
-        ft = u_data.get("fate_target_id")
-        w_obj = next((w for w in (eff.get("weapon_1"), eff.get("weapon_2")) if w and w["id"] == ft), None)
-        ft_txt = f"{w_obj['name']} ({u_data.get('fate_point', 0)}/1)" if w_obj else f"미설정 ({u_data.get('fate_point', 0)}/1)"
-
-        raw_party = u_data.get("party") if isinstance(u_data.get("party"), list) else []
-        party_objs = [items[k] for k in raw_party if isinstance(items.get(k), dict)][:4]
-        party_ana = genshin_core.analyze_genshin_party(party_objs) if party_objs else {"total_power": 0, "resonances": []}
-
-        embed = discord.Embed(
-            title="🌠 원신 (Genshin Impact) 기원 & 컬렉션 대시보드",
-            description=(
-                f"**{u_name}**님의 티바트 기원 · 천장 · 상점 · 파티 통합 현황입니다.\n\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"• **🎯 현재 이벤트 픽업:** `{c1_name}` / `{c2_name}`\n"
-                f"• **⚔️ 신의 주조 픽업 무기:** `{w_names}`\n"
-                f"• **🌠 현재 천장 스택:**\n"
-                f"  - 캐릭터 `{u_data.get('pity_char', 0)}/90` ({'🔒확정' if u_data.get('guaranteed_char') else '🎲반천장'} · 광휘 `{u_data.get('loss_streak', 0)}`)\n"
-                f"  - 무기 `{u_data.get('pity_weapon', 0)}/80` (🧭 궤도: `{ft_txt}`) · 상시 `{u_data.get('pity_standard', 0)}/90`\n"
-                f"• **💎 보유 재화:** ✨ 스타라이트 `{u_data.get('starglitter', 0):,}` · 💠 스타더스트 `{u_data.get('stardust', 0):,}` · 📘 영웅의 경험 `{u_data.get('hero_wit', 0):,}권`\n"
-                f"• **🎒 보유 컬렉션:** 총 `{len(items)}종` (★5 `{r5_cnt}종` · ★4 `{r4_cnt}종` · 누적 기원 `{u_data.get('total_pulls', 0):,}회`)\n"
-                f"• **⚔️ 편성 파티 ({len(party_objs)}/4):** 전투력 `{party_ana['total_power']:,}` (원소 공명 `{len(party_ana['resonances'])}개`)\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            ),
-            color=discord.Color.from_rgb(56, 152, 236),
-            timestamp=datetime.datetime.now(core.KST)
-        )
-        embed.set_footer(text="하단 버튼으로 10회/1회 기원, 운명의 궤도, 보관함, 페이몬 상점, 4인 파티를 즉시 열 수 있습니다!")
-        return embed
-
-    def build_hsr_embed(self) -> discord.Embed:
-        g_key = str(self.guild.id if self.guild else 0)
-        u_key = str(self.user.id if self.user else 0)
-        u_name = self.user.display_name if self.user else "개척자"
-        u_data = core.safe_get_dict(self.data, "hsr_users", g_key, u_key)
-        items = core.as_dict(u_data.get("items"))
-        r5_cnt = sum(1 for v in items.values() if isinstance(v, dict) and v.get("rank") == 5)
-        r4_cnt = sum(1 for v in items.values() if isinstance(v, dict) and v.get("rank") == 4)
-
-        try:
-            eff = hsr_core.resolve_effective_hsr_pickup(self.data.get("hsr_pickup"))
-        except Exception:
-            eff = {}
-        c1_name = eff["char1"]["name"] if eff.get("char1") else "픽업 ①"
-        c2_name = eff["char2"]["name"] if eff.get("char2") else "픽업 ②"
-        lc_name = eff["lc_1"]["name"] if eff.get("lc_1") else "픽업 광추"
-
-        std_tot = int(u_data.get("standard_total_pulls", 0))
-        claimed = bool(u_data.get("standard_300_claimed"))
-        sel_status = "✅ 수령 완료" if claimed else ("🎊 선택 가능!" if std_tot >= 300 else f"`{std_tot}/300회`")
-
-        raw_party = u_data.get("party") if isinstance(u_data.get("party"), list) else []
-        party_objs = [items[k] for k in raw_party if isinstance(items.get(k), dict)][:4]
-        party_ana = hsr_core.analyze_hsr_party(party_objs) if party_objs else {"total_power": 0, "synergies": []}
-
-        embed = discord.Embed(
-            title="🚄 붕괴: 스타레일 워프 & 은하 열차 대시보드",
-            description=(
-                f"**{u_name}**님의 워프 · 천장 · 별빛·헤르타 상점 · 개척 편대 통합 현황입니다.\n\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"• **🎯 현재 이벤트 워프:** `{c1_name}` / `{c2_name}`\n"
-                f"• **🪩 빛의 자취 픽업 광추:** `{lc_name}`\n"
-                f"• **🚄 현재 천장 스택:**\n"
-                f"  - 캐릭터 `{u_data.get('pity_char', 0)}/90` ({'🔒확정' if u_data.get('guaranteed_char') else '🎲50/50'}) · 광추 `{u_data.get('pity_lc', 0)}/80` ({'🔒확정' if u_data.get('guaranteed_lc') else '🎲75/25'})\n"
-                f"  - 상시 `{u_data.get('pity_standard', 0)}/90` · 🎁 300회 보상: {sel_status}\n"
-                f"• **💎 보유 재화:** 🌟 별빛 `{u_data.get('starlight', 0):,}` · 🫧 잔재 `{u_data.get('embers', 0):,}` · 🧪 헤르타채권 `{u_data.get('herta_bond', 0):,}` · 📘 가이드 `{u_data.get('traveler_guide', 0):,}권`\n"
-                f"• **🎒 보유 아카이브:** 총 `{len(items)}종` (★5 `{r5_cnt}종` · ★4 `{r4_cnt}종` · 누적 워프 `{u_data.get('total_pulls', 0):,}회`)\n"
-                f"• **🚄 개척 편대 ({len(party_objs)}/4):** 전투력 `{party_ana['total_power']:,}` (시너지 `{len(party_ana['synergies'])}개`)\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            ),
-            color=discord.Color.from_rgb(174, 114, 255),
-            timestamp=datetime.datetime.now(core.KST)
-        )
-        embed.set_footer(text="하단 버튼으로 10회/1회 워프, 상시 300 선택, 별빛·헤르타 상점, 4인 편대를 즉시 열 수 있습니다!")
-        return embed
-
-    def build_life_embed(self) -> discord.Embed:
-        ddays_dict = core.as_dict(self.data.get("ddays"))
-        active_cnt = len(ddays_dict)
-
-        lines = []
-        for name, info in list(ddays_dict.items())[:5]:
-            if not isinstance(info, dict):
-                continue
-            d_val = info.get("date")
-            try:
-                _, d_txt = core.get_dday_info(d_val, plus_one=bool(info.get("plus_one", False)))
-                lines.append(f"• **{name}** (`{d_val}`): **`{d_txt}`**")
-            except Exception:
-                pass
-        dday_summary = "\n".join(lines) if lines else "*(등록된 D-Day 일정이 없습니다)*"
-
-        bdays = core.as_dict(self.data.get("birthdays"))
-        now = datetime.datetime.now(core.KST)
-        this_month_bdays = []
-        for uid_s, binfo in bdays.items():
-            if not isinstance(binfo, dict):
-                continue
-            b_mm = binfo.get("month")
-            b_dd = binfo.get("day")
-            if b_mm == now.month:
-                this_month_bdays.append(f"<@{uid_s}> ({b_mm}월 {b_dd}일)")
-        bday_summary = ", ".join(this_month_bdays[:6]) if this_month_bdays else f"*(이번 {now.month}월 생일자 없음)*"
-
-        embed = discord.Embed(
-            title="📅 라이프 & D-Day & 집중 대시보드",
-            description=(
-                "서버의 모든 기념일, 시험, 생일 전광판 및 뽀모도로 집중모드를 제어합니다.\n\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"• **📌 등록된 D-Day 전광판:** 총 `{active_cnt}개`\n"
-                f"{dday_summary}\n\n"
-                f"• **🎂 이번 {now.month}월 생일 멤버:**\n"
-                f"{bday_summary}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            ),
-            color=discord.Color.from_rgb(87, 242, 135),
-            timestamp=datetime.datetime.now(core.KST)
-        )
-        embed.set_footer(text="D-Day 추가/목록, 생일 등록, 뽀모도로 타이머, 파트너 관리를 버튼으로 실행하세요!")
-        return embed
-
-    def build_music_embed(self) -> discord.Embed:
-        u_key = str(self.user.id if self.user else 0)
-        u_name = self.user.display_name if self.user else "노로시 유저"
-        profile = core.ensure_user_profile(self.data, u_key, u_name)
-        u_pls = core.ensure_user_playlists(profile, u_name)
-        tot_tracks = sum(len(p.get("tracks", [])) for p in u_pls if isinstance(p, dict))
-
-        vc_status = "❌ 미연결 (대기 중)"
-        if self.guild and self.guild.voice_client:
-            vc = self.guild.voice_client
-            if vc.is_playing():
-                vc_status = f"🎶 재생 중 (채널: `{vc.channel.name}`)"
-            else:
-                vc_status = f"⏸️ 연결 대기 (채널: `{vc.channel.name}`)"
-
-        embed = discord.Embed(
-            title="🎵 음악 & 플레이리스트 대시보드",
-            description=(
-                "유튜브·스포티파이·사운드클라우드 기반 나만의 플레이리스트 및 고음질 음성 컨트롤 허브입니다.\n\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"• **💿 내 플레이리스트:** **`{len(u_pls)}개`** (총 수록곡: `{tot_tracks}곡`)\n"
-                f"• **🔊 현재 음성 연결 상태:** {vc_status}\n"
-                "• **🎧 지원 플랫폼:** YouTube, Spotify, SoundCloud, MP3 직링크\n"
-                "• **🛡️ DAVE 음성 엔진:** Discord Audio/Video End-to-End Encryption 최신 표준 적용\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            ),
-            color=discord.Color.from_rgb(155, 89, 182),
-            timestamp=datetime.datetime.now(core.KST)
-        )
-        embed.set_footer(text="플레이리스트 스튜디오, 감성 음악 추천, 440Hz 오디오 진단을 즉시 실행하세요!")
-        return embed
-
-    def build_admin_embed(self) -> discord.Embed:
-        guild_id = self.guild.id if self.guild else 0
-        guild_rr = core.get_guild_reaction_roles(self.data, guild_id)
-        total_panels = len(guild_rr)
-        total_roles = sum(len(c.get("roles", [])) for c in guild_rr.values())
-
-        is_admin = False
-        is_bot_ready = False
-        if self.guild and isinstance(self.user, discord.Member):
-            is_admin = (
-                self.user.guild_permissions.administrator or
-                self.user.guild_permissions.manage_roles or
-                self.user.guild_permissions.manage_guild
+        caller_tier = detect_user_perm_tier_sync(self.user, self.guild)
+
+        # [3단계] 세부 제어판(Sub-View) 활성 상태
+        if self.sub_mode is not None:
+            self._build_sub_mode_components(caller_tier)
+            return
+
+        # [1단계] /설정 홈 화면 (4대 메인 카테고리 버튼 + 빠른 실행 + 통합 페이지네이션)
+        if self.current_category == "home":
+            # Row 0: 일반, 고급, 미니게임, 개인 (핵심 4대 버튼)
+            btn_gen = discord.ui.Button(
+                label="일반",
+                emoji="🌐",
+                style=discord.ButtonStyle.primary,
+                row=0,
+                custom_id="norosi:Settings:cat_general",
             )
-            if self.guild.me:
-                is_bot_ready = self.guild.me.guild_permissions.manage_roles or self.guild.me.guild_permissions.administrator
+            btn_gen.callback = self._make_cat_enter_cb("general")
+            self.add_item(btn_gen)
 
-        admin_badge = "✅ **관리자 권한 보유** (모든 설정 조작 가능)" if is_admin else "⚠️ **일반 멤버** (관리자 전용 기능 조작 제한)"
-        bot_badge = "✅ **정상 가동 중** (Manage Roles 보유)" if is_bot_ready else "⚠️ **권한 부족** (봇에게 '역할 관리' 권한 필요)"
+            adv_style = discord.ButtonStyle.danger if caller_tier in (PERM_ADMIN, PERM_OWNER) else discord.ButtonStyle.secondary
+            btn_adv = discord.ui.Button(
+                label="고급",
+                emoji="⚙️",
+                style=adv_style,
+                row=0,
+                custom_id="norosi:Settings:cat_advanced",
+            )
+            btn_adv.callback = self._make_cat_enter_cb("advanced")
+            self.add_item(btn_adv)
 
-        embed = discord.Embed(
-            title="🎭 역할 & 공지 & 서버 관리 대시보드",
-            description=(
-                "사진 스타일 맞춤 역할 버튼 제작, 이모지 반응역할, 임시 음성방 및 스마트 공지를 관리합니다.\n\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"• **🛡️ 내 관리 권한:** {admin_badge}\n"
-                f"• **🤖 봇 역할 권한:** {bot_badge}\n"
-                f"• **📜 등록된 반응역할/버튼 패널:** **`{total_panels}개`**\n"
-                f"• **🏷️ 자동 배정 중인 역할 총합:** **`{total_roles}개`**\n"
-                "• **✨ 추천 기능:**\n"
-                "  - **`[🚀 사진 스타일 역할버튼 제작]`** : 제목/본문/버튼이름/이모지를 자유롭게 넣어 깔끔한 버튼 발행\n"
-                "  - **`[🎭 반응역할 종합 스튜디오]`** : 단계별 빌더 및 기존 공지글 바인딩\n"
-                "  - **`[🔊 임시 음성방 (Join-to-Create)]`** : 입장 시 자동 생성·전원 퇴장 시 자동 삭제되는 개인 음성방 설정 & 리모컨\n"
-                "  - **`[📢 스마트 공지 발송]`** : 공지 채널에 알림 임베드 미리보기 및 즉시 전송\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            ),
-            color=discord.Color.from_rgb(88, 101, 242),
-            timestamp=datetime.datetime.now(core.KST)
+            btn_mini = discord.ui.Button(
+                label="미니게임",
+                emoji="🎮",
+                style=discord.ButtonStyle.success,
+                row=0,
+                custom_id="norosi:Settings:cat_minigame",
+            )
+            btn_mini.callback = self._make_cat_enter_cb("minigame")
+            self.add_item(btn_mini)
+
+            btn_pers = discord.ui.Button(
+                label="개인",
+                emoji="👤",
+                style=discord.ButtonStyle.primary,
+                row=0,
+                custom_id="norosi:Settings:cat_personal",
+            )
+            btn_pers.callback = self._make_cat_enter_cb("personal")
+            self.add_item(btn_pers)
+
+            # Row 1: 원클릭 자주 쓰는 핵심 단축 버튼 4개
+            quick_items = [
+                ("즉시 출석체크", "📅", discord.ButtonStyle.success, self._act_attendance, "q_att"),
+                ("통합 프로필카드", "🪪", discord.ButtonStyle.primary, self._act_profile_card_png, "q_prof"),
+                ("프로세카 10연차", "🌈", discord.ButtonStyle.secondary, self._act_sekai_pull_10, "q_p10"),
+                ("낚시 출조", "🎣", discord.ButtonStyle.secondary, self._act_fishing_cast, "q_fish"),
+            ]
+            for q_label, q_emoji, q_style, q_cb, q_id in quick_items:
+                qb = discord.ui.Button(
+                    label=q_label,
+                    emoji=q_emoji,
+                    style=q_style,
+                    row=1,
+                    custom_id=f"norosi:Settings:{q_id}",
+                )
+                qb.callback = q_cb
+                self.add_item(qb)
+
+            # Row 2: 통합 페이지네이션 시작 바 + 도움말 + 새로고침
+            flat_total = len(self._get_flat_pages())
+            prev_btn = discord.ui.Button(
+                label="◀ 이전",
+                style=discord.ButtonStyle.secondary,
+                row=2,
+                custom_id="norosi:Settings:nav_prev",
+            )
+            prev_btn.callback = self._on_prev_page_clicked
+            self.add_item(prev_btn)
+
+            ind_btn = discord.ui.Button(
+                label=f"🏠 홈 (통합 {flat_total}p)",
+                style=discord.ButtonStyle.secondary,
+                disabled=True,
+                row=2,
+                custom_id="norosi:Settings:nav_ind",
+            )
+            self.add_item(ind_btn)
+
+            next_btn = discord.ui.Button(
+                label="다음 ▶",
+                style=discord.ButtonStyle.secondary,
+                row=2,
+                custom_id="norosi:Settings:nav_next",
+            )
+            next_btn.callback = self._on_next_page_clicked
+            self.add_item(next_btn)
+
+            help_btn = discord.ui.Button(
+                label="도움말",
+                emoji="📖",
+                style=discord.ButtonStyle.secondary,
+                row=2,
+                custom_id="norosi:Settings:nav_help",
+            )
+            help_btn.callback = self._act_open_help
+            self.add_item(help_btn)
+
+            ref_btn = discord.ui.Button(
+                label="새로고침",
+                emoji="🔄",
+                style=discord.ButtonStyle.primary,
+                row=2,
+                custom_id="norosi:Settings:nav_refresh",
+            )
+            ref_btn.callback = self._on_refresh_clicked
+            self.add_item(ref_btn)
+            return
+
+        # [2단계] 카테고리 내부 화면 (일반 / 고급 / 미니게임 / 개인)
+        cat_pages = self._pages_cache.get(self.current_category, [])
+        if not cat_pages:
+            self.current_category = "general"
+            cat_pages = self._pages_cache["general"]
+
+        self.current_page = max(0, min(self.current_page, len(cat_pages) - 1))
+        page_obj = cat_pages[self.current_page]
+        items = page_obj.get("items", [])
+
+        # Row 0 & Row 1: 현재 페이지의 기능 버튼 6개 (각 줄에 3개씩 깔끔하게 배치)
+        for idx, item in enumerate(items[:6]):
+            row_num = 0 if idx < 3 else 1
+            req_perm = item.get("perm", PERM_USER)
+            btn_label = item["label"]
+            btn_emoji = item["emoji"]
+            btn_style = item["style"]
+
+            # 권한 시각적 구분: 권한이 부족한 항목은 🔒 아이콘과 회색 스타일로 명확히 표시 (클릭 시 친절한 권한 안내)
+            if req_perm == PERM_OWNER and caller_tier != PERM_OWNER:
+                btn_label = f"🔒 {btn_label}"
+                btn_style = discord.ButtonStyle.secondary
+            elif req_perm == PERM_ADMIN and caller_tier == PERM_USER:
+                btn_label = f"🔒 {btn_label}"
+                btn_style = discord.ButtonStyle.secondary
+
+            b = discord.ui.Button(
+                label=btn_label[:80],
+                emoji=btn_emoji,
+                style=btn_style,
+                row=row_num,
+                custom_id=f"norosi:Settings:act_{self.current_category}_{self.current_page}_{idx}",
+            )
+            b.callback = item["cb"]
+            self.add_item(b)
+
+        # Row 2: 4대 카테고리 빠른 전환 바 (일반 · 고급 · 미니게임 · 개인)
+        for cat_key in CATEGORY_ORDER:
+            c_meta = CATEGORY_INFO[cat_key]
+            c_pages_cnt = len(self._pages_cache.get(cat_key, []))
+            is_cur = (cat_key == self.current_category)
+            c_btn = discord.ui.Button(
+                label=f"{c_meta['label'].split(' ', 1)[-1]} ({c_pages_cnt}p)",
+                emoji=c_meta["emoji"],
+                style=discord.ButtonStyle.primary if is_cur else discord.ButtonStyle.secondary,
+                row=2,
+                custom_id=f"norosi:Settings:switch_{cat_key}",
+            )
+            c_btn.callback = self._make_cat_enter_cb(cat_key)
+            self.add_item(c_btn)
+
+        # Row 3: [⬅️ 뒤로가기] + 통합 페이지네이션 [◀ 이전] [📄 현재/전체 (통합 N/14)] [다음 ▶] + [🔄 새로고침]
+        back_btn = discord.ui.Button(
+            label="뒤로가기",
+            emoji="⬅️",
+            style=discord.ButtonStyle.danger,
+            row=3,
+            custom_id="norosi:Settings:nav_back",
         )
-        embed.set_footer(text="서버 관리자 및 역할 관리자 전용 기능 • norosi Admin Engine")
-        return embed
+        back_btn.callback = self._on_back_clicked
+        self.add_item(back_btn)
 
-    def build_game_embed(self) -> discord.Embed:
-        embed = discord.Embed(
-            title="🎲 낚시 대회 & 미니게임 & 파티 모집 대시보드",
-            description=(
-                "서버 멤버들과 함께 즐기는 낚시 토너먼트, 미니게임 및 스마트 편의성 도구 허브입니다.\n\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "• **🎣 통합 낚시 & 🏅 주말·제철 낚시대회:** 호수·강·바다 출조, 계절 한정 제철 어종(`+25%🪙`) 및 토너먼트 시상\n"
-                "• **🎮 파티/팀원 모집:** 프로세카, 롤, 발로란트 등 자유 양식 팀원 모집 및 대기열\n"
-                "• **🔤 끝말잇기:** 표준 두음법칙 자동 적용 실시간 단어 대결 (+150💎)\n"
-                "• **🔫 러시안룰렛:** 6연발 실린더 서바이벌 스릴 게임\n"
-                "• **🌤️ 실시간 날씨:** 기상청/ECMWF 초정밀 실시간 날씨·미세먼지·강수확률\n"
-                "• **⏰ 스마트 알림예약:** 일정 시간 후 나에게 DM 또는 채널로 알림 전송\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            ),
-            color=discord.Color.from_rgb(241, 196, 15),
-            timestamp=datetime.datetime.now(core.KST)
+        prev_btn = discord.ui.Button(
+            label="◀ 이전",
+            style=discord.ButtonStyle.secondary,
+            row=3,
+            custom_id="norosi:Settings:nav_prev",
         )
-        embed.set_footer(text="하단 버튼을 누르면 해당 게임이나 유틸리티가 즉시 대화창으로 시작됩니다!")
-        return embed
+        prev_btn.callback = self._on_prev_page_clicked
+        self.add_item(prev_btn)
 
-    def build_stats_embed(self) -> discord.Embed:
-        g = self.guild
-        member_cnt = getattr(g, "member_count", None) or 1
-        member_str = f"{member_cnt:,}" if isinstance(member_cnt, int) else str(member_cnt)
-        if g and getattr(g, "created_at", None):
-            try:
-                created_str = g.created_at.strftime("%Y-%m-%d")
-            except Exception:
-                created_str = str(g.created_at)[:10]
+        global_cur, global_tot = self._get_global_page_info(self.current_category, self.current_page)
+        ind_btn = discord.ui.Button(
+            label=f"📄 {self.current_page + 1}/{len(cat_pages)} (통합 {global_cur}/{global_tot})",
+            style=discord.ButtonStyle.secondary,
+            disabled=True,
+            row=3,
+            custom_id="norosi:Settings:nav_ind",
+        )
+        self.add_item(ind_btn)
+
+        next_btn = discord.ui.Button(
+            label="다음 ▶",
+            style=discord.ButtonStyle.secondary,
+            row=3,
+            custom_id="norosi:Settings:nav_next",
+        )
+        next_btn.callback = self._on_next_page_clicked
+        self.add_item(next_btn)
+
+        ref_btn = discord.ui.Button(
+            label="새로고침",
+            emoji="🔄",
+            style=discord.ButtonStyle.primary,
+            row=3,
+            custom_id="norosi:Settings:nav_refresh",
+        )
+        ref_btn.callback = self._on_refresh_clicked
+        self.add_item(ref_btn)
+
+    def _make_cat_enter_cb(self, cat_key: str) -> Callable[[discord.Interaction], Awaitable[None]]:
+        async def _cb(interaction: discord.Interaction):
+            self.current_category = cat_key
+            self.current_page = 0
+            self.sub_mode = None
+            self.refresh_components()
+            await core.safe_edit_response(interaction, embed=self.build_current_embed(), view=self)
+        return _cb
+
+    async def _on_back_clicked(self, interaction: discord.Interaction):
+        if self.sub_mode is not None:
+            self.sub_mode = None
         else:
-            created_str = "알수없음"
+            self.current_category = "home"
+            self.current_page = 0
+        self.refresh_components()
+        await core.safe_edit_response(interaction, embed=self.build_current_embed(), view=self)
 
-        g_name = getattr(g, "name", "개인 DM")
+    async def _on_home_clicked(self, interaction: discord.Interaction):
+        self.sub_mode = None
+        self.current_category = "home"
+        self.current_page = 0
+        self.refresh_components()
+        await core.safe_edit_response(interaction, embed=self.build_current_embed(), view=self)
 
-        embed = discord.Embed(
-            title="📊 서버 통계 & 분석 & 건의 대시보드",
-            description=(
-                f"**{g_name}** 서버의 실시간 활동 지표 및 봇 상태입니다.\n\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"• **👥 서버 멤버 수:** 총 **`{member_str}명`**\n"
-                f"• **📅 서버 개설일:** `{created_str}`\n"
-                f"• **🪪 내 가입 순번/역할:** 아래 `[🪪 내 상세 유저정보]` 버튼으로 확인\n"
-                f"• **🤖 봇 Uptime & 호스트:** 아래 `[🤖 봇 호스트 상태]` 버튼으로 확인 (관리자 전용)\n"
-                f"• **📬 건의함:** 개발자에게 익명 또는 공개로 아이디어 건의\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            ),
-            color=discord.Color.from_rgb(52, 152, 219),
-            timestamp=datetime.datetime.now(core.KST)
-        )
-        embed.set_footer(text="실시간 서버 분석 보고서 및 건의함을 버튼으로 즉시 열람하세요!")
-        return embed
+    async def _on_prev_page_clicked(self, interaction: discord.Interaction):
+        self._step_global_page(-1)
+        self.refresh_components()
+        await core.safe_edit_response(interaction, embed=self.build_current_embed(), view=self)
 
-    # ----------------------------------------------------
-    # 버튼 콜백 핸들러들 (철저한 예외 방어 & 권한 검사)
-    # ----------------------------------------------------
+    async def _on_next_page_clicked(self, interaction: discord.Interaction):
+        self._step_global_page(1)
+        self.refresh_components()
+        await core.safe_edit_response(interaction, embed=self.build_current_embed(), view=self)
+
     async def _on_refresh_clicked(self, interaction: discord.Interaction):
         try:
             await core.safe_defer(interaction)
@@ -1042,14 +1918,520 @@ class MasterDashboardView(core.SafeView):
         except Exception as e:
             await core.safe_send_response(interaction, f"⚠️ 새로고침 중 오류 발생: {e}", ephemeral=True)
 
-    async def _on_attendance_clicked(self, interaction: discord.Interaction):
+    # ----------------------------------------------------
+    # 🧩 3단계 세부 제어판(Sub-Mode) 버튼 구성
+    # ----------------------------------------------------
+    def _get_sub_mode_definition(self) -> Dict[str, Any]:
+        defs: Dict[str, Dict[str, Any]] = {
+            "sekai_schedule": {
+                "title": "🔭 프로세카 미래시 & 실시간 이벤트 제어판",
+                "desc": "한국 서버(KR) 다가오는 이벤트 미래시 달력과 한섭/일섭 실시간 이벤트·배너를 확인합니다.",
+                "perm": PERM_USER,
+                "buttons": [
+                    ("한섭 미래시 캘린더", "📅", discord.ButtonStyle.primary, self._sub_sekai_forecast_cal),
+                    ("한섭(KR) 실시간 이벤트", "🇰🇷", discord.ButtonStyle.success, self._sub_sekai_live_kr),
+                    ("일섭(JP) 실시간 이벤트", "🇯🇵", discord.ButtonStyle.secondary, self._sub_sekai_live_jp),
+                ],
+            },
+            "music_voice": {
+                "title": "⏩ 음성채널 재생 배속 & 헤드셋 제어판",
+                "desc": "현재 음성채널에서 재생 중인 플레이리스트의 배속(0.75x ~ 2.0x) 및 봇 헤드셋 상태를 즉시 변경합니다.",
+                "perm": PERM_USER,
+                "buttons": [
+                    ("0.75x 감성 배속", "🐢", discord.ButtonStyle.secondary, self._make_speed_cb(0.75)),
+                    ("1.0x 표준 배속", "▶️", discord.ButtonStyle.primary, self._make_speed_cb(1.0)),
+                    ("1.25x 경쾌 배속", "⚡", discord.ButtonStyle.success, self._make_speed_cb(1.25)),
+                    ("1.5x 나이트코어", "🚀", discord.ButtonStyle.secondary, self._make_speed_cb(1.5)),
+                    ("봇 헤드셋 토글", "🎧", discord.ButtonStyle.secondary, self._act_music_headset_toggle),
+                    ("440Hz 오디오 진단", "🔊", discord.ButtonStyle.secondary, self._act_audio_test),
+                ],
+            },
+            "relay_novel": {
+                "title": "✍️ 채널 협동 릴레이 소설 제어판",
+                "desc": "현재 채널에서 멤버들과 한 줄씩 번갈아 이어 쓰는 릴레이 소설을 시작하거나 명작집을 열람합니다.",
+                "perm": PERM_USER,
+                "buttons": [
+                    ("새 릴레이소설 시작", "🆕", discord.ButtonStyle.success, self._sub_relay_start),
+                    ("현재 채널 소설 현황/이어쓰기", "📖", discord.ButtonStyle.primary, self._sub_relay_status),
+                    ("완결 릴레이소설 명작집", "📚", discord.ButtonStyle.secondary, self._sub_relay_archive),
+                    ("진행 중 소설 중단", "🛑", discord.ButtonStyle.danger, self._sub_relay_cancel),
+                ],
+            },
+            "admin_ticket": {
+                "title": "🎫 [서버 관리자] 1:1 비공개 문의 티켓 제어판",
+                "desc": "서버의 1:1 문의 티켓 열기 영구 패널을 현재 채널에 생성하거나 담당자 역할·방식을 설정합니다.",
+                "perm": PERM_ADMIN,
+                "buttons": [
+                    ("현재 채널에 티켓패널 생성", "📌", discord.ButtonStyle.success, self._sub_ticket_create_panel),
+                    ("담당자 역할 & 방식 설정", "⚙️", discord.ButtonStyle.primary, self._sub_ticket_role_config),
+                    ("서버 티켓 전체 목록", "📋", discord.ButtonStyle.secondary, self._act_admin_ticket_list),
+                ],
+            },
+            "admin_sticky": {
+                "title": "📌 [서버 관리자] 채널 자동 고정메시지(Sticky) 제어판",
+                "desc": "대화가 올라와도 채널 맨 아래에 항상 유지되는 공지/안내 고정 메시지를 관리합니다.",
+                "perm": PERM_ADMIN,
+                "buttons": [
+                    ("현재 채널 고정메시지 설정", "✏️", discord.ButtonStyle.success, self._sub_sticky_set),
+                    ("서버 고정메시지 목록", "📋", discord.ButtonStyle.primary, self._sub_sticky_list),
+                    ("현재 채널 고정메시지 해제", "🗑️", discord.ButtonStyle.danger, self._sub_sticky_remove),
+                ],
+            },
+            "admin_dday": {
+                "title": "📅 [서버 관리자] 서버 공식 D-Day & 전광판 관리",
+                "desc": "서버 D-Day 일정을 등록/삭제하고 매일 오전 9시 D-Day 브리핑을 받을 알림 채널을 설정합니다.",
+                "perm": PERM_ADMIN,
+                "buttons": [
+                    ("새 D-Day 빠른 등록", "➕", discord.ButtonStyle.success, self._act_add_dday_modal),
+                    ("D-Day 전광판 & 삭제", "📋", discord.ButtonStyle.primary, self._act_dday_list),
+                    ("지나간 D-Day 보관소", "🕰️", discord.ButtonStyle.secondary, self._sub_dday_past),
+                    ("현재 채널을 9시 알림채널로 지정", "🔔", discord.ButtonStyle.secondary, self._sub_dday_set_alert_ch),
+                ],
+            },
+            "admin_music_sched": {
+                "title": "🌅 [서버 관리자] 모닝 음악추천 & 맞춤 시간 음악알람",
+                "desc": "오전 7시 정기 음악 추천 채널을 지정하거나 원하는 시각(HH:MM) 자동 음악 알람을 관리합니다.",
+                "perm": PERM_ADMIN,
+                "buttons": [
+                    ("현재 채널을 7시 모닝추천으로 지정", "🌅", discord.ButtonStyle.success, self._sub_music_set_morning_ch),
+                    ("맞춤 시각 음악알람 스케줄러", "⏰", discord.ButtonStyle.primary, self._sub_music_custom_sched),
+                ],
+            },
+            "admin_reset": {
+                "title": "⚠️ [서버 관리자] 서버 데이터 초기화 안전 제어판",
+                "desc": "선택한 게임/시스템의 현재 서버 데이터를 초기화합니다. (클릭 시 2차 확인창이 표시됩니다)",
+                "perm": PERM_ADMIN,
+                "buttons": [
+                    ("D-Day & 음악설정 초기화", "📅", discord.ButtonStyle.danger, self._sub_reset_dday),
+                    ("프로세카 서버 보관함 초기화", "🎤", discord.ButtonStyle.danger, self._sub_reset_sekai),
+                    ("원신 서버 보관함 초기화", "🌠", discord.ButtonStyle.danger, self._sub_reset_genshin),
+                    ("스타레일 서버 보관함 초기화", "🚄", discord.ButtonStyle.danger, self._sub_reset_hsr),
+                ],
+            },
+            "owner_sekai_pickup": {
+                "title": "🎯 [봇 주인 전용] 프로세카 글로벌 픽업 배너 제어판",
+                "desc": "프로세카 한국 서버 실시간 이벤트에 맞춰 픽업을 자동 연동하거나 초기화합니다.",
+                "perm": PERM_OWNER,
+                "buttons": [
+                    ("한섭 실시간 이벤트 자동맞춤", "🎯", discord.ButtonStyle.success, self._sub_owner_sekai_auto),
+                    ("기본 상시 픽업으로 초기화", "🔄", discord.ButtonStyle.secondary, self._sub_owner_sekai_reset),
+                    ("현재 배너 확률표 확인", "📊", discord.ButtonStyle.primary, self._sub_sekai_rates),
+                ],
+            },
+            "owner_gi_pickup": {
+                "title": "🌠 [봇 주인 전용] 원신 기원 글로벌 픽업 제어판",
+                "desc": "원신 이벤트 기원 배너를 KST 2시간 주기 시각별 자동 로테이션으로 설정하거나 초기화합니다.",
+                "perm": PERM_OWNER,
+                "buttons": [
+                    ("KST 2시간 자동 로테이션 적용", "⏰", discord.ButtonStyle.success, self._sub_owner_gi_auto),
+                    ("원신 기본 픽업 초기화", "🔄", discord.ButtonStyle.secondary, self._sub_owner_gi_reset),
+                    ("현재 원신 확률 & 픽업 확인", "📊", discord.ButtonStyle.primary, self._sub_gi_rates),
+                ],
+            },
+            "owner_hsr_pickup": {
+                "title": "🚄 [봇 주인 전용] 스타레일 워프 글로벌 픽업 제어판",
+                "desc": "붕괴: 스타레일 이벤트 워프 배너를 KST 2시간 주기 자동 로테이션으로 설정하거나 초기화합니다.",
+                "perm": PERM_OWNER,
+                "buttons": [
+                    ("KST 2시간 자동 로테이션 적용", "⏰", discord.ButtonStyle.success, self._sub_owner_hsr_auto),
+                    ("스타레일 기본 픽업 초기화", "🔄", discord.ButtonStyle.secondary, self._sub_owner_hsr_reset),
+                    ("현재 스타레일 확률 & 픽업 확인", "📊", discord.ButtonStyle.primary, self._sub_hsr_rates),
+                ],
+            },
+            "owner_terminal": {
+                "title": "🖥️ [봇 주인 전용] VM 서버 터미널 실시간 로그 브릿지",
+                "desc": "VM 서버의 stdout / stderr / logging 출력을 현재 채널로 실시간 중계하거나 해제합니다.",
+                "perm": PERM_OWNER,
+                "buttons": [
+                    ("현재 채널에 터미널로그 연동", "🟢", discord.ButtonStyle.success, self._sub_owner_term_bind),
+                    ("현재 서버 터미널로그 해제", "🛑", discord.ButtonStyle.danger, self._sub_owner_term_unbind),
+                ],
+            },
+            "owner_backup_sync": {
+                "title": "💾 [봇 주인 전용] 서버/DB JSON 백업 & 슬래시 명령어 동기화",
+                "desc": "현재 서버 구조 또는 봇 전체 DB를 JSON으로 백업하고 슬래시 명령어를 즉시 동기화합니다.",
+                "perm": PERM_OWNER,
+                "buttons": [
+                    ("현재 서버 구조 JSON 백업", "🏢", discord.ButtonStyle.primary, self._sub_owner_backup_guild),
+                    ("봇 전체 DB JSON 백업", "🗄️", discord.ButtonStyle.success, self._sub_owner_backup_db),
+                    ("슬래시 명령어 즉시 동기화 패널", "⚡", discord.ButtonStyle.secondary, self._sub_owner_sync_panel),
+                ],
+            },
+            "pokedex_hub": {
+                "title": "📖 5대 게임 통합 도감 & 배너 확률표 허브",
+                "desc": "프로세카 · 원신 · 스타레일 · 통합 낚시 · 타인의 삶 도감 수집률과 배너 확률표를 열람합니다.",
+                "perm": PERM_USER,
+                "buttons": [
+                    ("프로세카 카드도감", "🎤", discord.ButtonStyle.primary, self._act_sekai_pokedex),
+                    ("원신 티바트 도감", "🌠", discord.ButtonStyle.primary, self._act_gi_pokedex),
+                    ("스타레일 은하 아카이브", "🚄", discord.ButtonStyle.primary, self._act_hsr_pokedex),
+                    ("낚시 36,700종 어류도감", "🎣", discord.ButtonStyle.success, self._act_fishing_pokedex),
+                    ("타인의 삶 1,000엔딩 도감", "📜", discord.ButtonStyle.secondary, self._act_other_life_codex),
+                    ("프로세카 배너 확률표", "📊", discord.ButtonStyle.secondary, self._sub_sekai_rates),
+                ],
+            },
+            "ranking_hub": {
+                "title": "🏆 전 분야 서버 통합 랭킹 허브",
+                "desc": "프로세카 · 원신 · 스타레일 · 낚시 대물 · 타인의 삶 · 통합 순자산 순위표를 즉시 확인합니다.",
+                "perm": PERM_USER,
+                "buttons": [
+                    ("프로세카 가챠랭킹", "🎤", discord.ButtonStyle.primary, self._act_sekai_rank),
+                    ("원신 수집·명예의전당", "🌠", discord.ButtonStyle.primary, self._act_gi_rank),
+                    ("스타레일 워프랭킹", "🚄", discord.ButtonStyle.primary, self._act_hsr_rank),
+                    ("낚시 최대어(cm·kg) 랭킹", "🎣", discord.ButtonStyle.success, self._act_fishing_rank),
+                    ("타인의 삶 엔딩랭킹", "👶", discord.ButtonStyle.secondary, self._act_other_life_rank),
+                    ("통합 순자산·크리스탈 랭킹", "🏦", discord.ButtonStyle.secondary, self._act_economy_rank),
+                ],
+            },
+            "sekai_deck": {
+                "title": "🎴 프로세카 5인 유닛 덱 & 카드 강화 · 교환 허브",
+                "desc": "내 5인 덱 구성을 확인하고 보유 카드를 레벨업(강화)하거나 마스터 랭크를 돌파합니다.",
+                "perm": PERM_USER,
+                "buttons": [
+                    ("내 5인 유닛 덱 현황", "🎴", discord.ButtonStyle.primary, self._sub_sekai_deck_view),
+                    ("보유 카드 레벨업 강화", "🔨", discord.ButtonStyle.success, self._sub_sekai_card_enhance),
+                    ("마스터 랭크(✦MR) 돌파", "🏆", discord.ButtonStyle.secondary, self._act_sekai_master_rank),
+                    ("중복 카드 크리스탈 환전", "💎", discord.ButtonStyle.secondary, self._act_sekai_dup_convert),
+                ],
+            },
+            "gi_personal": {
+                "title": "🌠 원신 개인 보관함 · 4인 파티 · 여행자 프로필",
+                "desc": "보유한 원신 캐릭터(운명의 자리)·무기(재련)·성유물을 관리하고 4인 원소 공명 파티를 편성합니다.",
+                "perm": PERM_USER,
+                "buttons": [
+                    ("원신 보관함 (육성·잠금)", "🎒", discord.ButtonStyle.primary, self._act_gi_inv),
+                    ("원신 4인 파티 편성", "⚔️", discord.ButtonStyle.success, self._act_gi_party),
+                    ("원신 운명의 궤도", "🧭", discord.ButtonStyle.secondary, self._act_gi_fate),
+                    ("원신 페이몬 상점", "🧚", discord.ButtonStyle.secondary, self._act_gi_shop),
+                ],
+            },
+            "hsr_personal": {
+                "title": "🚄 스타레일 개인 보관함 · 4인 편대 · 상시 300 선택",
+                "desc": "보유한 스타레일 캐릭터(성혼)·광추(중첩)·유물을 관리하고 4인 개척 편대를 편성합니다.",
+                "perm": PERM_USER,
+                "buttons": [
+                    ("스타레일 보관함 (육성·잠금)", "🎒", discord.ButtonStyle.primary, self._act_hsr_inv),
+                    ("스타레일 4인 개척 편대", "🚄", discord.ButtonStyle.success, self._act_hsr_party),
+                    ("상시 300회 5성 선택", "🎁", discord.ButtonStyle.secondary, self._act_hsr_300),
+                    ("스타레일 별빛·헤르타 상점", "🛍️", discord.ButtonStyle.secondary, self._act_hsr_shop),
+                ],
+            },
+            "fishing_personal": {
+                "title": "👜 낚시 물고기 가방 · 일일 퀘스트 · 수족관 관리",
+                "desc": "잡은 물고기를 판매/잠금/어항 이동하고 매일 KST 00:00 갱신되는 일일 낚시 의뢰 3종을 확인합니다.",
+                "perm": PERM_USER,
+                "buttons": [
+                    ("내 물고기 가방 (판매·잠금)", "👜", discord.ButtonStyle.primary, self._sub_fishing_bag),
+                    ("일일 낚시 퀘스트 (3종)", "📜", discord.ButtonStyle.success, self._sub_fishing_quest),
+                    ("내 프라이빗 수족관", "🐠", discord.ButtonStyle.secondary, self._act_fishing_aquarium),
+                    ("내 낚시꾼 라이선스 프로필", "🪪", discord.ButtonStyle.secondary, self._sub_fishing_profile),
+                ],
+            },
+            "bday_partner": {
+                "title": "🎂 내 생일 등록 & 💑 파트너 스튜디오",
+                "desc": "내 생일을 등록해 당일 자정 축하와 +500💎 보너스를 받고, 파트너와 공동 D-Day·공유 음악을 관리합니다.",
+                "perm": PERM_USER,
+                "buttons": [
+                    ("생일 전광판 & 내 생일 등록", "🎂", discord.ButtonStyle.success, self._act_birthday_board),
+                    ("내 파트너 스튜디오 열기", "💑", discord.ButtonStyle.primary, self._act_partner_studio),
+                    ("나만의 비밀 D-Day 보드", "🔒", discord.ButtonStyle.secondary, self._act_secret_dday),
+                ],
+            },
+        }
+        return defs.get(self.sub_mode or "", defs["pokedex_hub"])
+
+    def _build_sub_mode_components(self, caller_tier: str):
+        sub_def = self._get_sub_mode_definition()
+        req_perm = sub_def.get("perm", PERM_USER)
+        buttons = sub_def.get("buttons", [])
+
+        for idx, (b_label, b_emoji, b_style, b_cb) in enumerate(buttons[:6]):
+            row_num = 0 if idx < 3 else 1
+            eff_label = b_label
+            eff_style = b_style
+            if req_perm == PERM_OWNER and caller_tier != PERM_OWNER:
+                eff_label = f"🔒 {b_label}"
+                eff_style = discord.ButtonStyle.secondary
+            elif req_perm == PERM_ADMIN and caller_tier == PERM_USER:
+                eff_label = f"🔒 {b_label}"
+                eff_style = discord.ButtonStyle.secondary
+
+            btn = discord.ui.Button(
+                label=eff_label[:80],
+                emoji=b_emoji,
+                style=eff_style,
+                row=row_num,
+                custom_id=f"norosi:Settings:sub_{self.sub_mode}_{idx}",
+            )
+            btn.callback = b_cb
+            self.add_item(btn)
+
+        # Row 2: [⬅️ 뒤로가기] [🏠 설정 홈으로] [🔄 새로고침]
+        back_btn = discord.ui.Button(
+            label="뒤로가기",
+            emoji="⬅️",
+            style=discord.ButtonStyle.danger,
+            row=2,
+            custom_id="norosi:Settings:nav_back",
+        )
+        back_btn.callback = self._on_back_clicked
+        self.add_item(back_btn)
+
+        home_btn = discord.ui.Button(
+            label="설정 홈으로",
+            emoji="🏠",
+            style=discord.ButtonStyle.secondary,
+            row=2,
+            custom_id="norosi:Settings:nav_home",
+        )
+        home_btn.callback = self._on_home_clicked
+        self.add_item(home_btn)
+
+        ref_btn = discord.ui.Button(
+            label="새로고침",
+            emoji="🔄",
+            style=discord.ButtonStyle.primary,
+            row=2,
+            custom_id="norosi:Settings:nav_refresh",
+        )
+        ref_btn.callback = self._on_refresh_clicked
+        self.add_item(ref_btn)
+
+    # ----------------------------------------------------
+    # 🎨 임베드 빌더 (Component V2 컨테이너 스타일)
+    # ----------------------------------------------------
+    def build_embed(self) -> discord.Embed:
+        """QuickMenuHubView 등 외부 호출자와의 100% 호환용 별칭"""
+        return self.build_current_embed()
+
+    def build_current_embed(self) -> discord.Embed:
+        if not self.data:
+            self.data = core.get_cached_data()
+
+        if self.sub_mode is not None:
+            return self._build_sub_mode_embed()
+        if self.current_category == "home":
+            return self._build_home_embed()
+        return self._build_category_page_embed(self.current_category, self.current_page)
+
+    def _format_caller_tier_banner(self) -> str:
+        tier = detect_user_perm_tier_sync(self.user, self.guild)
+        if tier == PERM_OWNER:
+            return "👑 **내 권한 등급: `봇 주인 (Bot Owner)`** — `일반` · `미니게임` · `개인` · `고급(서버관리자 + 봇주인 시스템)` 전체 제어 가능"
+        if tier == PERM_ADMIN:
+            return "🛡️ **내 권한 등급: `서버 관리자 (Server Admin)`** — `일반` · `미니게임` · `개인` + `고급(서버 관리 1~3p)` 제어 가능 (`4p 봇주인 전용` 제외)"
+        return "👤 **내 권한 등급: `일반 이용자 (Member)`** — `일반` · `미니게임` · `개인` 전체 이용 가능 (`고급` 카테고리는 관리자/봇주인 전용)"
+
+    def _build_home_embed(self) -> discord.Embed:
+        u_key = str(self.user.id if self.user else 0)
+        g_key = str(self.guild.id if self.guild else 0)
+        u_name = self.user.display_name if self.user else "노로시 유저"
+
+        profile = core.ensure_user_profile(self.data, u_key, u_name)
+        crystals = int(profile.get("crystals", 0))
+        oshi = profile.get("oshi") or "미설정"
+        today_str = core.get_today_str()
+
+        guild_att = core.safe_get_dict(self.data, "guild_attendance", g_key, u_key) if self.guild else core.as_dict(profile.get("attendance"))
+        is_attended = (guild_att.get("last_date") == today_str)
+        att_badge = f"✅ 출석 완료 (연속 `{guild_att.get('streak', 0)}일`)" if is_attended else "⏳ **오늘 미출석** (`[📅 즉시 출석체크]` 클릭!)"
+
+        sekai_cards = len(core.safe_get_dict(self.data, "gacha_users", g_key, u_key, "cards"))
+        gi_items = len(core.as_dict(core.safe_get_dict(self.data, "genshin_users", g_key, u_key).get("items")))
+        hsr_items = len(core.as_dict(core.safe_get_dict(self.data, "hsr_users", g_key, u_key).get("items")))
+        dday_cnt = len(core.as_dict(self.data.get("ddays")))
+
+        flat_total = len(self._get_flat_pages())
+
+        desc_lines = [
+            f"👋 **{u_name}**님, 환영합니다! 원하는 카테고리 버튼을 눌러 세부 기능을 실행하세요.",
+            self._format_caller_tier_banner(),
+            "",
+            "```ansi",
+            f"\u001b[1;36m[ 📊 내 실시간 요약 ]\u001b[0m 💎 {crystals:,} 크리스탈  |  💖 오시: {oshi}  |  📅 D-Day: {dday_cnt}개",
+            f"\u001b[1;32m[ 🎮 컬렉션 현황 ]\u001b[0m 프로세카 {sekai_cards}종  ·  원신 {gi_items}종  ·  스타레일 {hsr_items}종",
+            "```",
+            f"• **📅 오늘 출석 상태:** {att_badge}",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            "### 🗂️ 4대 통합 카테고리 (총 14페이지 · 84종 기능)",
+            (
+                "1️⃣ **`[🌐 일반]`** *(3페이지 · `👤 일반 이용자`)*\n"
+                "└ 출석체크·달력·랭킹, D-Day·생일 전광판, 프로세카 미래시, 음악·플리·배속, 서버통계, 파티모집, 날씨, 릴레이소설\n"
+                "2️⃣ **`[⚙️ 고급]`** *(4페이지 · `🛡️ 서버 관리자` & `👑 봇 주인` 구분)*\n"
+                "└ `[🛡️관리자 1~3p]` 역할버튼·반응역할·공지·1:1티켓·임시음성방·고정글·레이드방어·이모지업스케일·감사로그·청소·초기화\n"
+                "└ `[👑봇주인 4p]` 프로세카/원신/스타레일 글로벌 픽업 설정 · VM 터미널 로그 연동 · 전체 DB 백업 & 동기화\n"
+                "3️⃣ **`[🎮 미니게임]`** *(4페이지 · `👤 일반 이용자`)*\n"
+                "└ 프로세카 뽑기·라이브·마스터랭크·의상·마이세카이, 원신 기원, 스타레일 워프, 낚시·대회·수족관, 농장·펫, 타인의삶, 끝말잇기, 룰렛\n"
+                "4️⃣ **`[👤 개인]`** *(3페이지 · `👤 일반 이용자`)*\n"
+                "└ 고화질 PNG 프로필카드, 오시·칭호·송금, 4대 게임 개인 보관함 & 덱/파티 편성, 오늘목표 잔디, 집중모드, 비밀 D-Day, 파트너"
+            ),
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        ]
+
+        embed = discord.Embed(
+            title="⚙️ norosi 통합 설정 허브 (Component V2 컨트롤 타워)",
+            description="\n".join(desc_lines),
+            color=discord.Color.from_rgb(0, 204, 221),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        if self.user and hasattr(self.user, "display_avatar"):
+            embed.set_thumbnail(url=self.user.display_avatar.url)
+        embed.set_footer(
+            text=f"하단 [🌐 일반 / ⚙️ 고급 / 🎮 미니게임 / 👤 개인] 클릭 또는 [◀ / ▶] 통합 페이지네이션 (총 {flat_total}페이지)"
+        )
+        return embed
+
+    def _build_context_summary_for_page(self, category: str, page: int) -> str:
+        """현재 열람 중인 카테고리·페이지에 맞는 실시간 상태 요약 블록 생성"""
+        u_key = str(self.user.id if self.user else 0)
+        g_key = str(self.guild.id if self.guild else 0)
+        u_name = self.user.display_name if self.user else "유저"
+        profile = core.ensure_user_profile(self.data, u_key, u_name)
+
+        if category == "general":
+            if page == 0:
+                dday_cnt = len(core.as_dict(self.data.get("ddays")))
+                bday_cnt = len(core.as_dict(self.data.get("birthdays")))
+                return f"📌 **현황:** 등록된 D-Day `{dday_cnt}개`  ·  등록된 생일 멤버 `{bday_cnt}명`"
+            if page == 1:
+                pls = core.ensure_user_playlists(profile, u_name)
+                vc_txt = "🎶 음성 연결됨" if getattr(self.guild, "voice_client", None) else "⏸️ 음성 대기 중"
+                return f"🎵 **현황:** 내 플레이리스트 `{len(pls)}개`  ·  애청곡 `{len(profile.get('liked_music', []))}곡`  ·  {vc_txt}"
+            g_cnt = getattr(self.guild, "member_count", 1) if self.guild else 1
+            return f"📊 **현황:** 서버 멤버 `{g_cnt:,}명`  ·  실시간 파티 모집·기상청 날씨·협동 소설 즉시 이용 가능"
+
+        if category == "advanced":
+            tier = detect_user_perm_tier_sync(self.user, self.guild)
+            tier_label = PERM_BADGES.get(tier, "👤 일반 이용자")
+            if page < 3:
+                access_ok = "✅ 조작 가능 (관리자 권한 확인됨)" if tier in (PERM_ADMIN, PERM_OWNER) else "🔒 열람 모드 (조작 시 🛡️서버 관리자 권한 필요)"
+                return f"🛡️ **페이지 권한:** `[🛡️ 서버 관리자 전용]`  ·  **내 상태:** {tier_label} → {access_ok}"
+            access_ok = "✅ 조작 가능 (👑봇 주인 확인됨)" if tier == PERM_OWNER else "🔒 잠금됨 (👑봇 주인만 조작 가능 — 일반 관리자 조작 불가)"
+            return f"👑 **페이지 권한:** `[👑 봇 주인 전용]`  ·  **내 상태:** {tier_label} → {access_ok}"
+
+        if category == "minigame":
+            if page == 0:
+                crystals = int(profile.get("crystals", 0))
+                u_gacha = core.safe_get_dict(self.data, "gacha_users", g_key, u_key)
+                cards_cnt = len(core.as_dict(u_gacha.get("cards")))
+                return f"🎤 **프로세카 현황:** 보유 크리스탈 `{crystals:,}💎`  ·  보유 카드 `{cards_cnt}장`  ·  스탬프 `{u_gacha.get('pity_count', 0)}/100`"
+            if page == 1:
+                gi_u = core.safe_get_dict(self.data, "genshin_users", g_key, u_key)
+                hsr_u = core.safe_get_dict(self.data, "hsr_users", g_key, u_key)
+                return (
+                    f"🌠 **원신 스택:** 캐릭터 `{gi_u.get('pity_char', 0)}/90` · 무기 `{gi_u.get('pity_weapon', 0)}/80`  |  "
+                    f"🚄 **스타레일 스택:** 캐릭터 `{hsr_u.get('pity_char', 0)}/90` · 상시 `{hsr_u.get('standard_total_pulls', 0)}/300`"
+                )
+            if page == 2:
+                return "🎣 **낚시 & 생활:** 글로벌 `36,700종` 어종 출조 · 주말/제철 토너먼트 · 개인/공동 농장 · 펫 육성"
+            return "🎲 **인생 & 캐주얼:** 타인의 삶 `1,000종` 멀티엔딩 · 두음법칙 끝말잇기 · 러시안룰렛 · 5대 통합 도감/랭킹"
+
+        # personal
+        if page == 0:
+            crystals = int(profile.get("crystals", 0))
+            oshi = profile.get("oshi") or "미설정"
+            return f"🪪 **내 프로필 요약:** 보유 `{crystals:,}💎`  ·  대표 오시 `{oshi}`  ·  고화질 PNG 프로필카드 즉시 발급"
+        if page == 1:
+            deck_cnt = len(profile.get("deck", []))
+            return f"🎒 **내 보관함 요약:** 프로세카 5인 덱 `{deck_cnt}/5장` 편성 중  ·  원신/스타레일/낚시 보관함 원클릭 관리"
+        todo = core.ensure_user_todo_today(profile)
+        tasks_list = [t for t in (todo.get("tasks") or []) if isinstance(t, dict)]
+        done_cnt = sum(1 for t in tasks_list if t.get("done"))
+        partner_id = profile.get("partner_id")
+        p_txt = f"<@{partner_id}>" if partner_id else "미등록"
+        return f"🌱 **오늘 목표:** `{done_cnt}/{len(tasks_list)}` 완료  ·  💑 **파트너:** {p_txt}"
+
+    def _build_category_page_embed(self, category: str, page: int) -> discord.Embed:
+        cat_meta = CATEGORY_INFO.get(category, CATEGORY_INFO["general"])
+        cat_pages = self._pages_cache.get(category, [])
+        page = max(0, min(page, len(cat_pages) - 1))
+        page_obj = cat_pages[page]
+        items = page_obj.get("items", [])
+
+        global_cur, global_tot = self._get_global_page_info(category, page)
+        r, g, b = cat_meta["color"]
+
+        num_badges = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣"]
+        item_lines = []
+        for idx, it in enumerate(items[:6]):
+            nb = num_badges[idx] if idx < len(num_badges) else "•"
+            p_tag = PERM_SHORT_BADGES.get(it.get("perm", PERM_USER), "👤일반")
+            item_lines.append(
+                f"{nb} **`[{it['emoji']} {it['label']}]`** `[{p_tag}]`\n"
+                f"   └ {it['desc']}"
+            )
+
+        ctx_line = self._build_context_summary_for_page(category, page)
+
+        desc_lines = [
+            f"🧭 **위치:** `⚙️ 설정 홈`  ›  **`{cat_meta['label']}`**  ›  **`페이지 {page + 1} / {len(cat_pages)}`** *(통합 `{global_cur} / {global_tot}p`)*",
+            f"🔐 **권한 구분:** {cat_meta['perm_summary']}",
+            ctx_line,
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            f"### {page_obj['page_title']}",
+            "\n".join(item_lines),
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        ]
+
+        embed = discord.Embed(
+            title=f"{cat_meta['title']} ({page + 1}/{len(cat_pages)}p)",
+            description="\n".join(desc_lines),
+            color=discord.Color.from_rgb(r, g, b),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.set_footer(
+            text=f"[⬅️ 뒤로가기: 설정 홈]  •  [◀ 이전 / 다음 ▶: 통합 14p 페이지네이션]  •  현재 통합 {global_cur}/{global_tot}페이지"
+        )
+        return embed
+
+    def _build_sub_mode_embed(self) -> discord.Embed:
+        sub_def = self._get_sub_mode_definition()
+        cat_meta = CATEGORY_INFO.get(self.current_category, CATEGORY_INFO["general"])
+        r, g, b = cat_meta["color"]
+        req_perm = sub_def.get("perm", PERM_USER)
+        perm_txt = PERM_BADGES.get(req_perm, "👤 일반 이용자")
+
+        btn_lines = []
+        for b_label, b_emoji, _, _ in sub_def.get("buttons", []):
+            btn_lines.append(f"• **`[{b_emoji} {b_label}]`**")
+
+        desc_lines = [
+            f"🧭 **위치:** `⚙️ 설정 홈`  ›  `{cat_meta['label']} ({self.current_page + 1}p)`  ›  **`{sub_def['title']}`**",
+            f"🔐 **요구 권한:** `{perm_txt}`",
+            "",
+            sub_def.get("desc", ""),
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            "### 🎛️ 실행 가능한 세부 기능",
+            "\n".join(btn_lines),
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        ]
+
+        embed = discord.Embed(
+            title=sub_def["title"],
+            description="\n".join(desc_lines),
+            color=discord.Color.from_rgb(r, g, b),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.set_footer(text="[⬅️ 뒤로가기]를 누르면 이전 카테고리 페이지로 돌아가며, [🏠 설정 홈으로]를 누르면 메인으로 복귀합니다.")
+        return embed
+
+    async def _enter_sub_mode(self, interaction: discord.Interaction, mode_key: str):
+        self.sub_mode = mode_key
+        self.refresh_components()
+        await core.safe_edit_response(interaction, embed=self.build_current_embed(), view=self)
+
+    # ==========================================================
+    # 🌐 1. 일반 (General) 콜백 구현부
+    # ==========================================================
+    async def _act_attendance(self, interaction: discord.Interaction):
         try:
             await core.safe_defer(interaction)
-            embed, file, view = await dday.execute_and_build_attendance_response(interaction, self.bot)
+            embed, file, view = await dday.execute_and_build_attendance_response(interaction, self.bot or interaction.client)
             self.data = await asyncio.to_thread(core.load_data)
             self.refresh_components()
             try:
-                await interaction.message.edit(embed=self.build_current_embed(), view=self)
+                if interaction.message:
+                    await interaction.message.edit(embed=self.build_current_embed(), view=self)
             except Exception:
                 pass
             if file:
@@ -1059,45 +2441,1272 @@ class MasterDashboardView(core.SafeView):
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 출석체크 처리 중 오류: {e}", ephemeral=True)
 
-    async def _on_pull_10_clicked(self, interaction: discord.Interaction):
+    async def _act_att_calendar(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            guild_id = interaction.guild_id or 0
+            guild_name = interaction.guild.name if interaction.guild else "개인 메시지(DM)"
+            cal_info = await asyncio.to_thread(
+                core.build_monthly_attendance_calendar,
+                guild_id,
+                guild_name,
+                interaction.user.id,
+                interaction.user.display_name,
+            )
+            view = dday.AttendanceCalendarView(self.bot or interaction.client, interaction.user, cal_info)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 출석 달력 로드 중 오류: {e}", ephemeral=True)
+
+    async def _act_att_ranking(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            init_scope = "guild" if interaction.guild else "global"
+            view = dday.AttendanceRankingView(interaction, data, initial_scope=init_scope, initial_sort="total")
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 출석 랭킹 조회 중 오류: {e}", ephemeral=True)
+
+    async def _act_dday_list(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            view = dday.DDayListBoardView(self.bot or interaction.client, interaction.user, data)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ D-Day 전광판 조회 중 오류: {e}", ephemeral=True)
+
+    async def _act_birthday_board(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            view = dday.BirthdayBoardView(interaction.user, interaction.guild, data)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 생일 전광판 조회 중 오류: {e}", ephemeral=True)
+
+    async def _act_sekai_schedule_hub(self, interaction: discord.Interaction):
+        await self._enter_sub_mode(interaction, "sekai_schedule")
+
+    async def _sub_sekai_forecast_cal(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            now = datetime.datetime.now(core.KST)
+            view = dday.EventForecastView(interaction.user, now.year, now.month)
+            embed = await asyncio.to_thread(view.build_embed)
+            await interaction.followup.send(embed=embed, view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 미래시 조회 중 오류: {e}", ephemeral=True)
+
+    async def _sub_sekai_live_kr(self, interaction: discord.Interaction):
+        await self._send_sekai_live_event(interaction, "kr")
+
+    async def _sub_sekai_live_jp(self, interaction: discord.Interaction):
+        await self._send_sekai_live_event(interaction, "jp")
+
+    async def _send_sekai_live_event(self, interaction: discord.Interaction, server_code: str):
+        try:
+            await core.safe_defer(interaction)
+            info = await asyncio.to_thread(core.fetch_live_event_and_gacha_info, server_code)
+            ev = info.get("event")
+            gachas = info.get("gachas", [])
+            embed = discord.Embed(
+                title=f"🎶 프로세카 {info.get('server_label', server_code.upper())} 실시간 이벤트 & 가챠",
+                color=discord.Color.from_rgb(0, 204, 221),
+                timestamp=datetime.datetime.now(core.KST),
+            )
+            if ev:
+                ev_name = ev.get("name", "제목 없음")
+                ev_type = core.EVENT_TYPE_MAP.get(ev.get("eventType", ""), "🎵 이벤트")
+                start_ms = ev.get("startAt", 0)
+                end_ms = ev.get("aggregateAt") or ev.get("closedAt") or 0
+                start_dt = datetime.datetime.fromtimestamp(start_ms / 1000, tz=core.KST).strftime("%Y-%m-%d %H:%M") if start_ms else "-"
+                end_dt = datetime.datetime.fromtimestamp(end_ms / 1000, tz=core.KST).strftime("%Y-%m-%d %H:%M") if end_ms else "-"
+                galaxy_bar = core.get_timestamp_galaxy_bar(start_ms, end_ms)
+                embed.add_field(
+                    name=f"🏆 [{info.get('event_status', '진행중')}] {ev_name}",
+                    value=f"• **종류:** {ev_type} (ID: `{ev.get('id')}`)\n• **기간:** `{start_dt}` ~ `{end_dt}` (KST)\n└ {galaxy_bar}",
+                    inline=False,
+                )
+            if gachas:
+                g_lines = []
+                for g_item in gachas[:5]:
+                    g_name = g_item.get("name", "가챠")
+                    g_end_ms = g_item.get("endAt", 0)
+                    g_end_dt = datetime.datetime.fromtimestamp(g_end_ms / 1000, tz=core.KST).strftime("%m/%d %H:%M") if g_end_ms else "-"
+                    g_lines.append(f"• **{g_name}** (종료: `{g_end_dt}`)")
+                embed.add_field(name=f"🎰 진행 중인 가챠 배너 ({len(gachas)}개)", value="\n".join(g_lines), inline=False)
+            view = gacha.EventInfoView(self.bot or interaction.client, interaction.user)
+            await interaction.followup.send(embed=embed, view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 실시간 이벤트 조회 오류: {e}", ephemeral=True)
+
+    async def _act_playlist_studio(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            view = music.PlaylistStudioView(interaction.user, interaction.user, data)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 플레이리스트 스튜디오 오류: {e}", ephemeral=True)
+
+    async def _act_music_now(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            prefs = core.as_dict(data.get("music_prefs")) or core.DEFAULT_CONFIG["music_prefs"]
+            track_info, err = await core.get_recommended_music(prefs)
+            if err or not track_info:
+                await interaction.followup.send(f"❌ **음악 선곡 실패:** {err or '추천 곡을 찾을 수 없습니다.'}", ephemeral=True)
+                return
+            bot_ref = self.bot or interaction.client
+            embed, view = bot_ref.build_music_embed_and_view(track_info, prefs, is_morning=False)
+            await interaction.followup.send(embed=embed, view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 음악 추천 중 오류: {e}", ephemeral=True)
+
+    async def _act_music_vault(self, interaction: discord.Interaction):
+        try:
+            music_cog = self._find_cog_with_attr("my_music_library_cmd")
+            if music_cog:
+                await music_cog.my_music_library_cmd.callback(music_cog, interaction)
+            else:
+                await core.safe_send_response(interaction, "❌ 음악 모듈을 찾을 수 없습니다.", ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 내 음악보관함 로드 오류: {e}", ephemeral=True)
+
+    async def _act_music_voice_hub(self, interaction: discord.Interaction):
+        await self._enter_sub_mode(interaction, "music_voice")
+
+    def _make_speed_cb(self, speed_val: float) -> Callable[[discord.Interaction], Awaitable[None]]:
+        async def _cb(interaction: discord.Interaction):
+            try:
+                music_cog = self._find_cog_with_attr("playback_speed_cmd")
+                if music_cog:
+                    choice_obj = app_commands.Choice(name=f"{speed_val}x", value=speed_val)
+                    await music_cog.playback_speed_cmd.callback(music_cog, interaction, 속도=choice_obj)
+                else:
+                    await core.safe_send_response(interaction, "❌ 음악 모듈을 찾을 수 없습니다.", ephemeral=True)
+            except Exception as e:
+                await core.safe_send_response(interaction, f"❌ 배속 변경 오류: {e}", ephemeral=True)
+        return _cb
+
+    async def _act_music_headset_toggle(self, interaction: discord.Interaction):
+        try:
+            music_cog = self._find_cog_with_attr("headset_deafen_cmd")
+            if music_cog:
+                await music_cog.headset_deafen_cmd.callback(music_cog, interaction, 모드=None)
+            else:
+                await core.safe_send_response(interaction, "❌ 음악 모듈을 찾을 수 없습니다.", ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 헤드셋 제어 오류: {e}", ephemeral=True)
+
+    async def _act_audio_test(self, interaction: discord.Interaction):
+        try:
+            voice_state = interaction.user.voice if isinstance(interaction.user, discord.Member) else None
+            if not voice_state or not voice_state.channel:
+                await core.safe_send_response(
+                    interaction,
+                    "❌ 먼저 오디오를 진단할 **음성채널**에 입장하신 뒤 버튼을 눌러주세요!",
+                    ephemeral=True,
+                )
+                return
+            music_cog = self._find_cog_with_attr("audio_test_cmd")
+            if music_cog:
+                await music_cog.audio_test_cmd.callback(music_cog, interaction)
+            else:
+                await core.safe_send_response(interaction, "❌ 오디오 진단 모듈을 찾을 수 없습니다.", ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 오디오 진단 중 오류: {e}", ephemeral=True)
+
+    async def _act_server_stats(self, interaction: discord.Interaction):
+        try:
+            if not interaction.guild:
+                await core.safe_send_response(interaction, "❌ 서버 채널에서만 조회할 수 있습니다.", ephemeral=True)
+                return
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            embed = stats.build_server_stats_embed(interaction.guild, data)
+            view = stats.ServerStatsDashboardView(interaction.guild, data, user=interaction.user)
+            await interaction.followup.send(embed=embed, view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 서버 통계 생성 중 오류: {e}", ephemeral=True)
+
+    async def _act_recruit(self, interaction: discord.Interaction):
+        try:
+            if not interaction.guild:
+                await core.safe_send_response(interaction, "❌ 서버 채널에서만 모집할 수 있습니다.", ephemeral=True)
+                return
+            await interaction.response.send_modal(stats.RecruitModal())
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 파티 모집 모달 열기 실패: {e}", ephemeral=True)
+
+    async def _act_weather(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            w_info, err = await asyncio.to_thread(core.fetch_accurate_weather_sync, "서울")
+            if err or not w_info:
+                await interaction.followup.send(f"❌ **날씨 조회 실패:** {err}", ephemeral=True)
+                return
+            view = stats.WeatherRefreshView("서울", w_info, user=interaction.user)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 날씨 조회 중 오류: {e}", ephemeral=True)
+
+    async def _act_relay_novel_hub(self, interaction: discord.Interaction):
+        await self._enter_sub_mode(interaction, "relay_novel")
+
+    async def _sub_relay_start(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+        await interaction.response.send_modal(RelayStartQuickModal(self.bot or interaction.client))
+
+    async def _sub_relay_status(self, interaction: discord.Interaction):
+        comm_cog = self._find_cog_with_attr("relay_status_cmd")
+        if comm_cog:
+            await comm_cog.relay_status_cmd.callback(comm_cog, interaction)
+        else:
+            await core.safe_send_response(interaction, "❌ 릴레이 소설 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_relay_archive(self, interaction: discord.Interaction):
+        comm_cog = self._find_cog_with_attr("relay_list_cmd")
+        if comm_cog:
+            await comm_cog.relay_list_cmd.callback(comm_cog, interaction)
+        else:
+            await core.safe_send_response(interaction, "❌ 릴레이 소설 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_relay_cancel(self, interaction: discord.Interaction):
+        comm_cog = self._find_cog_with_attr("relay_cancel_cmd")
+        if comm_cog:
+            await comm_cog.relay_cancel_cmd.callback(comm_cog, interaction)
+        else:
+            await core.safe_send_response(interaction, "❌ 릴레이 소설 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _act_suggestion(self, interaction: discord.Interaction):
+        try:
+            sugg_view = stats.SuggestionTypeSelectView(self.bot or interaction.client)
+            await core.safe_send_response(interaction, embed=sugg_view.build_overview_embed(), view=sugg_view, ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 건의함 열기 실패: {e}", ephemeral=True)
+
+    async def _act_open_help(self, interaction: discord.Interaction):
+        try:
+            embed = help_cog.build_help_embed("all", "", 0)
+            view = help_cog.HelpCategoryView(bot_instance=self.bot or interaction.client, category="all", search_kw="", author=interaction.user)
+            await core.safe_send_response(interaction, embed=embed, view=view, ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 도움말 열기 실패: {e}", ephemeral=True)
+
+    # ==========================================================
+    # ⚙️ 2. 고급 (Advanced) 콜백 구현부 (서버 관리자 vs 봇 주인 엄격 분리)
+    # ==========================================================
+    async def _act_admin_quick_role(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="사진 스타일 역할버튼 제작", require_roles_perm=True):
+            return
+        await interaction.response.send_modal(roles.QuickRoleButtonModal(target_channel=interaction.channel))
+
+    async def _act_admin_role_studio(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="반응역할 종합 스튜디오", require_roles_perm=True):
+            return
+        studio = roles.ReactionRoleStudioView(interaction.guild, interaction.user)
+        await core.safe_send_response(interaction, embed=studio.build_dashboard_embed(), view=studio, ephemeral=True)
+
+    async def _act_admin_role_list(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="반응역할 전체 목록", require_roles_perm=True):
+            return
+        roles_cog = self._find_cog_with_attr("list_reaction_roles_cmd")
+        if roles_cog:
+            await roles_cog.list_reaction_roles_cmd.callback(roles_cog, interaction)
+        else:
+            await core.safe_defer(interaction, ephemeral=True)
+            data = await asyncio.to_thread(core.load_data)
+            guild_rr = core.get_guild_reaction_roles(data, interaction.guild.id)
+            if not guild_rr:
+                await interaction.followup.send("📭 현재 서버에 등록된 반응역할 패널이 없습니다.", ephemeral=True)
+                return
+            entries = list(guild_rr.items())
+            view = roles.ReactionRoleListView(interaction.guild.id, entries)
+            await interaction.followup.send(embed=view.build_embed(interaction.guild), view=view, ephemeral=True)
+
+    async def _act_admin_announce(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="스마트 공지 발송"):
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        preview_view = logger.AnnouncementPreviewView(
+            author=interaction.user,
+            guild=interaction.guild,
+            target_channel=interaction.channel,
+            title="서버 공식 소식 및 안내사항",
+            content=(
+                "안녕하세요, 서버 멤버 여러분!\n\n"
+                "하단의 **`[✏️ 내용/제목 수정]`** 버튼을 눌러 본문을 작성하거나,\n"
+                "**`[📋 추천 공지 템플릿 불러오기]`** 드롭다운에서 템플릿을 선택해 보세요!"
+            ),
+        )
+        await interaction.followup.send(
+            content=preview_view.build_preview_content(),
+            embed=preview_view.build_embed(),
+            view=preview_view,
+            ephemeral=True,
+        )
+
+    async def _act_admin_ticket_hub(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="1:1 문의 티켓 설정"):
+            return
+        await self._enter_sub_mode(interaction, "admin_ticket")
+
+    async def _sub_ticket_create_panel(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="1:1 티켓 패널 생성"):
+            return
+        ticket_cog = self._find_cog_with_attr("ticket_panel_cmd")
+        if ticket_cog:
+            await ticket_cog.ticket_panel_cmd.callback(ticket_cog, interaction, 채널=None, 제목=None, 설명=None)
+        else:
+            await core.safe_send_response(interaction, "❌ 티켓 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_ticket_role_config(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="1:1 티켓 역할 설정"):
+            return
+        ticket_cog = self._find_cog_with_attr("ticket_config_cmd")
+        if ticket_cog:
+            await ticket_cog.ticket_config_cmd.callback(
+                ticket_cog,
+                interaction,
+                패널채널=None,
+                담당자역할=None,
+                카테고리=None,
+                로그채널=None,
+                방식=None,
+                최대티켓수=None,
+            )
+        else:
+            await core.safe_send_response(interaction, "❌ 티켓 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _act_admin_ticket_list(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="1:1 티켓 내역 조회"):
+            return
+        ticket_cog = self._find_cog_with_attr("ticket_list_cmd")
+        if ticket_cog:
+            await ticket_cog.ticket_list_cmd.callback(ticket_cog, interaction)
+        else:
+            await core.safe_send_response(interaction, "❌ 티켓 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _act_admin_temp_voice(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="임시 음성방 설정", require_channels_perm=True):
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        data = await asyncio.to_thread(core.load_data)
+        cfg = community_core.get_temp_voice_config(data, interaction.guild.id)
+        setup_view = community.TempVoiceSetupView(interaction.user.id, interaction.guild, cfg)
+        await interaction.followup.send(embed=setup_view.build_embed(), view=setup_view, ephemeral=True)
+
+    async def _act_admin_sticky_hub(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="자동 고정메시지 관리", require_messages_perm=True):
+            return
+        await self._enter_sub_mode(interaction, "admin_sticky")
+
+    async def _sub_sticky_set(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="고정메시지 설정", require_messages_perm=True):
+            return
+        if not isinstance(interaction.channel, (discord.TextChannel, discord.Thread)):
+            await core.safe_send_response(interaction, "❌ 텍스트 채널 또는 스레드에서만 설정할 수 있습니다.", ephemeral=True)
+            return
+        data = await asyncio.to_thread(core.load_data)
+        existing = community_core.get_sticky_config(data, interaction.guild.id, interaction.channel.id)
+        modal = community.StickyConfigModal(interaction.channel, interval=1, color="gold", existing=existing)
+        await interaction.response.send_modal(modal)
+
+    async def _sub_sticky_list(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="고정메시지 목록", require_messages_perm=True):
+            return
+        comm_cog = self._find_cog_with_attr("sticky_list_cmd")
+        if comm_cog:
+            await comm_cog.sticky_list_cmd.callback(comm_cog, interaction)
+        else:
+            await core.safe_send_response(interaction, "❌ 커뮤니티 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_sticky_remove(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="고정메시지 해제", require_messages_perm=True):
+            return
+        comm_cog = self._find_cog_with_attr("sticky_remove_cmd")
+        if comm_cog:
+            await comm_cog.sticky_remove_cmd.callback(comm_cog, interaction, 채널=None)
+        else:
+            await core.safe_send_response(interaction, "❌ 커뮤니티 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _act_admin_link_fix(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="SNS 링크보정 설정"):
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        data = await asyncio.to_thread(core.load_data)
+        cfg = community_core.get_link_preview_config(data, interaction.guild.id)
+        view = community.LinkPreviewConfigView(interaction.user.id, interaction.guild, cfg)
+        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+
+    async def _act_admin_raid_def(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="레이드 비상방어 설정", require_strict_admin=True):
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        data = await asyncio.to_thread(core.load_data)
+        cfg = community_core.get_raid_defense_config(data, interaction.guild.id)
+        view = community.RaidDefenseConfigView(interaction.user.id, interaction.guild, cfg)
+        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+
+    async def _act_admin_emoji_upscale(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="이모지 업스케일 설정"):
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        enabled = core.is_emoji_upscale_enabled(interaction.guild.id)
+        view = emoji_upscale.EmojiUpscaleConfigView(bot=self.bot or interaction.client, guild_id=interaction.guild.id)
+        emb = emoji_upscale.build_emoji_upscale_embed(interaction.guild, interaction.channel, enabled)
+        await interaction.followup.send(embed=emb, view=view, ephemeral=True)
+
+    async def _act_admin_audit_log(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="실시간 감사로그 설정"):
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        data = await asyncio.to_thread(core.load_data)
+        g_key = str(interaction.guild.id)
+        logs_dict = core.ensure_dict_path(data, "server_logs")
+        if not isinstance(logs_dict.get(g_key), dict):
+            logs_dict[g_key] = {"channel_id": None, "enabled": False, "events": {}}
+        guild_cfg = logs_dict[g_key]
+        hub_view = logger.ServerLogHubView(interaction.guild, guild_cfg)
+        await interaction.followup.send(embed=hub_view.build_embed(), view=hub_view, ephemeral=True)
+
+    async def _act_admin_purge(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="채널 메시지 청소", require_messages_perm=True):
+            return
+        await interaction.response.send_modal(DashboardMessagePurgeModal(self.bot or interaction.client))
+
+    async def _act_admin_inactive(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="비활성 멤버 감사", require_strict_admin=True):
+            return
+        await interaction.response.send_modal(DashboardInactiveAuditModal(self.bot or interaction.client))
+
+    async def _act_admin_dday_hub(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="서버 D-Day 관리", require_channels_perm=True):
+            return
+        await self._enter_sub_mode(interaction, "admin_dday")
+
+    async def _act_add_dday_modal(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="새 D-Day 등록", require_channels_perm=True):
+            return
+        await interaction.response.send_modal(DashboardDDayAddModal(self))
+
+    async def _sub_dday_past(self, interaction: discord.Interaction):
+        dday_cog = self._find_cog_with_attr("past_dday_cmd")
+        if dday_cog:
+            await dday_cog.past_dday_cmd.callback(dday_cog, interaction)
+        else:
+            await core.safe_send_response(interaction, "❌ D-Day 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_dday_set_alert_ch(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="D-Day 알림채널 설정", require_channels_perm=True):
+            return
+        if not isinstance(interaction.channel, discord.TextChannel):
+            await core.safe_send_response(interaction, "❌ 텍스트 채널에서만 지정할 수 있습니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+
+        def _save_ch():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                settings = core.ensure_dict_path(data, "settings")
+                settings["dday_alert_channel_id"] = interaction.channel.id
+                core.save_data(data)
+
+        await asyncio.to_thread(_save_ch)
+        await interaction.followup.send(
+            f"✅ 매일 오전 9시 D-Day 정기 브리핑 채널이 {interaction.channel.mention} 채널로 설정되었습니다!",
+            ephemeral=True,
+        )
+
+    async def _act_admin_music_sched_hub(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="음악 스케줄러 설정"):
+            return
+        await self._enter_sub_mode(interaction, "admin_music_sched")
+
+    async def _sub_music_set_morning_ch(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="모닝 음악추천 채널 설정"):
+            return
+        if not isinstance(interaction.channel, discord.TextChannel):
+            await core.safe_send_response(interaction, "❌ 텍스트 채널에서만 지정할 수 있습니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+
+        def _save_m():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                prefs = core.ensure_dict_path(data, "music_prefs")
+                prefs["channel_id"] = interaction.channel.id
+                core.save_data(data)
+
+        await asyncio.to_thread(_save_m)
+        await interaction.followup.send(
+            f"🌅 매일 오전 7시 모닝 음악 추천 채널이 {interaction.channel.mention} 채널로 설정되었습니다!",
+            ephemeral=True,
+        )
+
+    async def _sub_music_custom_sched(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="맞춤 음악알람 스케줄러"):
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        data = await asyncio.to_thread(core.load_data)
+        schedules = data.get("custom_music_schedules") if isinstance(data.get("custom_music_schedules"), list) else []
+        view = music.MusicScheduleHubView(schedules, interaction.channel, guild=interaction.guild)
+        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+
+    async def _act_admin_github_webhook(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="GitHub 배포알림 연동"):
+            return
+        logger_cog = self._find_cog_with_attr("_execute_github_webhook")
+        if logger_cog:
+            await logger_cog._execute_github_webhook(interaction, 채널=None, 역할멘션=None, 연동해제=False, 동작=None)
+        else:
+            await core.safe_send_response(interaction, "❌ 로거 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _act_admin_reset_hub(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="서버 데이터 초기화", require_strict_admin=True):
+            return
+        await self._enter_sub_mode(interaction, "admin_reset")
+
+    async def _sub_reset_dday(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="D-Day/음악 데이터 초기화", require_strict_admin=True):
+            return
+        view = dday.ResetConfirmView(self.bot or interaction.client)
+        await core.safe_send_response(
+            interaction,
+            "⚠️ **정말로 모든 D-Day(생성된 전광판 채널 포함) 및 음악 설정을 초기화하시겠습니까?**",
+            view=view,
+            ephemeral=True,
+        )
+
+    async def _sub_reset_sekai(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="프로세카 서버 보관함 초기화", require_strict_admin=True):
+            return
+        view = gacha.GuildGachaResetConfirmView(interaction.guild)
+        await core.safe_send_response(
+            interaction,
+            f"⚠️ **정말로 `{interaction.guild.name}` 서버의 모든 유저 프로세카 캐릭터 보관함을 초기화하시겠습니까?**",
+            view=view,
+            ephemeral=True,
+        )
+
+    async def _sub_reset_genshin(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="원신 서버 데이터 초기화", require_strict_admin=True):
+            return
+        view = genshin.GenshinGuildResetConfirmView(interaction.guild.id, interaction.user)
+        await core.safe_send_response(
+            interaction,
+            f"⚠️ **정말로 `{interaction.guild.name}` 서버의 원신 기원/보관함 데이터를 초기화하시겠습니까?**",
+            view=view,
+            ephemeral=True,
+        )
+
+    async def _sub_reset_hsr(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="스타레일 서버 데이터 초기화", require_strict_admin=True):
+            return
+        view = hsr.HSRGuildResetConfirmView(interaction.guild.id, interaction.user)
+        await core.safe_send_response(
+            interaction,
+            f"⚠️ **정말로 `{interaction.guild.name}` 서버의 스타레일 워프/보관함 데이터를 초기화하시겠습니까?**",
+            view=view,
+            ephemeral=True,
+        )
+
+    # ----------------------------------------------------
+    # 👑 [봇 주인 전용] (Page 4 of Advanced)
+    # ----------------------------------------------------
+    async def _act_owner_sekai_pickup_hub(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="프로세카 글로벌 픽업 설정"):
+            return
+        await self._enter_sub_mode(interaction, "owner_sekai_pickup")
+
+    async def _sub_owner_sekai_auto(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="프로세카 한섭 이벤트 자동 픽업"):
+            return
+        gacha_cog = self._find_cog_with_attr("set_pickup_cmd")
+        if gacha_cog:
+            choice_auto = app_commands.Choice(name="🎯 현재 한섭 이벤트에 자동 맞추기", value="auto_event")
+            await gacha_cog.set_pickup_cmd.callback(
+                gacha_cog,
+                interaction,
+                모드=choice_auto,
+                유닛=None,
+                캐릭터=None,
+                한정포함=None,
+                배너이름=None,
+            )
+        else:
+            await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_owner_sekai_reset(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="프로세카 픽업 초기화"):
+            return
+        gacha_cog = self._find_cog_with_attr("set_pickup_cmd")
+        if gacha_cog:
+            choice_reset = app_commands.Choice(name="🔄 기본 픽업으로 초기화", value="reset")
+            await gacha_cog.set_pickup_cmd.callback(
+                gacha_cog,
+                interaction,
+                모드=choice_reset,
+                유닛=None,
+                캐릭터=None,
+                한정포함=None,
+                배너이름=None,
+            )
+        else:
+            await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _act_owner_gi_pickup_hub(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="원신 글로벌 픽업 설정"):
+            return
+        await self._enter_sub_mode(interaction, "owner_gi_pickup")
+
+    async def _sub_owner_gi_auto(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="원신 KST 자동 로테이션 설정"):
+            return
+        gi_cog = self._find_cog_with_attr("genshin_pickup_cmd")
+        if gi_cog:
+            choice_auto = app_commands.Choice(name="⏰ KST 시각별 자동 로테이션", value="auto_kst")
+            await gi_cog.genshin_pickup_cmd.callback(
+                gi_cog,
+                interaction,
+                프리셋=choice_auto,
+                캐릭터1=None,
+                캐릭터2=None,
+                사성1=None,
+                사성2=None,
+                사성3=None,
+                무기1=None,
+                무기2=None,
+                성유물1=None,
+                성유물2=None,
+                배너이름=None,
+            )
+        else:
+            await core.safe_send_response(interaction, "❌ 원신 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_owner_gi_reset(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="원신 기본 픽업 초기화"):
+            return
+        gi_cog = self._find_cog_with_attr("genshin_pickup_cmd")
+        if gi_cog:
+            choice_def = app_commands.Choice(name="🔄 기본 픽업으로 초기화", value="default")
+            await gi_cog.genshin_pickup_cmd.callback(
+                gi_cog,
+                interaction,
+                프리셋=choice_def,
+                캐릭터1=None,
+                캐릭터2=None,
+                사성1=None,
+                사성2=None,
+                사성3=None,
+                무기1=None,
+                무기2=None,
+                성유물1=None,
+                성유물2=None,
+                배너이름=None,
+            )
+        else:
+            await core.safe_send_response(interaction, "❌ 원신 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _act_owner_hsr_pickup_hub(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="스타레일 글로벌 픽업 설정"):
+            return
+        await self._enter_sub_mode(interaction, "owner_hsr_pickup")
+
+    async def _sub_owner_hsr_auto(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="스타레일 KST 자동 로테이션 설정"):
+            return
+        hsr_cog = self._find_cog_with_attr("hsr_pickup_cmd")
+        if hsr_cog:
+            choice_auto = app_commands.Choice(name="⏰ KST 시각별 자동 로테이션", value="auto_kst")
+            await hsr_cog.hsr_pickup_cmd.callback(
+                hsr_cog,
+                interaction,
+                프리셋=choice_auto,
+                캐릭터1=None,
+                캐릭터2=None,
+                사성1=None,
+                사성2=None,
+                사성3=None,
+                광추1=None,
+                광추2=None,
+                유물1=None,
+                유물2=None,
+                배너이름=None,
+            )
+        else:
+            await core.safe_send_response(interaction, "❌ 스타레일 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_owner_hsr_reset(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="스타레일 기본 픽업 초기화"):
+            return
+        hsr_cog = self._find_cog_with_attr("hsr_pickup_cmd")
+        if hsr_cog:
+            choice_def = app_commands.Choice(name="🔄 기본 픽업으로 초기화", value="default")
+            await hsr_cog.hsr_pickup_cmd.callback(
+                hsr_cog,
+                interaction,
+                프리셋=choice_def,
+                캐릭터1=None,
+                캐릭터2=None,
+                사성1=None,
+                사성2=None,
+                사성3=None,
+                광추1=None,
+                광추2=None,
+                유물1=None,
+                유물2=None,
+                배너이름=None,
+            )
+        else:
+            await core.safe_send_response(interaction, "❌ 스타레일 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _act_owner_terminal_hub(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="VM 터미널 실시간 로그 연동"):
+            return
+        await self._enter_sub_mode(interaction, "owner_terminal")
+
+    async def _sub_owner_term_bind(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="터미널 로그 채널 연동"):
+            return
+        if not isinstance(interaction.channel, discord.TextChannel):
+            await core.safe_send_response(interaction, "❌ 텍스트 채널에서만 지정할 수 있습니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        g_key = str(interaction.guild_id or "global")
+        ch_id = interaction.channel.id
+
+        def _bind():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                s_dict = core.ensure_dict_path(data, "settings")
+                t_map = core.ensure_dict_path(data, "settings", "terminal_log_channels")
+                t_map[g_key] = ch_id
+                s_dict["terminal_log_channel_id"] = ch_id
+                core.save_data(data)
+                return len(t_map)
+
+        cnt = await asyncio.to_thread(_bind)
+        await interaction.followup.send(
+            f"🖥️ **VM 서버 터미널 실시간 로그 채널 지정 완료:** 이제부터 터미널(`stdout`/`stderr`) 로그가 {interaction.channel.mention} 채널에 기록됩니다! (연동 서버: `{cnt}개`)",
+            ephemeral=True,
+        )
+
+    async def _sub_owner_term_unbind(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="터미널 로그 채널 해제"):
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        g_key = str(interaction.guild_id or "global")
+
+        def _unbind():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                s_dict = core.ensure_dict_path(data, "settings")
+                t_map = core.ensure_dict_path(data, "settings", "terminal_log_channels")
+                t_map.pop(g_key, None)
+                if not t_map:
+                    s_dict["terminal_log_channel_id"] = None
+                core.save_data(data)
+
+        await asyncio.to_thread(_unbind)
+        await interaction.followup.send("🛑 현재 서버의 VM 터미널 실시간 로그 전송이 해제되었습니다.", ephemeral=True)
+
+    async def _act_owner_backup_sync_hub(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="전체 DB 백업 & 슬래시 동기화"):
+            return
+        await self._enter_sub_mode(interaction, "owner_backup_sync")
+
+    async def _sub_owner_backup_guild(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="서버 구조 JSON 백업"):
+            return
+        stats_cog = self._find_cog_with_attr("server_backup_cmd")
+        if stats_cog:
+            choice_g = app_commands.Choice(name="🏢 현재 서버 구조 백업", value="guild")
+            await stats_cog.server_backup_cmd.callback(stats_cog, interaction, 모드=choice_g)
+        else:
+            await core.safe_send_response(interaction, "❌ 백업 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_owner_backup_db(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="전체 봇 DB JSON 백업"):
+            return
+        stats_cog = self._find_cog_with_attr("server_backup_cmd")
+        if stats_cog:
+            choice_db = app_commands.Choice(name="🗄️ 봇 전체 DB 백업", value="full_db")
+            await stats_cog.server_backup_cmd.callback(stats_cog, interaction, 모드=choice_db)
+        else:
+            await core.safe_send_response(interaction, "❌ 백업 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_owner_sync_panel(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="슬래시 명령어 동기화"):
+            return
+        import bot as bot_mod
+        sync_view = bot_mod.SyncControlView(author=interaction.user, guild=interaction.guild)
+        embed = discord.Embed(
+            title="⚡ [봇 주인 전용] 슬래시 명령어 즉시 동기화 제어판",
+            description="현재 서버에 슬래시 명령어를 0초 즉시 반영하거나 글로벌 전역 동기화를 실행할 수 있습니다.",
+            color=discord.Color.green(),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        await core.safe_send_response(interaction, embed=embed, view=sync_view, ephemeral=True)
+
+    async def _act_bot_host_status(self, interaction: discord.Interaction):
+        bot_ref = self.bot or interaction.client
+        is_owner = await bot_ref.is_bot_owner_user(interaction.user) if hasattr(bot_ref, "is_bot_owner_user") else False
+        is_admin = False
+        if interaction.guild and isinstance(interaction.user, discord.Member):
+            is_admin = interaction.user.guild_permissions.administrator or interaction.user.guild_permissions.manage_guild
+        if not (is_owner or is_admin):
+            await core.safe_send_response(
+                interaction,
+                "🚨 **권한 부족:** 호스트 시스템 리소스 모니터링은 **🛡️ 서버 관리자** 또는 **👑 봇 주인**만 열람할 수 있습니다.",
+                ephemeral=True,
+            )
+            return
+        stats_cog = self._find_cog_with_attr("host_system_stats_cmd")
+        if stats_cog:
+            await stats_cog.host_system_stats_cmd.callback(stats_cog, interaction)
+        else:
+            await core.safe_send_response(interaction, "❌ 통계 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    # ==========================================================
+    # 🎮 3. 미니게임 (Minigames) 콜백 구현부
+    # ==========================================================
+    async def _act_sekai_pull_10(self, interaction: discord.Interaction):
         try:
             repull_view = gacha.GachaPullAgainView(interaction.user)
             await repull_view._handle_repull(interaction, 10)
         except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 가챠 실행 중 오류: {e}", ephemeral=True)
+            await core.safe_send_response(interaction, f"❌ 프로세카 10회 뽑기 오류: {e}", ephemeral=True)
 
-    async def _on_pull_1_clicked(self, interaction: discord.Interaction):
+    async def _act_sekai_pull_1(self, interaction: discord.Interaction):
         try:
             repull_view = gacha.GachaPullAgainView(interaction.user)
             await repull_view._handle_repull(interaction, 1)
         except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 가챠 실행 중 오류: {e}", ephemeral=True)
+            await core.safe_send_response(interaction, f"❌ 프로세카 1회 뽑기 오류: {e}", ephemeral=True)
 
-    async def _on_my_inventory_clicked(self, interaction: discord.Interaction):
+    async def _act_sekai_live(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            view = gacha.SekaiLiveView(interaction.user, guild_id=interaction.guild_id or 0)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 세카이 라이브 열기 오류: {e}", ephemeral=True)
+
+    async def _act_sekai_master_rank(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            view = gacha.MasterRankView(interaction.user, guild_id=interaction.guild_id or 0)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 마스터 랭크 창 열기 오류: {e}", ephemeral=True)
+
+    async def _act_sekai_wardrobe(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            view = gacha.CharacterCostumeWardrobeView(interaction.user, guild_id=interaction.guild_id or 0)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 3D 의상실 열기 오류: {e}", ephemeral=True)
+
+    async def _act_sekai_myroom(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            data = await asyncio.to_thread(core.load_data)
+            view = gacha.MySekaiHubView(interaction.user, interaction.user, interaction.guild_id or 0, data)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 마이세카이 미니룸 열기 오류: {e}", ephemeral=True)
+
+    async def _act_gi_pull_10(self, interaction: discord.Interaction):
+        try:
+            pv = genshin.GenshinPullAgainView(interaction.user, banner_key="char1", skip_anim=False, practice=False, last_count=10)
+            await pv._run_repull_with_cooldown(interaction, 10)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 원신 기원 실행 오류: {e}", ephemeral=True)
+
+    async def _act_gi_fate(self, interaction: discord.Interaction):
+        try:
+            v = genshin.GenshinFatePathView(interaction.guild_id or 0, interaction.user)
+            await core.safe_send_response(interaction, embed=v.build_embed(), view=v, ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 운명의 궤도 로드 오류: {e}", ephemeral=True)
+
+    async def _act_gi_shop(self, interaction: discord.Interaction):
+        try:
+            v = genshin.GenshinShopView(interaction.guild_id or 0, interaction.user)
+            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 페이몬 상점 로드 오류: {e}", ephemeral=True)
+
+    async def _act_hsr_warp_10(self, interaction: discord.Interaction):
+        try:
+            wv = hsr.HSRWarpAgainView(interaction.user, banner_key="char1", skip_anim=False, practice=False, last_count=10)
+            await wv._run_rewarp_with_cooldown(interaction, 10)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 스타레일 워프 실행 오류: {e}", ephemeral=True)
+
+    async def _act_hsr_300(self, interaction: discord.Interaction):
+        try:
+            v = hsr.HSRStandard300View(interaction.guild_id or 0, interaction.user)
+            await core.safe_send_response(interaction, embed=v.build_embed(), view=v, ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 상시 300회 보상 로드 오류: {e}", ephemeral=True)
+
+    async def _act_hsr_shop(self, interaction: discord.Interaction):
+        try:
+            v = hsr.HSRShopView(interaction.guild_id or 0, interaction.user)
+            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 스타레일 상점 로드 오류: {e}", ephemeral=True)
+
+    async def _act_fishing_cast(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            guild_id = interaction.guild_id or 0
+            summary = await asyncio.to_thread(
+                fishing_core.update_user_fishing_prefs,
+                guild_id,
+                interaction.user.id,
+                interaction.user.display_name,
+            )
+            view = fishing.FishingCastView(interaction.user, guild_id=guild_id, summary=summary)
+            msg = await interaction.followup.send(embed=view.build_dashboard_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 낚시 출조 창 열기 실패: {e}", ephemeral=True)
+
+    async def _act_fishing_tourney(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            guild_id = interaction.guild_id or 0
+            status = await asyncio.to_thread(fishing_core.get_fishing_tournament_status, guild_id)
+            view = fishing.FishingTournamentView(interaction.user, guild_id=guild_id, status=status, tab="live")
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 낚시 대회 전광판 열기 실패: {e}", ephemeral=True)
+
+    async def _act_fishing_aquarium(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            guild_id = interaction.guild_id or 0
+            summary = await asyncio.to_thread(
+                fishing_core.get_user_fishing_summary,
+                guild_id,
+                interaction.user.id,
+                interaction.user.display_name,
+            )
+            view = fishing.FishingAquariumView(interaction.user, interaction.user, guild_id=guild_id, summary=summary)
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 수족관 열기 실패: {e}", ephemeral=True)
+
+    async def _act_fishing_shop(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            guild_id = interaction.guild_id or 0
+            summary = await asyncio.to_thread(
+                fishing_core.get_user_fishing_summary,
+                guild_id,
+                interaction.user.id,
+                interaction.user.display_name,
+            )
+            view = fishing.FishingShopView(interaction.user, guild_id=guild_id, category="rod", summary=summary)
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 낚시 상점 열기 실패: {e}", ephemeral=True)
+
+    async def _act_life_dashboard(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            ov = await asyncio.to_thread(
+                life_core.get_life_overview,
+                interaction.guild_id or 0,
+                interaction.user.id,
+                interaction.user.display_name,
+            )
+            view = life.LifeDashboardView(interaction.user, interaction.guild, overview=ov)
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 생활 대시보드 열기 실패: {e}", ephemeral=True)
+
+    async def _act_life_farm(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            gid = interaction.guild_id or 0
+            ov = await asyncio.to_thread(
+                life_core.get_life_overview,
+                gid,
+                interaction.user.id,
+                interaction.user.display_name,
+            )
+            view = life.FarmView(interaction.user, gid, overview=ov)
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 개인 농장 열기 실패: {e}", ephemeral=True)
+
+    async def _act_other_life_play(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            gid = interaction.guild_id or 0
+            u_state, _, idle_logs = await asyncio.to_thread(
+                other_life_core.get_other_life_state,
+                gid,
+                interaction.user.id,
+                interaction.user.display_name,
+            )
+            view = other_life.OtherLifeGameView(interaction.user, gid, user_state=u_state, idle_logs=idle_logs)
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 타인의 삶 시작 실패: {e}", ephemeral=True)
+
+    async def _act_other_life_codex(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            gid = interaction.guild_id or 0
+            u_state, _, _ = await asyncio.to_thread(
+                other_life_core.get_other_life_state,
+                gid,
+                interaction.user.id,
+                interaction.user.display_name,
+            )
+            view = other_life.OtherLifeCollectionView(interaction.user, gid, user_state=u_state)
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 타인의 삶 엔딩도감 열기 실패: {e}", ephemeral=True)
+
+    async def _act_other_life_rank(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            gid = interaction.guild_id or 0
+            view = other_life.OtherLifeRankingView(interaction.user, gid)
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 타인의 삶 랭킹 조회 실패: {e}", ephemeral=True)
+
+    async def _act_word_chain(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            first_word = random.choice(["세카이", "음악", "별자리", "피아노", "출석", "콘서트", "하늘", "무지개", "기차", "바다"])
+            view = stats.WordChainGameView(interaction.user, None, first_word)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 끝말잇기 시작 오류: {e}", ephemeral=True)
+
+    async def _act_roulette(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            view = stats.RussianRouletteView(interaction.user, bullets=1, bet_crystals=0)
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 러시안룰렛 시작 오류: {e}", ephemeral=True)
+
+    async def _act_pokedex_hub(self, interaction: discord.Interaction):
+        await self._enter_sub_mode(interaction, "pokedex_hub")
+
+    async def _act_ranking_hub(self, interaction: discord.Interaction):
+        await self._enter_sub_mode(interaction, "ranking_hub")
+
+    async def _act_sekai_pokedex(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            guild_id = interaction.guild_id or 0
+            stats_data = await asyncio.to_thread(core.get_card_pokedex_stats, guild_id, interaction.user.id)
+            view = gacha.CardPokedexView(interaction.user, stats_data, guild_id=guild_id, initial_tab="char_rates")
+            await interaction.followup.send(embed=view.build_embed(), view=view)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 프로세카 카드도감 로드 오류: {e}", ephemeral=True)
+
+    async def _act_gi_pokedex(self, interaction: discord.Interaction):
+        try:
+            v = genshin.GenshinPokedexView(interaction.guild_id or 0, interaction.user, tab="owned")
+            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 원신 도감 로드 오류: {e}", ephemeral=True)
+
+    async def _act_hsr_pokedex(self, interaction: discord.Interaction):
+        try:
+            v = hsr.HSRPokedexView(interaction.guild_id or 0, interaction.user, tab="owned")
+            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 스타레일 도감 로드 오류: {e}", ephemeral=True)
+
+    async def _act_fishing_pokedex(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            guild_id = interaction.guild_id or 0
+            st = await asyncio.to_thread(fishing_core.get_pokedex_stats, guild_id, interaction.user.id)
+            view = fishing.FishingPokedexView(interaction.user, guild_id=guild_id, tab="lake", stats=st)
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 낚시 도감 로드 오류: {e}", ephemeral=True)
+
+    async def _sub_sekai_rates(self, interaction: discord.Interaction):
+        gacha_cog = self._find_cog_with_attr("gacha_rates_list_cmd")
+        if gacha_cog:
+            await gacha_cog.gacha_rates_list_cmd.callback(gacha_cog, interaction, 배너=None)
+        else:
+            await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_gi_rates(self, interaction: discord.Interaction):
+        v = genshin.GenshinRateView(banner_key="char1")
+        await core.safe_send_response(interaction, embed=v.build_embed(), view=v, ephemeral=True)
+
+    async def _sub_hsr_rates(self, interaction: discord.Interaction):
+        v = hsr.HSRRateView(banner_key="char1")
+        await core.safe_send_response(interaction, embed=v.build_embed(), view=v, ephemeral=True)
+
+    async def _act_sekai_rank(self, interaction: discord.Interaction):
+        gacha_cog = self._find_cog_with_attr("gacha_ranking_cmd")
+        if gacha_cog:
+            await gacha_cog.gacha_ranking_cmd.callback(gacha_cog, interaction)
+        else:
+            await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _act_gi_rank(self, interaction: discord.Interaction):
+        v = genshin.GenshinRankingView(interaction.guild_id or 0, mode="ranking")
+        await core.safe_send_response(interaction, embed=v.build_embed(interaction.guild), view=v)
+
+    async def _act_hsr_rank(self, interaction: discord.Interaction):
+        v = hsr.HSRRankingView(interaction.guild_id or 0, mode="ranking")
+        await core.safe_send_response(interaction, embed=v.build_embed(interaction.guild), view=v)
+
+    async def _act_fishing_rank(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        view = fishing.FishingRankingView(interaction.user, guild_id=interaction.guild_id or 0)
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        view.message = msg
+
+    async def _act_economy_rank(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        guild_id = interaction.guild_id or 0
+        lb = await asyncio.to_thread(economy_core.get_economy_leaderboard, guild_id)
+        view = economy.EconomyLeaderboardView(interaction.user, guild_id, "net_worth", lb=lb)
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        view.message = msg
+
+    # ==========================================================
+    # 👤 4. 개인 (Personal) 콜백 구현부
+    # ==========================================================
+    async def _act_profile_card_png(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            await economy._send_profile_card(interaction.followup.send, interaction.user, interaction.guild_id or 0)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 통합 프로필카드 생성 오류: {e}", ephemeral=True)
+
+    async def _act_sekai_profile(self, interaction: discord.Interaction):
+        try:
+            gacha_cog = self._find_cog_with_attr("my_profile_cmd")
+            if gacha_cog:
+                await gacha_cog.my_profile_cmd.callback(gacha_cog, interaction, None)
+            else:
+                await core.safe_send_response(interaction, "❌ 프로필 모듈을 찾을 수 없습니다.", ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 프로세카 내 프로필 조회 오류: {e}", ephemeral=True)
+
+    async def _act_oshi_setup(self, interaction: discord.Interaction):
+        try:
+            view = OshiQuickSelectView(interaction.user, parent_dashboard=self)
+            embed = discord.Embed(
+                title="💖 나의 최애(오시) 프로세카 캐릭터 설정",
+                description="아래 드롭다운 메뉴(그룹 A / 그룹 B)에서 대표 오시 캐릭터를 선택하면 즉시 반영됩니다!",
+                color=discord.Color.from_rgb(255, 105, 180),
+                timestamp=datetime.datetime.now(core.KST),
+            )
+            await core.safe_send_response(interaction, embed=embed, view=view, ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 오시 설정 창 열기 실패: {e}", ephemeral=True)
+
+    async def _act_title_shop(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            stats_data = await asyncio.to_thread(
+                economy_core.get_title_shop_state,
+                interaction.guild_id or 0,
+                interaction.user.id,
+                interaction.user.display_name,
+            )
+            view = economy.TitleStudioView(interaction.user, interaction.guild_id or 0, stats=stats_data)
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 칭호 상점 열기 실패: {e}", ephemeral=True)
+
+    async def _act_crystal_transfer(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 송금할 수 있습니다.", ephemeral=True)
+            return
+        view = CrystalTransferUserSelectView(interaction.user)
+        embed = discord.Embed(
+            title="💸 크리스탈 송금 대상 선택",
+            description="아래 유저 선택 드롭다운에서 크리스탈을 받을 서버 멤버를 선택하면 금액 입력 창이 열립니다.\n*(수수료 5% · 일일 송금 한도 5,000💎)*",
+            color=discord.Color.green(),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        await core.safe_send_response(interaction, embed=embed, view=view, ephemeral=True)
+
+    async def _act_user_info(self, interaction: discord.Interaction):
+        stats_cog = self._find_cog_with_attr("user_profile_info_cmd")
+        if stats_cog:
+            await stats_cog.user_profile_info_cmd.callback(stats_cog, interaction, interaction.user)
+        else:
+            await core.safe_send_response(interaction, "❌ 유저정보 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _act_sekai_inv(self, interaction: discord.Interaction):
         try:
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
             g_key = str(interaction.guild_id or 0)
             u_key = str(interaction.user.id)
             user_cards_dict = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
-            view = gacha.MyInventoryView(interaction.user, [c for c in user_cards_dict.values() if isinstance(c, dict)], items_per_page=10, guild_id=interaction.guild_id or 0)
+            view = gacha.MyInventoryView(
+                interaction.user,
+                [c for c in user_cards_dict.values() if isinstance(c, dict)],
+                items_per_page=10,
+                guild_id=interaction.guild_id or 0,
+            )
             await interaction.followup.send(embed=view.build_embed(), view=view)
         except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 보관함 조회 중 오류: {e}", ephemeral=True)
+            await core.safe_send_response(interaction, f"❌ 프로세카 보관함 로드 오류: {e}", ephemeral=True)
 
-    async def _on_dup_convert_clicked(self, interaction: discord.Interaction):
+    async def _act_sekai_dup_convert(self, interaction: discord.Interaction):
         try:
             await core.safe_defer(interaction, ephemeral=True)
             guild_id = interaction.guild_id or 0
             preview = await asyncio.to_thread(core.preview_duplicate_cards, guild_id, interaction.user.id)
-            view = gacha.DuplicateConvertConfirmView(guild_id, interaction.user, preview)
+            view = gacha.DuplicateConvertConfirmView(
+                guild_id,
+                interaction.user,
+                preview,
+                parent_menu_view=self,
+                parent_menu_message=interaction.message,
+            )
             await core.safe_send_response(interaction, embed=view.build_preview_embed(), view=view, ephemeral=True)
         except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 중복 환전 중 오류: {e}", ephemeral=True)
+            await core.safe_send_response(interaction, f"❌ 중복 카드 환전 오류: {e}", ephemeral=True)
 
-    async def _on_deck_edit_clicked(self, interaction: discord.Interaction):
+    async def _act_sekai_deck_hub(self, interaction: discord.Interaction):
+        await self._enter_sub_mode(interaction, "sekai_deck")
+
+    async def _sub_sekai_deck_view(self, interaction: discord.Interaction):
         try:
-            await core.safe_defer(interaction)
+            await core.safe_defer(interaction, ephemeral=True)
             data = await asyncio.to_thread(core.load_data)
             profile = core.ensure_user_profile(data, interaction.user.id, interaction.user.display_name)
             deck_ids = profile.get("deck", [])
@@ -1112,170 +3721,88 @@ class MasterDashboardView(core.SafeView):
                 cprefix = cinfo.get("prefix", "")
                 rlabel = cinfo.get("rarity_label", "★1")
                 deck_cards_lines.append(
-                    f"**슬롯 {slot_idx} (리더)**: {rlabel} [{cprefix}] **{cname}** (`{cid}`)"
-                    if slot_idx == 1 else
-                    f"**슬롯 {slot_idx}**: {rlabel} [{cprefix}] {cname} (`{cid}`)"
+                    f"**슬롯 {slot_idx} (리더)**: {rlabel} [{cprefix}] **{cname}** (`ID: {cid}`)"
+                    if slot_idx == 1
+                    else f"**슬롯 {slot_idx}**: {rlabel} [{cprefix}] {cname} (`ID: {cid}`)"
                 )
 
-            if not deck_cards_lines:
-                desc = "현재 편성된 덱이 없습니다.\n채팅창에 **`/덱편성`** 명령어를 입력하여 보유한 카드 중 원하는 5장을 선택해 덱을 꾸며보세요!"
-            else:
-                desc = "현재 구성된 5인 유닛 덱 목록입니다:\n\n" + "\n".join(deck_cards_lines) + "\n\n💡 덱 멤버를 바꾸거나 순서를 변경하시려면 **`/덱편성`** 명령어를 사용해 주세요!"
-
+            desc = (
+                "현재 편성된 5인 유닛 덱 목록입니다:\n\n" + "\n".join(deck_cards_lines)
+                if deck_cards_lines
+                else "현재 편성된 덱이 없습니다. `/덱편성` 명령어의 카드 자동완성으로 5장을 선택해 편성해 보세요!"
+            )
             embed = discord.Embed(
                 title=f"🎴 {interaction.user.display_name}님의 5인 유닛 덱 현황",
                 description=desc,
                 color=discord.Color.from_rgb(235, 69, 158),
-                timestamp=datetime.datetime.now(core.KST)
+                timestamp=datetime.datetime.now(core.KST),
             )
-            embed.set_footer(text="/덱편성 명령어로 보유 카드 자동완성을 통해 간편하게 변경할 수 있습니다.")
-            await interaction.followup.send(embed=embed)
+            await interaction.followup.send(embed=embed, ephemeral=True)
         except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 덱 정보 조회 중 오류: {e}", ephemeral=True)
+            await core.safe_send_response(interaction, f"❌ 덱 현황 조회 오류: {e}", ephemeral=True)
 
-    async def _on_pokedex_clicked(self, interaction: discord.Interaction):
-        try:
-            await core.safe_defer(interaction)
-            guild_id = interaction.guild_id or 0
-            stats_data = await asyncio.to_thread(core.get_card_pokedex_stats, guild_id, interaction.user.id)
-            view = gacha.CardPokedexView(interaction.user, stats_data, guild_id=guild_id, initial_tab="char_rates")
-            await interaction.followup.send(embed=view.build_embed(), view=view)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 카드 도감 로드 중 오류: {e}", ephemeral=True)
+    async def _sub_sekai_card_enhance(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(CardEnhanceQuickModal(self.bot or interaction.client))
 
-    async def _on_master_rank_clicked(self, interaction: discord.Interaction):
-        try:
-            await core.safe_defer(interaction)
-            view = gacha.MasterRankView(interaction.user, guild_id=interaction.guild_id or 0)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 마스터 랭크 창 열기 오류: {e}", ephemeral=True)
+    async def _act_gi_personal_hub(self, interaction: discord.Interaction):
+        await self._enter_sub_mode(interaction, "gi_personal")
 
-    async def _on_gacha_rank_clicked(self, interaction: discord.Interaction):
-        try:
-            gacha_cog = self._find_cog_with_attr("gacha_ranking_cmd")
-            if gacha_cog:
-                await gacha_cog.gacha_ranking_cmd.callback(gacha_cog, interaction)
-            else:
-                await core.safe_send_response(interaction, "🏆 가챠 랭킹은 `/가챠랭킹` 명령어로 확인하실 수 있습니다.", ephemeral=True)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 랭킹 조회 중 오류: {e}", ephemeral=True)
+    async def _act_gi_inv(self, interaction: discord.Interaction):
+        v = genshin.GenshinInventoryView(interaction.guild_id or 0, interaction.user)
+        await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
 
-    # 원신 관련 콜백
-    async def _on_gi_pull_10(self, interaction: discord.Interaction):
-        try:
-            pv = genshin.GenshinPullAgainView(interaction.user, banner_key="char1", skip_anim=False, practice=False, last_count=10)
-            await pv._run_repull_with_cooldown(interaction, 10)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 원신 기원 실행 중 오류: {e}", ephemeral=True)
+    async def _act_gi_party(self, interaction: discord.Interaction):
+        v = genshin.GenshinPartyView(interaction.guild_id or 0, interaction.user)
+        await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
 
-    async def _on_gi_pull_1(self, interaction: discord.Interaction):
-        try:
-            pv = genshin.GenshinPullAgainView(interaction.user, banner_key="char1", skip_anim=False, practice=False, last_count=1)
-            await pv._run_repull_with_cooldown(interaction, 1)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 원신 기원 실행 중 오류: {e}", ephemeral=True)
+    async def _act_hsr_personal_hub(self, interaction: discord.Interaction):
+        await self._enter_sub_mode(interaction, "hsr_personal")
 
-    async def _on_gi_inv(self, interaction: discord.Interaction):
-        try:
-            v = genshin.GenshinInventoryView(interaction.guild_id or 0, interaction.user)
-            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 원신 보관함 로드 중 오류: {e}", ephemeral=True)
+    async def _act_hsr_inv(self, interaction: discord.Interaction):
+        v = hsr.HSRInventoryView(interaction.guild_id or 0, interaction.user)
+        await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
 
-    async def _on_gi_fate(self, interaction: discord.Interaction):
-        try:
-            v = genshin.GenshinFatePathView(interaction.guild_id or 0, interaction.user)
-            await core.safe_send_response(interaction, embed=v.build_embed(), view=v, ephemeral=True)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 운명의 궤도 로드 중 오류: {e}", ephemeral=True)
+    async def _act_hsr_party(self, interaction: discord.Interaction):
+        v = hsr.HSRPartyView(interaction.guild_id or 0, interaction.user)
+        await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
 
-    async def _on_gi_pokedex(self, interaction: discord.Interaction):
-        try:
-            v = genshin.GenshinPokedexView(interaction.guild_id or 0, interaction.user, tab="owned")
-            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 원신 도감 로드 중 오류: {e}", ephemeral=True)
+    async def _act_fishing_personal_hub(self, interaction: discord.Interaction):
+        await self._enter_sub_mode(interaction, "fishing_personal")
 
-    async def _on_gi_shop(self, interaction: discord.Interaction):
-        try:
-            v = genshin.GenshinShopView(interaction.guild_id or 0, interaction.user)
-            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 페이몬 상점 로드 중 오류: {e}", ephemeral=True)
+    async def _sub_fishing_bag(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        guild_id = interaction.guild_id or 0
+        summary = await asyncio.to_thread(
+            fishing_core.get_user_fishing_summary,
+            guild_id,
+            interaction.user.id,
+            interaction.user.display_name,
+        )
+        view = fishing.FishingBagView(interaction.user, guild_id=guild_id, summary=summary)
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        view.message = msg
 
-    async def _on_gi_party(self, interaction: discord.Interaction):
-        try:
-            v = genshin.GenshinPartyView(interaction.guild_id or 0, interaction.user)
-            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 원신 파티 로드 중 오류: {e}", ephemeral=True)
+    async def _sub_fishing_quest(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        guild_id = interaction.guild_id or 0
+        summary = await asyncio.to_thread(
+            fishing_core.get_user_fishing_summary,
+            guild_id,
+            interaction.user.id,
+            interaction.user.display_name,
+        )
+        view = fishing.FishingQuestView(interaction.user, guild_id=guild_id, summary=summary)
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        view.message = msg
 
-    async def _on_gi_rank(self, interaction: discord.Interaction):
-        try:
-            v = genshin.GenshinRankingView(interaction.guild_id or 0, mode="ranking")
-            await core.safe_send_response(interaction, embed=v.build_embed(interaction.guild), view=v)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 원신 랭킹 로드 중 오류: {e}", ephemeral=True)
+    async def _sub_fishing_profile(self, interaction: discord.Interaction):
+        fishing_cog = self._find_cog_with_attr("fishing_profile_cmd")
+        if fishing_cog:
+            await fishing_cog.fishing_profile_cmd.callback(fishing_cog, interaction, 유저=None)
+        else:
+            await core.safe_send_response(interaction, "❌ 낚시 모듈을 찾을 수 없습니다.", ephemeral=True)
 
-    # 스타레일 관련 콜백
-    async def _on_hsr_warp_10(self, interaction: discord.Interaction):
-        try:
-            wv = hsr.HSRWarpAgainView(interaction.user, banner_key="char1", skip_anim=False, practice=False, last_count=10)
-            await wv._run_rewarp_with_cooldown(interaction, 10)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 스타레일 워프 실행 중 오류: {e}", ephemeral=True)
-
-    async def _on_hsr_warp_1(self, interaction: discord.Interaction):
-        try:
-            wv = hsr.HSRWarpAgainView(interaction.user, banner_key="char1", skip_anim=False, practice=False, last_count=1)
-            await wv._run_rewarp_with_cooldown(interaction, 1)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 스타레일 워프 실행 중 오류: {e}", ephemeral=True)
-
-    async def _on_hsr_inv(self, interaction: discord.Interaction):
-        try:
-            v = hsr.HSRInventoryView(interaction.guild_id or 0, interaction.user)
-            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 스타레일 보관함 로드 중 오류: {e}", ephemeral=True)
-
-    async def _on_hsr_300(self, interaction: discord.Interaction):
-        try:
-            v = hsr.HSRStandard300View(interaction.guild_id or 0, interaction.user)
-            await core.safe_send_response(interaction, embed=v.build_embed(), view=v, ephemeral=True)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 상시 300회 보상 로드 중 오류: {e}", ephemeral=True)
-
-    async def _on_hsr_pokedex(self, interaction: discord.Interaction):
-        try:
-            v = hsr.HSRPokedexView(interaction.guild_id or 0, interaction.user, tab="owned")
-            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 스타레일 도감 로드 중 오류: {e}", ephemeral=True)
-
-    async def _on_hsr_shop(self, interaction: discord.Interaction):
-        try:
-            v = hsr.HSRShopView(interaction.guild_id or 0, interaction.user)
-            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 스타레일 상점 로드 중 오류: {e}", ephemeral=True)
-
-    async def _on_hsr_party(self, interaction: discord.Interaction):
-        try:
-            v = hsr.HSRPartyView(interaction.guild_id or 0, interaction.user)
-            await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 스타레일 편대 로드 중 오류: {e}", ephemeral=True)
-
-    async def _on_hsr_rank(self, interaction: discord.Interaction):
-        try:
-            v = hsr.HSRRankingView(interaction.guild_id or 0, mode="ranking")
-            await core.safe_send_response(interaction, embed=v.build_embed(interaction.guild), view=v)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 스타레일 랭킹 로드 중 오류: {e}", ephemeral=True)
-
-    async def _on_todo_clicked(self, interaction: discord.Interaction):
+    async def _act_todo_grass(self, interaction: discord.Interaction):
         try:
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
@@ -1285,34 +3812,9 @@ class MasterDashboardView(core.SafeView):
             view = dday.TodoTrackerView(interaction.user, profile)
             await interaction.followup.send(embed=view.build_embed(), view=view)
         except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 목표 체크 중 오류: {e}", ephemeral=True)
+            await core.safe_send_response(interaction, f"❌ 오늘 목표 보드 로드 오류: {e}", ephemeral=True)
 
-    # 일정 / D-Day 관련
-    async def _on_add_dday_clicked(self, interaction: discord.Interaction):
-        try:
-            await interaction.response.send_modal(DashboardDDayAddModal(self))
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ D-Day 등록 모달 열기 실패: {e}", ephemeral=True)
-
-    async def _on_dday_list_clicked(self, interaction: discord.Interaction):
-        try:
-            await core.safe_defer(interaction)
-            data = await asyncio.to_thread(core.load_data)
-            view = dday.DDayListBoardView(self.bot, interaction.user, data)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ D-Day 목록 조회 중 오류: {e}", ephemeral=True)
-
-    async def _on_birthday_clicked(self, interaction: discord.Interaction):
-        try:
-            await core.safe_defer(interaction)
-            data = await asyncio.to_thread(core.load_data)
-            view = dday.BirthdayBoardView(interaction.user, interaction.guild, data)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 생일 전광판 조회 중 오류: {e}", ephemeral=True)
-
-    async def _on_pomodoro_clicked(self, interaction: discord.Interaction):
+    async def _act_pomodoro(self, interaction: discord.Interaction):
         try:
             key = (interaction.guild_id or 0, interaction.user.id)
             if key in core.ACTIVE_POMODORO_TASKS:
@@ -1328,14 +3830,17 @@ class MasterDashboardView(core.SafeView):
                                     await member.edit(mute=False, reason="집중모드 수동 중지")
                                 except Exception:
                                     pass
-                await core.safe_send_response(interaction, "⏹️ **실행 중이던 뽀모도로 집중모드가 중지되었으며 음소거가 해제되었습니다!**", ephemeral=True)
+                await core.safe_send_response(
+                    interaction,
+                    "⏹️ **실행 중이던 뽀모도로 집중모드가 중지되었으며 음소거가 해제되었습니다!**",
+                    ephemeral=True,
+                )
                 return
-
-            await interaction.response.send_modal(DashboardPomodoroModal(self.bot))
+            await interaction.response.send_modal(DashboardPomodoroModal(self.bot or interaction.client))
         except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 뽀모도로 모달 열기 실패: {e}", ephemeral=True)
+            await core.safe_send_response(interaction, f"❌ 집중모드 실행 오류: {e}", ephemeral=True)
 
-    async def _on_hardcore_study_clicked(self, interaction: discord.Interaction):
+    async def _act_hardcore_study(self, interaction: discord.Interaction):
         try:
             key = (interaction.guild_id or 0, interaction.user.id)
             if key in core.ACTIVE_HARDCORE_STUDY_TASKS:
@@ -1357,28 +3862,54 @@ class MasterDashboardView(core.SafeView):
                             await vc.disconnect()
                         except Exception:
                             pass
-                await core.safe_send_response(interaction, "⏹️ **실행 중이던 하드코어 스터디가 중지되었으며 음소거가 해제되었습니다!**", ephemeral=True)
+                await core.safe_send_response(
+                    interaction,
+                    "⏹️ **실행 중이던 하드코어 스터디가 중지되었으며 음소거가 해제되었습니다!**",
+                    ephemeral=True,
+                )
                 return
 
-            target_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "hardcore_study_cmd")), None)
+            target_cog = self._find_cog_with_attr("hardcore_study_cmd")
             if target_cog:
                 choice_start = app_commands.Choice(name="🔥 하드코어 스터디 시작", value="start")
                 await target_cog.hardcore_study_cmd.callback(
                     target_cog,
                     interaction,
                     동작=choice_start,
-                    목표="정보처리기능사 실기 / AI 코딩",
+                    목표="자격증 / 집중 코딩",
                     목표시간=100,
                     음성채널=None,
                     음성안내=True,
-                    자동음소거=True
+                    자동음소거=True,
                 )
             else:
-                await core.safe_send_response(interaction, "❌ 스터디 모듈을 찾을 수 없습니다. `/하드코어스터디` 명령어를 이용해 주세요.", ephemeral=True)
+                await core.safe_send_response(interaction, "❌ 스터디 모듈을 찾을 수 없습니다.", ephemeral=True)
         except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 하드코어 스터디 실행 중 오류: {e}", ephemeral=True)
+            await core.safe_send_response(interaction, f"❌ 하드코어 스터디 실행 오류: {e}", ephemeral=True)
 
-    async def _on_partner_clicked(self, interaction: discord.Interaction):
+    async def _act_reminder_hub(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction, ephemeral=True)
+            data = await asyncio.to_thread(core.load_data)
+            view = dday.ReminderHubView(interaction.user, interaction.channel_id, interaction.guild_id, data)
+            await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 알림 예약 허브 로드 오류: {e}", ephemeral=True)
+
+    async def _act_secret_dday(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction, ephemeral=True)
+            data = await asyncio.to_thread(core.load_data)
+            prof = core.ensure_user_profile(data, interaction.user.id, interaction.user.display_name)
+            view = dday.SecretDDayHubView(interaction.user, core.as_dict(prof.get("secret_ddays")))
+            await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 비밀 D-Day 보드 로드 오류: {e}", ephemeral=True)
+
+    async def _act_bday_partner_hub(self, interaction: discord.Interaction):
+        await self._enter_sub_mode(interaction, "bday_partner")
+
+    async def _act_partner_studio(self, interaction: discord.Interaction):
         try:
             data = await asyncio.to_thread(core.load_data)
             profile = core.ensure_user_profile(data, interaction.user.id, interaction.user.display_name)
@@ -1386,323 +3917,75 @@ class MasterDashboardView(core.SafeView):
             if not partner_id:
                 await core.safe_send_response(
                     interaction,
-                    "ℹ️ 아직 등록된 파트너가 없습니다. `/짝꿍신청` 명령어로 소중한 친구나 연인과 파트너를 맺어보세요! 💖",
-                    ephemeral=True
+                    "ℹ️ 아직 등록된 파트너가 없습니다. `/파트너` 명령어(`동작: 파트너 신청`)로 소중한 친구나 연인과 파트너를 맺어보세요! 💖",
+                    ephemeral=True,
                 )
                 return
             await core.safe_defer(interaction, ephemeral=True)
             view = dday.PartnerHubView(interaction.user, partner_id, data)
             await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
         except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 파트너 스튜디오 조회 중 오류: {e}", ephemeral=True)
+            await core.safe_send_response(interaction, f"❌ 파트너 스튜디오 조회 오류: {e}", ephemeral=True)
 
-    async def _on_forecast_clicked(self, interaction: discord.Interaction):
-        try:
-            await core.safe_defer(interaction)
-            now = datetime.datetime.now(core.KST)
-            view = dday.EventForecastView(interaction.user, now.year, now.month)
-            embed = await asyncio.to_thread(view.build_embed)
-            await interaction.followup.send(embed=embed, view=view)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 미래시 조회 중 오류: {e}", ephemeral=True)
 
-    # 음악 관련
-    async def _on_playlist_studio_clicked(self, interaction: discord.Interaction):
-        try:
-            await core.safe_defer(interaction)
-            data = await asyncio.to_thread(core.load_data)
-            view = music.PlaylistStudioView(interaction.user, interaction.user, data)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 플레이리스트 스튜디오 오류: {e}", ephemeral=True)
-
-    async def _on_music_now_clicked(self, interaction: discord.Interaction):
-        try:
-            await core.safe_defer(interaction)
-            data = await asyncio.to_thread(core.load_data)
-            prefs = core.as_dict(data.get("music_prefs")) or core.DEFAULT_CONFIG["music_prefs"]
-            track_info, err = await core.get_recommended_music(prefs)
-            if err or not track_info:
-                await interaction.followup.send(f"❌ **음악 선곡 실패:** {err or '추천 곡을 찾을 수 없습니다.'}", ephemeral=True)
-                return
-            embed, view = self.bot.build_music_embed_and_view(track_info, prefs, is_morning=False)
-            await interaction.followup.send(embed=embed, view=view)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 음악 선곡 중 오류: {e}", ephemeral=True)
-
-    async def _on_audio_test_clicked(self, interaction: discord.Interaction):
-        try:
-            voice_state = interaction.user.voice if isinstance(interaction.user, discord.Member) else None
-            if not voice_state or not voice_state.channel:
-                await core.safe_send_response(
-                    interaction,
-                    "❌ 먼저 오디오를 테스트할 **음성채널**에 입장하신 뒤 버튼을 눌러주세요!",
-                    ephemeral=True
-                )
-                return
-
-            music_cog = self._find_cog_with_attr("audio_test_cmd")
-            if music_cog:
-                await music_cog.audio_test_cmd.callback(music_cog, interaction)
-            else:
-                await core.safe_send_response(interaction, "🔊 440Hz 오디오 자가진단은 `/오디오테스트` 명령어로 실행할 수 있습니다.", ephemeral=True)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 오디오 테스트 실행 중 오류: {e}", ephemeral=True)
-
-    # 관리자 관련 (logger.AnnouncementPreviewView 및 DashboardInactiveAuditModal 정확히 연결)
-    async def _on_quick_role_btn_clicked(self, interaction: discord.Interaction):
-        try:
-            if not await self.check_admin_permission(interaction, action_name="사진 스타일 역할버튼 제작", require_roles_perm=True):
-                return
-            await interaction.response.send_modal(roles.QuickRoleButtonModal(target_channel=interaction.channel))
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 역할 버튼 제작 모달 열기 실패: {e}", ephemeral=True)
-
-    async def _on_role_studio_clicked(self, interaction: discord.Interaction):
-        try:
-            if not await self.check_admin_permission(interaction, action_name="반응역할 종합 스튜디오", require_roles_perm=True):
-                return
-            studio = roles.ReactionRoleStudioView(interaction.guild, interaction.user)
-            await core.safe_send_response(interaction, embed=studio.build_dashboard_embed(), view=studio, ephemeral=True)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 반응역할 스튜디오 열기 실패: {e}", ephemeral=True)
-
-    async def _on_announcement_clicked(self, interaction: discord.Interaction):
-        try:
-            if not await self.check_admin_permission(interaction, action_name="스마트 공지 발송", require_roles_perm=False):
-                return
-            await core.safe_defer(interaction, ephemeral=True)
-            preview_view = logger.AnnouncementPreviewView(
-                author=interaction.user,
-                guild=interaction.guild,
-                target_channel=interaction.channel,
-                title="서버 공식 소식 및 안내사항",
-                content=(
-                    "안녕하세요, 서버 멤버 여러분!\n\n"
-                    "하단의 **`[✏️ 내용/제목 수정]`** 버튼을 눌러 본문을 작성하거나,\n"
-                    "**`[📋 추천 공지 템플릿 불러오기]`** 드롭다운에서 템플릿을 선택해 보세요!"
-                )
-            )
-            await interaction.followup.send(
-                content=preview_view.build_preview_content(),
-                embed=preview_view.build_embed(),
-                view=preview_view,
-                ephemeral=True
-            )
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 공지 스튜디오 열기 실패: {e}", ephemeral=True)
-
-    async def _on_inactive_audit_clicked(self, interaction: discord.Interaction):
-        try:
-            if not await self.check_admin_permission(interaction, action_name="비활성 유저 감사", require_roles_perm=False):
-                return
-            await interaction.response.send_modal(DashboardInactiveAuditModal(self.bot))
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 비활성 유저 감사 모달 열기 실패: {e}", ephemeral=True)
-
-    async def _on_temp_voice_clicked(self, interaction: discord.Interaction):
-        try:
-            comm_cog = self._find_cog_with_attr("temp_voice_slash_cmd")
-            if comm_cog:
-                await comm_cog.temp_voice_slash_cmd.callback(comm_cog, interaction, 메뉴=None)
-            else:
-                await core.safe_send_response(interaction, "🔊 임시 음성방 설정 및 리모컨은 `/임시음성방` 명령어로 열 수 있습니다.", ephemeral=True)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 임시 음성방 패널 열기 실패: {e}", ephemeral=True)
-
-    # 게임 관련
-    async def _on_fishing_cast_clicked(self, interaction: discord.Interaction):
-        try:
-            await core.safe_defer(interaction)
-            import fishing_core
-            from cogs import fishing
-            guild_id = interaction.guild_id or 0
-            summary = await asyncio.to_thread(
-                fishing_core.update_user_fishing_prefs,
-                guild_id,
-                interaction.user.id,
-                interaction.user.display_name,
-            )
-            view = fishing.FishingCastView(interaction.user, guild_id=guild_id, summary=summary)
-            msg = await interaction.followup.send(embed=view.build_dashboard_embed(), view=view, wait=True)
-            view.message = msg
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 낚시 출조 창 열기 실패: {e}", ephemeral=True)
-
-    async def _on_fishing_tourney_clicked(self, interaction: discord.Interaction):
-        try:
-            await core.safe_defer(interaction)
-            import fishing_core
-            from cogs import fishing
-            guild_id = interaction.guild_id or 0
-            status = await asyncio.to_thread(fishing_core.get_fishing_tournament_status, guild_id)
-            view = fishing.FishingTournamentView(interaction.user, guild_id=guild_id, status=status, tab="live")
-            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
-            view.message = msg
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 낚시 대회 전광판 열기 실패: {e}", ephemeral=True)
-
-    async def _on_recruit_clicked(self, interaction: discord.Interaction):
-        try:
-            if not interaction.guild:
-                await core.safe_send_response(interaction, "❌ 서버 채널에서만 모집할 수 있습니다.", ephemeral=True)
-                return
-            await interaction.response.send_modal(stats.RecruitModal())
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 파티 모집 모달 열기 실패: {e}", ephemeral=True)
-
-    async def _on_word_chain_clicked(self, interaction: discord.Interaction):
-        try:
-            await core.safe_defer(interaction)
-            first_word = random.choice(["세카이", "음악", "별자리", "피아노", "출석", "콘서트", "하늘", "무지개", "기차", "바다"])
-            view = stats.WordChainGameView(interaction.user, None, first_word)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 끝말잇기 시작 중 오류: {e}", ephemeral=True)
-
-    async def _on_roulette_clicked(self, interaction: discord.Interaction):
-        try:
-            await core.safe_defer(interaction)
-            view = stats.RussianRouletteView(interaction.user, bullets=1, bet_crystals=0)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 러시안룰렛 시작 중 오류: {e}", ephemeral=True)
-
-    async def _on_weather_clicked(self, interaction: discord.Interaction):
-        try:
-            await core.safe_defer(interaction)
-            w_info, err = await asyncio.to_thread(core.fetch_accurate_weather_sync, "서울")
-            if err or not w_info:
-                await interaction.followup.send(f"❌ **날씨 조회 실패:** {err}", ephemeral=True)
-                return
-            view = stats.WeatherRefreshView("서울", w_info)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 날씨 조회 중 오류: {e}", ephemeral=True)
-
-    async def _on_remind_clicked(self, interaction: discord.Interaction):
-        try:
-            await core.safe_defer(interaction, ephemeral=True)
-            data = await asyncio.to_thread(core.load_data)
-            view = dday.ReminderHubView(interaction.user, interaction.channel_id, interaction.guild_id, data)
-            await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 알림 예약 허브 로드 중 오류: {e}", ephemeral=True)
-
-    # 통계 관련
-    async def _on_server_stats_clicked(self, interaction: discord.Interaction):
-        try:
-            if not interaction.guild:
-                await core.safe_send_response(interaction, "❌ 서버 채널에서만 조회 가능합니다.", ephemeral=True)
-                return
-            await core.safe_defer(interaction)
-            data = await asyncio.to_thread(core.load_data)
-            embed = stats.build_server_stats_embed(interaction.guild, data)
-            view = stats.ServerStatsDashboardView(interaction.guild, data, user=interaction.user)
-            await interaction.followup.send(embed=embed, view=view)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 서버 통계 생성 중 오류: {e}", ephemeral=True)
-
-    async def _on_user_info_clicked(self, interaction: discord.Interaction):
-        try:
-            stats_cog = self._find_cog_with_attr("user_profile_info_cmd")
-            if stats_cog:
-                await stats_cog.user_profile_info_cmd.callback(stats_cog, interaction, interaction.user)
-            else:
-                await core.safe_send_response(interaction, "🪪 내 정보는 `/유저정보` 명령어로 확인하실 수 있습니다.", ephemeral=True)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 유저 정보 조회 중 오류: {e}", ephemeral=True)
-
-    async def _on_bot_status_clicked(self, interaction: discord.Interaction):
-        try:
-            bot_ref = self.bot or interaction.client
-            is_owner = await bot_ref.is_bot_owner_user(interaction.user)
-            is_admin = False
-            if interaction.guild and isinstance(interaction.user, discord.Member):
-                is_admin = interaction.user.guild_permissions.administrator or interaction.user.guild_permissions.manage_guild
-
-            if not (is_owner or is_admin):
-                await core.safe_send_response(
-                    interaction,
-                    "🚨 **권한 부족:** 봇 호스트 상태 및 시스템 리소스 모니터링은 **서버 관리자(Manage Server)** 또는 **봇 소유자**만 열람할 수 있습니다.",
-                    ephemeral=True
-                )
-                return
-
-            stats_cog = self._find_cog_with_attr("host_system_stats_cmd")
-            if stats_cog:
-                await stats_cog.host_system_stats_cmd.callback(stats_cog, interaction)
-            else:
-                await core.safe_send_response(interaction, "🤖 봇 상태는 `/봇상태` 명령어로 확인하실 수 있습니다.", ephemeral=True)
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 봇 상태 조회 중 오류: {e}", ephemeral=True)
-
-    async def _on_suggestion_clicked(self, interaction: discord.Interaction):
-        try:
-            await interaction.response.send_modal(stats.SuggestionSubmitModal(bot=self.bot, is_anonymous=False))
-        except Exception as e:
-            await core.safe_send_response(interaction, f"❌ 건의함 모달 열기 실패: {e}", ephemeral=True)
+# 외부 참조용 별칭
+SettingsHubView = MasterDashboardView
 
 
 # ==========================================
-# 🚀 Dashboard Cog 메인 클래스
+# 🚀 Dashboard (설정) Cog 메인 클래스
 # ==========================================
-class Dashboard(commands.Cog, name="대시보드"):
-    """norosi 봇의 모든 기능을 한곳에서 시각적으로 제어하는 올인원 마스터 대시보드 모듈"""
+class Dashboard(commands.Cog, name="설정"):
+    """norosi 봇의 모든 기능을 [일반 · 고급 · 미니게임 · 개인] 4대 카테고리와 통합 페이지네이션으로 제어하는 모듈"""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="대시보드", description="모든 봇 기능(프로세카·원신·스타레일 가챠, 일정, 음악, 역할, 통계)을 제어하는 올인원 대시보드를 엽니다.")
-    @app_commands.describe(탭="초기에 열람할 기능 대시보드 탭 (기본: 종합 관제)")
-    @app_commands.choices(탭=[
-        app_commands.Choice(name="🧭 [홈] 종합 관제 대시보드", value="home"),
-        app_commands.Choice(name="🎮 [프로세카] 카드·뽑기·덱 대시보드", value="gacha"),
-        app_commands.Choice(name="🌠 [원신] 기원·보관함·페이몬상점", value="genshin"),
-        app_commands.Choice(name="🚄 [스타레일] 워프·아카이브·별빛상점", value="hsr"),
-        app_commands.Choice(name="📅 [일정] D-Day·생일·집중 대시보드", value="life"),
-        app_commands.Choice(name="🎵 [음악] 플레이리스트·사운드 대시보드", value="music"),
-        app_commands.Choice(name="🎭 [역할] 역할버튼·공지 대시보드", value="admin"),
-        app_commands.Choice(name="🎲 [게임] 미니게임·모집·날씨 대시보드", value="game"),
-        app_commands.Choice(name="📊 [통계] 서버분석·유저정보 대시보드", value="stats"),
-    ])
-    async def slash_dashboard(self, interaction: discord.Interaction, 탭: Optional[app_commands.Choice[str]] = None):
+    @app_commands.command(
+        name="설정",
+        description="⚙️ [일반 · 고급 · 미니게임 · 개인] 4대 카테고리 및 통합 페이지네이션으로 모든 봇 기능을 제어합니다.",
+    )
+    @app_commands.describe(카테고리="바로 진입할 카테고리 선택 (미선택 시 4대 카테고리 홈 화면 열림)")
+    @app_commands.choices(
+        카테고리=[
+            app_commands.Choice(name="🏠 [홈] 통합 설정 메인 (일반·고급·미니게임·개인)", value="home"),
+            app_commands.Choice(name="🌐 [일반] 출석·일정·음악·날씨·통계·모집 (3페이지)", value="general"),
+            app_commands.Choice(name="⚙️ [고급] 서버 관리자 & 봇 주인 전용 설정 (4페이지)", value="advanced"),
+            app_commands.Choice(name="🎮 [미니게임] 프로세카·원신·스타레일·낚시·농장·게임 (4페이지)", value="minigame"),
+            app_commands.Choice(name="👤 [개인] 내 프로필·보관함·목표·집중·파트너 (3페이지)", value="personal"),
+        ]
+    )
+    async def slash_settings(
+        self,
+        interaction: discord.Interaction,
+        카테고리: Optional[app_commands.Choice[str]] = None,
+    ):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
-        init_tab = 탭.value if 탭 else "home"
+        init_cat = 카테고리.value if 카테고리 else "home"
         view = MasterDashboardView(
             bot=self.bot,
             user=interaction.user,
             guild=interaction.guild,
             data=data,
-            initial_tab=init_tab
+            initial_tab=init_cat,
         )
         msg = await interaction.followup.send(embed=view.build_current_embed(), view=view, wait=True)
         view.message = msg
 
-    @app_commands.command(name="메뉴", description="명령어 타이핑 없이 버튼 하나로 모든 봇 기능을 1초 만에 실행하는 슈퍼 대시보드 리모컨을 엽니다.")
-    async def slash_menu(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction)
+    @commands.command(
+        name="설정",
+        aliases=["settings", "config", "대시보드", "dashboard", "메뉴", "menu", "리모컨", "컨트롤타워"],
+    )
+    async def prefix_settings(self, ctx: commands.Context, 카테고리: Optional[str] = None):
         data = await asyncio.to_thread(core.load_data)
-        view = MasterDashboardView(
-            bot=self.bot,
-            user=interaction.user,
-            guild=interaction.guild,
-            data=data,
-            initial_tab="home"
-        )
-        msg = await interaction.followup.send(embed=view.build_current_embed(), view=view, wait=True)
-        view.message = msg
-
-    @commands.command(name="대시보드", aliases=["dashboard", "메뉴", "menu", "리모컨", "컨트롤타워"])
-    async def prefix_dashboard(self, ctx: commands.Context):
-        data = await asyncio.to_thread(core.load_data)
+        init_cat = 카테고리.strip() if 카테고리 else "home"
         view = MasterDashboardView(
             bot=self.bot,
             user=ctx.author,
             guild=ctx.guild,
             data=data,
-            initial_tab="home"
+            initial_tab=init_cat,
         )
         msg = await ctx.send(embed=view.build_current_embed(), view=view)
         view.message = msg
