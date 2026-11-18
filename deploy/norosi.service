@@ -5,9 +5,9 @@ After=network.target
 [Service]
 Type=simple
 User=kami
-WorkingDirectory=/home/kami/norosi
-EnvironmentFile=-/home/kami/norosi/.env
-ExecStart=/home/kami/norosi/venv/bin/python3 /home/kami/norosi/bot.py
+WorkingDirectory=/home/kami/Desktop/norosi
+EnvironmentFile=-/home/kami/Desktop/norosi/.env
+ExecStart=/home/kami/Desktop/norosi/venv/bin/python3 /home/kami/Desktop/norosi/bot.py
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -15,4 +15,5 @@ StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
+
 

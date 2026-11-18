@@ -4,7 +4,13 @@
 # ==============================================================================
 set -e
 
-BOT_DIR="$HOME/norosi"
+BOT_DIR="/home/kami/Desktop/norosi"
+if [ ! -d "$BOT_DIR" ]; then
+    BOT_DIR="$HOME/Desktop/norosi"
+fi
+if [ ! -d "$BOT_DIR" ]; then
+    BOT_DIR="$HOME/norosi"
+fi
 if [ ! -d "$BOT_DIR" ]; then
     BOT_DIR="$(pwd)"
 fi

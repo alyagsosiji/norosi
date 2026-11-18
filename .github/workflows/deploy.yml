@@ -141,7 +141,13 @@ jobs:
               echo \"==========================================\"
               echo \"🚀 [1/4] norosi 디렉토리 이동 및 최신 코드 반영...\"
               echo \"==========================================\"
-              TARGET_DIR=\"\$HOME/norosi\"
+              TARGET_DIR=\"/home/kami/Desktop/norosi\"
+              if [ ! -d \"\$TARGET_DIR\" ]; then
+                TARGET_DIR=\"\$HOME/Desktop/norosi\"
+              fi
+              if [ ! -d \"\$TARGET_DIR\" ]; then
+                TARGET_DIR=\"\$HOME/norosi\"
+              fi
               if [ ! -d \"\$TARGET_DIR\" ]; then
                 TARGET_DIR=\"/home/kami/norosi\"
               fi
@@ -149,6 +155,7 @@ jobs:
                 TARGET_DIR=\"/home/${ACTIVE_USER}/norosi\"
               fi
               cd \"\$TARGET_DIR\"
+              echo \"📂 배포 대상 경로: \$TARGET_DIR\"
 
               git fetch origin
               CURRENT_BRANCH=\$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo \"master\")
@@ -222,7 +229,7 @@ jobs:
             echo "--------------------------------------------------------------------------------"
             echo ""
             echo "🛠️ [해결 방법 2 - 서버에서 원클릭 키 & 권한 설정 스크립트 실행]"
-            echo "서버 접속 후: cd ~/norosi && bash deploy/fix_ssh_key.sh"
+            echo "서버 접속 후: cd /home/kami/Desktop/norosi && bash deploy/fix_ssh_key.sh"
             echo "================================================================================"
             exit $SSH_EXIT_CODE
           fi
