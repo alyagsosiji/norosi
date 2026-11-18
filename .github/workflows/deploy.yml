@@ -136,84 +136,149 @@ jobs:
 
           ssh -p "${ACTIVE_PORT}" -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15 -i ~/.ssh/gcp_deploy_key \
             "${ACTIVE_USER}@${ACTIVE_HOST}" \
-            "bash -c '
-              set -e
-              echo \"==========================================\"
-              echo \"🚀 [1/4] norosi 디렉토리 이동 및 최신 코드 반영...\"
-              echo \"==========================================\"
-              TARGET_DIR=\"/home/kami/Desktop/norosi\"
-              if [ ! -d \"\$TARGET_DIR\" ]; then
-                TARGET_DIR=\"\$HOME/Desktop/norosi\"
-              fi
-              if [ ! -d \"\$TARGET_DIR\" ]; then
-                TARGET_DIR=\"\$HOME/norosi\"
-              fi
-              if [ ! -d \"\$TARGET_DIR\" ]; then
-                TARGET_DIR=\"/home/kami/norosi\"
-              fi
-              if [ ! -d \"\$TARGET_DIR\" ]; then
-                TARGET_DIR=\"/home/${ACTIVE_USER}/norosi\"
-              fi
-              cd \"\$TARGET_DIR\"
-              echo \"📂 배포 대상 경로: \$TARGET_DIR\"
+            "bash -s -- '${TOKEN_B64}' '${ACTIVE_USER}'" << 'REMOTE_SCRIPT'
+          set -e
+          TOKEN_B64="$1"
+          ACTIVE_USER="$2"
 
-              git fetch origin
-              CURRENT_BRANCH=\$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo \"master\")
-              git reset --hard \"origin/\$CURRENT_BRANCH\" 2>/dev/null || git reset --hard origin/master 2>/dev/null || git reset --hard origin/main
+          echo "=========================================="
+          echo "🚀 [1/4] norosi 디렉토리 이동 및 최신 코드 반영..."
+          echo "=========================================="
+          TARGET_DIR="/home/kami/Desktop/norosi"
+          if [ ! -d "$TARGET_DIR" ]; then
+            TARGET_DIR="$HOME/Desktop/norosi"
+          fi
+          if [ ! -d "$TARGET_DIR" ]; then
+            TARGET_DIR="$HOME/norosi"
+          fi
+          if [ ! -d "$TARGET_DIR" ]; then
+            TARGET_DIR="/home/kami/norosi"
+          fi
+          if [ ! -d "$TARGET_DIR" ]; then
+            TARGET_DIR="/home/${ACTIVE_USER}/norosi"
+          fi
+          cd "$TARGET_DIR"
+          echo "📂 배포 대상 경로: $TARGET_DIR"
 
-              # GitHub Secrets의 DISCORD_TOKEN이 전달된 경우 .env 자동 동기화
-              if [ -n \"${TOKEN_B64}\" ]; then
-                RESOLVED_TOKEN=\$(echo \"${TOKEN_B64}\" | base64 -d)
-                if [ -n \"\$RESOLVED_TOKEN\" ]; then
-                  if [ ! -f .env ]; then
-                    echo \"DISCORD_TOKEN=\$RESOLVED_TOKEN\" > .env
-                    chmod 600 .env
-                    echo \"🔒 [보안] GitHub Secrets의 DISCORD_TOKEN으로 .env 파일 생성 완료!\"
-                  elif ! grep -q \"DISCORD_TOKEN=\" .env || grep -q \"^DISCORD_TOKEN=\$\" .env; then
-                    echo \"\" >> .env
-                    echo \"DISCORD_TOKEN=\$RESOLVED_TOKEN\" >> .env
-                    echo \"🔒 [보안] .env 파일에 DISCORD_TOKEN 자동 주입 완료!\"
-                  fi
-                fi
+          git fetch origin
+          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "master")
+          git reset --hard "origin/$CURRENT_BRANCH" 2>/dev/null || git reset --hard origin/master 2>/dev/null || git reset --hard origin/main
+
+          # GitHub Secrets의 DISCORD_TOKEN이 전달된 경우 .env 자동 동기화
+          if [ -n "$TOKEN_B64" ]; then
+            RESOLVED_TOKEN=$(echo "$TOKEN_B64" | base64 -d)
+            if [ -n "$RESOLVED_TOKEN" ]; then
+              if [ ! -f .env ]; then
+                echo "DISCORD_TOKEN=$RESOLVED_TOKEN" > .env
+                chmod 600 .env
+                echo "🔒 [보안] GitHub Secrets의 DISCORD_TOKEN으로 .env 파일 생성 완료!"
+              elif ! grep -q "DISCORD_TOKEN=" .env || grep -q "^DISCORD_TOKEN=$" .env; then
+                echo "" >> .env
+                echo "DISCORD_TOKEN=$RESOLVED_TOKEN" >> .env
+                echo "🔒 [보안] .env 파일에 DISCORD_TOKEN 자동 주입 완료!"
               fi
+            fi
+          fi
 
-              echo \"==========================================\"
-              echo \"📦 [2/4] Python 가상환경 의존성 확인...\"
-              echo \"==========================================\"
-              if [ -d .venv ]; then
-                source .venv/bin/activate
-              elif [ -d venv ]; then
-                source venv/bin/activate
-              else
-                python3 -m venv venv
-                source venv/bin/activate
-              fi
-              pip install -r requirements.txt --quiet
+          echo "=========================================="
+          echo "📦 [2/4] Python 가상환경 의존성 확인..."
+          echo "=========================================="
+          if [ -d .venv ]; then
+            source .venv/bin/activate
+          elif [ -d venv ]; then
+            source venv/bin/activate
+          else
+            python3 -m venv venv
+            source venv/bin/activate
+          fi
+          pip install -r requirements.txt --quiet
 
-              echo \"==========================================\"
-              echo \"🔄 [3/4] norosi 서비스 재시작...\"
-              echo \"==========================================\"
-              if sudo -n systemctl restart norosi 2>/dev/null; then
-                echo \"✅ systemd 시스템 서비스(norosi) 재시작 완료!\"
-              elif systemctl --user restart norosi 2>/dev/null; then
-                echo \"✅ systemd 유저 서비스(norosi) 재시작 완료!\"
-              else
-                sudo systemctl restart norosi
-              fi
+          echo "=========================================="
+          echo "🔄 [3/4] norosi 봇 프로세스 재시작..."
+          echo "=========================================="
+          USE_SYSTEMD=0
+          if [ -d /run/systemd/system ]; then
+            if sudo -n systemctl restart norosi 2>/dev/null; then
+              echo "✅ systemd 시스템 서비스(norosi) 재시작 완료!"
+              USE_SYSTEMD=1
+            elif systemctl --user restart norosi 2>/dev/null; then
+              echo "✅ systemd 유저 서비스(norosi) 재시작 완료!"
+              USE_SYSTEMD=1
+            fi
+          fi
 
-              echo \"==========================================\"
-              echo \"✅ [4/4] 봇 가동 상태 확인...\"
-              echo \"==========================================\"
-              if sudo -n systemctl is-active --quiet norosi 2>/dev/null || systemctl --user is-active --quiet norosi 2>/dev/null; then
-                echo \"🎉 [배포 성공] kami-aio (n.kami.live) 서버에서 norosi 봇 정상 가동!\"
-              fi
+          if [ "$USE_SYSTEMD" -eq 0 ]; then
+            echo "ℹ️ 컨테이너/비-systemd 환경 감지됨 (PID 1 != systemd) -> 24/7 백그라운드 데몬 모드로 재기동합니다."
+            # 1. 기존 감시 루프(supervisor) 및 봇 프로세스 안전 종료
+            if [ -f "$TARGET_DIR/.norosi_supervisor.pid" ]; then
+              kill -9 $(cat "$TARGET_DIR/.norosi_supervisor.pid") 2>/dev/null || true
+              rm -f "$TARGET_DIR/.norosi_supervisor.pid"
+            fi
+            pkill -9 -f "[n]orosi_keepalive" 2>/dev/null || true
 
-              echo \"==========================================\"
-              echo \"📋 [5/5] 최근 봇 실행 저널 로그 (최근 70줄)...\"
-              echo \"==========================================\"
-              sleep 2
-              sudo -n journalctl -u norosi -n 70 --no-pager 2>/dev/null || journalctl --user -u norosi -n 70 --no-pager 2>/dev/null || true
-            '"
+            if [ -f "$TARGET_DIR/.norosi.pid" ]; then
+              kill $(cat "$TARGET_DIR/.norosi.pid") 2>/dev/null || true
+              rm -f "$TARGET_DIR/.norosi.pid"
+            fi
+            pkill -f "[p]ython.*bot\.py" 2>/dev/null || true
+            sleep 1
+            pkill -9 -f "[p]ython.*bot\.py" 2>/dev/null || true
+
+            # 2. 24/7 자동 재시작 백그라운드 데몬 스크립트 생성 및 실행
+            cat << 'DAEMON_EOF' > "$TARGET_DIR/.norosi_keepalive.sh"
+#!/usr/bin/env bash
+cd "$(dirname "$0")"
+WORK_DIR="$(pwd)"
+echo $$ > "$WORK_DIR/.norosi_supervisor.pid"
+if [ -x "$WORK_DIR/.venv/bin/python3" ]; then
+  PY_BIN="$WORK_DIR/.venv/bin/python3"
+elif [ -x "$WORK_DIR/venv/bin/python3" ]; then
+  PY_BIN="$WORK_DIR/venv/bin/python3"
+else
+  PY_BIN="python3"
+fi
+while true; do
+  "$PY_BIN" -u "$WORK_DIR/bot.py" >> "$WORK_DIR/bot.log" 2>&1 &
+  BOT_PID=$!
+  echo $BOT_PID > "$WORK_DIR/.norosi.pid"
+  wait $BOT_PID
+  EXIT_CODE=$?
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] ⚠️ bot.py 종료됨 (코드: $EXIT_CODE) - 5초 후 자동 재시작..." >> "$WORK_DIR/bot.log"
+  sleep 5
+done
+DAEMON_EOF
+            chmod +x "$TARGET_DIR/.norosi_keepalive.sh"
+            : > "$TARGET_DIR/bot.log"
+            setsid nohup bash -c "exec -a norosi_keepalive '$TARGET_DIR/.norosi_keepalive.sh'" </dev/null >/dev/null 2>&1 &
+            sleep 3
+          fi
+
+          echo "=========================================="
+          echo "✅ [4/4] 봇 가동 상태 확인..."
+          echo "=========================================="
+          if [ "$USE_SYSTEMD" -eq 1 ]; then
+            if sudo -n systemctl is-active --quiet norosi 2>/dev/null || systemctl --user is-active --quiet norosi 2>/dev/null; then
+              echo "🎉 [배포 성공] kami-aio (n.kami.live) 서버에서 norosi 봇(systemd) 정상 가동!"
+            fi
+            echo "=========================================="
+            echo "📋 [5/5] 최근 봇 실행 저널 로그 (최근 70줄)..."
+            echo "=========================================="
+            sleep 2
+            sudo -n journalctl -u norosi -n 70 --no-pager 2>/dev/null || journalctl --user -u norosi -n 70 --no-pager 2>/dev/null || true
+          else
+            RUNNING_PID=$(pgrep -f "[p]ython.*bot\.py" | head -n 1 || true)
+            if [ -n "$RUNNING_PID" ]; then
+              echo "🎉 [배포 성공] kami-aio (n.kami.live) 서버에서 norosi 봇 백그라운드 정상 가동! (PID: $RUNNING_PID)"
+            else
+              echo "⚠️ 봇 프로세스 시작 확인 중... 아래 bot.log를 확인하세요."
+            fi
+            echo "=========================================="
+            echo "📋 [5/5] 최근 봇 실행 로그 (bot.log 최근 70줄)..."
+            echo "=========================================="
+            sleep 2
+            tail -n 70 "$TARGET_DIR/bot.log" 2>/dev/null || true
+          fi
+          REMOTE_SCRIPT
           SSH_EXIT_CODE=$?
           set -e
 
@@ -233,4 +298,6 @@ jobs:
             echo "================================================================================"
             exit $SSH_EXIT_CODE
           fi
+
+
 

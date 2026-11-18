@@ -15,26 +15,28 @@ echo "📂 설치 경로: $APP_DIR"
 echo "👤 실행 유저: $CURRENT_USER"
 
 # ------------------------------------------------------------------------------
-# 1. 2GB 스왑(Swap) 메모리 설정 (1GB RAM e2-micro OOM 크래시 방어 필수)
+# 1. 2GB 스왑(Swap) 메모리 설정 (컨테이너 환경에서는 자동 건너뜀)
 # ------------------------------------------------------------------------------
-echo "🧠 [2/6] e2-micro 메모리 부족 방어용 2GB 가상 스왑(Swap) 메모리를 설정합니다..."
-if [ ! -f /swapfile ]; then
-    sudo fallocate -l 2G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
-    sudo chmod 600 /swapfile
-    sudo mkswap /swapfile
-    sudo swapon /swapfile
-    echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-    echo "✅ 2GB 스왑 메모리 생성 및 활성화 완료!"
+echo "🧠 [2/6] 가상 스왑(Swap) 메모리를 점검합니다..."
+if [ ! -f /swapfile ] && [ -d /run/systemd/system ]; then
+    if (sudo fallocate -l 2G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048) 2>/dev/null; then
+        sudo chmod 600 /swapfile
+        sudo mkswap /swapfile 2>/dev/null && sudo swapon /swapfile 2>/dev/null || true
+        echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+        echo "✅ 2GB 스왑 메모리 생성 및 활성화 완료!"
+    else
+        echo "ℹ️ 컨테이너 환경이므로 스왑 생성을 건너뜁니다."
+    fi
 else
-    echo "ℹ️ 이미 /swapfile이 존재합니다. 건너뜁니다."
+    echo "ℹ️ 스왑 설정을 건너뜁니다."
 fi
 
 # ------------------------------------------------------------------------------
 # 2. 필수 시스템 패키지 설치
 # ------------------------------------------------------------------------------
 echo "📦 [3/6] 필수 시스템 패키지(Python3, venv, pip, git, ffmpeg)를 설치합니다..."
-sudo apt update -y
-sudo apt install -y python3 python3-pip python3-venv git curl ffmpeg fonts-nanum
+sudo apt update -y || true
+sudo apt install -y python3 python3-pip python3-venv git curl ffmpeg fonts-nanum || true
 
 # ------------------------------------------------------------------------------
 # 3. Python 가상환경(venv) 구성 및 패키지 설치
@@ -42,11 +44,15 @@ sudo apt install -y python3 python3-pip python3-venv git curl ffmpeg fonts-nanum
 echo "🐍 [4/6] Python 가상환경을 구축하고 requirements.txt를 설치합니다..."
 cd "$APP_DIR"
 
-if [ ! -d "venv" ]; then
+if [ ! -d "venv" ] && [ ! -d ".venv" ]; then
     python3 -m venv venv
 fi
 
-source venv/bin/activate
+if [ -d ".venv" ]; then
+    source .venv/bin/activate
+else
+    source venv/bin/activate
+fi
 pip install --upgrade pip
 pip install -r requirements.txt
 
@@ -65,13 +71,13 @@ else
 fi
 
 # ------------------------------------------------------------------------------
-# 5. systemd 24시간 무중단 백그라운드 서비스 등록
+# 5. 24시간 무중단 백그라운드 서비스/데몬 등록
 # ------------------------------------------------------------------------------
-echo "⚙️ [6/6] systemd 24/7 상시 가동 서비스(/etc/systemd/system/norosi.service)를 등록합니다..."
+echo "⚙️ [6/6] 24/7 상시 가동 서비스를 시작합니다..."
 
-SERVICE_FILE="/etc/systemd/system/norosi.service"
-
-sudo bash -c "cat > $SERVICE_FILE" <<EOF
+if [ -d /run/systemd/system ]; then
+    SERVICE_FILE="/etc/systemd/system/norosi.service"
+    sudo bash -c "cat > $SERVICE_FILE" <<EOF
 [Unit]
 Description=norosi Discord Bot (24/7 Service)
 After=network.target
@@ -90,19 +96,20 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable norosi.service
-sudo systemctl restart norosi.service
+    sudo systemctl daemon-reload
+    sudo systemctl enable norosi.service
+    sudo systemctl restart norosi.service
+else
+    bash "$APP_DIR/deploy/update_bot.sh"
+fi
 
 echo ""
 echo "=============================================================================="
-echo "🎉 norosi 디스코드 봇 GCP 24/7 백그라운드 설정이 완료되었습니다!"
+echo "🎉 norosi 디스코드 봇 24/7 백그라운드 설정이 완료되었습니다!"
 echo "=============================================================================="
 echo "📌 유용한 관리 명령어:"
-echo "  • 봇 상태 확인   : sudo systemctl status norosi"
-echo "  • 실시간 로그 보기: journalctl -u norosi -f"
-echo "  • 봇 재시작       : sudo systemctl restart norosi"
-echo "  • 봇 중지         : sudo systemctl stop norosi"
-echo "  • 환경변수 수정   : nano $APP_DIR/.env (수정 후 반드시 restart 실행)"
+echo "  • 원클릭 업데이트 및 재시작: bash deploy/update_bot.sh"
+echo "  • 실시간 로그 보기         : tail -f $APP_DIR/bot.log"
+echo "  • 환경변수 수정            : nano $APP_DIR/.env"
 echo "=============================================================================="
+
