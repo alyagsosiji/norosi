@@ -346,30 +346,30 @@ class CommandRemoteSelect(discord.ui.Select):
         self.bot_instance = bot_instance
         self.user = user
         options = [
-            discord.SelectOption(label="📅 /출석체크 & 달력", value="attendance", description="자정 기준 하루 1회 출석하고 +100💎 및 월간 마일스톤 받기"),
-            discord.SelectOption(label="🌱 /오늘목표", value="todo", description="오늘의 To-Do 체크 및 7일 은하수 잔디 심기"),
-            discord.SelectOption(label="🎰 /프로세카뽑기 (10회)", value="pull_10", description="프로세카 10회 연속 뽑기 (★3 이상 확정 / 시각별 유닛 픽업)"),
+            discord.SelectOption(label="📅 일일 출석체크 & 달력", value="attendance", description="자정 기준 하루 1회 출석하고 +100💎 및 월간 마일스톤 받기"),
+            discord.SelectOption(label="🌱 오늘의 목표 & 잔디", value="todo", description="오늘의 To-Do 체크 및 7일 은하수 잔디 심기"),
+            discord.SelectOption(label="🎰 프로세카 뽑기 (10회)", value="pull_10", description="프로세카 10회 연속 뽑기 (★3 이상 확정 / 시각별 유닛 픽업)"),
             discord.SelectOption(label="🌠 /원신기원 (10회)", value="genshin_10", description="원신 10회 기원 (캐릭터·신의 주조 무기·성유물 시각별 로테이션)"),
             discord.SelectOption(label="🚆 /스타레일워프 (10회)", value="hsr_10", description="붕괴: 스타레일 10회 워프 (캐릭터·광추·유물 시각별 로테이션)"),
-            discord.SelectOption(label="🎣 /낚시 출조 (호수·강·바다)", value="fishing_cast", description="글로벌 실제 어종 36,700종 낚시·세부 수역 탐사·수족관·최대어 랭킹"),
-            discord.SelectOption(label="🏆 /낚시 랭킹 (대물 보드)", value="fishing_rank", description="서버 내 물고기 최대 크기(cm)·무게(kg) 순위 & 랭커 정보"),
+            discord.SelectOption(label="🎣 세카이 낚시 출조 (호수·강·바다)", value="fishing_cast", description="글로벌 실제 어종 36,700종 낚시·세부 수역 탐사·수족관·최대어 랭킹"),
+            discord.SelectOption(label="🏆 낚시 랭킹 (대물 보드)", value="fishing_rank", description="서버 내 물고기 최대 크기(cm)·무게(kg) 순위 & 랭커 정보"),
             discord.SelectOption(label="📅 /미래시", value="forecast", description="프로세카 한섭 이벤트 미래시 달력 & 일섭 비교 상세 타임라인"),
             discord.SelectOption(label="🎶 /이벤트", value="event_info", description="한섭/일섭 실시간 이벤트 및 가챠 배너 정보"),
-            discord.SelectOption(label="🎒 /내캐릭터", value="my_chars", description="뽑은 캐릭터 보관함 & 잠금(🔒) 관리"),
-            discord.SelectOption(label="👗 /의상", value="wardrobe", description="캐릭터 3D 의상 착용·어나더 컬러 및 타 캐릭터 의상 제작"),
-            discord.SelectOption(label="⚔️ /라이브", value="sekai_live", description="5인 유닛 덱 & 3D 의상 시너지 세카이 라이브 + 스탬프 랠리"),
-            discord.SelectOption(label="📖 /카드도감", value="pokedex", description="캐릭터별 수집률(%) 및 미보유 카드 조회"),
-            discord.SelectOption(label="🌟 /내프로필", value="profile", description="오시 일러, 덱, 출석, 가챠 통계 프로필 카드"),
-            discord.SelectOption(label="🏆 /가챠랭킹", value="gacha_rank", description="도감 수집률 & ★4/생일 카드 최다 보유 랭킹"),
-            discord.SelectOption(label="🎧 /음악지금추천", value="music_now", description="현재 설정 조건으로 세카이 감성 음악 선곡"),
-            discord.SelectOption(label="💿 /플레이리스트", value="playlist", description="유튜브·스포티파이·사클 나만의 음악 플리 제작 및 공유"),
-            discord.SelectOption(label="📋 /디데이목록", value="dday_list", description="등록된 모든 D-Day 전광판 진행 상황 확인"),
-            discord.SelectOption(label="💑 /파트너", value="partner", description="연인·친구 파트너 맺기 및 공동 D-Day 관리"),
-            discord.SelectOption(label="🎂 /생일등록", value="birthday", description="멤버 생일 전광판 조회 및 내 생일 등록 (+500💎 축하)"),
-            discord.SelectOption(label="⏰ /알림예약", value="reminder", description="잊지 않게 챙겨주는 스마트 개인 알리미 예약/관리"),
+            discord.SelectOption(label="🎒 프로세카 카드 보관함", value="my_chars", description="뽑은 캐릭터 보관함 & 잠금(🔒) 관리"),
+            discord.SelectOption(label="👗 캐릭터 3D 의상실", value="wardrobe", description="캐릭터 3D 의상 착용·어나더 컬러 및 타 캐릭터 의상 제작"),
+            discord.SelectOption(label="⚔️ 세카이 라이브", value="sekai_live", description="5인 유닛 덱 & 3D 의상 시너지 세카이 라이브 + 스탬프 랠리"),
+            discord.SelectOption(label="📖 프로세카 카드 도감", value="pokedex", description="캐릭터별 수집률(%) 및 미보유 카드 조회"),
+            discord.SelectOption(label="🌟 내 통합 프로필", value="profile", description="오시 일러, 덱, 출석, 가챠 통계 프로필 카드"),
+            discord.SelectOption(label="🏆 프로세카 가챠 랭킹", value="gacha_rank", description="도감 수집률 & ★4/생일 카드 최다 보유 랭킹"),
+            discord.SelectOption(label="🎧 음악 지금 1곡 추천", value="music_now", description="현재 설정 조건으로 세카이 감성 음악 선곡"),
+            discord.SelectOption(label="💿 플레이리스트 스튜디오", value="playlist", description="유튜브·스포티파이·사클 나만의 음악 플리 제작 및 공유"),
+            discord.SelectOption(label="📋 D-Day 잔디 전광판", value="dday_list", description="등록된 모든 D-Day 전광판 진행 상황 확인"),
+            discord.SelectOption(label="💑 파트너 스튜디오", value="partner", description="연인·친구 파트너 맺기 및 공동 D-Day 관리"),
+            discord.SelectOption(label="🎂 멤버 생일 전광판 & 등록", value="birthday", description="멤버 생일 전광판 조회 및 내 생일 등록 (+500💎 축하)"),
+            discord.SelectOption(label="⏰ 스마트 개인 알림 예약", value="reminder", description="잊지 않게 챙겨주는 스마트 개인 알리미 예약/관리"),
             discord.SelectOption(label="🎮 /모집", value="recruit", description="프로세카·원신·스타레일 등 모든 게임 파티/팀원 자유 모집"),
-            discord.SelectOption(label="🌤️ /날씨", value="weather", description="기상청/ECMWF 초정밀 실시간 날씨·미세먼지·강수확률"),
-            discord.SelectOption(label="🔤 /끝말잇기", value="word_chain", description="표준 두음법칙 적용 실시간 끝말잇기 대결 (+150💎)"),
+            discord.SelectOption(label="🌤️ 실시간 기상청 날씨", value="weather", description="기상청/ECMWF 초정밀 실시간 날씨·미세먼지·강수확률"),
+            discord.SelectOption(label="🔤 실시간 끝말잇기", value="word_chain", description="표준 두음법칙 적용 실시간 끝말잇기 대결 (+150💎)"),
             discord.SelectOption(label="❓ /도움말", value="help", description="norosi 봇 전체 명령어 카테고리별 상세 도움말"),
         ][:25]
         super().__init__(
@@ -886,7 +886,7 @@ class AttendanceRankingView(core.SafeView):
         if not page_items:
             embed.add_field(
                 name="📭 아직 출석 기록이 없습니다",
-                value="`/출석체크` 명령어로 첫 출석의 주인공이 되어보세요!",
+                value="`/설정` (`📅 일일 출석체크`)으로 첫 출석의 주인공이 되어보세요!",
                 inline=False
             )
         else:
@@ -914,7 +914,7 @@ class AttendanceRankingView(core.SafeView):
                 text=f"나의 순위: {my_rank}위 / {len(self.entries)}명 (누적 {my_info['total']}일 • 연속 {my_info['streak']}일)"
             )
         else:
-            embed.set_footer(text="나의 순위: 미등록 (/출석체크 명령어로 출석을 시작해 보세요!)")
+            embed.set_footer(text="나의 순위: 미등록 (/설정 ➔ 일일 출석체크로 출석을 시작해 보세요!)")
 
         return embed
 
@@ -1155,7 +1155,7 @@ class DDayListBoardView(core.SafeView):
             f"필터: {'7일 이내 임박만' if self.filter_mode == 'urgent' else '전체 일정'}"
         ]
         if archived_count > 0:
-            footer_parts.append(f"7일 이상 지난 일정 {archived_count}개는 /지나간디데이 보관소로 이동됨")
+            footer_parts.append(f"7일 이상 지난 일정 {archived_count}개는 /설정 (지나간 D-Day 보관소)에서 확인 가능")
         embed.set_footer(text=" • ".join(footer_parts))
         return embed
 
@@ -1184,6 +1184,20 @@ class DDayListBoardView(core.SafeView):
     @discord.ui.button(label="➕ 새 디데이 등록", style=discord.ButtonStyle.success, row=1)
     async def quick_add_dday_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(DDayQuickAddModal(self))
+
+    @discord.ui.button(label="🗑️ 디데이 삭제 (관리자)", style=discord.ButtonStyle.danger, row=1)
+    async def delete_dday_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.guild and isinstance(interaction.user, discord.Member) and not interaction.user.guild_permissions.administrator:
+            await core.safe_send_response(interaction, "❌ 디데이 일정 삭제는 **서버 관리자**만 실행할 수 있습니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        data = await asyncio.to_thread(core.load_data)
+        ddays = core.as_dict(data.get("ddays"))
+        if not ddays:
+            await interaction.followup.send("📭 현재 등록된 D-Day 일정이 없습니다.", ephemeral=True)
+            return
+        del_view = DDayDeleteView(ddays, self.bot_instance)
+        await interaction.followup.send("🗑️ 삭제할 D-Day 일정을 아래 메뉴에서 선택하세요 (연결된 전광판 채널도 함께 정리됩니다):", view=del_view, ephemeral=True)
 
     @discord.ui.button(label="⚙️ 통합 설정 (/설정)", style=discord.ButtonStyle.secondary, row=1)
     async def open_menu_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1603,7 +1617,7 @@ class PartnerAcceptView(core.SafeView):
             title="💑 새로운 파트너 탄생!",
             description=(
                 f"🎉 {self.requester.mention}님과 {self.target.mention}님이 **파트너**가 되었습니다!\n\n"
-                "• `/파트너` 명령어로 두 사람만의 공동 D-Day와 공유 음악 보관함을 바로 열어보세요.\n"
+                "• `/설정` (`👤 개인` ➔ `💑 파트너 스튜디오`)에서 두 사람만의 공동 D-Day와 공유 음악 보관함을 바로 열어보세요.\n"
                 "• `/카드선물`로 파트너에게 보유 카드를 선물(50 크리스탈)할 수 있습니다."
             ),
             color=discord.Color.from_rgb(255, 105, 180),
@@ -2290,7 +2304,7 @@ class DDayCog(commands.Cog):
             if not current_partner_id:
                 await core.safe_send_response(
                     interaction,
-                    content="📭 현재 맺어진 파트너가 없습니다.\n`/파트너 동작:💌 파트너 신청하기 유저:@상대방`으로 파트너를 맺어보세요!",
+                    content="📭 현재 맺어진 파트너가 없습니다.\n`/설정` (`👤 개인` ➔ `💑 파트너 스튜디오`)에서 파트너를 맺어보세요!",
                     ephemeral=True
                 )
                 return

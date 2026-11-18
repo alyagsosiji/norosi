@@ -1579,7 +1579,7 @@ def cycle_user_costume_color(guild_id: int, user_id: int, char_id: int) -> tuple
         if not ac_unlocked:
             card_prefix = cos.get("card_prefix", "")
             char_name = cos.get("char_name", "")
-            return False, f"🔒 어나더 컬러가 아직 잠겨 있습니다!\n원본 카드 `[{card_prefix}] {char_name}`를 `/마스터랭크`에서 **✦MR.2 이상**으로 한계 돌파하면 어나더 컬러 3종이 해금됩니다!", None
+            return False, f"🔒 어나더 컬러가 아직 잠겨 있습니다!\n원본 카드 `[{card_prefix}] {char_name}`를 `/설정` (`🏆 마스터 랭크`)에서 **✦MR.2 이상**으로 한계 돌파하면 어나더 컬러 3종이 해금됩니다!", None
 
         g_variants = ensure_dict_path(g_user, "equipped_costume_variants")
         cur_var = g_variants.get(str(char_id), "orig")
@@ -1692,7 +1692,7 @@ def execute_sekai_live(guild_id: int, user_id: int, song_id: str | None = None, 
         u_cards = {k: v for k, v in as_dict(g_user.get("cards")).items() if isinstance(v, dict)}
 
         if not u_cards:
-            return False, "보유한 프로세카 카드가 없습니다! 먼저 `/프로세카뽑기`로 캐릭터를 뽑아주세요.", {}
+            return False, "보유한 프로세카 카드가 없습니다! 먼저 `/설정` (`🎰 프로세카 뽑기`)에서 캐릭터를 뽑아주세요.", {}
 
         # 1. 곡 선택
         song = next((s for s in PROSEKA_LIVE_SONGS if s["id"] == song_id), None) if song_id else None
@@ -1966,7 +1966,7 @@ def purchase_and_equip_costume(guild_id: int, user_id: int, char_id: int, costum
         prof = ensure_user_profile(data, u_key)
         crystals = prof.get("crystals", 0)
         if crystals < COSTUME_PURCHASE_PRICE:
-            return False, f"크리스탈이 부족합니다! (필요: `{COSTUME_PURCHASE_PRICE} 💎` / 보유: `{crystals:,} 💎`)\n`/출석체크` 또는 `/중복카드변환`으로 크리스탈을 획득해 보세요!", None, crystals
+            return False, f"크리스탈이 부족합니다! (필요: `{COSTUME_PURCHASE_PRICE} 💎` / 보유: `{crystals:,} 💎`)\n`/설정`의 `📅 일일 출석체크` 또는 `💎 중복 카드 변환`으로 크리스탈을 획득해 보세요!", None, crystals
 
         if char_id not in CHARACTER_MAP:
             return False, "유효하지 않은 캐릭터 번호입니다.", None, crystals
@@ -5523,9 +5523,9 @@ def execute_card_trade(guild_id: int, requester_id: int, target_id: int, req_car
             return False, f"수락자(<@{target_id}>)가 해당 카드를 더 이상 보유하고 있지 않습니다.", None, None, req_crystals
 
         if req_cards[req_card_id].get("locked", False):
-            return False, f"신청자(<@{requester_id}>)의 카드가 `🔒 잠금` 상태여서 교환할 수 없습니다. (`/내캐릭터`에서 잠금 해제 필요)", None, None, req_crystals
+            return False, f"신청자(<@{requester_id}>)의 카드가 `🔒 잠금` 상태여서 교환할 수 없습니다. (`/설정` ➔ `🎒 프로세카 카드 보관함`에서 잠금 해제 필요)", None, None, req_crystals
         if tgt_cards[target_card_id].get("locked", False):
-            return False, f"수락자(<@{target_id}>)의 카드가 `🔒 잠금` 상태여서 교환할 수 없습니다. (`/내캐릭터`에서 잠금 해제 필요)", None, None, req_crystals
+            return False, f"수락자(<@{target_id}>)의 카드가 `🔒 잠금` 상태여서 교환할 수 없습니다. (`/설정` ➔ `🎒 프로세카 카드 보관함`에서 잠금 해제 필요)", None, None, req_crystals
 
         req_prof["crystals"] = req_crystals - 100
         remaining_crystals = req_prof["crystals"]
@@ -5552,7 +5552,7 @@ def execute_partner_gift(guild_id: int, sender_id: int, partner_id: int, card_id
 
         sender_crystals = sender_prof.get("crystals", 0)
         if sender_crystals < 50:
-            return False, f"선물에 필요한 크리스탈이 부족합니다! (필요: `50개` / 현재 보유: `{sender_crystals}개` — `/출석체크` 또는 `/중복카드변환`으로 획득 가능)", None, sender_crystals
+            return False, f"선물에 필요한 크리스탈이 부족합니다! (필요: `50개` / 현재 보유: `{sender_crystals}개` — `/설정`의 `📅 일일 출석체크` 또는 `💎 중복 카드 변환`으로 획득 가능)", None, sender_crystals
 
         g_users = ensure_dict_path(data, "gacha_users", g_key)
         sender_cards = safe_get_dict(g_users, s_key, "cards")
@@ -5560,7 +5560,7 @@ def execute_partner_gift(guild_id: int, sender_id: int, partner_id: int, card_id
             return False, "선물하려는 카드를 보유하고 있지 않습니다.", None, sender_crystals
 
         if sender_cards[card_id].get("locked", False):
-            return False, "해당 카드는 `🔒 잠금` 상태입니다! 선물하려면 `/내캐릭터`에서 먼저 잠금을 해제해 주세요.", None, sender_crystals
+            return False, "해당 카드는 `🔒 잠금` 상태입니다! 선물하려면 `/설정` (`🎒 프로세카 카드 보관함`)에서 먼저 잠금을 해제해 주세요.", None, sender_crystals
 
         sender_prof["crystals"] = sender_crystals - 50
         remaining_crystals = sender_prof["crystals"]

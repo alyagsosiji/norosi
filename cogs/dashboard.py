@@ -137,7 +137,7 @@ def detect_user_perm_tier_sync(user: Optional[discord.abc.User], guild: Optional
 # ==========================================
 # 📝 대시보드 전용 보조 모달 & 선택 뷰
 # ==========================================
-class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 빠른 등록"):
+class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 & 전광판 채널 등록"):
     d_name = discord.ui.TextInput(
         label="D-Day 일정 이름",
         placeholder="예: 기말고사, 프로세카 주년, 자격증 시험",
@@ -158,8 +158,15 @@ class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 빠른 
         max_length=5,
     )
     d_plus_one = discord.ui.TextInput(
-        label="지나간 날짜 +1일 계산 여부 (선택)",
-        placeholder="지난 날짜에 D+1부터 세려면 '+1' 또는 '예' 입력",
+        label="지나간 날짜 +1일 / 매년반복 옵션 (선택)",
+        placeholder="+1일 계산 시 '+1', 매년 반복 시 '반복' 입력 (예: +1 반복)",
+        required=False,
+        max_length=20,
+    )
+    d_channel_opt = discord.ui.TextInput(
+        label="전광판 음성채널 자동 생성 여부 (예/아니오)",
+        placeholder="기본 '예' (채널 생성을 원치 않으면 '아니오' 입력)",
+        default="예",
         required=False,
         max_length=10,
     )
@@ -169,13 +176,42 @@ class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 빠른 
         self.dashboard_view = dashboard_view
 
     async def on_submit(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction, ephemeral=True)
         name_val = self.d_name.value.strip()
         date_val = self.d_date.value.strip()
         emoji_val = self.d_emoji.value.strip() or "🌠"
-        plus_raw = (self.d_plus_one.value or "").strip().lower()
-        use_plus_one = plus_raw in ("+1", "1", "예", "y", "yes", "true", "on", "적용")
+        opt_raw = (self.d_plus_one.value or "").strip().lower()
+        use_plus_one = any(k in opt_raw for k in ("+1", "예", "y", "yes", "true", "적용"))
+        use_repeat = any(k in opt_raw for k in ("반복", "매년", "repeat", "annual"))
+        ch_raw = (self.d_channel_opt.value or "예").strip().lower()
+        make_channel = ch_raw not in ("아니오", "n", "no", "false", "0", "끄기", "안함")
 
+        bot_ref = self.dashboard_view.bot or interaction.client
+        dday_cog = next((c for c in bot_ref.cogs.values() if hasattr(c, "_create_or_update_dday")), None)
+        if dday_cog:
+            await dday_cog._create_or_update_dday(
+                interaction,
+                이름=name_val,
+                날짜=date_val,
+                카테고리=None,
+                이모지=emoji_val,
+                시작일=None,
+                매년반복=use_repeat,
+                채널생성=make_channel,
+                플러스1=use_plus_one,
+            )
+            self.dashboard_view.data = await asyncio.to_thread(core.load_data)
+            self.dashboard_view.refresh_components()
+            if self.dashboard_view.message:
+                try:
+                    await self.dashboard_view.message.edit(
+                        embed=self.dashboard_view.build_current_embed(),
+                        view=self.dashboard_view,
+                    )
+                except Exception:
+                    pass
+            return
+
+        await core.safe_defer(interaction, ephemeral=True)
         try:
             datetime.datetime.strptime(date_val, "%Y-%m-%d")
         except ValueError:
@@ -194,7 +230,7 @@ class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 빠른 
                     "start_date": core.get_today_str(),
                     "emoji": emoji_val,
                     "channel_id": None,
-                    "annual": False,
+                    "repeat": use_repeat,
                     "plus_one": use_plus_one,
                 }
                 core.save_data(data)
@@ -202,18 +238,8 @@ class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 빠른 
 
         data = await asyncio.to_thread(_save_dday)
         _, dday_str = core.get_dday_info(date_val, plus_one=use_plus_one)
-
         self.dashboard_view.data = data
         self.dashboard_view.refresh_components()
-        if self.dashboard_view.message:
-            try:
-                await self.dashboard_view.message.edit(
-                    embed=self.dashboard_view.build_current_embed(),
-                    view=self.dashboard_view,
-                )
-            except Exception:
-                pass
-
         await interaction.followup.send(
             f"✅ **{emoji_val} {name_val}** 일정이 성공적으로 등록되었습니다! (현재 상태: **`{dday_str}`**)",
             ephemeral=True,
@@ -272,6 +298,58 @@ class DashboardPomodoroModal(core.SafeModal, title="⏳ 뽀모도로 집중모�
             await core.safe_send_response(interaction, "❌ 집중모드 모듈을 찾을 수 없습니다.", ephemeral=True)
 
 
+class DashboardHardcoreStudyModal(core.SafeModal, title="🔥 하드코어 스터디 타이머 시작"):
+    study_goal = discord.ui.TextInput(
+        label="오늘의 집중 스터디 목표",
+        placeholder="예: 자격증 기출 2회독 / 알고리즘 코딩 / 시험 공부",
+        default="자격증 / 집중 코딩",
+        required=True,
+        max_length=60,
+    )
+    target_min = discord.ui.TextInput(
+        label="목표 집중 시간 (분, 50~600)",
+        placeholder="예: 100 (50분 집중 + 10분 휴식 사이클)",
+        default="100",
+        required=True,
+        max_length=3,
+    )
+    voice_opts = discord.ui.TextInput(
+        label="음성 안내 & 자동 음소거 옵션 (기본: 둘다 켜기)",
+        placeholder="'안내끄기' 또는 '음소거끄기' 입력 가능 (비우면 둘 다 ON)",
+        required=False,
+        max_length=30,
+    )
+
+    def __init__(self, bot: commands.Bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            t_min = max(50, min(600, int(self.target_min.value.strip())))
+        except ValueError:
+            t_min = 100
+        opt_raw = (self.voice_opts.value or "").strip().lower()
+        use_tts = "안내끄" not in opt_raw
+        use_mute = "음소거끄" not in opt_raw
+
+        target_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "hardcore_study_cmd")), None)
+        if target_cog:
+            choice_start = app_commands.Choice(name="🔥 하드코어 스터디 시작", value="start")
+            await target_cog.hardcore_study_cmd.callback(
+                target_cog,
+                interaction,
+                동작=choice_start,
+                목표=self.study_goal.value.strip() or "자격증 / 집중 코딩",
+                목표시간=t_min,
+                음성채널=None,
+                음성안내=use_tts,
+                자동음소거=use_mute,
+            )
+        else:
+            await core.safe_send_response(interaction, "❌ 스터디 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+
 class DashboardInactiveAuditModal(core.SafeModal, title="👻 비활성(잠수) 유저 스캔"):
     days_input = discord.ui.TextInput(
         label="비활성 기준 미활동 일수 (7 / 14 / 30 / 60 / 90)",
@@ -314,10 +392,10 @@ class DashboardMessagePurgeModal(core.SafeModal, title="🧹 채널 메시지 �
         max_length=60,
     )
     bot_only_input = discord.ui.TextInput(
-        label="봇 메시지만 삭제 여부 (선택)",
-        placeholder="봇 메시지만 지우려면 '예' 또는 'bot' 입력",
+        label="세부 필터 (봇 / 미디어 / 특정유저 닉네임·ID)",
+        placeholder="'봇', '미디어(사진/파일)', 또는 특정 유저명/ID 입력",
         required=False,
-        max_length=10,
+        max_length=40,
     )
 
     def __init__(self, bot: commands.Bot):
@@ -341,8 +419,18 @@ class DashboardMessagePurgeModal(core.SafeModal, title="🧹 채널 메시지 �
             return
 
         kw = (self.keyword_input.value or "").strip() or None
-        bot_raw = (self.bot_only_input.value or "").strip().lower()
-        bots_only = bot_raw in ("예", "y", "yes", "true", "1", "bot", "봇")
+        flt_raw = (self.bot_only_input.value or "").strip()
+        flt_low = flt_raw.lower()
+        bots_only = flt_low in ("예", "y", "yes", "true", "1", "bot", "봇")
+        media_only = flt_low in ("미디어", "media", "사진", "파일", "첨부", "이미지")
+        target_user_id: Optional[int] = None
+        target_user_name_q: Optional[str] = None
+        if flt_raw and not bots_only and not media_only:
+            clean_id = flt_raw.strip("<@!>")
+            if clean_id.isdigit():
+                target_user_id = int(clean_id)
+            else:
+                target_user_name_q = flt_low
 
         if not isinstance(interaction.channel, (discord.TextChannel, discord.VoiceChannel, discord.Thread)):
             await core.safe_send_response(interaction, "❌ 텍스트 채널 또는 스레드에서만 사용할 수 있습니다.", ephemeral=True)
@@ -352,6 +440,15 @@ class DashboardMessagePurgeModal(core.SafeModal, title="🧹 채널 메시지 �
 
         def _check(m: discord.Message) -> bool:
             if bots_only and not m.author.bot:
+                return False
+            if media_only and not (m.attachments or m.embeds):
+                return False
+            if target_user_id is not None and m.author.id != target_user_id:
+                return False
+            if target_user_name_q and (
+                target_user_name_q not in m.author.display_name.lower()
+                and target_user_name_q not in m.author.name.lower()
+            ):
                 return False
             if kw and kw.lower() not in (m.content or "").lower():
                 return False
@@ -367,6 +464,576 @@ class DashboardMessagePurgeModal(core.SafeModal, title="🧹 채널 메시지 �
             await interaction.followup.send("❌ 봇에게 `메시지 관리(Manage Messages)` 권한이 없습니다.", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"❌ 메시지 청소 중 오류 발생: `{e}`", ephemeral=True)
+
+
+class DashboardSekaiSearchModal(core.SafeModal, title="🔍 내 보유 프로세카 카드 키워드 검색"):
+    keyword = discord.ui.TextInput(
+        label="검색할 캐릭터 이름, 카드명, 유닛 또는 등급",
+        placeholder="예: 카나데, 미쿠, 니고, ★4, 생일, 페스",
+        required=True,
+        max_length=50,
+    )
+
+    def __init__(self, bot: commands.Bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        gacha_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "my_characters_cmd")), None)
+        if gacha_cog:
+            await gacha_cog.my_characters_cmd.callback(
+                gacha_cog,
+                interaction,
+                유저=None,
+                캐릭터=None,
+                검색어=self.keyword.value.strip(),
+            )
+        else:
+            await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+
+class DashboardTicketCustomPanelModal(core.SafeModal, title="🎫 커스텀 1:1 문의 티켓 패널 생성"):
+    panel_title = discord.ui.TextInput(
+        label="티켓 패널 임베드 제목",
+        placeholder="예: 🎫 서버 운영진 1:1 비공개 문의 & 건의 센터",
+        default="🎫 1:1 비공개 문의 & 건의 티켓 센터",
+        required=True,
+        max_length=80,
+    )
+    panel_desc = discord.ui.TextInput(
+        label="티켓 패널 안내 설명 문구",
+        style=discord.TextStyle.paragraph,
+        placeholder="예: 아래 [📩 1:1 문의 열기] 버튼을 누르면 운영진과 본인만 볼 수 있는 비공개 티켓 채널이 열립니다.",
+        required=False,
+        max_length=800,
+    )
+
+    def __init__(self, bot: commands.Bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        ticket_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "ticket_panel_cmd")), None)
+        if ticket_cog:
+            await ticket_cog.ticket_panel_cmd.callback(
+                ticket_cog,
+                interaction,
+                채널=interaction.channel if isinstance(interaction.channel, discord.TextChannel) else None,
+                제목=self.panel_title.value.strip(),
+                설명=(self.panel_desc.value or "").strip() or None,
+            )
+        else:
+            await core.safe_send_response(interaction, "❌ 티켓 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+
+class DashboardTicketMemberModal(core.SafeModal, title="👥 현재 티켓 채널에 멤버 추가/제거"):
+    member_query = discord.ui.TextInput(
+        label="대상 멤버 닉네임, @멘션 또는 디스코드 ID",
+        placeholder="예: @홍길동 또는 123456789012345678",
+        required=True,
+        max_length=50,
+    )
+    action_type = discord.ui.TextInput(
+        label="동작 선택 ('추가' 또는 '제거')",
+        placeholder="티켓에 초대하려면 '추가', 내보내려면 '제거' 입력",
+        default="추가",
+        required=True,
+        max_length=10,
+    )
+
+    def __init__(self, bot: commands.Bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 서버 티켓 채널에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+        q_raw = self.member_query.value.strip()
+        clean_id = q_raw.strip("<@!>")
+        target_member = None
+        if clean_id.isdigit():
+            target_member = interaction.guild.get_member(int(clean_id))
+        if target_member is None:
+            q_low = q_raw.lower()
+            target_member = next(
+                (m for m in interaction.guild.members if q_low in m.display_name.lower() or q_low in m.name.lower()),
+                None,
+            )
+        if target_member is None:
+            await core.safe_send_response(interaction, f"❌ 서버에서 `{q_raw}` 멤버를 찾을 수 없습니다.", ephemeral=True)
+            return
+
+        act_raw = (self.action_type.value or "추가").strip().lower()
+        is_remove = act_raw in ("제거", "삭제", "내보내기", "remove", "del", "out")
+        ticket_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "ticket_add_member_cmd")), None)
+        if not ticket_cog:
+            await core.safe_send_response(interaction, "❌ 티켓 모듈을 찾을 수 없습니다.", ephemeral=True)
+            return
+        if is_remove and hasattr(ticket_cog, "ticket_remove_member_cmd"):
+            await ticket_cog.ticket_remove_member_cmd.callback(ticket_cog, interaction, 멤버=target_member)
+        else:
+            await ticket_cog.ticket_add_member_cmd.callback(ticket_cog, interaction, 멤버=target_member)
+
+
+class DashboardMorningMusicPrefsModal(core.SafeModal, title="🌅 오전 7시 모닝 음악 추천 상세 설정"):
+    platform_input = discord.ui.TextInput(
+        label="추천 플랫폼 (all / youtube / spotify / soundcloud)",
+        placeholder="예: all, youtube, spotify, soundcloud",
+        default="all",
+        required=True,
+        max_length=20,
+    )
+    genre_input = discord.ui.TextInput(
+        label="선호 음악 장르/분위기 (선택)",
+        placeholder="예: 프로세카, 보컬로이드, J-POP, 시티팝, 로파이",
+        required=False,
+        max_length=80,
+    )
+    artist_input = discord.ui.TextInput(
+        label="선호 아티스트/유닛 (선택)",
+        placeholder="예: 25시 밤 코드로, 하츠네 미쿠, YOASOBI",
+        required=False,
+        max_length=80,
+    )
+    playlist_url = discord.ui.TextInput(
+        label="커스텀 플레이리스트 링크 (선택, 초기화는 '초기화')",
+        placeholder="유튜브/스포티파이/사클 플리 URL (지정 시 해당 플리에서 선곡)",
+        required=False,
+        max_length=300,
+    )
+
+    def __init__(self, bot: commands.Bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        music_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "set_music_prefs")), None)
+        if not music_cog:
+            await core.safe_send_response(interaction, "❌ 음악 모듈을 찾을 수 없습니다.", ephemeral=True)
+            return
+        plat_raw = (self.platform_input.value or "all").strip().lower()
+        plat_map = {
+            "all": "랜덤 (YouTube + Spotify + SoundCloud)",
+            "youtube": "유튜브 (YouTube) 전용",
+            "spotify": "스포티파이 (Spotify) 전용",
+            "soundcloud": "사운드클라우드 (SoundCloud) 전용",
+        }
+        if plat_raw not in plat_map:
+            plat_raw = "all"
+        p_choice = app_commands.Choice(name=plat_map[plat_raw], value=plat_raw)
+        ch_obj = interaction.channel if isinstance(interaction.channel, discord.TextChannel) else None
+        if ch_obj is None and interaction.guild and interaction.guild.text_channels:
+            ch_obj = interaction.guild.text_channels[0]
+        if ch_obj is None:
+            await core.safe_send_response(interaction, "❌ 모닝 음악을 전송할 텍스트 채널을 찾을 수 없습니다.", ephemeral=True)
+            return
+        raw_pl = (self.playlist_url.value or "").strip()
+        if raw_pl.lower() in ("초기화", "제거", "삭제", "reset", "none", "clear"):
+            raw_pl = ""
+        await music_cog.set_music_prefs.callback(
+            music_cog,
+            interaction,
+            채널=ch_obj,
+            플랫폼=p_choice,
+            장르=(self.genre_input.value or "").strip() or None,
+            아티스트=(self.artist_input.value or "").strip() or None,
+            플레이리스트링크=raw_pl or None,
+        )
+
+
+class DashboardGenshinProfileModal(core.SafeModal, title="✏️ 원신 여행자 프로필 설정"):
+    fav_char = discord.ui.TextInput(
+        label="대표(오시) 원신 캐릭터 이름 (선택)",
+        placeholder="예: 푸리나, 나히다, 라이덴 쇼군, 아를레키노",
+        required=False,
+        max_length=40,
+    )
+    bio_text = discord.ui.TextInput(
+        label="여행자 상태 메시지 (선택, 최대 60자)",
+        placeholder="예: 별과 심연을 향하여! 픽뚫 없는 기원 기원합니다 ✨",
+        required=False,
+        max_length=60,
+    )
+
+    def __init__(self, bot: commands.Bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        gi_cog = self.bot.get_cog("GenshinCog")
+        if gi_cog and hasattr(gi_cog, "profile_cmd"):
+            fav_raw = (self.fav_char.value or "").strip() or None
+            resolved_fav = fav_raw
+            if fav_raw:
+                data = core.get_cached_data()
+                u_data = genshin_core.ensure_genshin_user(data, interaction.guild_id or 0, interaction.user.id)
+                u_items = core.as_dict(u_data.get("items"))
+                matched_k = next(
+                    (
+                        k for k, v in u_items.items()
+                        if isinstance(v, dict)
+                        and v.get("kind") == "char"
+                        and (k == fav_raw or fav_raw.lower() in str(v.get("name", "")).lower())
+                    ),
+                    fav_raw,
+                )
+                resolved_fav = matched_k
+            await gi_cog.profile_cmd.callback(
+                gi_cog,
+                interaction,
+                대상=None,
+                대표캐릭터=resolved_fav,
+                상태문구=(self.bio_text.value or "").strip() or None,
+            )
+        else:
+            await core.safe_send_response(interaction, "❌ 원신 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+
+class DashboardHSRProfileModal(core.SafeModal, title="✏️ 스타레일 개척자 프로필 설정"):
+    fav_char = discord.ui.TextInput(
+        label="대표(오시) 스타레일 캐릭터 이름 (선택)",
+        placeholder="예: 반디, 아케론, 카프카, 비소, 로빈",
+        required=False,
+        max_length=40,
+    )
+    bio_text = discord.ui.TextInput(
+        label="개척자 상태 메시지 (선택, 최대 60자)",
+        placeholder="예: 이 여정이 언젠가 뭇별에 닿기를! 🚂",
+        required=False,
+        max_length=60,
+    )
+
+    def __init__(self, bot: commands.Bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        hsr_cog = self.bot.get_cog("HSRCog")
+        if hsr_cog and hasattr(hsr_cog, "profile_cmd"):
+            fav_raw = (self.fav_char.value or "").strip() or None
+            resolved_fav = fav_raw
+            if fav_raw:
+                data = core.get_cached_data()
+                u_data = hsr_core.ensure_hsr_user(data, interaction.guild_id or 0, interaction.user.id)
+                u_items = core.as_dict(u_data.get("items"))
+                matched_k = next(
+                    (
+                        k for k, v in u_items.items()
+                        if isinstance(v, dict)
+                        and v.get("kind") == "char"
+                        and (k == fav_raw or fav_raw.lower() in str(v.get("name", "")).lower())
+                    ),
+                    fav_raw,
+                )
+                resolved_fav = matched_k
+            await hsr_cog.profile_cmd.callback(
+                hsr_cog,
+                interaction,
+                대상=None,
+                대표캐릭터=resolved_fav,
+                상태문구=(self.bio_text.value or "").strip() or None,
+            )
+        else:
+            await core.safe_send_response(interaction, "❌ 스타레일 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+
+class DashboardSekaiOwnerPickupModal(core.SafeModal, title="🎛️ [봇주인] 프로세카 수동 픽업 배너 설정"):
+    mode_input = discord.ui.TextInput(
+        label="배너 모드 (normal / fes / birthday / auto_event)",
+        placeholder="normal(일반), fes(페스 ★4 2배), birthday(생일), auto_event",
+        default="normal",
+        required=True,
+        max_length=20,
+    )
+    unit_input = discord.ui.TextInput(
+        label="픽업 유닛 선택 (선택, 예: 25시, 나이트 코드에서.)",
+        placeholder="버츄얼 싱어 / Leo/need / MORE MORE JUMP! / Vivid BAD SQUAD 등",
+        required=False,
+        max_length=40,
+    )
+    chars_input = discord.ui.TextInput(
+        label="픽업 대상 캐릭터 이름 (선택)",
+        placeholder="예: 요이사키 카나데",
+        required=False,
+        max_length=120,
+    )
+    limited_and_title = discord.ui.TextInput(
+        label="한정카드 포함 여부 ('한정포함' 또는 '한정제외', 선택)",
+        placeholder="예: 한정포함",
+        required=False,
+        max_length=100,
+    )
+
+    def __init__(self, bot: commands.Bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        gacha_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "set_pickup_cmd")), None)
+        if not gacha_cog:
+            await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
+            return
+        m_raw = (self.mode_input.value or "normal").strip().lower()
+        mode_choice = None
+        banner_choice = None
+        if m_raw in ("auto_event", "event_sync"):
+            mode_choice = app_commands.Choice(name="🎯 현재 한섭 이벤트에 자동 맞추기 (실시간 DB)", value="event_sync")
+        elif m_raw == "reset":
+            mode_choice = app_commands.Choice(name="🧹 픽업 초기화 (전체 해제)", value="reset")
+        else:
+            if m_raw not in ("normal", "fes", "birthday"):
+                m_raw = "normal"
+            banner_choice = app_commands.Choice(name=m_raw, value=m_raw)
+            mode_choice = app_commands.Choice(name="🎛️ 수동 설정 (유닛 / 캐릭터 직접 선택)", value="manual")
+
+        u_raw = (self.unit_input.value or "").strip()
+        unit_choice = None
+        if u_raw:
+            unit_list = getattr(core, "UNIT_ORDER", [
+                "버츄얼 싱어", "Leo/need", "MORE MORE JUMP!", "Vivid BAD SQUAD", "원더랜즈×쇼타임", "25시, 나이트 코드에서."
+            ])
+            matched_u = next((u for u in unit_list if u_raw.lower() in u.lower() or u.lower() in u_raw.lower()), u_raw)
+            unit_choice = app_commands.Choice(name=matched_u, value=matched_u)
+
+        lt_raw = (self.limited_and_title.value or "").strip()
+        inc_lim: bool = True
+        if lt_raw:
+            left = lt_raw.split("|", 1)[0].strip().lower()
+            if left in ("한정제외", "상시만", "false", "no", "0"):
+                inc_lim = False
+
+        raw_char = (self.chars_input.value or "").strip()
+        if "," in raw_char:
+            raw_char = raw_char.split(",", 1)[0].strip()
+
+        await gacha_cog.set_pickup_cmd.callback(
+            gacha_cog,
+            interaction,
+            모드=mode_choice,
+            유닛=unit_choice,
+            캐릭터=raw_char or None,
+            한정포함=inc_lim,
+            배너=banner_choice,
+        )
+
+
+class DashboardGenshinOwnerPickupModal(core.SafeModal, title="🎛️ [봇주인] 원신 글로벌 픽업 상세 설정"):
+    preset_or_title = discord.ui.TextInput(
+        label="프리셋 ID 또는 커스텀 배너 이름 (선택)",
+        placeholder="예: time_rotation, latest, fontaine_archon 또는 배너명",
+        required=False,
+        max_length=80,
+    )
+    five_stars = discord.ui.TextInput(
+        label="5성 픽업 캐릭터 ① / ② (쉼표 구분, 선택)",
+        placeholder="예: 푸리나, 나히다 (전반/후반 5성 픽업)",
+        required=False,
+        max_length=80,
+    )
+    four_stars = discord.ui.TextInput(
+        label="4성 픽업 캐릭터 (쉼표 구분 3명, 선택)",
+        placeholder="예: 베넷, 행추, 피슬",
+        required=False,
+        max_length=80,
+    )
+    weapons_5 = discord.ui.TextInput(
+        label="신의 주조 5성 픽업 무기 2종 (쉼표 구분, 선택)",
+        placeholder="예: 고요히 샘솟는 빛, 떠오르는 천일밤의 꿈",
+        required=False,
+        max_length=100,
+    )
+    artifacts_5 = discord.ui.TextInput(
+        label="성유물 기원 5성 픽업 성유물 (쉼표 구분, 선택)",
+        placeholder="예: 황금 극단, 그림자 사냥꾼",
+        required=False,
+        max_length=100,
+    )
+
+    def __init__(self, bot: commands.Bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        gi_cog = self.bot.get_cog("GenshinCog")
+        if not gi_cog or not hasattr(gi_cog, "setup_pickup_cmd"):
+            await core.safe_send_response(interaction, "❌ 원신 모듈을 찾을 수 없습니다.", ephemeral=True)
+            return
+        pt_raw = (self.preset_or_title.value or "").strip()
+        preset_keys = set(getattr(genshin_core, "GENSHIN_BANNER_PRESETS", {}).keys()) | {"time_rotation", "reset"}
+        preset_val = pt_raw if pt_raw in preset_keys else None
+        banner_name = None if preset_val else (pt_raw or None)
+
+        chars, weapons = genshin_core.load_genshin_kr_db()
+        def _match_gi_char(q: str) -> Optional[str]:
+            if not q:
+                return None
+            ql = q.lower()
+            found = next((c["id"] for c in chars if c["id"].lower() == ql or c.get("name", "").lower() == ql), None)
+            if not found:
+                found = next((c["id"] for c in chars if ql in c.get("name", "").lower() or ql in c["id"].lower()), q)
+            return found
+
+        def _match_gi_weapon(q: str) -> Optional[str]:
+            if not q:
+                return None
+            ql = q.lower()
+            found = next((w["id"] for w in weapons if w["id"].lower() == ql or w.get("name", "").lower() == ql), None)
+            if not found:
+                found = next((w["id"] for w in weapons if ql in w.get("name", "").lower() or ql in w["id"].lower()), q)
+            return found
+
+        def _match_gi_art(q: str) -> Optional[str]:
+            if not q:
+                return None
+            ql = q.lower()
+            arts = getattr(genshin_core, "GENSHIN_ARTIFACTS", []) or []
+            found = next((a["id"] for a in arts if a["id"].lower() == ql or a.get("name", "").lower() == ql), None)
+            if not found:
+                found = next((a["id"] for a in arts if ql in a.get("name", "").lower() or ql in a["id"].lower()), q)
+            return found
+
+        f5_parts = [p.strip() for p in (self.five_stars.value or "").split(",") if p.strip()]
+        p5_1 = _match_gi_char(f5_parts[0]) if len(f5_parts) >= 1 else None
+        p5_2 = _match_gi_char(f5_parts[1]) if len(f5_parts) >= 2 else None
+
+        f4_parts = [p.strip() for p in (self.four_stars.value or "").split(",") if p.strip()]
+        f4_1 = _match_gi_char(f4_parts[0]) if len(f4_parts) >= 1 else None
+        f4_2 = _match_gi_char(f4_parts[1]) if len(f4_parts) >= 2 else None
+        f4_3 = _match_gi_char(f4_parts[2]) if len(f4_parts) >= 3 else None
+
+        w_parts = [p.strip() for p in (self.weapons_5.value or "").split(",") if p.strip()]
+        w1 = _match_gi_weapon(w_parts[0]) if len(w_parts) >= 1 else None
+        w2 = _match_gi_weapon(w_parts[1]) if len(w_parts) >= 2 else None
+
+        a_parts = [p.strip() for p in (self.artifacts_5.value or "").split(",") if p.strip()]
+        a1 = _match_gi_art(a_parts[0]) if len(a_parts) >= 1 else None
+        a2 = _match_gi_art(a_parts[1]) if len(a_parts) >= 2 else None
+
+        await gi_cog.setup_pickup_cmd.callback(
+            gi_cog,
+            interaction,
+            프리셋=preset_val,
+            캐릭터1=p5_1,
+            캐릭터2=p5_2,
+            사성1=f4_1,
+            사성2=f4_2,
+            사성3=f4_3,
+            무기1=w1,
+            무기2=w2,
+            성유물1=a1,
+            성유물2=a2,
+            배너이름=banner_name,
+        )
+
+
+class DashboardHSROwnerPickupModal(core.SafeModal, title="🎛️ [봇주인] 스타레일 글로벌 픽업 상세 설정"):
+    preset_or_title = discord.ui.TextInput(
+        label="프리셋 ID 또는 커스텀 배너 이름 (선택)",
+        placeholder="예: time_rotation, latest, penacony_dream, fate_collab",
+        required=False,
+        max_length=80,
+    )
+    five_stars = discord.ui.TextInput(
+        label="5성 픽업 캐릭터 ① / ② (쉼표 구분, 선택)",
+        placeholder="예: 반디, 완·매 (전반/후반 5성 픽업)",
+        required=False,
+        max_length=80,
+    )
+    four_stars = discord.ui.TextInput(
+        label="4성 픽업 캐릭터 (쉼표 구분 3명, 선택)",
+        placeholder="예: 갤러거, 페라, 정운",
+        required=False,
+        max_length=80,
+    )
+    lightcones_5 = discord.ui.TextInput(
+        label="세월의 응고 5성 픽업 광추 (쉼표 구분, 선택)",
+        placeholder="예: 꿈이 어디로 돌아가야 하는지, 거울 속 지난날의 나",
+        required=False,
+        max_length=100,
+    )
+    relics_5 = discord.ui.TextInput(
+        label="터널 유물 5성 픽업 세트 (쉼표 구분, 선택)",
+        placeholder="예: 곤충 재앙을 잠재우는 철기군, 선구자",
+        required=False,
+        max_length=100,
+    )
+
+    def __init__(self, bot: commands.Bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        hsr_cog = self.bot.get_cog("HSRCog")
+        if not hsr_cog or not hasattr(hsr_cog, "setup_pickup_cmd"):
+            await core.safe_send_response(interaction, "❌ 스타레일 모듈을 찾을 수 없습니다.", ephemeral=True)
+            return
+        pt_raw = (self.preset_or_title.value or "").strip()
+        preset_keys = set(getattr(hsr_core, "HSR_BANNER_PRESETS", {}).keys()) | {"time_rotation", "reset"}
+        preset_val = pt_raw if pt_raw in preset_keys else None
+        banner_name = None if preset_val else (pt_raw or None)
+
+        chars, lcs = hsr_core.load_hsr_kr_db()
+        def _match_hsr_char(q: str) -> Optional[str]:
+            if not q:
+                return None
+            ql = q.lower()
+            found = next((c["id"] for c in chars if c["id"].lower() == ql or c.get("name", "").lower() == ql), None)
+            if not found:
+                found = next((c["id"] for c in chars if ql in c.get("name", "").lower() or ql in c["id"].lower()), q)
+            return found
+
+        def _match_hsr_lc(q: str) -> Optional[str]:
+            if not q:
+                return None
+            ql = q.lower()
+            found = next((l["id"] for l in lcs if l["id"].lower() == ql or l.get("name", "").lower() == ql), None)
+            if not found:
+                found = next((l["id"] for l in lcs if ql in l.get("name", "").lower() or ql in l["id"].lower()), q)
+            return found
+
+        def _match_hsr_relic(q: str) -> Optional[str]:
+            if not q:
+                return None
+            ql = q.lower()
+            rels = getattr(hsr_core, "HSR_RELICS", []) or []
+            found = next((r["id"] for r in rels if r["id"].lower() == ql or r.get("name", "").lower() == ql), None)
+            if not found:
+                found = next((r["id"] for r in rels if ql in r.get("name", "").lower() or ql in r["id"].lower()), q)
+            return found
+
+        f5_parts = [p.strip() for p in (self.five_stars.value or "").split(",") if p.strip()]
+        p5_1 = _match_hsr_char(f5_parts[0]) if len(f5_parts) >= 1 else None
+        p5_2 = _match_hsr_char(f5_parts[1]) if len(f5_parts) >= 2 else None
+
+        f4_parts = [p.strip() for p in (self.four_stars.value or "").split(",") if p.strip()]
+        f4_1 = _match_hsr_char(f4_parts[0]) if len(f4_parts) >= 1 else None
+        f4_2 = _match_hsr_char(f4_parts[1]) if len(f4_parts) >= 2 else None
+        f4_3 = _match_hsr_char(f4_parts[2]) if len(f4_parts) >= 3 else None
+
+        lc_parts = [p.strip() for p in (self.lightcones_5.value or "").split(",") if p.strip()]
+        lc1 = _match_hsr_lc(lc_parts[0]) if len(lc_parts) >= 1 else None
+        lc2 = _match_hsr_lc(lc_parts[1]) if len(lc_parts) >= 2 else None
+
+        r_parts = [p.strip() for p in (self.relics_5.value or "").split(",") if p.strip()]
+        r1 = _match_hsr_relic(r_parts[0]) if len(r_parts) >= 1 else None
+        r2 = _match_hsr_relic(r_parts[1]) if len(r_parts) >= 2 else None
+
+        await hsr_cog.setup_pickup_cmd.callback(
+            hsr_cog,
+            interaction,
+            프리셋=preset_val,
+            캐릭터1=p5_1,
+            캐릭터2=p5_2,
+            사성1=f4_1,
+            사성2=f4_2,
+            사성3=f4_3,
+            광추1=lc1,
+            광추2=lc2,
+            유물1=r1,
+            유물2=r2,
+            배너이름=banner_name,
+        )
 
 
 class OshiQuickSelectView(core.SafeView):
@@ -452,8 +1119,8 @@ class OshiQuickSelectView(core.SafeView):
             title="💖 최애(오시) 캐릭터 설정 완료!",
             description=(
                 f"**{interaction.user.display_name}**님의 대표 오시 캐릭터가 **`{picked}`** ({core.CHAR_UNIT_MAP.get(picked, '세카이')})로 변경되었습니다!\n"
-                "• `/내프로필` 및 `/프로필카드`에 우선 반영됩니다.\n"
-                "• `/출석체크` 시 오시 캐릭터의 세카이 보이스 대사가 매칭됩니다."
+                "• `/설정` (`👤 개인` ➔ `🪪 내 통합 프로필` 및 `🎨 비주얼 프로필 카드`)에 우선 반영됩니다.\n"
+                "• `/설정` (`📅 일일 출석체크`) 시 오시 캐릭터의 세카이 보이스 대사가 매칭됩니다."
             ),
             color=discord.Color.from_rgb(255, 105, 180),
             timestamp=datetime.datetime.now(core.KST),
@@ -874,9 +1541,9 @@ class BotBannerModal(core.SafeModal, title="🖼️ [봇주 전용] 봇 프로�
         import bot as bot_mod
         raw = (self.banner_url.value or "").strip()
         if raw.lower() in ("초기화", "제거", "삭제", "reset", "none", "clear"):
-            await bot_mod.set_bot_banner_slash(interaction, 이미지파일=None, 이미지url=None, 초기화=True)
+            await bot_mod.set_bot_banner_slash(interaction, 이미지=None, 이미지url=None, 초기화=True)
         else:
-            await bot_mod.set_bot_banner_slash(interaction, 이미지파일=None, 이미지url=raw, 초기화=False)
+            await bot_mod.set_bot_banner_slash(interaction, 이미지=None, 이미지url=raw, 초기화=False)
 
 # 🎛️ 통합 설정 허브 뷰 (MasterDashboardView / SettingsHubView)
 # ==========================================
@@ -1164,11 +1831,11 @@ class MasterDashboardView(core.SafeView):
                             "cb": self._act_music_vault,
                         },
                         {
-                            "label": "재생 배속 조절",
+                            "label": "배속·음성방 리모컨",
                             "emoji": "⏩",
                             "style": discord.ButtonStyle.secondary,
                             "perm": PERM_USER,
-                            "desc": "음성채널 플레이리스트 재생 속도(0.75x ~ 2.0x) 실시간 변경",
+                            "desc": "음성 재생 배속(0.75x~2.0x) 변경 및 내 임시음성방 리모컨 열기",
                             "cb": self._act_music_voice_hub,
                         },
                         {
@@ -1368,7 +2035,7 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "🧹",
                             "style": discord.ButtonStyle.primary,
                             "perm": PERM_ADMIN,
-                            "desc": "[🛡️서버관리자] 채널 메시지를 개수·키워드·봇 여부 조건으로 일괄 삭제",
+                            "desc": "[🛡️서버관리자] 채널 메시지를 개수·키워드·봇·미디어·특정유저 조건으로 일괄 삭제",
                             "cb": self._act_admin_purge,
                         },
                         {
@@ -1392,7 +2059,7 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "🌅",
                             "style": discord.ButtonStyle.secondary,
                             "perm": PERM_ADMIN,
-                            "desc": "[🛡️서버관리자] 오전 7시 모닝 음악추천 채널 및 맞춤 시간 음악알람 설정",
+                            "desc": "[🛡️서버관리자] 오전 7시 모닝 음악추천 채널·장르 및 맞춤 시간 음악알람 설정",
                             "cb": self._act_admin_music_sched_hub,
                         },
                         {
@@ -1422,7 +2089,7 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "🎯",
                             "style": discord.ButtonStyle.danger,
                             "perm": PERM_OWNER,
-                            "desc": "[👑봇주인 전용] 한섭 실시간 이벤트 픽업 자동 연동 및 페스/초기화 제어",
+                            "desc": "[👑봇주인 전용] 한섭 실시간 이벤트 픽업 자동 연동 및 페스/생일/수동 픽업 제어",
                             "cb": self._act_owner_sekai_pickup_hub,
                         },
                         {
@@ -1430,7 +2097,7 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "🌠",
                             "style": discord.ButtonStyle.danger,
                             "perm": PERM_OWNER,
-                            "desc": "[👑봇주인 전용] 원신 기원 KST 2시간 자동 로테이션 및 배너 픽업 제어",
+                            "desc": "[👑봇주인 전용] 원신 기원 KST 2시간 자동 로테이션 및 수동 배너 픽업 제어",
                             "cb": self._act_owner_gi_pickup_hub,
                         },
                         {
@@ -1438,7 +2105,7 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "🚄",
                             "style": discord.ButtonStyle.danger,
                             "perm": PERM_OWNER,
-                            "desc": "[👑봇주인 전용] 스타레일 워프 KST 2시간 자동 로테이션 및 픽업 제어",
+                            "desc": "[👑봇주인 전용] 스타레일 워프 KST 2시간 자동 로테이션 및 수동 픽업 제어",
                             "cb": self._act_owner_hsr_pickup_hub,
                         },
                         {
@@ -1486,12 +2153,12 @@ class MasterDashboardView(core.SafeView):
                             "cb": self._act_sekai_pull_10,
                         },
                         {
-                            "label": "프로세카 1회 뽑기",
-                            "emoji": "🎵",
+                            "label": "1회·운명·연습·생일뽑기",
+                            "emoji": "🔮",
                             "style": discord.ButtonStyle.primary,
                             "perm": PERM_USER,
-                            "desc": "한섭 프로세카 1회 단차 뽑기 즉시 실행",
-                            "cb": self._act_sekai_pull_1,
+                            "desc": "1회 단차 · 일일 운명 다시뽑기(3세트 택1) · 리세마라 연습 · 생일 무료단차",
+                            "cb": self._act_sekai_pull_hub,
                         },
                         {
                             "label": "세카이 라이브",
@@ -1540,12 +2207,12 @@ class MasterDashboardView(core.SafeView):
                             "cb": self._act_gi_pull_10,
                         },
                         {
-                            "label": "원신 운명의 궤도",
+                            "label": "원신 배너·무기·성유물",
                             "emoji": "🧭",
-                            "style": discord.ButtonStyle.secondary,
+                            "style": discord.ButtonStyle.primary,
                             "perm": PERM_USER,
-                            "desc": "신의 주조(무기 기원) 목표 5성 무기 지정 및 명정 포인트(1/1) 확인",
-                            "cb": self._act_gi_fate,
+                            "desc": "캐릭터①② · 무기(운명의궤도) · 성유물 · 상시 · 리세마라 연습 기원 허브",
+                            "cb": self._act_gi_banner_hub,
                         },
                         {
                             "label": "원신 페이몬 상점",
@@ -1564,12 +2231,12 @@ class MasterDashboardView(core.SafeView):
                             "cb": self._act_hsr_warp_10,
                         },
                         {
-                            "label": "스타레일 상시300",
+                            "label": "스타레일 배너·광추·유물",
                             "emoji": "🎁",
-                            "style": discord.ButtonStyle.secondary,
+                            "style": discord.ButtonStyle.primary,
                             "perm": PERM_USER,
-                            "desc": "상시 워프 300회 달성 시 상시 5성 캐릭터 7명 중 1명 확정 선택",
-                            "cb": self._act_hsr_300,
+                            "desc": "캐릭터①② · 광추 · 터널유물 · 상시(300선택) · 리세마라 연습 워프 허브",
+                            "cb": self._act_hsr_banner_hub,
                         },
                         {
                             "label": "스타레일 상점",
@@ -1626,12 +2293,12 @@ class MasterDashboardView(core.SafeView):
                             "cb": self._act_life_dashboard,
                         },
                         {
-                            "label": "개인농장 & 펫 육성",
+                            "label": "농장·공동농장·펫·요리",
                             "emoji": "🌾",
-                            "style": discord.ButtonStyle.secondary,
+                            "style": discord.ButtonStyle.primary,
                             "perm": PERM_USER,
-                            "desc": "나만의 밭 씨앗 파종·물주기·수확 및 6종 귀여운 펫 입양·교감",
-                            "cb": self._act_life_farm,
+                            "desc": "개인농장 · 서버 공동농장 · 6종 펫 육성 · 생선 요리 · 활성 버프 허브",
+                            "cb": self._act_life_personal_hub,
                         },
                     ],
                 },
@@ -2179,16 +2846,18 @@ class MasterDashboardView(core.SafeView):
                 ],
             },
             "music_voice": {
-                "title": "⏩ 음성채널 재생 배속 & 헤드셋 제어판",
-                "desc": "현재 음성채널에서 재생 중인 플레이리스트의 배속(0.75x ~ 2.0x) 및 봇 헤드셋 상태를 즉시 변경합니다.",
+                "title": "⏩ 음성채널 재생 배속 · 헤드셋 · 내 임시음성방 리모컨",
+                "desc": "현재 음성채널 플레이리스트의 배속(0.75x ~ 2.0x), 봇 헤드셋 상태, 그리고 내가 방장인 임시음성방을 제어합니다.",
                 "perm": PERM_USER,
                 "buttons": [
                     ("0.75x 감성 배속", "🐢", discord.ButtonStyle.secondary, self._make_speed_cb(0.75)),
                     ("1.0x 표준 배속", "▶️", discord.ButtonStyle.primary, self._make_speed_cb(1.0)),
                     ("1.25x 경쾌 배속", "⚡", discord.ButtonStyle.success, self._make_speed_cb(1.25)),
                     ("1.5x 나이트코어", "🚀", discord.ButtonStyle.secondary, self._make_speed_cb(1.5)),
+                    ("2.0x 초고속 배속", "🔥", discord.ButtonStyle.secondary, self._make_speed_cb(2.0)),
                     ("봇 헤드셋 토글", "🎧", discord.ButtonStyle.secondary, self._act_music_headset_toggle),
                     ("440Hz 오디오 진단", "🔊", discord.ButtonStyle.secondary, self._act_audio_test),
+                    ("내 임시음성방 리모컨", "🎛️", discord.ButtonStyle.primary, self._act_my_temp_voice_remote),
                 ],
             },
             "relay_novel": {
@@ -2204,41 +2873,48 @@ class MasterDashboardView(core.SafeView):
             },
             "admin_ticket": {
                 "title": "🎫 [서버 관리자] 1:1 비공개 문의 티켓 제어판",
-                "desc": "서버의 1:1 문의 티켓 열기 영구 패널을 현재 채널에 생성하거나 담당자 역할·방식을 설정합니다.",
+                "desc": "서버의 1:1 문의 티켓 패널을 생성하거나 담당자 역할·카테고리·로그채널·방식을 설정하고 티켓 멤버를 관리합니다.",
                 "perm": PERM_ADMIN,
                 "buttons": [
                     ("현재 채널에 티켓패널 생성", "📌", discord.ButtonStyle.success, self._sub_ticket_create_panel),
-                    ("담당자 역할 & 방식 설정", "⚙️", discord.ButtonStyle.primary, self._sub_ticket_role_config),
+                    ("커스텀 제목/설명 패널 생성", "✏️", discord.ButtonStyle.primary, self._sub_ticket_custom_panel),
+                    ("담당자·채널·방식 통합 설정", "⚙️", discord.ButtonStyle.primary, self._sub_ticket_role_config),
                     ("서버 티켓 전체 목록", "📋", discord.ButtonStyle.secondary, self._act_admin_ticket_list),
+                    ("현재 티켓 멤버 추가/제거", "👥", discord.ButtonStyle.secondary, self._sub_ticket_member_modal),
+                    ("현재 티켓 채널 닫기", "🔒", discord.ButtonStyle.danger, self._sub_ticket_close_current),
                 ],
             },
             "admin_sticky": {
                 "title": "📌 [서버 관리자] 채널 자동 고정메시지(Sticky) 제어판",
-                "desc": "대화가 올라와도 채널 맨 아래에 항상 유지되는 공지/안내 고정 메시지를 관리합니다.",
+                "desc": "대화가 올라와도 채널 맨 아래에 항상 유지되는 공지/안내 고정 메시지를 설정·일시중지·해제합니다.",
                 "perm": PERM_ADMIN,
                 "buttons": [
                     ("현재 채널 고정메시지 설정", "✏️", discord.ButtonStyle.success, self._sub_sticky_set),
-                    ("서버 고정메시지 목록", "📋", discord.ButtonStyle.primary, self._sub_sticky_list),
+                    ("현재 채널 켜기/일시중지 토글", "🔄", discord.ButtonStyle.primary, self._sub_sticky_toggle),
+                    ("서버 고정메시지 목록", "📋", discord.ButtonStyle.secondary, self._sub_sticky_list),
                     ("현재 채널 고정메시지 해제", "🗑️", discord.ButtonStyle.danger, self._sub_sticky_remove),
                 ],
             },
             "admin_dday": {
                 "title": "📅 [서버 관리자] 서버 공식 D-Day & 전광판 관리",
-                "desc": "서버 D-Day 일정을 등록/삭제하고 매일 오전 9시 D-Day 브리핑을 받을 알림 채널을 설정합니다.",
+                "desc": "서버 D-Day 일정을 등록/삭제하고 상단 상태 전광판 채널, 기본 카테고리, 오전 9시 알림 채널을 설정합니다.",
                 "perm": PERM_ADMIN,
                 "buttons": [
-                    ("새 D-Day 빠른 등록", "➕", discord.ButtonStyle.success, self._act_add_dday_modal),
+                    ("새 D-Day & 전광판 등록", "➕", discord.ButtonStyle.success, self._act_add_dday_modal),
                     ("D-Day 전광판 & 삭제", "📋", discord.ButtonStyle.primary, self._act_dday_list),
                     ("지나간 D-Day 보관소", "🕰️", discord.ButtonStyle.secondary, self._sub_dday_past),
-                    ("현재 채널을 9시 알림채널로 지정", "🔔", discord.ButtonStyle.secondary, self._sub_dday_set_alert_ch),
+                    ("현재 채널을 9시 알림채널 지정", "🔔", discord.ButtonStyle.secondary, self._sub_dday_set_alert_ch),
+                    ("상단 상태 전광판 채널 생성", "📺", discord.ButtonStyle.primary, self._sub_dday_setup_board),
+                    ("현재 카테고리를 기본지정", "📁", discord.ButtonStyle.secondary, self._sub_dday_set_default_cat),
                 ],
             },
             "admin_music_sched": {
                 "title": "🌅 [서버 관리자] 모닝 음악추천 & 맞춤 시간 음악알람",
-                "desc": "오전 7시 정기 음악 추천 채널을 지정하거나 원하는 시각(HH:MM) 자동 음악 알람을 관리합니다.",
+                "desc": "오전 7시 정기 음악 추천 채널·장르·아티스트·플리링크를 지정하거나 맞춤 시각(HH:MM) 음악 알람을 관리합니다.",
                 "perm": PERM_ADMIN,
                 "buttons": [
-                    ("현재 채널을 7시 모닝추천으로 지정", "🌅", discord.ButtonStyle.success, self._sub_music_set_morning_ch),
+                    ("현재 채널을 7시 모닝추천 지정", "🌅", discord.ButtonStyle.success, self._sub_music_set_morning_ch),
+                    ("모닝음악 장르·아티스트·플리 설정", "🎛️", discord.ButtonStyle.primary, self._sub_music_prefs_modal),
                     ("맞춤 시각 음악알람 스케줄러", "⏰", discord.ButtonStyle.primary, self._sub_music_custom_sched),
                 ],
             },
@@ -2255,32 +2931,37 @@ class MasterDashboardView(core.SafeView):
             },
             "owner_sekai_pickup": {
                 "title": "🎯 [봇 주인 전용] 프로세카 글로벌 픽업 배너 제어판",
-                "desc": "프로세카 한국 서버 실시간 이벤트에 맞춰 픽업을 자동 연동하거나 초기화합니다.",
+                "desc": "프로세카 한섭 실시간 이벤트 자동 연동, 페스(★4 2배)/생일/일반 전환 및 수동 캐릭터·한정 픽업을 설정합니다.",
                 "perm": PERM_OWNER,
                 "buttons": [
                     ("한섭 실시간 이벤트 자동맞춤", "🎯", discord.ButtonStyle.success, self._sub_owner_sekai_auto),
+                    ("컬러풀 페스 (★4 6% 2배)", "🎊", discord.ButtonStyle.primary, self._sub_owner_sekai_fes),
+                    ("생일 기념 배너 전환", "🎂", discord.ButtonStyle.primary, self._sub_owner_sekai_bday),
+                    ("수동 유닛·캐릭터·한정 설정", "🎛️", discord.ButtonStyle.secondary, self._sub_owner_sekai_custom_modal),
                     ("기본 상시 픽업으로 초기화", "🔄", discord.ButtonStyle.secondary, self._sub_owner_sekai_reset),
-                    ("현재 배너 확률표 확인", "📊", discord.ButtonStyle.primary, self._sub_sekai_rates),
+                    ("현재 배너 확률표 확인", "📊", discord.ButtonStyle.secondary, self._sub_sekai_rates),
                 ],
             },
             "owner_gi_pickup": {
                 "title": "🌠 [봇 주인 전용] 원신 기원 글로벌 픽업 제어판",
-                "desc": "원신 이벤트 기원 배너를 KST 2시간 주기 시각별 자동 로테이션으로 설정하거나 초기화합니다.",
+                "desc": "원신 이벤트 기원 배너를 KST 2시간 주기 자동 로테이션이나 프리셋/수동 5성·4성·무기·성유물로 설정합니다.",
                 "perm": PERM_OWNER,
                 "buttons": [
                     ("KST 2시간 자동 로테이션 적용", "⏰", discord.ButtonStyle.success, self._sub_owner_gi_auto),
+                    ("수동 5성·4성·무기·성유물 설정", "🎛️", discord.ButtonStyle.primary, self._sub_owner_gi_custom_modal),
                     ("원신 기본 픽업 초기화", "🔄", discord.ButtonStyle.secondary, self._sub_owner_gi_reset),
-                    ("현재 원신 확률 & 픽업 확인", "📊", discord.ButtonStyle.primary, self._sub_gi_rates),
+                    ("현재 원신 확률 & 픽업 확인", "📊", discord.ButtonStyle.secondary, self._sub_gi_rates),
                 ],
             },
             "owner_hsr_pickup": {
                 "title": "🚄 [봇 주인 전용] 스타레일 워프 글로벌 픽업 제어판",
-                "desc": "붕괴: 스타레일 이벤트 워프 배너를 KST 2시간 주기 자동 로테이션으로 설정하거나 초기화합니다.",
+                "desc": "붕괴: 스타레일 이벤트 워프 배너를 KST 2시간 주기 자동 로테이션이나 프리셋/수동 5성·4성·광추·유물로 설정합니다.",
                 "perm": PERM_OWNER,
                 "buttons": [
                     ("KST 2시간 자동 로테이션 적용", "⏰", discord.ButtonStyle.success, self._sub_owner_hsr_auto),
+                    ("수동 5성·4성·광추·유물 설정", "🎛️", discord.ButtonStyle.primary, self._sub_owner_hsr_custom_modal),
                     ("스타레일 기본 픽업 초기화", "🔄", discord.ButtonStyle.secondary, self._sub_owner_hsr_reset),
-                    ("현재 스타레일 확률 & 픽업 확인", "📊", discord.ButtonStyle.primary, self._sub_hsr_rates),
+                    ("현재 스타레일 확률 & 픽업 확인", "📊", discord.ButtonStyle.secondary, self._sub_hsr_rates),
                 ],
             },
             "owner_terminal": {
@@ -2316,6 +2997,8 @@ class MasterDashboardView(core.SafeView):
                     ("낚시 36,700종 어류도감", "🎣", discord.ButtonStyle.success, self._act_fishing_pokedex),
                     ("타인의 삶 1,000엔딩 도감", "📜", discord.ButtonStyle.secondary, self._act_other_life_codex),
                     ("프로세카 배너 확률표", "📊", discord.ButtonStyle.secondary, self._sub_sekai_rates),
+                    ("원신 기원 확률표", "📊", discord.ButtonStyle.secondary, self._sub_gi_rates),
+                    ("스타레일 워프 확률표", "📊", discord.ButtonStyle.secondary, self._sub_hsr_rates),
                 ],
             },
             "ranking_hub": {
@@ -2331,9 +3014,65 @@ class MasterDashboardView(core.SafeView):
                     ("통합 순자산·크리스탈 랭킹", "🏦", discord.ButtonStyle.secondary, self._act_economy_rank),
                 ],
             },
+            "sekai_pull_hub": {
+                "title": "🔮 프로세카 뽑기 & 특수 시뮬레이터 허브",
+                "desc": "1회 단차 · 10회 연차 · 일일 운명 다시뽑기(1일 1회, 3세트 중 택1) · 리세마라 연습모드 · 생일 무료단차를 실행합니다.",
+                "perm": PERM_USER,
+                "buttons": [
+                    ("프로세카 10회 연속뽑기", "🌈", discord.ButtonStyle.success, self._act_sekai_pull_10),
+                    ("프로세카 1회 단차뽑기", "🎵", discord.ButtonStyle.primary, self._act_sekai_pull_1),
+                    ("일일 운명 다시뽑기 (3세트 택1)", "🔮", discord.ButtonStyle.primary, self._sub_sekai_destiny_reroll),
+                    ("리세마라 연습 시뮬레이터", "🧪", discord.ButtonStyle.secondary, self._sub_sekai_reroll_sim),
+                    ("오늘의 생일 무료 단차", "🎂", discord.ButtonStyle.secondary, self._sub_sekai_bday_free),
+                    ("현재 배너 상세 확률표", "📊", discord.ButtonStyle.secondary, self._sub_sekai_rates),
+                ],
+            },
+            "gi_banner_hub": {
+                "title": "🌠 원신 배너별 기원 · 운명의 궤도 · 리세마라 연습 허브",
+                "desc": "캐릭터 이벤트 기원 ①/②, 신의 주조(무기), 성유물 기원, 상시 기원 및 무료 리세마라 연습 기원을 실행합니다.",
+                "perm": PERM_USER,
+                "buttons": [
+                    ("캐릭터 기원 ① (10연차)", "🌠", discord.ButtonStyle.primary, self._make_gi_pull_cb("char1", 10, False)),
+                    ("캐릭터 기원 ② (10연차)", "✨", discord.ButtonStyle.primary, self._make_gi_pull_cb("char2", 10, False)),
+                    ("신의 주조 무기 (10연차)", "⚔️", discord.ButtonStyle.success, self._make_gi_pull_cb("weapon", 10, False)),
+                    ("비경 성유물 기원 (10연차)", "👑", discord.ButtonStyle.secondary, self._make_gi_pull_cb("artifact", 10, False)),
+                    ("상시 세상 여행 (10연차)", "🌍", discord.ButtonStyle.secondary, self._make_gi_pull_cb("standard", 10, False)),
+                    ("캐릭터 기원 ① (1회 단차)", "💫", discord.ButtonStyle.secondary, self._make_gi_pull_cb("char1", 1, False)),
+                    ("리세마라 연습모드 (10연 무료)", "🧪", discord.ButtonStyle.secondary, self._make_gi_pull_cb("char1", 10, True)),
+                    ("운명의 궤도 (무기 정가 지정)", "🧭", discord.ButtonStyle.primary, self._act_gi_fate),
+                ],
+            },
+            "hsr_banner_hub": {
+                "title": "🚄 스타레일 배너별 워프 · 상시 300 선택 · 연습 허브",
+                "desc": "캐릭터 이벤트 워프 ①/②, 세월의 응고(광추), 터널 유물 워프, 상시 워프 및 무료 리세마라 연습 워프를 실행합니다.",
+                "perm": PERM_USER,
+                "buttons": [
+                    ("캐릭터 워프 ① (10연차)", "🚆", discord.ButtonStyle.primary, self._make_hsr_warp_cb("char1", 10, False)),
+                    ("캐릭터 워프 ② (10연차)", "🌠", discord.ButtonStyle.primary, self._make_hsr_warp_cb("char2", 10, False)),
+                    ("세월의 응고 광추 (10연차)", "⚔️", discord.ButtonStyle.success, self._make_hsr_warp_cb("lightcone", 10, False)),
+                    ("터널 유물 워프 (10연차)", "👑", discord.ButtonStyle.secondary, self._make_hsr_warp_cb("relic", 10, False)),
+                    ("상시 별무리 워프 (10연차)", "🌌", discord.ButtonStyle.secondary, self._make_hsr_warp_cb("standard", 10, False)),
+                    ("캐릭터 워프 ① (1회 단차)", "🎫", discord.ButtonStyle.secondary, self._make_hsr_warp_cb("char1", 1, False)),
+                    ("리세마라 연습모드 (10연 무료)", "🧪", discord.ButtonStyle.secondary, self._make_hsr_warp_cb("char1", 10, True)),
+                    ("상시 300회 5성 선택권", "🎁", discord.ButtonStyle.primary, self._act_hsr_300),
+                ],
+            },
+            "life_personal_hub": {
+                "title": "🌿 농장 · 공동농장 · 펫 육성 · 생선 요리 · 통합 버프 허브",
+                "desc": "개인 농장 파종/수확, 서버 공동농장 협동 물주기, 6종 펫 입양/교감, 생선 요리 제작 및 활성 버프를 관리합니다.",
+                "perm": PERM_USER,
+                "buttons": [
+                    ("생활 통합 대시보드", "🌿", discord.ButtonStyle.success, self._act_life_dashboard),
+                    ("개인 농장 (파종·물주기·수확)", "🌾", discord.ButtonStyle.primary, self._act_life_farm),
+                    ("서버 공동농장 (협동 농사)", "🏡", discord.ButtonStyle.primary, self._sub_life_coop_farm),
+                    ("펫 입양 & 돌보기 (6종)", "🐾", discord.ButtonStyle.secondary, self._sub_life_pet),
+                    ("생선 요리 & 요리도감", "🍳", discord.ButtonStyle.secondary, self._sub_life_cook),
+                    ("내 활성 통합 버프 확인", "✨", discord.ButtonStyle.secondary, self._sub_life_buffs),
+                ],
+            },
             "sekai_deck": {
-                "title": "🎴 프로세카 5인 유닛 덱 & 카드 강화 · 교환 · 선물 허브",
-                "desc": "내 5인 덱 구성을 확인·편성(자동/직접)하고 보유 카드를 강화·마스터랭크 돌파하거나 1:1 교환·선물합니다.",
+                "title": "🎴 프로세카 5인 유닛 덱 & 카드 강화 · 검색 · 교환 · 선물",
+                "desc": "내 5인 덱 구성을 확인·편성(자동/직접)하고 보유 카드를 검색·강화·마스터랭크 돌파하거나 1:1 교환·선물합니다.",
                 "perm": PERM_USER,
                 "buttons": [
                     ("내 5인 덱 현황 & 편성", "🎴", discord.ButtonStyle.primary, self._sub_sekai_deck_view),
@@ -2342,39 +3081,49 @@ class MasterDashboardView(core.SafeView):
                     ("중복 카드 크리스탈 환전", "💎", discord.ButtonStyle.secondary, self._act_sekai_dup_convert),
                     ("1:1 카드 교환 장터 (100💎)", "🔄", discord.ButtonStyle.primary, self._sub_sekai_card_trade),
                     ("파트너 카드 선물 (50💎)", "🎁", discord.ButtonStyle.secondary, self._sub_sekai_card_gift),
+                    ("내 보유 카드 키워드 검색", "🔍", discord.ButtonStyle.secondary, self._sub_sekai_card_search),
+                    ("특수 뽑기 (연습·운명·생일)", "🔮", discord.ButtonStyle.secondary, self._act_sekai_pull_hub),
                 ],
             },
             "gi_personal": {
                 "title": "🌠 원신 개인 보관함 · 4인 파티 · 여행자 프로필",
-                "desc": "보유한 원신 캐릭터(운명의 자리)·무기(재련)·성유물을 관리하고 4인 원소 공명 파티를 편성합니다.",
+                "desc": "보유한 원신 캐릭터(운명의 자리)·무기(재련)·성유물을 관리하고 4인 파티와 여행자 프로필을 설정합니다.",
                 "perm": PERM_USER,
                 "buttons": [
                     ("원신 보관함 (육성·잠금)", "🎒", discord.ButtonStyle.primary, self._act_gi_inv),
                     ("원신 4인 파티 편성", "⚔️", discord.ButtonStyle.success, self._act_gi_party),
+                    ("원신 여행자 프로필 조회", "🪪", discord.ButtonStyle.primary, self._sub_gi_profile),
+                    ("여행자 프로필 설정 (대표캐/문구)", "✏️", discord.ButtonStyle.secondary, self._sub_gi_profile_edit),
                     ("원신 운명의 궤도", "🧭", discord.ButtonStyle.secondary, self._act_gi_fate),
                     ("원신 페이몬 상점", "🧚", discord.ButtonStyle.secondary, self._act_gi_shop),
+                    ("배너별 기원 & 연습모드", "🌠", discord.ButtonStyle.secondary, self._act_gi_banner_hub),
                 ],
             },
             "hsr_personal": {
-                "title": "🚄 스타레일 개인 보관함 · 4인 편대 · 상시 300 선택",
-                "desc": "보유한 스타레일 캐릭터(성혼)·광추(중첩)·유물을 관리하고 4인 개척 편대를 편성합니다.",
+                "title": "🚄 스타레일 개인 보관함 · 4인 편대 · 개척자 프로필",
+                "desc": "보유한 스타레일 캐릭터(성혼)·광추(중첩)·유물을 관리하고 4인 개척 편대와 개척자 프로필을 설정합니다.",
                 "perm": PERM_USER,
                 "buttons": [
                     ("스타레일 보관함 (육성·잠금)", "🎒", discord.ButtonStyle.primary, self._act_hsr_inv),
                     ("스타레일 4인 개척 편대", "🚄", discord.ButtonStyle.success, self._act_hsr_party),
+                    ("스타레일 개척자 프로필 조회", "🪪", discord.ButtonStyle.primary, self._sub_hsr_profile),
+                    ("개척자 프로필 설정 (대표캐/문구)", "✏️", discord.ButtonStyle.secondary, self._sub_hsr_profile_edit),
                     ("상시 300회 5성 선택", "🎁", discord.ButtonStyle.secondary, self._act_hsr_300),
                     ("스타레일 별빛·헤르타 상점", "🛍️", discord.ButtonStyle.secondary, self._act_hsr_shop),
+                    ("배너별 워프 & 연습모드", "🚆", discord.ButtonStyle.secondary, self._act_hsr_banner_hub),
                 ],
             },
             "fishing_personal": {
-                "title": "👜 낚시 물고기 가방 · 일일 퀘스트 · 수족관 관리",
-                "desc": "잡은 물고기를 판매/잠금/어항 이동하고 매일 KST 00:00 갱신되는 일일 낚시 의뢰 3종을 확인합니다.",
+                "title": "👜 낚시 물고기 가방 · 일일 퀘스트 · 수족관 · 실시간 조황",
+                "desc": "잡은 물고기를 판매/잠금/어항 이동하고 일일 낚시 의뢰 3종 및 실시간 낚시 기상·조황 예보를 확인합니다.",
                 "perm": PERM_USER,
                 "buttons": [
                     ("내 물고기 가방 (판매·잠금)", "👜", discord.ButtonStyle.primary, self._sub_fishing_bag),
                     ("일일 낚시 퀘스트 (3종)", "📜", discord.ButtonStyle.success, self._sub_fishing_quest),
                     ("내 프라이빗 수족관", "🐠", discord.ButtonStyle.secondary, self._act_fishing_aquarium),
                     ("내 낚시꾼 라이선스 프로필", "🪪", discord.ButtonStyle.secondary, self._sub_fishing_profile),
+                    ("실시간 낚시 기상 & 조황 예보", "🌤️", discord.ButtonStyle.primary, self._sub_fishing_env),
+                    ("낚시 장비·미끼 상점", "🛒", discord.ButtonStyle.secondary, self._act_fishing_shop),
                 ],
             },
             "bday_partner": {
@@ -2397,8 +3146,10 @@ class MasterDashboardView(core.SafeView):
         req_perm = sub_def.get("perm", PERM_USER)
         buttons = sub_def.get("buttons", [])
 
-        for idx, (b_label, b_emoji, b_style, b_cb) in enumerate(buttons[:6]):
-            row_num = 0 if idx < 3 else 1
+        capped_buttons = buttons[:12]
+        per_row = 3 if len(capped_buttons) <= 6 else 4
+        for idx, (b_label, b_emoji, b_style, b_cb) in enumerate(capped_buttons):
+            row_num = idx // per_row
             eff_label = b_label
             eff_style = b_style
             if req_perm == PERM_OWNER and caller_tier != PERM_OWNER:
@@ -2418,12 +3169,13 @@ class MasterDashboardView(core.SafeView):
             btn.callback = b_cb
             self.add_item(btn)
 
-        # Row 2: [⬅️ 뒤로가기] [🏠 설정 홈으로] [🔄 새로고침]
+        nav_row = min(4, ((len(capped_buttons) - 1) // per_row + 1) if capped_buttons else 1)
+        # Nav Row: [⬅️ 뒤로가기] [🏠 설정 홈으로] [🔄 새로고침]
         back_btn = discord.ui.Button(
             label="뒤로가기",
             emoji="⬅️",
             style=discord.ButtonStyle.danger,
-            row=2,
+            row=nav_row,
             custom_id="norosi:Settings:nav_back",
         )
         back_btn.callback = self._on_back_clicked
@@ -2433,7 +3185,7 @@ class MasterDashboardView(core.SafeView):
             label="설정 홈으로",
             emoji="🏠",
             style=discord.ButtonStyle.secondary,
-            row=2,
+            row=nav_row,
             custom_id="norosi:Settings:nav_home",
         )
         home_btn.callback = self._on_home_clicked
@@ -2443,7 +3195,7 @@ class MasterDashboardView(core.SafeView):
             label="새로고침",
             emoji="🔄",
             style=discord.ButtonStyle.primary,
-            row=2,
+            row=nav_row,
             custom_id="norosi:Settings:nav_refresh",
         )
         ref_btn.callback = self._on_refresh_clicked
@@ -2836,8 +3588,7 @@ class MasterDashboardView(core.SafeView):
             try:
                 music_cog = self._find_cog_with_attr("playback_speed_cmd")
                 if music_cog:
-                    choice_obj = app_commands.Choice(name=f"{speed_val}x", value=speed_val)
-                    await music_cog.playback_speed_cmd.callback(music_cog, interaction, 속도=choice_obj)
+                    await music_cog.playback_speed_cmd.callback(music_cog, interaction, 속도=str(speed_val))
                 else:
                     await core.safe_send_response(interaction, "❌ 음악 모듈을 찾을 수 없습니다.", ephemeral=True)
             except Exception as e:
@@ -3291,15 +4042,15 @@ class MasterDashboardView(core.SafeView):
             return
         gacha_cog = self._find_cog_with_attr("set_pickup_cmd")
         if gacha_cog:
-            choice_auto = app_commands.Choice(name="🎯 현재 한섭 이벤트에 자동 맞추기", value="auto_event")
+            choice_auto = app_commands.Choice(name="🎯 현재 한섭 이벤트에 자동 맞추기 (실시간 DB)", value="event_sync")
             await gacha_cog.set_pickup_cmd.callback(
                 gacha_cog,
                 interaction,
                 모드=choice_auto,
                 유닛=None,
                 캐릭터=None,
-                한정포함=None,
-                배너이름=None,
+                한정포함=True,
+                배너=None,
             )
         else:
             await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
@@ -3309,15 +4060,15 @@ class MasterDashboardView(core.SafeView):
             return
         gacha_cog = self._find_cog_with_attr("set_pickup_cmd")
         if gacha_cog:
-            choice_reset = app_commands.Choice(name="🔄 기본 픽업으로 초기화", value="reset")
+            choice_reset = app_commands.Choice(name="🧹 픽업 초기화 (전체 해제)", value="reset")
             await gacha_cog.set_pickup_cmd.callback(
                 gacha_cog,
                 interaction,
                 모드=choice_reset,
                 유닛=None,
                 캐릭터=None,
-                한정포함=None,
-                배너이름=None,
+                한정포함=True,
+                배너=None,
             )
         else:
             await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
@@ -4087,21 +4838,7 @@ class MasterDashboardView(core.SafeView):
                 )
                 return
 
-            target_cog = self._find_cog_with_attr("hardcore_study_cmd")
-            if target_cog:
-                choice_start = app_commands.Choice(name="🔥 하드코어 스터디 시작", value="start")
-                await target_cog.hardcore_study_cmd.callback(
-                    target_cog,
-                    interaction,
-                    동작=choice_start,
-                    목표="자격증 / 집중 코딩",
-                    목표시간=100,
-                    음성채널=None,
-                    음성안내=True,
-                    자동음소거=True,
-                )
-            else:
-                await core.safe_send_response(interaction, "❌ 스터디 모듈을 찾을 수 없습니다.", ephemeral=True)
+            await interaction.response.send_modal(DashboardHardcoreStudyModal(self.bot or interaction.client))
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 하드코어 스터디 실행 오류: {e}", ephemeral=True)
 
@@ -4165,6 +4902,283 @@ class MasterDashboardView(core.SafeView):
             await dday_cog.partner_cmd.callback(dday_cog, interaction, 동작=choice_brk)
         else:
             await core.safe_send_response(interaction, "❌ 파트너 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    # ----------------------------------------------------
+    # 🧩 추가 통합된 슬래시 명령어 세부 콜백
+    # ----------------------------------------------------
+    async def _act_my_temp_voice_remote(self, interaction: discord.Interaction):
+        comm_cog = self._find_cog_with_attr("temp_voice_slash_cmd")
+        if comm_cog:
+            choice_remote = app_commands.Choice(name="🎛️ 내 임시 음성방 리모컨 호출 (방장/멤버용)", value="remote")
+            await comm_cog.temp_voice_slash_cmd.callback(comm_cog, interaction, 메뉴=choice_remote)
+        else:
+            await core.safe_send_response(interaction, "❌ 임시 음성방 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_ticket_custom_panel(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="커스텀 티켓 패널 생성"):
+            return
+        await interaction.response.send_modal(DashboardTicketCustomPanelModal(self.bot or interaction.client))
+
+    async def _sub_ticket_member_modal(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(DashboardTicketMemberModal(self.bot or interaction.client))
+
+    async def _sub_ticket_close_current(self, interaction: discord.Interaction):
+        ticket_cog = self._find_cog_with_attr("ticket_close_cmd")
+        if ticket_cog:
+            await ticket_cog.ticket_close_cmd.callback(ticket_cog, interaction)
+        else:
+            await core.safe_send_response(interaction, "❌ 티켓 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_sticky_toggle(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="고정메시지 토글", require_messages_perm=True):
+            return
+        comm_cog = self._find_cog_with_attr("sticky_toggle_cmd")
+        if comm_cog:
+            data = core.get_cached_data()
+            cur_enabled = True
+            if interaction.guild and interaction.channel:
+                cfg = community_core.get_sticky_config(data, interaction.guild.id, interaction.channel.id)
+                if cfg:
+                    cur_enabled = bool(cfg.get("enabled", True))
+            next_val = "off" if cur_enabled else "on"
+            next_name = "🔴 끄기 (일시 중지)" if next_val == "off" else "🟢 켜기 (활성화)"
+            choice_st = app_commands.Choice(name=next_name, value=next_val)
+            await comm_cog.sticky_toggle_cmd.callback(comm_cog, interaction, 상태=choice_st, 채널=None)
+        else:
+            await core.safe_send_response(interaction, "❌ 커뮤니티 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_dday_setup_board(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="상단 상태 전광판 채널 생성", require_channels_perm=True):
+            return
+        await interaction.response.send_modal(DDayAddModal(self.bot or interaction.client))
+
+    async def _sub_dday_set_default_cat(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="D-Day 기본 카테고리 지정", require_channels_perm=True):
+            return
+        cat = getattr(interaction.channel, "category", None)
+        if not cat:
+            await core.safe_send_response(interaction, "❌ 현재 채널이 속한 카테고리가 없습니다. 카테고리 내부 채널에서 실행해 주세요!", ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        def _save_default_cat():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                settings_map = core.ensure_dict_path(data, "settings")
+                settings_map["default_category_id"] = cat.id
+                core.save_data(data)
+        await asyncio.to_thread(_save_default_cat)
+        await interaction.followup.send(
+            f"✅ D-Day 전광판 기본 생성 카테고리가 📁 **`{cat.name}`**(으)로 설정되었습니다!",
+            ephemeral=True,
+        )
+
+    async def _sub_music_prefs_modal(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="모닝 음악 추천 상세 설정"):
+            return
+        await interaction.response.send_modal(DashboardMorningMusicPrefsModal(self.bot or interaction.client))
+
+    async def _sub_owner_sekai_fes(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="프로세카 컬러풀 페스 전환"):
+            return
+        gacha_cog = self._find_cog_with_attr("set_pickup_cmd")
+        if gacha_cog:
+            choice_fes = app_commands.Choice(name="🎊 컬러풀 페스티벌 (★4 2배 · 6.0%!)", value="fes")
+            await gacha_cog.set_pickup_cmd.callback(
+                gacha_cog,
+                interaction,
+                모드=None,
+                유닛=None,
+                캐릭터=None,
+                한정포함=True,
+                배너=choice_fes,
+            )
+        else:
+            await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_owner_sekai_bday(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="프로세카 생일 배너 전환"):
+            return
+        gacha_cog = self._find_cog_with_attr("set_pickup_cmd")
+        if gacha_cog:
+            choice_bday = app_commands.Choice(name="🎂 생일 / 기념일 스페셜 (생일한정 UP!)", value="birthday")
+            await gacha_cog.set_pickup_cmd.callback(
+                gacha_cog,
+                interaction,
+                모드=None,
+                유닛=None,
+                캐릭터=None,
+                한정포함=True,
+                배너=choice_bday,
+            )
+        else:
+            await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_owner_sekai_custom_modal(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="프로세카 수동 픽업 설정"):
+            return
+        await interaction.response.send_modal(DashboardSekaiOwnerPickupModal(self.bot or interaction.client))
+
+    async def _sub_owner_gi_custom_modal(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="원신 수동 픽업 설정"):
+            return
+        await interaction.response.send_modal(DashboardGenshinOwnerPickupModal(self.bot or interaction.client))
+
+    async def _sub_owner_hsr_custom_modal(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="스타레일 수동 픽업 설정"):
+            return
+        await interaction.response.send_modal(DashboardHSROwnerPickupModal(self.bot or interaction.client))
+
+    async def _act_sekai_pull_hub(self, interaction: discord.Interaction):
+        await self._enter_sub_mode(interaction, "sekai_pull_hub")
+
+    async def _sub_sekai_destiny_reroll(self, interaction: discord.Interaction):
+        gacha_cog = self._find_cog_with_attr("proseka_pull_cmd")
+        if gacha_cog:
+            choice_dest = app_commands.Choice(name="🔮 운명 다시 뽑기 (1일 1회 · 3세트 중 택1)", value="destiny")
+            await gacha_cog.proseka_pull_cmd.callback(gacha_cog, interaction, 횟수=None, 배너=None, 연출=None, 모드=choice_dest)
+        else:
+            await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_sekai_reroll_sim(self, interaction: discord.Interaction):
+        gacha_cog = self._find_cog_with_attr("proseka_pull_cmd")
+        if gacha_cog:
+            choice_sim = app_commands.Choice(name="🧪 리세마라 연습 모드 (저장 안 됨 · 무쿨타임)", value="practice")
+            await gacha_cog.proseka_pull_cmd.callback(gacha_cog, interaction, 횟수=None, 배너=None, 연출=None, 모드=choice_sim)
+        else:
+            await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_sekai_bday_free(self, interaction: discord.Interaction):
+        gacha_cog = self._find_cog_with_attr("proseka_pull_cmd")
+        if gacha_cog:
+            choice_bday = app_commands.Choice(name="🎂 오늘의 생일 무료 단차 (생일 당일 1회)", value="birthday_free")
+            await gacha_cog.proseka_pull_cmd.callback(gacha_cog, interaction, 횟수=None, 배너=None, 연출=None, 모드=choice_bday)
+        else:
+            await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_sekai_card_search(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(DashboardSekaiSearchModal(self.bot or interaction.client))
+
+    async def _act_gi_banner_hub(self, interaction: discord.Interaction):
+        await self._enter_sub_mode(interaction, "gi_banner_hub")
+
+    def _make_gi_pull_cb(self, banner_key: str, count: int, practice: bool) -> Callable[[discord.Interaction], Awaitable[None]]:
+        async def _cb(interaction: discord.Interaction):
+            try:
+                pv = genshin.GenshinPullAgainView(
+                    interaction.user,
+                    banner_key=banner_key,
+                    skip_anim=False,
+                    practice=practice,
+                    last_count=count,
+                )
+                await pv._run_repull_with_cooldown(interaction, count)
+            except Exception as e:
+                await core.safe_send_response(interaction, f"❌ 원신 기원 실행 오류: {e}", ephemeral=True)
+        return _cb
+
+    async def _act_hsr_banner_hub(self, interaction: discord.Interaction):
+        await self._enter_sub_mode(interaction, "hsr_banner_hub")
+
+    def _make_hsr_warp_cb(self, banner_key: str, count: int, practice: bool) -> Callable[[discord.Interaction], Awaitable[None]]:
+        async def _cb(interaction: discord.Interaction):
+            try:
+                wv = hsr.HSRWarpAgainView(
+                    interaction.user,
+                    banner_key=banner_key,
+                    skip_anim=False,
+                    practice=practice,
+                    last_count=count,
+                )
+                await wv._run_rewarp_with_cooldown(interaction, count)
+            except Exception as e:
+                await core.safe_send_response(interaction, f"❌ 스타레일 워프 실행 오류: {e}", ephemeral=True)
+        return _cb
+
+    async def _act_life_personal_hub(self, interaction: discord.Interaction):
+        await self._enter_sub_mode(interaction, "life_personal_hub")
+
+    async def _sub_life_coop_farm(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            ov = await asyncio.to_thread(
+                life_core.get_life_overview,
+                interaction.guild_id or 0,
+                interaction.user.id,
+                interaction.user.display_name,
+            )
+            view = life.CommunityFarmView(interaction.user, interaction.guild, overview=ov)
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 공동 농장 열기 실패: {e}", ephemeral=True)
+
+    async def _sub_life_pet(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            gid = interaction.guild_id or 0
+            ov = await asyncio.to_thread(
+                life_core.get_life_overview,
+                gid,
+                interaction.user.id,
+                interaction.user.display_name,
+            )
+            view = life.PetCareView(interaction.user, gid, overview=ov)
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 펫 돌보기 창 열기 실패: {e}", ephemeral=True)
+
+    async def _sub_life_cook(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            gid = interaction.guild_id or 0
+            ov = await asyncio.to_thread(
+                life_core.get_life_overview,
+                gid,
+                interaction.user.id,
+                interaction.user.display_name,
+            )
+            view = life.CookingView(interaction.user, gid, overview=ov)
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 요리 주방 열기 실패: {e}", ephemeral=True)
+
+    async def _sub_life_buffs(self, interaction: discord.Interaction):
+        life_cog = self._find_cog_with_attr("life_buffs")
+        if life_cog:
+            await life_cog.life_buffs.callback(life_cog, interaction)
+        else:
+            await core.safe_send_response(interaction, "❌ 생활 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_gi_profile(self, interaction: discord.Interaction):
+        bot_ref = self.bot or interaction.client
+        gi_cog = bot_ref.get_cog("GenshinCog") if bot_ref else None
+        if gi_cog and hasattr(gi_cog, "profile_cmd"):
+            await gi_cog.profile_cmd.callback(gi_cog, interaction, 대상=None, 대표캐릭터=None, 상태문구=None)
+        else:
+            await core.safe_send_response(interaction, "❌ 원신 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_gi_profile_edit(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(DashboardGenshinProfileModal(self.bot or interaction.client))
+
+    async def _sub_hsr_profile(self, interaction: discord.Interaction):
+        bot_ref = self.bot or interaction.client
+        hsr_cog = bot_ref.get_cog("HSRCog") if bot_ref else None
+        if hsr_cog and hasattr(hsr_cog, "profile_cmd"):
+            await hsr_cog.profile_cmd.callback(hsr_cog, interaction, 대상=None, 대표캐릭터=None, 상태문구=None)
+        else:
+            await core.safe_send_response(interaction, "❌ 스타레일 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_hsr_profile_edit(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(DashboardHSRProfileModal(self.bot or interaction.client))
+
+    async def _sub_fishing_env(self, interaction: discord.Interaction):
+        fishing_cog = self._find_cog_with_attr("fishing_env_cmd")
+        if fishing_cog:
+            await fishing_cog.fishing_env_cmd.callback(fishing_cog, interaction)
+        else:
+            await core.safe_send_response(interaction, "❌ 낚시 모듈을 찾을 수 없습니다.", ephemeral=True)
 
 
 # 외부 참조용 별칭

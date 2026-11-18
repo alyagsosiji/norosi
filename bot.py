@@ -1480,7 +1480,7 @@ class NorosiBot(commands.Bot):
                     color=discord.Color.from_rgb(0, 204, 221),
                     timestamp=now
                 )
-                rem_embed.set_footer(text="norosi 스마트 개인 알리미 (/알림예약)")
+                rem_embed.set_footer(text="norosi 스마트 개인 알리미 (/설정 ➔ 스마트 알림 예약)")
 
                 sent_dm = False
                 if mode in ("both", "dm") and uid:
@@ -1678,7 +1678,7 @@ class NorosiBot(commands.Bot):
             )
 
         if archived_count > 0:
-            embed.set_footer(text=f"📦 7일 이상 경과한 지난 일정 {archived_count}개는 /지나간디데이 추억 보관소에서 확인할 수 있습니다.")
+            embed.set_footer(text=f"📦 7일 이상 경과한 지난 일정 {archived_count}개는 /설정 (지나간 D-Day 추억 보관소)에서 확인할 수 있습니다.")
 
         embed.color = core.get_embed_color(min_diff if upcoming_lines else -1)
         try:

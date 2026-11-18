@@ -1282,7 +1282,7 @@ class GenshinPartyView(core.SafeView):
                 + f"\n\n🔥 **총 파티 전투력:** **`{analysis['total_power']:,}`**"
             ),
             color=discord.Color.from_rgb(56, 174, 248),
-        ).set_footer(text="/원신 파티편성 또는 하단 드롭다운으로 최대 4명까지 편성할 수 있습니다.")
+        ).set_footer(text="/설정 (👤 개인 ➔ ⚔️ 원신 4인 파티 편성) 또는 하단 드롭다운으로 최대 4명까지 편성할 수 있습니다.")
 
 
 class GenshinRankingView(core.SafeView):
@@ -1414,7 +1414,7 @@ class GenshinRateView(core.SafeView):
                 f"• **픽업 ★★★★ 무기 (75% 확률업):** `{w4_txt}`\n"
                 f"• **공식 DB 구성:** ★5/★4 무기 · ★4 상시 캐릭터 · ★3 기원 무기 13종 (10회 내 ★4 이상 확정)\n"
                 f"• **기본 5성 확률:** `0.7%` (`63스택`부터 매회 +7% 소프트 천장 · `80스택` 확정)\n"
-                f"• **운명의 궤도 (`0/1 ➔ 1/1`):** 원하는 무기 미획득 시 명정 포인트 1 적립, 다음 ★5는 **100% 목표 무기 확정!** (`/원신 운명의궤도`)"
+                f"• **운명의 궤도 (`0/1 ➔ 1/1`):** 원하는 무기 미획득 시 명정 포인트 1 적립, 다음 ★5는 **100% 목표 무기 확정!** (`/설정` ➔ `🧭 원신 운명의 궤도`)"
             )
         elif self.banner_key == "artifact":
             a1, a2 = eff.get("artifact_1"), eff.get("artifact_2")
@@ -1749,7 +1749,7 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
         if not await self.bot.is_bot_owner_user(interaction.user):
             return await core.safe_send_response(
                 interaction,
-                "⛔ **권한 부족:** `/원신 픽업설정`은 **봇 주인(소유자) 전용** 명령어입니다!",
+                "⛔ **권한 부족:** 원신 픽업 설정(`/설정` ➔ `👑 원신 픽업`)은 **봇 주인(소유자) 전용** 기능입니다!",
                 ephemeral=True,
             )
 

@@ -197,7 +197,7 @@ def _build_relay_completed_embed(completed: dict) -> discord.Embed:
         color=discord.Color.gold(),
         timestamp=datetime.datetime.now(core.KST),
     )
-    embed.set_footer(text="/릴레이소설 목록 에서 언제든 다시 읽어볼 수 있습니다.")
+    embed.set_footer(text="/설정 (🎮 미니게임 ➔ ✍️ 한 줄 릴레이 소설)에서 언제든 다시 읽어볼 수 있습니다.")
     return embed
 
 
@@ -736,6 +736,8 @@ class RaidDefenseConfigView(core.SafeView):
     def build_embed(self) -> discord.Embed:
         c = self.cfg
         gname = getattr(self.guild, "name", None) or "서버"
+        gid = getattr(self.guild, "id", 0) or 0
+        rate = community_core.RAID_TRACKER.current_rate(gid, c.get("window_sec", 10)) if gid else 0
         alert_str = f"<#{c['alert_channel_id']}>" if c.get("alert_channel_id") else "자동 (서버로그/시스템 채널)"
         qrole_str = f"<@&{c['quarantine_role_id']}>" if c.get("quarantine_role_id") else "미지정 *(미지정 시 60분 타임아웃으로 폴백)*"
         age_str = f"`{c['min_account_age_days']}일 미만`" if c.get("min_account_age_days", 0) > 0 else "사용 안 함 (`0일`)"
@@ -744,6 +746,7 @@ class RaidDefenseConfigView(core.SafeView):
             title=f"🛡️ [{gname}] 동시 입장(Raid) · 테러 비상 방어 설정",
             description=(
                 f"• **현재 상태:** {lock_str}\n"
+                f"• **실시간 입장 빈도:** 최근 `{c['window_sec']}초` 내 **`{rate}명`** 입장 (임계치: `{c['threshold']}명`)\n"
                 f"• **자동 레이드 감지:** {'🟢 활성화됨' if c['enabled'] else '🔴 비활성화됨'}\n"
                 f"• **감지 임계값:** **`{c['window_sec']}초` 내 `{c['threshold']}명` 이상 동시 입장**\n"
                 f"• **발동 시 대응 조치:** `{community_core.RAID_ACTION_LABELS.get(c['action'], c['action'])}`\n"
@@ -755,7 +758,14 @@ class RaidDefenseConfigView(core.SafeView):
             color=discord.Color.red() if c.get("lockdown_active") else (discord.Color.green() if c["enabled"] else discord.Color.dark_grey()),
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_footer(text="/비상모드 발동 · /비상모드 해제로 수동 제어할 수도 있습니다.")
+        logs = c.get("blocked_log") or []
+        if logs:
+            recent_txt = "\n".join(
+                f"• `[{b.get('ts', '-')}]` `{b.get('user_name', '')}` — **{b.get('action', '')}** ({b.get('reason', '')})"
+                for b in reversed(logs[-5:])
+            )
+            embed.add_field(name="🛡️ 최근 방어 조치 (최대 5건)", value=recent_txt[:1024], inline=False)
+        embed.set_footer(text="하단 버튼으로 수동 비상잠금 발동 · 해제 · 차단 기록 조회를 즉시 실행할 수 있습니다.")
         return embed
 
     @discord.ui.button(label="자동감지 ON/OFF", style=discord.ButtonStyle.primary, emoji="🤖", row=0)
@@ -801,6 +811,33 @@ class RaidDefenseConfigView(core.SafeView):
     @discord.ui.button(label="인원/시간/계정연령 설정", style=discord.ButtonStyle.secondary, emoji="⚙️", row=0)
     async def edit_threshold(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(RaidThresholdModal(self))
+
+    @discord.ui.button(label="수동 비상잠금 발동", style=discord.ButtonStyle.danger, emoji="🚨", row=4)
+    async def manual_lockdown_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        cog = interaction.client.get_cog("CommunityCog") if interaction.client else None
+        if cog and hasattr(cog, "raid_lockdown_cmd"):
+            await cog.raid_lockdown_cmd.callback(cog, interaction, 사유="관리자 설정 패널에서 수동 비상잠금 발동")
+            return
+        await core.safe_send_response(interaction, "❌ 비상모드 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    @discord.ui.button(label="비상잠금 해제", style=discord.ButtonStyle.success, emoji="🔓", row=4)
+    async def manual_unlock_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        cog = interaction.client.get_cog("CommunityCog") if interaction.client else None
+        if cog and hasattr(cog, "raid_unlock_cmd"):
+            await cog.raid_unlock_cmd.callback(cog, interaction)
+            return
+        await core.safe_send_response(interaction, "❌ 비상모드 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    @discord.ui.button(label="차단 기록 & 상태 새로고침", style=discord.ButtonStyle.secondary, emoji="📋", row=4)
+    async def refresh_raid_status_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild_id = getattr(self.guild, "id", 0) or interaction.guild_id or 0
+        if not guild_id:
+            await core.safe_send_response(interaction, "❌ 서버 정보를 확인할 수 없습니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction)
+        data = await asyncio.to_thread(core.load_data)
+        self.cfg = community_core.get_raid_defense_config(data, guild_id)
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
 
 # ==========================================
@@ -1047,7 +1084,7 @@ class RelayArchiveView(core.SafeView):
             return _build_relay_completed_embed(self.novels[idx])
         return discord.Embed(
             title="📕 완결 릴레이 소설 서재",
-            description="아직 완결된 릴레이 소설이 없습니다. `/릴레이소설 시작`으로 첫 작품을 만들어 보세요!",
+            description="아직 완결된 릴레이 소설이 없습니다. `/설정` (`✍️ 한 줄 릴레이 소설`)에서 첫 작품을 만들어 보세요!",
             color=discord.Color.gold(),
         )
 
@@ -1084,7 +1121,7 @@ def _build_temp_voice_panel_embed(
         color=discord.Color.from_rgb(88, 101, 242),
         timestamp=datetime.datetime.now(core.KST),
     )
-    embed.set_footer(text="방장 전용 리모컨 · /임시음성방 리모컨 으로 언제든 다시 호출 가능")
+    embed.set_footer(text="방장 전용 리모컨 · /설정 (👤 개인 ➔ 🎛️ 내 임시음성방 리모컨)으로 언제든 다시 호출 가능")
     return embed
 
 
@@ -1988,7 +2025,7 @@ class CommunityCog(commands.Cog):
         data = await asyncio.to_thread(core.load_data)
         g_stickies = community_core.get_guild_stickies(data, interaction.guild.id)
         if not g_stickies:
-            await interaction.followup.send("📭 이 서버에 등록된 자동 고정 메시지가 없습니다. `/고정메시지 설정`으로 추가해 보세요!", ephemeral=True)
+            await interaction.followup.send("📭 이 서버에 등록된 자동 고정 메시지가 없습니다. `/설정` (`⚙️ 고급` ➔ `📌 자동 고정메시지 관리`)에서 추가해 보세요!", ephemeral=True)
             return
         lines = []
         for ch_id_s, cfg in g_stickies.items():
@@ -2273,7 +2310,7 @@ class CommunityCog(commands.Cog):
         story = community_core.get_active_relay_novel(data, guild_id, channel_id)
         if not story:
             await interaction.followup.send(
-                "ℹ️ 현재 이 채널에서 진행 중인 릴레이 소설이 없습니다. `/릴레이소설 시작`으로 새 이야기를 열어보세요!",
+                "ℹ️ 현재 이 채널에서 진행 중인 릴레이 소설이 없습니다. `/설정` (`✍️ 한 줄 릴레이 소설`)에서 새 이야기를 열어보세요!",
                 ephemeral=True,
             )
             return
@@ -2298,7 +2335,7 @@ class CommunityCog(commands.Cog):
         data = await asyncio.to_thread(core.load_data)
         completed = community_core.get_completed_relay_novels(data, interaction.guild.id)
         if not completed:
-            await interaction.followup.send("📭 아직 완결된 릴레이 소설이 없습니다. `/릴레이소설 시작`으로 첫 작품을 만들어 보세요!", ephemeral=True)
+            await interaction.followup.send("📭 아직 완결된 릴레이 소설이 없습니다. `/설정` (`✍️ 한 줄 릴레이 소설`)에서 첫 작품을 만들어 보세요!", ephemeral=True)
             return
         view = RelayArchiveView(completed)
         await interaction.followup.send(embed=_build_relay_completed_embed(completed[0]), view=view)
@@ -2672,7 +2709,7 @@ class CommunityCog(commands.Cog):
                 await core.safe_send_response(
                     interaction,
                     "ℹ️ 현재 자동 생성된 임시 음성방에 접속해 있지 않습니다.\n"
-                    + (f"👉 <#{cfg['generator_channel_id']}> 채널에 입장하면 나만의 음성방이 바로 만들어집니다!" if cfg.get("generator_channel_id") else "👉 관리자가 `/임시음성방` (`⚙️ 설정`)으로 생성기 채널을 먼저 만들 수 있습니다."),
+                    + (f"👉 <#{cfg['generator_channel_id']}> 채널에 입장하면 나만의 음성방이 바로 만들어집니다!" if cfg.get("generator_channel_id") else "👉 관리자가 `/설정` (`⚙️ 고급` ➔ `🔊 임시 음성방 자동생성 설정`)으로 생성기 채널을 먼저 만들 수 있습니다."),
                     ephemeral=True,
                 )
                 return
@@ -2687,7 +2724,7 @@ class CommunityCog(commands.Cog):
             gen_ch_id = cfg.get("generator_channel_id")
             guide = (
                 f"🔊 <#{gen_ch_id}> 음성 채널에 입장하시면 자동으로 개인 음성방이 생성됩니다!\n"
-                "생성된 방 안에 들어간 상태에서 `/임시음성방`을 입력하면 **방장 리모컨**을 다시 띄울 수 있습니다."
+                "생성된 방 안에 들어간 상태에서 `/설정` (`🎛️ 내 임시음성방 리모컨`)을 누르면 **방장 리모컨**을 다시 띄울 수 있습니다."
                 if gen_ch_id and cfg.get("enabled")
                 else "ℹ️ 아직 서버 관리자가 임시 음성방 생성기 채널을 활성화하지 않았습니다. (`채널 관리` 권한 필요)"
             )
@@ -2721,7 +2758,7 @@ class CommunityCog(commands.Cog):
         if gen_id and cfg.get("enabled"):
             await ctx.send(f"🔊 <#{gen_id}> 음성 채널에 접속하시면 자동으로 개인 임시 음성방이 생성됩니다!")
         else:
-            await ctx.send("ℹ️ 임시 음성방에 접속한 상태에서 `!임시음성방`을 입력하거나, 관리자가 `/임시음성방`으로 생성기 채널을 설정할 수 있습니다.")
+            await ctx.send("ℹ️ 임시 음성방에 접속한 상태에서 `!임시음성방`을 입력하거나, 관리자가 `/설정` (`🔊 임시 음성방 자동생성 설정`)으로 생성기 채널을 설정할 수 있습니다.")
 
     @commands.Cog.listener()
     async def on_voice_state_update(

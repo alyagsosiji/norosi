@@ -1068,7 +1068,7 @@ class StatsCog(commands.Cog):
 
         msg_count = core.safe_get_dict(data, "server_stats", g_key, "active_users").get(u_key, 0)
         bday_info = core.as_dict(data.get("birthdays")).get(u_key)
-        bday_str = f"`{bday_info['month']:02d}월 {bday_info['day']:02d}일` 🎂" if isinstance(bday_info, dict) and "month" in bday_info else "미등록 (`/생일등록`)"
+        bday_str = f"`{bday_info['month']:02d}월 {bday_info['day']:02d}일` 🎂" if isinstance(bday_info, dict) and "month" in bday_info else "미등록 (`/설정` ➔ `🎂 생일 등록`)"
 
         embed_color = target.color if isinstance(target, discord.Member) and target.color != discord.Color.default() else discord.Color.from_rgb(0, 204, 221)
         bot_badge = " 🤖 `[BOT]`" if target.bot else ""
@@ -1114,8 +1114,29 @@ class StatsCog(commands.Cog):
             inline=False
         )
 
-        embed.set_footer(text=f"요청자: {interaction.user.display_name} • 실시간 멤버 분석 완료")
-        await interaction.followup.send(embed=embed)
+        embed.set_footer(text=f"요청자: {interaction.user.display_name} • 하단 메뉴에서 다른 서버 멤버를 선택해 조회할 수 있습니다")
+
+        cog_ref = self
+
+        class UserProfileInspectView(core.SafeView):
+            def __init__(self, author_id: int):
+                super().__init__(timeout=180)
+                self.author_id = author_id
+
+            @discord.ui.select(
+                cls=discord.ui.UserSelect,
+                placeholder="🪪 다른 서버 멤버의 상세 프로필 조회하기...",
+                min_values=1,
+                max_values=1,
+                row=0,
+            )
+            async def select_member(self, sel_inter: discord.Interaction, select: discord.ui.UserSelect):
+                picked = select.values[0]
+                if sel_inter.guild and not isinstance(picked, discord.Member):
+                    picked = sel_inter.guild.get_member(picked.id) or picked
+                await cog_ref.user_profile_info_cmd.callback(cog_ref, sel_inter, 유저=picked)
+
+        await interaction.followup.send(embed=embed, view=UserProfileInspectView(interaction.user.id))
 
     # ==========================================
     # 카테고리 4 - 2: /날씨 (초정밀 실시간 기상 & 미세먼지 & 시간별 강수 예보)
@@ -1190,7 +1211,7 @@ class StatsCog(commands.Cog):
             if prof.get("crystals", 0) < 참가비:
                 await interaction.followup.send(
                     f"❌ 보유 크리스탈이 부족합니다! (현재 보유: `{prof.get('crystals', 0):,}💎` / 필요 참가비: `{참가비:,}💎`)\n"
-                    "💡 `/출석체크`로 크리스탈을 모으거나 `참가비: 0`으로 무료 모드를 즐겨보세요!",
+                    "💡 `/설정` (`📅 일일 출석체크`)로 크리스탈을 모으거나 `참가비: 0`으로 무료 모드를 즐겨보세요!",
                     ephemeral=True
                 )
                 return
@@ -1543,6 +1564,35 @@ class WeatherRefreshView(core.SafeView):
             self.w = new_w
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
+    @discord.ui.button(label="🌏 다른 지역 날씨 검색", style=discord.ButtonStyle.secondary)
+    async def search_region_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(WeatherRegionSearchModal(self))
+
+
+class WeatherRegionSearchModal(core.SafeModal, title="🌏 실시간 기상 & 미세먼지 지역 검색"):
+    region_input = discord.ui.TextInput(
+        label="조회할 도시·시·군·구·동 이름 입력",
+        placeholder="예: 서울, 강남, 부산, 수원, 대전, 대구, 인천, 제주, 도쿄, 오사카",
+        required=True,
+        max_length=40,
+    )
+
+    def __init__(self, weather_view: WeatherRefreshView):
+        super().__init__()
+        self.weather_view = weather_view
+        self.region_input.default = weather_view.query or "서울"
+
+    async def on_submit(self, interaction: discord.Interaction):
+        q = self.region_input.value.strip() or "서울"
+        await core.safe_defer(interaction)
+        new_w, err = await asyncio.to_thread(core.fetch_accurate_weather_sync, q)
+        if err or not new_w:
+            await interaction.followup.send(f"❌ **날씨 조회 실패:** {err}", ephemeral=True)
+            return
+        self.weather_view.query = q
+        self.weather_view.w = new_w
+        await interaction.edit_original_response(embed=self.weather_view.build_embed(), view=self.weather_view)
+
 
 # ==========================================
 # 끝말잇기 모달 & 게임 뷰 (두음법칙 완벽 지원)
@@ -1728,6 +1778,70 @@ class WordChainGameView(core.SafeView):
 
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
+    @discord.ui.button(label="⚙️ 상대유저·시작단어 설정", style=discord.ButtonStyle.secondary)
+    async def custom_setup_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(WordChainCustomSetupModal(self))
+
+
+class WordChainCustomSetupModal(core.SafeModal, title="⚙️ 끝말잇기 맞춤 설정 (유저대결 / 시작단어)"):
+    opp_input = discord.ui.TextInput(
+        label="대결할 상대 멤버 (닉네임/ID/멘션, 비우면 AI 봇 대결)",
+        placeholder="예: @홍길동 또는 홍길동 (비워두면 세카이 AI 봇과 1:1 대결)",
+        required=False,
+        max_length=50,
+    )
+    word_input = discord.ui.TextInput(
+        label="첫 시작 단어 (2글자 이상 한글 표준 명사)",
+        placeholder="예: 세카이, 별자리, 음악 (비워두면 랜덤 제시)",
+        required=False,
+        max_length=15,
+    )
+
+    def __init__(self, game_view: WordChainGameView):
+        super().__init__()
+        self.game_view = game_view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        import random
+        opp_raw = (self.opp_input.value or "").strip()
+        w_raw = (self.word_input.value or "").strip()
+
+        target_member = None
+        if opp_raw and interaction.guild:
+            clean_id = opp_raw.strip("<@!>")
+            if clean_id.isdigit():
+                target_member = interaction.guild.get_member(int(clean_id))
+            if target_member is None:
+                q_low = opp_raw.lower()
+                target_member = next(
+                    (
+                        m for m in interaction.guild.members
+                        if not m.bot and (q_low in m.display_name.lower() or q_low in m.name.lower())
+                    ),
+                    None,
+                )
+            if target_member is None:
+                await core.safe_send_response(interaction, f"❌ 서버에서 `{opp_raw}` 멤버를 찾을 수 없습니다.", ephemeral=True)
+                return
+            if target_member.id == interaction.user.id:
+                await core.safe_send_response(interaction, "❌ 자기 자신과는 대결할 수 없습니다! (비워두면 AI 봇과 대결합니다)", ephemeral=True)
+                return
+
+        if w_raw:
+            if len(w_raw) < 2 or not all("가" <= ch <= "힣" for ch in w_raw):
+                await core.safe_send_response(interaction, "❌ 시작 단어는 **2글자 이상의 순수 한글 단어**여야 합니다.", ephemeral=True)
+                return
+            if not core.is_valid_word_chain_word(w_raw):
+                await core.safe_send_response(interaction, f"❌ **`{w_raw}`** 단어는 사전에 등재되지 않은 단어입니다.", ephemeral=True)
+                return
+            start_w = w_raw
+        else:
+            start_w = random.choice(["세카이", "음악", "별자리", "피아노", "출석", "콘서트", "하늘", "무지개", "기차", "바다"])
+
+        await core.safe_defer(interaction)
+        new_view = WordChainGameView(interaction.user, target_member, start_w)
+        await interaction.edit_original_response(embed=new_view.build_embed(), view=new_view)
+
 
 # ==========================================
 # 러시안룰렛 6연발 생존 게임 뷰
@@ -1899,6 +2013,51 @@ class RussianRouletteView(core.SafeView):
         self.spin_btn.disabled = True
         self.last_log = f"🔄 {interaction.user.mention}님이 리볼버 실린더를 힘껏 돌려 약실 위치를 다시 섞었습니다! (생존 콤보가 초기화되었습니다)"
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="⚙️ 실탄수·베팅(💎) 맞춤개설", style=discord.ButtonStyle.secondary)
+    async def custom_roulette_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(RouletteCustomSetupModal())
+
+
+class RouletteCustomSetupModal(core.SafeModal, title="🔫 러시안룰렛 실탄수 & 크리스탈 베팅 설정"):
+    bullets_input = discord.ui.TextInput(
+        label="장전할 실탄 개수 (1 ~ 5발, 기본 1발)",
+        placeholder="예: 1, 2, 3 (실탄이 많을수록 생존 보너스 상승!)",
+        default="1",
+        required=True,
+        max_length=2,
+    )
+    bet_input = discord.ui.TextInput(
+        label="참가비 베팅 크리스탈 (0 ~ 1,000💎, 0이면 친선모드)",
+        placeholder="예: 50 (0 입력 시 누구나 방아쇠를 당길 수 있는 무료 친선 게임)",
+        default="50",
+        required=True,
+        max_length=5,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            b_cnt = max(1, min(5, int(self.bullets_input.value.strip())))
+            bet_val = max(0, min(1000, int(self.bet_input.value.strip().replace(",", ""))))
+        except ValueError:
+            await core.safe_send_response(interaction, "❌ 실탄 수(1~5)와 참가비(0~1000)는 숫자로만 입력해 주세요.", ephemeral=True)
+            return
+
+        await core.safe_defer(interaction)
+        if bet_val > 0:
+            data = await asyncio.to_thread(core.load_data)
+            prof = core.ensure_user_profile(data, str(interaction.user.id), interaction.user.display_name)
+            if prof.get("crystals", 0) < bet_val:
+                await interaction.followup.send(
+                    f"❌ 보유 크리스탈이 부족합니다! (보유: `{prof.get('crystals', 0):,}💎` / 필요: `{bet_val:,}💎`)",
+                    ephemeral=True,
+                )
+                return
+            prof["crystals"] -= bet_val
+            await asyncio.to_thread(core.save_data, data)
+
+        new_view = RussianRouletteView(interaction.user, bullets=b_cnt, bet_crystals=bet_val)
+        await interaction.edit_original_response(embed=new_view.build_embed(), view=new_view)
 
 
 # ==========================================

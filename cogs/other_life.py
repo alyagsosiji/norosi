@@ -375,24 +375,23 @@ class OtherLifeCollectionStatusSelect(discord.ui.Select):
     def __init__(self, parent_view: "OtherLifeCollectionView", current: str):
         self.parent_view = parent_view
         options_def = [
-            ("all", "🌐 해금/등급: 전체 보기", "해금 · 미해금 1,000종 전체", "🌐"),
-            ("unlocked", "✅ 해금 완료만 보기", "내가 실제로 도달해 수집한 엔딩만 표시", "✅"),
-            ("locked", "🔒 미해금(미수집)만 보기", "아직 해금하지 못한 엔딩 + 달성 힌트 표시", "🔒"),
-            ("rarity:신화", "🌠 신화 등급만 보기 (4종)", "출신 초월 최상위 신화 엔딩 필터", "🌠"),
-            ("rarity:히든", "🌌 히든 등급만 보기", "별을 건너다 시리즈 히든 엔딩 필터", "🌌"),
-            ("rarity:전설", "🔥 전설 등급만 보기", "거장·약속·회개·진실·그림자 등 전설 엔딩", "🔥"),
-            ("rarity:희귀", "💠 희귀 등급만 보기", "치유자·무명천재·국수우주·제국 등 희귀 엔딩", "💠"),
-            ("rarity:일반", "🏡 일반 등급만 보기", "마을 등불·가정 온기·일상 기적 등 일반 엔딩", "🏡"),
+            ("all", "🌐 해금/등급: 전체 보기 (1,000종)", "🌐"),
+            ("unlocked", "✅ 해금 완료만 보기", "✅"),
+            ("locked", "🔒 미해금(달성 힌트)만 보기", "🔒"),
+            ("rarity:신화", "🌠 신화 등급만 보기 (4종)", "🌠"),
+            ("rarity:히든", "🌌 히든 등급만 보기", "🌌"),
+            ("rarity:전설", "🔥 전설 등급만 보기", "🔥"),
+            ("rarity:희귀", "💠 희귀 등급만 보기", "💠"),
+            ("rarity:일반", "🏡 일반 등급만 보기", "🏡"),
         ]
         opts = [
             discord.SelectOption(
                 label=lbl[:95],
                 value=val,
-                description=desc[:95],
                 emoji=emo,
                 default=(current == val),
             )
-            for val, lbl, desc, emo in options_def
+            for val, lbl, emo in options_def
         ]
         super().__init__(
             placeholder="🔍 해금 여부 · 등급 필터...",
@@ -415,26 +414,25 @@ class OtherLifeCollectionCareerSelect(discord.ui.Select):
     def __init__(self, parent_view: "OtherLifeCollectionView", current: str):
         self.parent_view = parent_view
         options_def = [
-            ("all", "🎯 진로·계열: 전체 보기", "공용(Group A) + 7대 전문직(Group B) + 신화", "🎯"),
-            ("group_a", "🎭 공용 서사 276종 (Group A)", "히든별·서른아홉·오래된약속·회개·타락·고독·지평선", "🎭"),
-            ("artist", "🎨 예술·창작가 계열", "수채화 · 어쿠스틱 작곡 · 소설/희곡 포함", "🎨"),
-            ("scholar", "🔬 학자·연구자 계열", "공공의학 · 천체물리 · 근현대사사료 포함", "🔬"),
-            ("entrepreneur", "💼 사업·개척가 계열", "로컬식품 · 정밀기술벤처 · 해운무역 포함", "💼"),
-            ("artisan", "🌿 장인·생활인 계열", "손멸치국수 · 시계목공 · 약초다원 · 수제공방", "🌿"),
-            ("guardian", "⚖️ 수호·언론인 계열", "탐사보도 · 미제형사 · 공익인권변호 포함", "⚖️"),
-            ("wanderer", "🧭 방랑·기록가 계열", "다큐사진 · 국경구호봉사 포함", "🧭"),
-            ("shadow", "🕶️ 그림자 브로커 계열", "정보브로커 · 지하금융세탁 특화 엔딩", "🕶️"),
-            ("myth", "🌠 출신 초월 신화 (Group C)", "특정 출신에 구애받지 않는 4대 신화 엔딩", "🌠"),
+            ("all", "🎯 진로·계열: 전체 보기", "🎯"),
+            ("group_a", "🎭 공용 서사 276종 (Group A)", "🎭"),
+            ("artist", "🎨 예술·창작가 계열", "🎨"),
+            ("scholar", "🔬 학자·연구자 계열", "🔬"),
+            ("entrepreneur", "💼 사업·개척가 계열", "💼"),
+            ("artisan", "🌿 장인·생활인 계열", "🌿"),
+            ("guardian", "⚖️ 수호·언론인 계열", "⚖️"),
+            ("wanderer", "🧭 방랑·기록가 계열", "🧭"),
+            ("shadow", "🕶️ 그림자 브로커 계열", "🕶️"),
+            ("myth", "🌠 출신 초월 신화 (Group C)", "🌠"),
         ]
         opts = [
             discord.SelectOption(
                 label=lbl[:95],
                 value=val,
-                description=desc[:95],
                 emoji=emo,
                 default=(current == val),
             )
-            for val, lbl, desc, emo in options_def
+            for val, lbl, emo in options_def
         ]
         super().__init__(
             placeholder="🎯 진로 · 계열 필터...",
@@ -460,7 +458,6 @@ class OtherLifeCollectionOriginSelect(discord.ui.Select):
             discord.SelectOption(
                 label="🧬 출신 배경: 전체 보기",
                 value="all",
-                description="6대 출신 및 출신 초월 신화 엔딩 전체",
                 emoji="🧬",
                 default=(current == "all"),
             )
@@ -472,13 +469,12 @@ class OtherLifeCollectionOriginSelect(discord.ui.Select):
             opts.append(discord.SelectOption(
                 label=orig["name"][:95],
                 value=oid,
-                description=orig["hook"][:95],
+                description=orig["hook"][:40],
                 default=(current == oid),
             ))
         opts.append(discord.SelectOption(
             label="🌠 신화 (출신 초월 4종)",
             value="myth",
-            description="어느 출신에서든 조건 충족 시 도달 가능한 4대 신화 엔딩",
             emoji="🌠",
             default=(current == "myth"),
         ))
@@ -531,7 +527,7 @@ class OtherLifeCollectionView(core.SafeView):
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
-                f"❌ 이 도감은 **{self.user.display_name}**님의 기록입니다. `/타인의인생 도감`으로 열어주세요!",
+                f"❌ 이 도감은 **{self.user.display_name}**님의 기록입니다. `/설정` (`🎮 미니게임` ➔ `📚 통합 도감 & 확률 허브`)에서 열어주세요!",
                 ephemeral=True,
             )
             return False
@@ -1208,7 +1204,7 @@ class OtherLifeRankingView(core.SafeView):
             color=0xF59E0B,
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_footer(text="`/타인의인생 플레이` 또는 `!타인의인생`으로 새로운 생애를 살아보세요!")
+        embed.set_footer(text="`/설정` (`🎮 미니게임` ➔ `🌌 타인의 삶 시작`) 또는 `!타인의인생`으로 새로운 생애를 살아보세요!")
         return embed
 
     @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=0)
@@ -1272,7 +1268,7 @@ class OtherLifeGameView(core.SafeView):
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
-                f"❌ 이 인생 이야기는 **{self.user.display_name}**님이 진행 중입니다. `/타인의인생 플레이`로 본인만의 인생을 시작해 보세요!",
+                f"❌ 이 인생 이야기는 **{self.user.display_name}**님이 진행 중입니다. `/설정` (`🎮 미니게임` ➔ `🌌 타인의 삶 시작`)에서 본인만의 인생을 시작해 보세요!",
                 ephemeral=True,
             )
             return False
@@ -1545,7 +1541,7 @@ class OtherLifeGameView(core.SafeView):
                 color=0x38BDF8,
                 timestamp=datetime.datetime.now(core.KST),
             )
-            embed.set_footer(text="하루 3회 완결 💎 보상 (초회 엔딩 해금 시 +120💎 보너스!) · /타인의인생 도감")
+            embed.set_footer(text="하루 3회 완결 💎 보상 (초회 엔딩 해금 시 +120💎 보너스!) · /설정 (타인의 삶 도감)")
             return embed
 
         # ── Finished Ending Embed ──

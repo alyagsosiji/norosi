@@ -158,7 +158,7 @@ class FarmView(core.SafeView):
             return False
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
-                interaction, f"❌ 이 농장은 **{self.user.display_name}**님의 농장입니다. `/생활 농장`으로 열어주세요!", ephemeral=True
+                interaction, f"❌ 이 농장은 **{self.user.display_name}**님의 농장입니다. `/설정` (`🎮 미니게임` ➔ `🌾 세카이 라이프(농장/펫/요리)`)에서 열어주세요!", ephemeral=True
             )
             return False
         return True
@@ -202,7 +202,7 @@ class FarmView(core.SafeView):
             color=0x84CC16,
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_footer(text="수확 작물은 즉시 판매하거나 /생활 요리 에서 고급 생선 요리 버프 재료로 활용할 수 있습니다!")
+        embed.set_footer(text="수확 작물은 즉시 판매하거나 /설정 (세카이 라이프 요리)에서 고급 생선 요리 버프 재료로 활용할 수 있습니다!")
         return embed
 
     async def _on_water(self, interaction: discord.Interaction):
@@ -465,7 +465,7 @@ class PetCareView(core.SafeView):
         if not await super().interaction_check(interaction):
             return False
         if self.user and interaction.user.id != self.user.id:
-            await core.safe_send_response(interaction, "❌ 본인 펫만 관리할 수 있습니다. `/생활 펫`으로 열어주세요!", ephemeral=True)
+            await core.safe_send_response(interaction, "❌ 본인 펫만 관리할 수 있습니다. `/설정` (`👤 개인` ➔ `🌾 내 농장·펫·요리·버프`)에서 열어주세요!", ephemeral=True)
             return False
         return True
 
@@ -666,7 +666,7 @@ class CookingView(core.SafeView):
         if not await super().interaction_check(interaction):
             return False
         if self.user and interaction.user.id != self.user.id:
-            await core.safe_send_response(interaction, "❌ 본인 주방만 이용할 수 있습니다. `/생활 요리`로 열어주세요!", ephemeral=True)
+            await core.safe_send_response(interaction, "❌ 본인 주방만 이용할 수 있습니다. `/설정` (`👤 개인` ➔ `🌾 내 농장·펫·요리·버프`)에서 열어주세요!", ephemeral=True)
             return False
         return True
 
@@ -743,7 +743,7 @@ class LifeDashboardView(core.SafeView):
         ready_cnt = sum(1 for p in (lu.get("plots") or []) if p.get("seed_id") and p.get("ready_at", 0) <= now_ts)
         growing_cnt = sum(1 for p in (lu.get("plots") or []) if p.get("seed_id") and p.get("ready_at", 0) > now_ts)
         pet = buffs.get("pet")
-        pet_str = f"{pet['emoji']} **{pet['name']} Lv.{pet['level']}**" if pet else "미장착 (`/생활 펫`)"
+        pet_str = f"{pet['emoji']} **{pet['name']} Lv.{pet['level']}**" if pet else "미장착 (`/설정` ➔ `🐾 내 펫 돌보기`)"
 
         embed = discord.Embed(
             title=f"🌿 {lu['name']}님의 생활 컨텐츠 종합 허브",

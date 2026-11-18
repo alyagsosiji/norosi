@@ -1781,7 +1781,7 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
         if not await self.bot.is_bot_owner_user(interaction.user):
             return await core.safe_send_response(
                 interaction,
-                "⛔ **권한 부족:** `/스타레일 픽업설정`은 **봇 주인(소유자) 전용** 명령어입니다!",
+                "⛔ **권한 부족:** 스타레일 픽업 설정(`/설정` ➔ `👑 스타레일 픽업`)은 **봇 주인(소유자) 전용** 기능입니다!",
                 ephemeral=True,
             )
 

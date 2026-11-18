@@ -231,7 +231,7 @@ def _is_ticket_staff(member: Any, guild_id: int, bot: Any) -> bool:
 
 
 def _build_ticket_config_embed(cfg: Dict[str, Any], guild: Optional[discord.Guild] = None) -> discord.Embed:
-    p_ch = f"<#{cfg['panel_channel_id']}>" if cfg.get("panel_channel_id") else "미지정 (`/티켓 패널생성` 시 현재 채널)"
+    p_ch = f"<#{cfg['panel_channel_id']}>" if cfg.get("panel_channel_id") else "미지정 (`/설정` ➔ `🎫 티켓 패널 생성` 시 현재 채널)"
     s_rid = cfg.get("staff_role_id")
     if s_rid:
         s_role_obj = guild.get_role(int(s_rid)) if (guild and hasattr(guild, "get_role")) else None
@@ -257,7 +257,7 @@ def _build_ticket_config_embed(cfg: Dict[str, Any], guild: Optional[discord.Guil
         color=0x38BDF8,
         timestamp=datetime.datetime.now(core.KST),
     )
-    embed.set_footer(text="아래 역할 드롭다운으로 특수문자 포함 역할을 바로 선택하거나, `/티켓 패널생성`으로 패널을 발행하세요!")
+    embed.set_footer(text="아래 역할 드롭다운으로 특수문자 포함 역할을 바로 선택하거나, `/설정` (`🎫 1:1 문의 티켓 관리`)에서 패널을 발행하세요!")
     return embed
 
 
@@ -746,7 +746,7 @@ class TicketControlView(core.SafeView):
 
 
 class TicketConfigRoleView(core.SafeView):
-    """특수문자·이모지 포함 역할도 1클릭으로 선택/해제 가능한 티켓 담당자 역할 설정 뷰"""
+    """특수문자·이모지 포함 역할 및 카테고리·로그채널·패널채널·방식·최대티켓수를 1클릭으로 설정하는 통합 티켓 설정 뷰"""
     def __init__(self, guild_id: int = 0, author_id: int = 0):
         super().__init__(timeout=300)
         self.guild_id = int(guild_id or 0)
@@ -756,7 +756,7 @@ class TicketConfigRoleView(core.SafeView):
         if not await super().interaction_check(interaction):
             return False
         if self.author_id and interaction.user.id != self.author_id:
-            await core.safe_send_response(interaction, "❌ `/티켓 설정`을 호출한 관리자만 조작할 수 있습니다.", ephemeral=True)
+            await core.safe_send_response(interaction, "❌ 티켓 설정 패널(`/설정`)을 호출한 관리자만 조작할 수 있습니다.", ephemeral=True)
             return False
         if not _is_ticket_admin(interaction.user, interaction.client):
             await core.safe_send_response(interaction, "❌ **서버 관리자** 권한이 필요합니다.", ephemeral=True)
@@ -785,7 +785,67 @@ class TicketConfigRoleView(core.SafeView):
         embed = _build_ticket_config_embed(cfg, guild)
         await core.safe_edit_response(interaction, content=f"✅ 담당자 역할을 {picked_role.mention} 로 설정했습니다!", embed=embed, view=self)
 
-    @discord.ui.button(label="🔓 담당자 역할 해제 (관리자 전용)", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.select(
+        cls=discord.ui.ChannelSelect,
+        channel_types=[discord.ChannelType.category],
+        placeholder="📁 비공개 티켓 채널이 생성될 디스코드 카테고리 선택",
+        min_values=1,
+        max_values=1,
+        row=1,
+    )
+    async def category_select(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
+        guild = interaction.guild
+        gid = self.guild_id or (guild.id if guild else 0)
+        if not gid or not select.values:
+            await core.safe_send_response(interaction, "❌ 카테고리를 확인할 수 없습니다.", ephemeral=True)
+            return
+        picked_cat = select.values[0]
+        await core.safe_defer(interaction, ephemeral=True)
+        cfg = await asyncio.to_thread(ticket_core.update_ticket_config, gid, category_id=picked_cat.id)
+        embed = _build_ticket_config_embed(cfg, guild)
+        await core.safe_edit_response(interaction, content=f"✅ 티켓 생성 카테고리를 **{picked_cat.name}** 로 설정했습니다!", embed=embed, view=self)
+
+    @discord.ui.select(
+        cls=discord.ui.ChannelSelect,
+        channel_types=[discord.ChannelType.text],
+        placeholder="📜 티켓 종료 시 대화 기록(.txt)이 백업될 로그 채널 선택",
+        min_values=1,
+        max_values=1,
+        row=2,
+    )
+    async def log_channel_select(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
+        guild = interaction.guild
+        gid = self.guild_id or (guild.id if guild else 0)
+        if not gid or not select.values:
+            await core.safe_send_response(interaction, "❌ 채널을 확인할 수 없습니다.", ephemeral=True)
+            return
+        picked_ch = select.values[0]
+        await core.safe_defer(interaction, ephemeral=True)
+        cfg = await asyncio.to_thread(ticket_core.update_ticket_config, gid, log_channel_id=picked_ch.id)
+        embed = _build_ticket_config_embed(cfg, guild)
+        await core.safe_edit_response(interaction, content=f"✅ 티켓 로그 백업 채널을 <#{picked_ch.id}> 로 설정했습니다!", embed=embed, view=self)
+
+    @discord.ui.select(
+        cls=discord.ui.ChannelSelect,
+        channel_types=[discord.ChannelType.text],
+        placeholder="🎫 문의 열기 패널이 게시될 기본 패널 채널 선택",
+        min_values=1,
+        max_values=1,
+        row=3,
+    )
+    async def panel_channel_select(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
+        guild = interaction.guild
+        gid = self.guild_id or (guild.id if guild else 0)
+        if not gid or not select.values:
+            await core.safe_send_response(interaction, "❌ 채널을 확인할 수 없습니다.", ephemeral=True)
+            return
+        picked_ch = select.values[0]
+        await core.safe_defer(interaction, ephemeral=True)
+        cfg = await asyncio.to_thread(ticket_core.update_ticket_config, gid, panel_channel_id=picked_ch.id)
+        embed = _build_ticket_config_embed(cfg, guild)
+        await core.safe_edit_response(interaction, content=f"✅ 기본 티켓 패널 채널을 <#{picked_ch.id}> 로 설정했습니다!", embed=embed, view=self)
+
+    @discord.ui.button(label="🔓 담당자 역할 해제", style=discord.ButtonStyle.secondary, row=4)
     async def btn_clear_staff_role(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild = interaction.guild
         gid = self.guild_id or (guild.id if guild else 0)
@@ -796,6 +856,37 @@ class TicketConfigRoleView(core.SafeView):
         cfg = await asyncio.to_thread(ticket_core.update_ticket_config, gid, staff_role_id=None)
         embed = _build_ticket_config_embed(cfg, guild)
         await core.safe_edit_response(interaction, content="🔓 담당자 역할 지정을 해제했습니다. (서버 관리자만 접수 가능)", embed=embed, view=self)
+
+    @discord.ui.button(label="📁 생성 방식 전환 (채널 ⇄ 스레드)", style=discord.ButtonStyle.primary, row=4)
+    async def btn_toggle_mode(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
+        gid = self.guild_id or (guild.id if guild else 0)
+        if not gid:
+            await core.safe_send_response(interaction, "❌ 서버 정보를 확인할 수 없습니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        cur_cfg = await asyncio.to_thread(ticket_core.get_ticket_config, gid)
+        next_mode = "thread" if str(cur_cfg.get("mode", "channel")) == "channel" else "channel"
+        cfg = await asyncio.to_thread(ticket_core.update_ticket_config, gid, mode=next_mode)
+        embed = _build_ticket_config_embed(cfg, guild)
+        mode_kr = "🧵 비공개 스레드 (Thread)" if next_mode == "thread" else "📁 비공개 텍스트 채널"
+        await core.safe_edit_response(interaction, content=f"✅ 티켓 생성 방식을 **{mode_kr}** 로 전환했습니다!", embed=embed, view=self)
+
+    @discord.ui.button(label="🔢 최대 오픈 수 변경 (1~5개)", style=discord.ButtonStyle.secondary, row=4)
+    async def btn_cycle_max_tickets(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
+        gid = self.guild_id or (guild.id if guild else 0)
+        if not gid:
+            await core.safe_send_response(interaction, "❌ 서버 정보를 확인할 수 없습니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        cur_cfg = await asyncio.to_thread(ticket_core.get_ticket_config, gid)
+        cur_max = int(cur_cfg.get("max_per_user", 1) or 1)
+        next_max = (cur_max % 5) + 1
+        cfg = await asyncio.to_thread(ticket_core.update_ticket_config, gid, max_per_user=next_max)
+        embed = _build_ticket_config_embed(cfg, guild)
+        await core.safe_edit_response(interaction, content=f"✅ 1인당 동시 오픈 가능 최대 티켓 수를 **`{next_max}개`** 로 변경했습니다!", embed=embed, view=self)
+
 
 
 # ==========================================

@@ -182,7 +182,7 @@ class FishingLocationSelect(discord.ui.Select):
     def __init__(self, parent_view: "FishingCastView"):
         self.parent_view = parent_view
         super().__init__(
-            placeholder="📍 낚시터 & 세부 수역(2.2x 집중 탐사) 선택...",
+            placeholder="📍 낚시터 & 세부 수역 선택...",
             min_values=1,
             max_values=1,
             options=self._build_opts(),
@@ -197,9 +197,8 @@ class FishingLocationSelect(discord.ui.Select):
             tot_cnt = len(fishing_core.FISH_BY_HABITAT[h_id])
             val_all = f"{h_id}:all"
             opts.append(discord.SelectOption(
-                label=f"{h['name']} · 전체 수역 ({tot_cnt}종)"[:95],
+                label=f"{h['name']} · 전체 ({tot_cnt}종)"[:95],
                 value=val_all,
-                description=f"{h['name']} 전 구역 고르게 출조 · {h['desc']}"[:95],
                 emoji=h["emoji"],
                 default=(val_all == cur_val),
             ))
@@ -207,9 +206,8 @@ class FishingLocationSelect(discord.ui.Select):
                 z_cnt = len(fishing_core.FISH_BY_ZONE.get((h_id, z), []))
                 val_z = f"{h_id}:{z}"
                 opts.append(discord.SelectOption(
-                    label=f"  └ {h['name']} · {z} ({z_cnt}종)"[:95],
+                    label=f"└ {h['name']} · {z} ({z_cnt}종 · 2.2x)"[:95],
                     value=val_z,
-                    description=f"'{z}' 어종 출현 가중치 2.2배 집중 탐사!"[:95],
                     emoji="🎯",
                     default=(val_z == cur_val),
                 ))
@@ -259,11 +257,11 @@ class FishingBaitSelect(discord.ui.Select):
                 qty_txt = "무제한"
             else:
                 cnt = int(bag_baits.get(b_id, 0))
-                qty_txt = f"보유 {cnt}개"
+                qty_txt = f"{cnt}개"
             opts.append(discord.SelectOption(
                 label=f"{b['name']} ({qty_txt})"[:95],
                 value=b_id,
-                description=b["desc"][:95],
+                description=b["desc"][:40],
                 emoji=b["emoji"],
                 default=(b_id == cur_bait),
             ))
@@ -410,7 +408,7 @@ class FishingCastView(core.SafeView):
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
-                "❌ 본인의 낚싯대만 조작할 수 있습니다! 직접 **`/낚시 출조`**로 나만의 낚시터를 열어보세요.",
+                "❌ 본인의 낚싯대만 조작할 수 있습니다! 직접 **`/설정`** (`🎮 미니게임` ➔ `🎣 세카이 낚시 출조`)으로 나만의 낚시터를 열어보세요.",
                 ephemeral=True,
             )
             return False
@@ -485,7 +483,7 @@ class FishingCastView(core.SafeView):
         life_lines = life_buffs.get("summary_lines") or []
         if life_lines:
             embed.add_field(
-                name="🐾 생활 버프 적용 중 (/생활 펫·요리·공동농장)",
+                name="🐾 생활 버프 적용 중 (/설정 ➔ 세카이 라이프 펫·요리·공동농장)",
                 value="\n".join(f"• {ln}" for ln in life_lines[:4])
                 + f"\n└ 통합: 쿨타임 `-{float(life_buffs.get('cooldown_reduce', 0.0)):.1f}초` · 희귀 `+{int(float(life_buffs.get('rare_bonus', 0.0))*100)}%` · 골드 `+{int(float(life_buffs.get('gold_bonus', 0.0))*100)}%`",
                 inline=False,
@@ -1277,7 +1275,7 @@ class FishingBagView(core.SafeView):
                 f"`{cm_val:.1f}cm` · `{_format_weight(wt_val)}` · `{g_val:,}🪙`"
             )
 
-        body = "\n".join(lines) if lines else "> *(조건에 맞는 물고기가 가방에 없습니다. `/낚시 출조`로 낚아 보세요!)*"
+        body = "\n".join(lines) if lines else "> *(조건에 맞는 물고기가 가방에 없습니다. `/설정` (`🎮 미니게임` ➔ `🎣 세카이 낚시 출조`)로 낚아 보세요!)*"
         embed = discord.Embed(
             title=f"🎒 {self.user.display_name}님의 낚시 가방 (`{len(bag_raw):,}/{bag_cap:,}마리`)",
             description=(
@@ -1508,7 +1506,6 @@ class FishingPokedexRaritySelect(discord.ui.Select):
             discord.SelectOption(
                 label=f"전체 성급 ({tot_owned:,}/{tot_all:,}종)"[:95],
                 value="0",
-                description="★1 ~ ★5 모든 희귀도 어종 표시",
                 emoji="📖",
                 default=(cur_r == 0),
             )
@@ -1520,7 +1517,6 @@ class FishingPokedexRaritySelect(discord.ui.Select):
             opts.append(discord.SelectOption(
                 label=f"★{r} {rm['name']} ({r_stat.get('owned', 0):,}/{r_stat.get('total', 0):,}종)"[:95],
                 value=str(r),
-                description=f"{rm['full_stars']} 등급 어종만 필터링"[:95],
                 emoji=rm["emoji"],
                 default=(cur_r == r),
             ))
@@ -1556,7 +1552,6 @@ class FishingPokedexZoneSelect(discord.ui.Select):
             discord.SelectOption(
                 label="전체 세부 수역",
                 value="all",
-                description="선택된 탭의 모든 세부 수역을 표시합니다",
                 emoji="🧭",
                 default=(cur_z == "all"),
             )
@@ -1568,11 +1563,10 @@ class FishingPokedexZoneSelect(discord.ui.Select):
             for z in fishing_core.CANONICAL_ZONES[h_id]:
                 raw_z_stat = h_zones.get(z)
                 z_stat = raw_z_stat if isinstance(raw_z_stat, dict) else {"owned": 0, "total": len(fishing_core.FISH_BY_ZONE.get((h_id, z), []))}
-                prefix = f"{h['name']} · " if len(habs) > 1 else ""
+                prefix = f"{h['name']}·" if len(habs) > 1 else ""
                 opts.append(discord.SelectOption(
                     label=f"{prefix}{z} ({z_stat.get('owned', 0):,}/{z_stat.get('total', 0):,}종)"[:95],
                     value=z,
-                    description=f"[{h['name']}] '{z}' 서식 어종 모아보기"[:95],
                     emoji=h["emoji"],
                     default=(cur_z == z),
                 ))
@@ -1603,14 +1597,14 @@ class FishingPokedexSortSelect(discord.ui.Select):
     def _build_opts(self) -> List[discord.SelectOption]:
         cur_s = self.parent_view.sort_mode
         choices = [
-            ("owned_hangul", "📌 보유 어종 · 한글명 우선 (기본)", "획득한 물고기와 한국어 대표 어종을 1페이지부터 표시", "📌"),
-            ("rarity_desc", "⭐ 성급 높은순 (★5 → ★1)", "전설/신화 희귀 어종부터 차례로 표시", "⭐"),
-            ("size_desc", "📏 최대 체장(cm) 큰순", "가장 크게 자라는 거대어종 순으로 표시", "📏"),
-            ("rarity_asc", "🔤 성급 낮은순 (★1 → ★5)", "기본 ★1 소형어부터 오름차순으로 표시", "🔤"),
+            ("owned_hangul", "📌 보유 어종 · 한글명 우선 (기본)", "📌"),
+            ("rarity_desc", "⭐ 성급 높은순 (★5 → ★1)", "⭐"),
+            ("size_desc", "📏 최대 체장(cm) 큰순", "📏"),
+            ("rarity_asc", "🔤 성급 낮은순 (★1 → ★5)", "🔤"),
         ]
         return [
-            discord.SelectOption(label=lbl, value=val, description=desc, emoji=em, default=(cur_s == val))
-            for val, lbl, desc, em in choices
+            discord.SelectOption(label=lbl, value=val, emoji=em, default=(cur_s == val))
+            for val, lbl, em in choices
         ]
 
     def refresh(self):
@@ -1773,7 +1767,7 @@ class FishingPokedexView(core.SafeView):
         if lines:
             body = "\n".join(lines)
         elif self.tab == "owned":
-            body = "🎣 *아직 이 조건으로 포획한 어종이 없습니다! `/낚시 출조`로 물고기를 낚아 도감을 채워보세요.*"
+            body = "🎣 *아직 이 조건으로 포획한 어종이 없습니다! `/설정` (`🎮 미니게임` ➔ `🎣 세카이 낚시 출조`)로 물고기를 낚아 도감을 채워보세요.*"
         elif self.tab == "unowned" and self.rarity_filter == 0 and self.zone_filter == "all" and not self.search_query:
             body = "🎉 **축하합니다! 모든 어종을 도감에 수집했습니다!**"
         else:
@@ -1997,7 +1991,7 @@ class FishingAquariumView(core.SafeView):
                 f"`{idx}.` {it.get('emoji', '🐟')} {tr_s}**★{it.get('rarity', 1)} {it.get('name', '물고기')}** — "
                 f"`{cm_val:.1f}cm` · `{_format_weight(wt_val)}` (`+{rate}🪙/시간`)"
             )
-        body = "\n".join(lines) if lines else "> *(아직 전시된 물고기가 없습니다! `/낚시 가방`에서 아끼는 대물을 수족관에 넣어 보세요.)*"
+        body = "\n".join(lines) if lines else "> *(아직 전시된 물고기가 없습니다! `/설정` (`👤 개인` ➔ `🐟 낚시 가방 & 수족관`)에서 아끼는 대물을 수족관에 넣어 보세요.)*"
         next_cost = 600 + (max_slots - 4) * 500
         exp_txt = "최대 크기 달성!" if max_slots >= 20 else f"다음 확장(+2칸): `{next_cost:,}🪙`"
 
@@ -2498,7 +2492,7 @@ class FishingRankingView(core.SafeView):
                     f"{m} **{rec['user_name']}** — **`{rec['pokedex_cnt']}/{tot}종`** (`{pct:.1f}%`) · Lv.{rec['level']} · `{rec['total_catches']}마리`{rec_badge}"
                 )
 
-        body = "\n".join(lines) if lines else "> *(아직 이 조건의 서버 낚시 기록이 없습니다. `/낚시 출조`로 첫 신기록의 주인공이 되어보세요!)*"
+        body = "\n".join(lines) if lines else "> *(아직 이 조건의 서버 낚시 기록이 없습니다. `/설정` (`🎮 미니게임` ➔ `🎣 세카이 낚시 출조`)로 첫 신기록의 주인공이 되어보세요!)*"
         embed = discord.Embed(
             title=title,
             description=body[:4096],
@@ -2847,7 +2841,7 @@ class FishingTournamentView(core.SafeView):
                 f"{medal} **{r['user_name']}** — {score_txt}  |  대표어: {r['best_fish_emoji']}{s_mark} `★{r['best_fish_rarity']} {r['best_fish_name']} ({r['max_cm']:.1f}cm)`"
             )
 
-        board_txt = "\n".join(rank_lines) if rank_lines else "> *(아직 첫 물고기를 낚은 참가자가 없습니다! 지금 `/낚시 출조` 또는 아래 `[🎣 바로 출조하기]`로 첫 1위를 차지하세요!)*"
+        board_txt = "\n".join(rank_lines) if rank_lines else "> *(아직 첫 물고기를 낚은 참가자가 없습니다! 지금 `/설정` (`🎣 세카이 낚시 출조`) 또는 아래 `[🎣 바로 출조하기]`로 첫 1위를 차지하세요!)*"
         feat_names = ", ".join(f"{s['emoji']}{s['name']}" for s in featured[:6])
 
         embed = discord.Embed(

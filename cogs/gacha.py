@@ -533,7 +533,7 @@ class GachaPullAgainView(core.SafeView):
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
-                "❌ 가챠를 실행한 본인만 재뽑기 버튼을 사용할 수 있습니다. `/프로세카뽑기`를 직접 입력해 보세요!",
+                "❌ 가챠를 실행한 본인만 재뽑기 버튼을 사용할 수 있습니다. `/설정` (`🎮 미니게임` ➔ `🎰 프로세카 뽑기`)에서 직접 뽑아보세요!",
                 ephemeral=True,
             )
             return
@@ -1203,7 +1203,7 @@ class CardTradeAcceptView(core.SafeView):
     @discord.ui.button(label="🤝 교환 수락하기", style=discord.ButtonStyle.success, row=0)
     async def accept_trade(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.target or not self.requester or not self.req_card or not self.tgt_card or self.requester.id == self.target.id:
-            await core.safe_send_response(interaction, "⚠️ 교환 요청 정보가 만료되었습니다. `/카드교환` 명령어로 다시 신청해 주세요.", ephemeral=True)
+            await core.safe_send_response(interaction, "⚠️ 교환 요청 정보가 만료되었습니다. `/설정` (`👤 개인` ➔ `🤝 1:1 카드 교환/선물`)에서 다시 신청해 주세요.", ephemeral=True)
             return
         if interaction.user.id != self.target.id:
             await core.safe_send_response(interaction, "❌ 교환 신청을 받은 당사자만 수락할 수 있습니다.", ephemeral=True)
@@ -1250,7 +1250,7 @@ class CardTradeAcceptView(core.SafeView):
     async def preview_req_card(self, interaction: discord.Interaction, button: discord.ui.Button):
         c = self.req_card
         if not c or "id" not in c:
-            await core.safe_send_response(interaction, "⚠️ 카드 정보가 만료되었습니다. `/카드교환`으로 다시 확인해 주세요.", ephemeral=True)
+            await core.safe_send_response(interaction, "⚠️ 카드 정보가 만료되었습니다. `/설정` (`👤 개인` ➔ `🤝 1:1 카드 교환/선물`)에서 다시 확인해 주세요.", ephemeral=True)
             return
         req_name = self.requester.display_name if self.requester else "신청자"
         p_embed = discord.Embed(
@@ -1265,7 +1265,7 @@ class CardTradeAcceptView(core.SafeView):
     async def preview_tgt_card(self, interaction: discord.Interaction, button: discord.ui.Button):
         c = self.tgt_card
         if not c or "id" not in c:
-            await core.safe_send_response(interaction, "⚠️ 카드 정보가 만료되었습니다. `/카드교환`으로 다시 확인해 주세요.", ephemeral=True)
+            await core.safe_send_response(interaction, "⚠️ 카드 정보가 만료되었습니다. `/설정` (`👤 개인` ➔ `🤝 1:1 카드 교환/선물`)에서 다시 확인해 주세요.", ephemeral=True)
             return
         tgt_name = self.target.display_name if self.target else "상대"
         p_embed = discord.Embed(
@@ -1314,11 +1314,11 @@ class InteractiveCardTradeStudioView(core.SafeView):
                 if cid_s in seen1:
                     continue
                 seen1.add(cid_s)
-                dup_tag = f"중복 {c.get('count', 1)}장" if c.get("count", 1) > 1 else "1장 보유"
-                label = f"{c['rarity_label']} [{c['prefix']}] {c['char_name']}"[:95]
-                desc = f"{dup_tag} · {c.get('limit_label', '통상')} · Lv.{c.get('level', 1)} (ID:{cid_s})"[:95]
+                dup_tag = f"중복 {c.get('count', 1)}장" if c.get("count", 1) > 1 else "1장"
+                label = f"{c['rarity_label']} [{c['prefix']}] {c['char_name']}"[:75]
+                desc = f"{dup_tag} · {c.get('limit_label', '통상')} · Lv.{c.get('level', 1)} (ID:{cid_s})"[:65]
                 opts1.append(discord.SelectOption(label=label, value=cid_s, description=desc, default=(cid_s == self.selected_my_cid)))
-                if len(opts1) >= 25:
+                if len(opts1) >= 15:
                     break
             self.my_card_select.options = opts1
             self.my_card_select.disabled = False
@@ -1336,11 +1336,11 @@ class InteractiveCardTradeStudioView(core.SafeView):
                 if cid_s in seen2:
                     continue
                 seen2.add(cid_s)
-                dup_tag = f"중복 {c.get('count', 1)}장" if c.get("count", 1) > 1 else "1장 보유"
-                label = f"{c['rarity_label']} [{c['prefix']}] {c['char_name']}"[:95]
-                desc = f"{dup_tag} · {c.get('limit_label', '통상')} · Lv.{c.get('level', 1)} (ID:{cid_s})"[:95]
+                dup_tag = f"중복 {c.get('count', 1)}장" if c.get("count", 1) > 1 else "1장"
+                label = f"{c['rarity_label']} [{c['prefix']}] {c['char_name']}"[:75]
+                desc = f"{dup_tag} · {c.get('limit_label', '통상')} · Lv.{c.get('level', 1)} (ID:{cid_s})"[:65]
                 opts2.append(discord.SelectOption(label=label, value=cid_s, description=desc, default=(cid_s == self.selected_tgt_cid)))
-                if len(opts2) >= 25:
+                if len(opts2) >= 15:
                     break
             self.tgt_card_select.options = opts2
             self.tgt_card_select.disabled = False
@@ -1392,7 +1392,7 @@ class InteractiveCardTradeStudioView(core.SafeView):
     @discord.ui.select(placeholder="📤 1단계: 내가 상대방에게 보낼 카드를 선택하세요...", row=0)
     async def my_card_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         if not self.requester or not self.req_cards:
-            await core.safe_send_response(interaction, "⚠️ 교환 스튜디오 세션이 만료되었습니다. `/카드교환` 명령어를 다시 입력해 주세요.", ephemeral=True)
+            await core.safe_send_response(interaction, "⚠️ 교환 스튜디오 세션이 만료되었습니다. `/설정` (`👤 개인` ➔ `🤝 1:1 카드 교환/선물`)에서 다시 열어주세요.", ephemeral=True)
             return
         if interaction.user.id != self.requester.id:
             await core.safe_send_response(interaction, "❌ 교환 스튜디오를 연 본인만 조작할 수 있습니다.", ephemeral=True)
@@ -1408,7 +1408,7 @@ class InteractiveCardTradeStudioView(core.SafeView):
     @discord.ui.select(placeholder="📥 2단계: 상대방으로부터 받을 카드를 선택하세요...", row=1)
     async def tgt_card_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         if not self.requester or not self.tgt_cards:
-            await core.safe_send_response(interaction, "⚠️ 교환 스튜디오 세션이 만료되었습니다. `/카드교환` 명령어를 다시 입력해 주세요.", ephemeral=True)
+            await core.safe_send_response(interaction, "⚠️ 교환 스튜디오 세션이 만료되었습니다. `/설정` (`👤 개인` ➔ `🤝 1:1 카드 교환/선물`)에서 다시 열어주세요.", ephemeral=True)
             return
         if interaction.user.id != self.requester.id:
             await core.safe_send_response(interaction, "❌ 교환 스튜디오를 연 본인만 조작할 수 있습니다.", ephemeral=True)
@@ -1424,7 +1424,7 @@ class InteractiveCardTradeStudioView(core.SafeView):
     @discord.ui.button(label="📨 교환 신청서 발송하기 (100💎)", style=discord.ButtonStyle.success, row=2, disabled=True)
     async def send_offer_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.requester or not self.target or self.requester.id == self.target.id:
-            await core.safe_send_response(interaction, "⚠️ 교환 스튜디오 세션이 만료되었습니다. `/카드교환` 명령어를 다시 입력해 주세요.", ephemeral=True)
+            await core.safe_send_response(interaction, "⚠️ 교환 스튜디오 세션이 만료되었습니다. `/설정` (`👤 개인` ➔ `🤝 1:1 카드 교환/선물`)에서 다시 열어주세요.", ephemeral=True)
             return
         if interaction.user.id != self.requester.id:
             await core.safe_send_response(interaction, "❌ 교환 스튜디오를 연 본인만 발송할 수 있습니다.", ephemeral=True)
@@ -1570,7 +1570,7 @@ class CardIllustToggleView(core.SafeView):
 
     async def switch_mode(self, interaction: discord.Interaction, target_mode: str):
         if not self.card or "id" not in self.card:
-            await core.safe_send_response(interaction, "❌ 카드 정보를 찾을 수 없습니다. `/내캐릭터`에서 다시 선택해 주세요.", ephemeral=True)
+            await core.safe_send_response(interaction, "❌ 카드 정보를 찾을 수 없습니다. `/설정` (`👤 개인` ➔ `🎒 프로세카 카드 보관함`)에서 다시 선택해 주세요.", ephemeral=True)
             return
         await core.safe_defer(interaction)
         self.current_mode = target_mode
@@ -1713,7 +1713,7 @@ class CharacterCostumeWardrobeView(core.SafeView):
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
-                f"❌ 이 의상실은 **{self.user.display_name}**님의 개인 의상실입니다. `/의상` 명령어로 본인의 의상실을 열어보세요!",
+                f"❌ 이 의상실은 **{self.user.display_name}**님의 개인 의상실입니다. `/설정` (`👤 개인` ➔ `👗 캐릭터 3D 의상실`)에서 본인의 의상실을 열어보세요!",
                 ephemeral=True
             )
             return False
@@ -1767,15 +1767,15 @@ class CharacterCostumeWardrobeView(core.SafeView):
             seen_eq.add(c_val)
             is_active = (c_val == eq_id)
             tag = "[착용 중] " if is_active else ""
-            label = f"{tag}{c['name']}"[:100]
-            desc = f"{c.get('obtained_how', '기본')} | 구성:{'/'.join(c.get('parts', ['body']))}"[:100]
+            label = f"{tag}{c['name']}"[:75]
+            desc = f"{c.get('obtained_how', '기본')}"[:60]
             equip_opts.append(discord.SelectOption(
                 label=label,
                 value=c_val[:100],
                 description=desc,
                 default=is_active
             ))
-            if len(equip_opts) >= 25:
+            if len(equip_opts) >= 12:
                 break
         if not equip_opts:
             equip_opts = [discord.SelectOption(label="기본 의상", value=f"default_{self.current_char_id}", default=True)]
@@ -1791,14 +1791,14 @@ class CharacterCostumeWardrobeView(core.SafeView):
             if not c_val or c_val in seen_shop:
                 continue
             seen_shop.add(c_val)
-            label = f"💎 [300💎] {c['name']}"[:100]
-            desc = f"★4 [{c.get('card_prefix')}] 기반 | 원래:{c.get('char_name')}"[:100]
+            label = f"💎 [300💎] {c['name']}"[:75]
+            desc = f"★4 [{c.get('card_prefix')}] ({c.get('char_name')})"[:60]
             shop_opts.append(discord.SelectOption(
                 label=label,
                 value=c_val[:100],
                 description=desc
             ))
-            if len(shop_opts) >= 25:
+            if len(shop_opts) >= 12:
                 break
         if not shop_opts:
             self.shop_select.options = [
@@ -1881,7 +1881,7 @@ class CharacterCostumeWardrobeView(core.SafeView):
         if equipped.get("hair_unlocked"):
             desc_lines.append("   └ 💇 **한정 헤어스타일 해금됨!** *(한정 카드 ✦MR.2 특전 · 세카이 라이브 시너지 +10%)*")
         elif not equipped.get("is_default") and not equipped.get("another_color_unlocked"):
-            desc_lines.append("   └ 🔒 *어나더 컬러 3종: `/마스터랭크` **✦MR.2** 달성 시 해금!*")
+            desc_lines.append("   └ 🔒 *어나더 컬러 3종: `/설정` (`🏆 마스터 랭크`) **✦MR.2** 달성 시 해금!*")
 
         if is_different_char:
             desc_lines.append(f"   └ 💡 **착용 모델:** `{char_info['name']}` (의상 원작자: `{equipped.get('char_name')}`)")
@@ -2003,7 +2003,7 @@ class CharacterCostumeWardrobeView(core.SafeView):
         ok, msg, v_info = await asyncio.to_thread(core.cycle_user_costume_color, self.guild_id, interaction.user.id, self.current_char_id)
         if ok:
             await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
-            await core.safe_send_response(interaction, f"{msg}\n*(💡 어나더 컬러 적용 시 `/라이브` 보너스가 `+10%`로 강화됩니다!)*", ephemeral=True)
+            await core.safe_send_response(interaction, f"{msg}\n*(💡 어나더 컬러 적용 시 `/설정` (`⚔️ 세카이 라이브`) 보너스가 `+10%`로 강화됩니다!)*", ephemeral=True)
         else:
             await core.safe_send_response(interaction, msg, ephemeral=True)
 
@@ -2013,10 +2013,10 @@ class CharacterCostumeWardrobeView(core.SafeView):
             "👗 **세카이 3D 의상 & 어나더 컬러 시스템 안내**\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             "• **의상 획득 (가챠 연동):**\n"
-            "  - `/프로세카뽑기`에서 3D 의상이 포함된 ★4 카드를 뽑으면, 해당 원본 캐릭터에게 의상이 **자동 무료 해금**됩니다.\n\n"
+            "  - `/설정` (`🎰 프로세카 뽑기`)에서 3D 의상이 포함된 ★4 카드를 뽑으면, 해당 원본 캐릭터에게 의상이 **자동 무료 해금**됩니다.\n\n"
             "• **어나더 컬러 & 한정 헤어 (✦MR.2 해금):**\n"
-            "  - 원본 카드를 `/마스터랭크`에서 **✦MR.2 이상**으로 돌파하면 **어나더 컬러 3종(파스텔·다크·골드)** 과 **한정 헤어스타일**(한정 카드)이 해금됩니다!\n"
-            "  - 어나더 컬러 적용 시 `/라이브`에서 멤버당 **+10% 시너지 보너스**를 받습니다.\n\n"
+            "  - 원본 카드를 `/설정` (`🏆 마스터 랭크`)에서 **✦MR.2 이상**으로 돌파하면 **어나더 컬러 3종(파스텔·다크·골드)** 과 **한정 헤어스타일**(한정 카드)이 해금됩니다!\n"
+            "  - 어나더 컬러 적용 시 `/설정` (`⚔️ 세카이 라이브`)에서 멤버당 **+10% 시너지 보너스**를 받습니다.\n\n"
             "• **다른 캐릭터에게 의상 제작/입히기:**\n"
             "  - 뽑기로 보유 중인 카드의 의상은 **동일 체형(여성/남성)의 다른 캐릭터**에게 `300 💎`로 제작하여 입혀줄 수 있습니다."
         )
@@ -2312,7 +2312,7 @@ class MyInventoryView(core.SafeView):
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
-                f"❌ 이 보관함은 **{self.user.display_name}**님의 개인 보관함입니다. `/내캐릭터` 명령어로 본인의 보관함을 열어보세요!",
+                f"❌ 이 보관함은 **{self.user.display_name}**님의 개인 보관함입니다. `/설정` (`👤 개인` ➔ `🎒 프로세카 카드 보관함`)에서 본인의 보관함을 열어보세요!",
                 ephemeral=True
             )
             return False
@@ -2378,9 +2378,8 @@ class MyInventoryView(core.SafeView):
         total_pulls_all = sum(c.get("count", 1) for c in self.all_cards)
         unit_opts = [
             discord.SelectOption(
-                label=f"🌐 전체 유닛 보기 ({total_unique_all}종 / {total_pulls_all}장)"[:100],
+                label=f"🌐 전체 유닛 ({total_unique_all}종/{total_pulls_all}장)"[:100],
                 value="ALL",
-                description="모든 유닛의 보유 카드를 한 번에 표시합니다",
                 default=(self.selected_unit == "ALL"),
             )
         ]
@@ -2390,9 +2389,8 @@ class MyInventoryView(core.SafeView):
             u_emoji = unit_emojis.get(u_name, "🏷️")
             unit_opts.append(
                 discord.SelectOption(
-                    label=f"{u_emoji} {u_name} ({len(u_cards)}종)"[:100],
+                    label=f"{u_emoji} {u_name} ({len(u_cards)}종/{u_pulls}장)"[:100],
                     value=u_name,
-                    description=f"총 {u_pulls:,}장 보유 · {u_name} 소속 캐릭터만 보기"[:100],
                     default=(self.selected_unit == u_name),
                 )
             )
@@ -2414,13 +2412,13 @@ class MyInventoryView(core.SafeView):
 
         base_pulls = sum(c.get("count", 1) for c in base_pool)
         if self.selected_unit == "ALL":
-            all_char_label = f"🌐 전체 캐릭터 보기 ({len(base_pool)}종 / {base_pulls}장)"
+            all_char_label = f"🌐 전체 캐릭터 ({len(base_pool)}종/{base_pulls}장)"
             candidate_cids = sorted(cid for cid in char_counts.keys() if cid in core.CHARACTER_MAP)
             if self.selected_char_id is not None and self.selected_char_id in core.CHARACTER_MAP and self.selected_char_id not in candidate_cids:
                 candidate_cids.append(self.selected_char_id)
                 candidate_cids.sort()
         else:
-            all_char_label = f"🌐 {self.selected_unit} 전체 캐릭터 ({len(base_pool)}종)"
+            all_char_label = f"🌐 {self.selected_unit} 전체 ({len(base_pool)}종)"
             unit_member_cids = [cid for cid, info in core.CHARACTER_MAP.items() if info.get("unit") == self.selected_unit]
             extra_cids = [cid for cid in sorted(char_counts.keys()) if cid in core.CHARACTER_MAP and cid not in unit_member_cids]
             candidate_cids = unit_member_cids + extra_cids
@@ -2429,7 +2427,6 @@ class MyInventoryView(core.SafeView):
             discord.SelectOption(
                 label=all_char_label[:100],
                 value="ALL",
-                description="선택된 범위의 모든 캐릭터 카드를 표시합니다",
                 default=(self.selected_char_id is None),
             )
         ]
@@ -2448,9 +2445,8 @@ class MyInventoryView(core.SafeView):
             u_cnt, p_cnt = char_counts.get(cid, (0, 0))
             char_opts.append(
                 discord.SelectOption(
-                    label=f"👤 {c_info['name']} ({u_cnt}종 / {p_cnt}장)"[:100],
+                    label=f"{c_info['name']} ({u_cnt}종/{p_cnt}장)"[:100],
                     value=str(cid),
-                    description=f"{c_info['unit']} · {c_info['name']} 카드만 모아보기"[:100],
                     default=(self.selected_char_id == cid),
                 )
             )
@@ -2484,18 +2480,18 @@ class MyInventoryView(core.SafeView):
             opts = []
             seen_vals = set()
             start_idx = self.current_page * self.items_per_page
-            for idx, c in enumerate(page_items, start=start_idx + 1):
+            for idx, c in enumerate(page_items[:15], start=start_idx + 1):
                 cid_val = str(c.get("id") or idx)
                 if cid_val in seen_vals:
                     continue
                 seen_vals.add(cid_val)
-                lock_icon = "🔒 " if c.get("locked", False) else ""
+                lock_icon = "🔒" if c.get("locked", False) else ""
                 mr = int(c.get("master_rank", 0))
-                mr_desc = f" | ✦MR.{mr}" if mr > 0 else ""
-                label = f"{idx}. {lock_icon}{c['rarity_label']} [{c['prefix']}] {c['char_name']}"[:100]
-                desc = f"[{c.get('limit_label', '통상')}] 보유:{c.get('count', 1)}장{mr_desc} | 일러스트·각성·잠금"[:100]
-                opts.append(discord.SelectOption(label=label, value=cid_val[:100], description=desc))
-            self.illust_select.options = opts or [discord.SelectOption(label="표시할 카드가 없습니다", value="NONE")]
+                mr_desc = f" MR{mr}" if mr > 0 else ""
+                star_num = int(c.get("star_num") or c.get("rarity") or 4)
+                label = f"{idx}.{lock_icon}★{star_num} {c['char_name']} [{c['prefix'][:10]}] ({c.get('count', 1)}장{mr_desc})"[:50]
+                opts.append(discord.SelectOption(label=label, value=cid_val[:100]))
+            self.illust_select.options = opts[:25] or [discord.SelectOption(label="표시할 카드가 없습니다", value="NONE")]
             self.illust_select.disabled = not bool(opts)
 
     def apply_sort(self, mode: str):
@@ -2574,7 +2570,7 @@ class MyInventoryView(core.SafeView):
             elif self.search_keyword:
                 empty_msg = f"`{self.search_keyword}` 검색 조건에 맞는 보유 카드가 없습니다."
             else:
-                empty_msg = "`/프로세카뽑기` 명령어로 캐릭터를 뽑아보세요!"
+                empty_msg = "`/설정` (`🎮 미니게임` ➔ `🎰 프로세카 뽑기`)에서 캐릭터를 뽑아보세요!"
             embed.add_field(name="조회된 카드가 없습니다", value=empty_msg, inline=False)
         else:
             lines = []
@@ -2640,17 +2636,17 @@ class MyInventoryView(core.SafeView):
         await core.safe_send_response(interaction, embed=view.build_preview_embed(), view=view, ephemeral=True)
 
     @discord.ui.select(
-        placeholder="📊 정렬 기준 선택 (획득일 / 성 기준 / 잠금 우선 / 유닛 기준 등)...",
+        placeholder="📊 정렬 기준 선택...",
         row=1,
         options=[
-            discord.SelectOption(label="🕒 획득일 최신순", value="obtained_desc", description="가장 최근에 뽑은 캐릭터부터 정렬"),
-            discord.SelectOption(label="🕰️ 획득일 오래된순", value="obtained_asc", description="가장 처음 뽑은 캐릭터부터 정렬"),
-            discord.SelectOption(label="⭐ 성(레어도) 높은순", value="star_desc", description="★4 → 🎀생일 → ★3 → ★2 → ★1 순서로 정렬"),
-            discord.SelectOption(label="☆ 성(레어도) 낮은순", value="star_asc", description="★1 → ★2 → ★3 → 🎀생일 → ★4 순서로 정렬"),
-            discord.SelectOption(label="🔒 잠금 보호 카드 우선", value="locked_only", description="잠금(🔒) 설정한 소중한 카드를 맨 위로 정렬"),
-            discord.SelectOption(label="🏷️ 유닛 기준 정렬", value="unit", description="Leo/need, 모모점, 비배스, 원더쇼, 니고, 버싱 순서"),
-            discord.SelectOption(label="🔤 캐릭터 이름순", value="char_name", description="캐릭터 이름 가나다순 정렬"),
-            discord.SelectOption(label="🔢 중복 보유 많은순", value="count_desc", description="가장 많이 중복 획득한 카드부터 정렬")
+            discord.SelectOption(label="🕒 획득일 최신순", value="obtained_desc"),
+            discord.SelectOption(label="🕰️ 획득일 오래된순", value="obtained_asc"),
+            discord.SelectOption(label="⭐ 성(레어도) 높은순", value="star_desc"),
+            discord.SelectOption(label="☆ 성(레어도) 낮은순", value="star_asc"),
+            discord.SelectOption(label="🔒 잠금 보호 카드 우선", value="locked_only"),
+            discord.SelectOption(label="🏷️ 유닛 기준 정렬", value="unit"),
+            discord.SelectOption(label="🔤 캐릭터 이름순", value="char_name"),
+            discord.SelectOption(label="🔢 중복 보유 많은순", value="count_desc")
         ]
     )
     async def sort_select(self, interaction: discord.Interaction, select: discord.ui.Select):
@@ -2659,7 +2655,7 @@ class MyInventoryView(core.SafeView):
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
     @discord.ui.select(
-        placeholder="🖼️ 현재 페이지에서 일러스트 감상 및 잠금(🔒) 설정할 카드를 선택하세요...",
+        placeholder="🖼️ 카드 일러스트 감상·잠금 선택...",
         row=2,
         options=[discord.SelectOption(label="카드 선택", value="NONE")]
     )
@@ -2695,9 +2691,9 @@ class MyInventoryView(core.SafeView):
             await interaction.followup.send(embed=embed, view=toggle_view)
 
     @discord.ui.select(
-        placeholder="🏷️ 유닛별 보기 필터 (전체 유닛 / 6개 유닛 선택)...",
+        placeholder="🏷️ 유닛별 필터...",
         row=3,
-        options=[discord.SelectOption(label="🌐 전체 유닛 보기", value="ALL")]
+        options=[discord.SelectOption(label="🌐 전체 유닛", value="ALL")]
     )
     async def unit_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         chosen_unit = select.values[0]
@@ -2715,9 +2711,9 @@ class MyInventoryView(core.SafeView):
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
     @discord.ui.select(
-        placeholder="👤 캐릭터별 보기 선택 (원하는 캐릭터 카드만 모아보기)...",
+        placeholder="👤 캐릭터별 필터...",
         row=4,
-        options=[discord.SelectOption(label="🌐 전체 캐릭터 보기", value="ALL")]
+        options=[discord.SelectOption(label="🌐 전체 캐릭터", value="ALL")]
     )
     async def char_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         chosen = select.values[0]
@@ -2758,7 +2754,7 @@ class CardPokedexView(core.SafeView):
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
-                f"❌ 이 도감은 **{self.user.display_name}**님의 개인 도감입니다. `/카드도감` 명령어로 본인의 도감을 열어보세요!",
+                f"❌ 이 도감은 **{self.user.display_name}**님의 개인 도감입니다. `/설정` (`🎮 미니게임` ➔ `📚 통합 도감 & 확률 허브`)에서 본인의 도감을 열어보세요!",
                 ephemeral=True
             )
             return False
@@ -2933,7 +2929,7 @@ class CardPokedexView(core.SafeView):
             if not page_items:
                 embed.add_field(
                     name="📭 보유한 카드가 없습니다",
-                    value="`/프로세카뽑기` 명령어로 첫 카드를 수집해 보세요!",
+                    value="`/설정` (`🎮 미니게임` ➔ `🎰 프로세카 뽑기`)에서 첫 카드를 수집해 보세요!",
                     inline=False
                 )
             else:
@@ -3403,7 +3399,7 @@ class EventInfoView(core.SafeView):
                 f"{msg}\n\n"
                 f"**적용 이벤트:** `{pickup_obj.get('event_name')}` (`{pickup_obj.get('event_status', '진행 중')}`)\n"
                 f"**픽업 ★4 카드 ({len(labels)}종):**\n{cards_txt}\n\n"
-                "이제 `/프로세카뽑기` 및 `/프로세카확률목록`에 즉시 반영됩니다!"
+                "이제 `/설정`의 프로세카 뽑기 및 확률표에 즉시 반영됩니다!"
             ),
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST)
@@ -3417,7 +3413,7 @@ class MasterRankView(core.SafeView):
         super().__init__(timeout=600)
         self.user = user
         self.guild_id = guild_id
-        self.per_page = 25
+        self.per_page = 10
         self.card_page = 0
         self.selected_unit: str = "ALL"
         self.selected_char_id: int | None = None
@@ -3491,7 +3487,7 @@ class MasterRankView(core.SafeView):
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
-                f"❌ 이 마스터 랭크 메뉴는 **{self.user.display_name}**님 전용입니다. `/마스터랭크`를 입력해 보세요!",
+                f"❌ 이 마스터 랭크 메뉴는 **{self.user.display_name}**님 전용입니다. `/설정` (`👤 개인` ➔ `🏆 마스터 랭크`)에서 열어보세요!",
                 ephemeral=True
             )
             return False
@@ -3557,27 +3553,27 @@ class MasterRankView(core.SafeView):
 
         unit_opts = [
             discord.SelectOption(
-                label=f"🌐 전체 보유 카드 보기 ({total_cnt}종)"[:100],
+                label=f"🌐 전체 보유 카드 ({total_cnt}종)"[:80],
                 value="ALL",
-                description="★4 우선 · 중복 보유 우선으로 모든 보유 카드를 표시합니다",
+                description="★4·중복 우선 전체 보유 카드",
                 default=(self.selected_unit == "ALL"),
             ),
             discord.SelectOption(
-                label=f"🃏 중복 보유 카드만 ({dup_cnt}종 · 0💎 무료 돌파)"[:100],
+                label=f"🃏 중복 보유 카드만 ({dup_cnt}종 · 0💎)"[:80],
                 value="DUP_ONLY",
-                description="크리스탈 소모 없이 중복 카드로 즉시 돌파 가능한 카드만 모아보기",
+                description="중복 카드로 즉시 무료 돌파 가능",
                 default=(self.selected_unit == "DUP_ONLY"),
             ),
             discord.SelectOption(
-                label=f"⭐ ★4 · 🎀생일 카드만 모아보기 ({s4_cnt}종)"[:100],
+                label=f"⭐ ★4 · 🎀생일 카드만 ({s4_cnt}종)"[:80],
                 value="STAR4_ONLY",
-                description="크리스탈 돌파 및 고성능 주력 ★4/생일 카드만 모아보기",
+                description="주력 ★4 및 생일 카드만 표시",
                 default=(self.selected_unit == "STAR4_ONLY"),
             ),
             discord.SelectOption(
-                label=f"👗 3D 의상 카드만 ({cos_cnt}종 · ✦MR.2 특전)"[:100],
+                label=f"👗 3D 의상 카드만 ({cos_cnt}종 · MR.2)"[:80],
                 value="COSTUME_ONLY",
-                description="✦MR.2 달성 시 어나더 컬러 3종·한정 헤어가 해금되는 의상 카드만 보기",
+                description="MR.2 어나더 컬러·헤어 특전 의상 카드",
                 default=(self.selected_unit == "COSTUME_ONLY"),
             ),
         ]
@@ -3586,9 +3582,8 @@ class MasterRankView(core.SafeView):
             u_emoji = unit_emojis.get(u_name, "🏷️")
             unit_opts.append(
                 discord.SelectOption(
-                    label=f"{u_emoji} {u_name} ({len(u_list)}종)"[:100],
+                    label=f"{u_emoji} {u_name} ({len(u_list)}종)"[:80],
                     value=u_name,
-                    description=f"{u_name} 소속 보유 카드만 필터링"[:100],
                     default=(self.selected_unit == u_name),
                 )
             )
@@ -3623,21 +3618,19 @@ class MasterRankView(core.SafeView):
 
         char_opts = [
             discord.SelectOption(
-                label=f"🌐 전체 캐릭터 보기 ({len(base_pool)}종)"[:100],
+                label=f"🌐 전체 캐릭터 보기 ({len(base_pool)}종)"[:80],
                 value="ALL",
-                description="현재 필터 범위의 모든 캐릭터 카드를 표시합니다",
                 default=(self.selected_char_id is None),
             )
         ]
         for cid in display_cids:
             c_info = core.CHARACTER_MAP.get(cid, {"name": f"캐릭터 #{cid}", "unit": "-"})
             u_cnt, d_cnt = char_counts.get(cid, (0, 0))
-            dup_note = f" · 중복 {d_cnt}종" if d_cnt > 0 else ""
+            dup_note = f"·중복{d_cnt}" if d_cnt > 0 else ""
             char_opts.append(
                 discord.SelectOption(
-                    label=f"👤 {c_info['name']} ({u_cnt}종{dup_note})"[:100],
+                    label=f"👤 {c_info['name']} ({u_cnt}종{dup_note})"[:80],
                     value=str(cid),
-                    description=f"{c_info['unit']} · {c_info['name']} 카드만 선택"[:100],
                     default=(self.selected_char_id == cid),
                 )
             )
@@ -3701,9 +3694,8 @@ class MasterRankView(core.SafeView):
                 r_lbl = c.get("rarity_label") or f"★{c.get('star_num', 1)}"
                 prefix = c.get("prefix") or "카드"
                 cname = c.get("char_name") or "알 수 없음"
-                u_name = c.get("unit") or "기타"
-                label = f"{cos_badge}[✦MR.{mr}/5] {r_lbl} [{prefix}] {cname}"[:100]
-                desc = f"보유 {cnt}장({dup_txt}) | ⚔️{core.get_card_power(c):,} | {u_name} (ID:{cid_val})"[:100]
+                label = f"{cos_badge}[✦MR.{mr}/5] {r_lbl} [{prefix}] {cname}"[:75]
+                desc = f"보유 {cnt}장({dup_txt}) · ⚔️{core.get_card_power(c):,} (ID:{cid_val})"[:65]
                 opts.append(discord.SelectOption(
                     label=label,
                     value=cid_val[:100],
@@ -3872,7 +3864,7 @@ class MasterRankView(core.SafeView):
     async def card_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         val = select.values[0]
         if val == "NONE":
-            await core.safe_send_response(interaction, "ℹ️ 표시된 카드가 없습니다. 위 필터를 변경하거나 `/프로세카뽑기`로 카드를 뽑아주세요.", ephemeral=True)
+            await core.safe_send_response(interaction, "ℹ️ 표시된 카드가 없습니다. 위 필터를 변경하거나 `/설정` (`🎰 프로세카 뽑기`)에서 카드를 뽑아주세요.", ephemeral=True)
             return
         await core.safe_defer(interaction)
         self.selected_card_id = str(val)
@@ -3980,7 +3972,7 @@ class SekaiLiveView(core.SafeView):
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
-                f"❌ 이 세카이 라이브 무대는 **{self.user.display_name}**님 전용입니다. `/라이브`를 입력해 보세요!",
+                f"❌ 이 세카이 라이브 무대는 **{self.user.display_name}**님 전용입니다. `/설정` (`🎮 미니게임` ➔ `⚔️ 세카이 라이브`)에서 열어보세요!",
                 ephemeral=True
             )
             return False
@@ -4075,7 +4067,7 @@ class SekaiLiveView(core.SafeView):
             )
 
         if not deck_cards:
-            embed.add_field(name="🎸 출전 유닛 덱", value="보유한 카드가 없습니다! `/프로세카뽑기`로 카드를 뽑아보세요.", inline=False)
+            embed.add_field(name="🎸 출전 유닛 덱", value="보유한 카드가 없습니다! `/설정` (`🎰 프로세카 뽑기`)에서 카드를 뽑아보세요.", inline=False)
         else:
             deck_lines = []
             base_pwr = 0
@@ -4092,7 +4084,7 @@ class SekaiLiveView(core.SafeView):
                 role = "👑" if idx == 1 else f"**{idx}.**"
                 deck_lines.append(f"{role} `{c['rarity_label']}` [{c['prefix']}] **{c['char_name']}** ({c['attr']}{mr_tag} · `⚔️{pwr:,}`){cos_txt}")
 
-            deck_mode = "자동 추천 TOP 5 (`/덱편성`으로 변경 가능)" if used_auto else "저장된 5인 유닛 덱"
+            deck_mode = "자동 추천 TOP 5 (`/설정` ➔ `🎸 5인 유닛 덱 편성`에서 변경 가능)" if used_auto else "저장된 5인 유닛 덱"
             embed.add_field(
                 name=f"🎸 출전 덱 ({deck_mode} · 기본 종합력 ⚔️ {base_pwr:,})",
                 value="\n".join(deck_lines),
@@ -4485,14 +4477,14 @@ class GachaCog(commands.Cog):
             if my_crystals < 100:
                 await interaction.followup.send(
                     f"❌ **카드 교환에는 크리스탈 `100개`가 필요합니다!**\n"
-                    f"• 현재 보유 크리스탈: `{my_crystals:,}개` (`/출석체크` 또는 `/중복카드변환`으로 획득 가능)",
+                    f"• 현재 보유 크리스탈: `{my_crystals:,}개` (`/설정`의 `📅 출석체크` 또는 `💎 중복 카드 변환`으로 획득 가능)",
                     ephemeral=True
                 )
                 return
             req_cards = core.safe_get_dict(data, "gacha_users", g_key, r_key, "cards")
             tgt_cards = core.safe_get_dict(data, "gacha_users", g_key, t_key, "cards")
             if not req_cards:
-                await interaction.followup.send("❌ 보유한 카드가 없습니다. `/프로세카뽑기`로 먼저 캐릭터를 뽑아주세요!", ephemeral=True)
+                await interaction.followup.send("❌ 보유한 카드가 없습니다. `/설정` (`🎰 프로세카 뽑기`)에서 먼저 캐릭터를 뽑아주세요!", ephemeral=True)
                 return
             if not tgt_cards:
                 await interaction.followup.send(f"❌ **{상대유저.display_name}**님이 아직 이 서버에서 보유한 카드가 없습니다.", ephemeral=True)
@@ -4515,7 +4507,7 @@ class GachaCog(commands.Cog):
         if my_crystals < 100:
             await interaction.followup.send(
                 f"❌ **카드 교환에는 크리스탈 `100개`가 필요합니다!**\n"
-                f"• 현재 보유 크리스탈: `{my_crystals:,}개` (`/출석체크` 또는 `/중복카드변환`으로 획득 가능)",
+                f"• 현재 보유 크리스탈: `{my_crystals:,}개` (`/설정`의 `📅 출석체크` 또는 `💎 중복 카드 변환`으로 획득 가능)",
                 ephemeral=True
             )
             return
@@ -4533,7 +4525,7 @@ class GachaCog(commands.Cog):
             await interaction.followup.send("❌ 동일한 카드는 서로 교환할 수 없습니다.", ephemeral=True)
             return
         if req_cards[내카드].get("locked", False):
-            await interaction.followup.send("🔒 선택한 `내카드`가 **잠금 보호** 상태입니다! 교환하려면 `/내캐릭터`에서 잠금을 먼저 해제해 주세요.", ephemeral=True)
+            await interaction.followup.send("🔒 선택한 `내카드`가 **잠금 보호** 상태입니다! 교환하려면 `/설정` (`🎒 프로세카 카드 보관함`)에서 잠금을 먼저 해제해 주세요.", ephemeral=True)
             return
         if tgt_cards[상대카드].get("locked", False):
             await interaction.followup.send(f"🔒 {상대유저.display_name}님의 해당 카드는 **잠금 보호** 상태여서 교환을 요청할 수 없습니다.", ephemeral=True)
@@ -4580,7 +4572,7 @@ class GachaCog(commands.Cog):
         if not partner_id:
             await interaction.followup.send(
                 "❌ **파트너(짝꿍)가 등록되어 있지 않습니다!**\n"
-                "`/파트너` 명령어로 파트너를 먼저 맺은 뒤 카드를 선물할 수 있습니다.",
+                "`/설정` (`👤 개인` ➔ `💑 파트너 스튜디오`)에서 파트너를 먼저 맺은 뒤 카드를 선물할 수 있습니다.",
                 ephemeral=True
             )
             return
@@ -4732,7 +4724,7 @@ class GachaCog(commands.Cog):
 
         user_cards_dict = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
         if not user_cards_dict:
-            await interaction.followup.send("❌ 보유한 카드가 없습니다. `/프로세카뽑기`로 먼저 캐릭터를 뽑아주세요!", ephemeral=True)
+            await interaction.followup.send("❌ 보유한 카드가 없습니다. `/설정` (`🎰 프로세카 뽑기`)에서 먼저 캐릭터를 뽑아주세요!", ephemeral=True)
             return
 
         raw_slots = [리더, 멤버2, 멤버3, 멤버4, 멤버5]
@@ -4772,7 +4764,7 @@ class GachaCog(commands.Cog):
 
         embed = discord.Embed(
             title=f"🎸 {interaction.user.display_name}님의 5인 유닛 덱 편성 완료! (총 종합력: ⚔️ {total_deck_power:,})",
-            description="\n".join(deck_lines) + "\n\n*편성된 덱은 `/내프로필` 및 `/설정`에서 언제든 함께 확인할 수 있습니다. (`/카드강화`로 종합력 상승 가능!)*",
+            description="\n".join(deck_lines) + "\n\n*편성된 덱은 `/설정` (`👤 개인` ➔ `🪪 내 통합 프로필` / `⚡ 카드 강화`)에서 언제든 확인 및 강화할 수 있습니다.*",
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST)
         )
@@ -4802,8 +4794,8 @@ class GachaCog(commands.Cog):
             title="💖 오시(최애) 캐릭터 설정 완료",
             description=(
                 f"**{interaction.user.display_name}**님의 오시 캐릭터가 **`{캐릭터}`**(으)로 설정되었습니다!\n"
-                "• `/내프로필` 실행 시 보유한 오시 카드 중 **가장 높은 등급의 일러스트**가 자동 표시됩니다.\n"
-                "• `/출석체크` 시 오시 캐릭터의 세카이 대사가 우선 매칭됩니다."
+                "• `/설정` (`👤 개인` ➔ `🪪 내 통합 프로필`) 조회 시 보유한 오시 카드 중 **가장 높은 등급의 일러스트**가 자동 표시됩니다.\n"
+                "• `/설정` (`📅 일일 출석체크`) 시 오시 캐릭터의 세카이 대사가 우선 매칭됩니다."
             ),
             color=discord.Color.from_rgb(255, 105, 180)
         )
@@ -4820,7 +4812,7 @@ class GachaCog(commands.Cog):
 
         profile = core.ensure_user_profile(data, u_key, target_user.display_name)
         oshi_raw = profile.get("oshi")
-        oshi_name = oshi_raw or "미설정 (`/오시설정`)"
+        oshi_name = oshi_raw or "미설정 (`/설정` ➔ `💖 오시 설정`)"
         liked_music_count = len(profile.get("liked_music", []))
         deck_ids = profile.get("deck", [])
         partner_id = profile.get("partner_id")
@@ -4861,7 +4853,7 @@ class GachaCog(commands.Cog):
         )
         embed.set_thumbnail(url=target_user.display_avatar.url)
         embed.add_field(name="👑 나의 오시 (최애)", value=f"**{oshi_name}** (`{oshi_card_count}장`){oshi_cos_str}", inline=True)
-        embed.add_field(name="💑 파트너 (짝꿍)", value=f"<@{partner_id}>" if partner_id else "미등록 (`/파트너`)", inline=True)
+        embed.add_field(name="💑 파트너 (짝꿍)", value=f"<@{partner_id}>" if partner_id else "미등록 (`/설정` ➔ `💑 파트너`)", inline=True)
         embed.add_field(name="💎 보유 크리스탈", value=f"**`{crystals:,}개`**", inline=True)
         embed.add_field(name="🎰 누적 뽑기", value=f"`{total_pulls:,}회`", inline=True)
         embed.add_field(name="★★★★ / 🎀생일", value=f"`★4 {star4_count}장` · `🎀 {bday_count}장`", inline=True)
@@ -4872,7 +4864,7 @@ class GachaCog(commands.Cog):
         ms_bonus = core.get_my_sekai_daily_bonus(profile)
         furn_cnt = len(ms.get("furniture", []))
         embed.add_field(
-            name="🏠 마이세카이 미니 룸 (/마이세카이)",
+            name="🏠 마이세카이 미니 룸 (/설정 ➔ 마이세카이)",
             value=f"테마: **{ms_theme_name}** · 가구 `{furn_cnt}/{len(core.MY_SEKAI_FURNITURE)}개` · 출석 이자 **`+{ms_bonus}💎/일`**",
             inline=False
         )
@@ -4885,7 +4877,7 @@ class GachaCog(commands.Cog):
             inline=False
         )
         embed.add_field(
-            name="🌱 최근 7일 은하수 잔디 (/오늘목표)",
+            name="🌱 최근 7일 은하수 잔디 (/설정 ➔ 오늘의 목표)",
             value=f"└ {grass_bar}",
             inline=False
         )
@@ -4905,7 +4897,7 @@ class GachaCog(commands.Cog):
                 deck_lines.append(f"{badge} `{c['rarity_label']}` [{c['prefix']}] **{c['char_name']}** (`Lv.{cur_lvl}`{mr_tag} · `⚔️{p_val:,}`){lock_tag}")
             embed.add_field(name=f"🎸 나만의 5인 유닛 덱 (총 종합력: ⚔️ {total_deck_power:,})", value="\n".join(deck_lines), inline=False)
         else:
-            embed.add_field(name="🎸 나만의 5인 유닛 덱", value="미편성 (`/덱편성` 명령어로 5인 유닛을 꾸며보세요!)", inline=False)
+            embed.add_field(name="🎸 나만의 5인 유닛 덱", value="미편성 (`/설정` ➔ `🎸 5인 유닛 덱 편성`으로 유닛을 꾸며보세요!)", inline=False)
 
         live_stats = core.as_dict(profile.get("sekai_live"))
         today_str = core.get_today_str()
@@ -4916,14 +4908,14 @@ class GachaCog(commands.Cog):
         live_total = int(live_stats.get("total_lives", 0))
         if live_total > 0:
             embed.add_field(
-                name="⚔️ 세카이 라이브 기록 (/라이브)",
+                name="⚔️ 세카이 라이브 기록 (/설정 ➔ 세카이 라이브)",
                 value=f"최고 스코어: **`{live_best:,}점`** · 🎫 스탬프 `{live_stamps}/7` (완주 `{live_clears}회`) · 오늘 `{live_daily}/3회`",
                 inline=False
             )
         else:
             embed.add_field(
-                name="⚔️ 세카이 라이브 (/라이브)",
-                value="미플레이 (`/라이브`로 덱을 출격해 스탬프 보상 💎을 모아보세요!)",
+                name="⚔️ 세카이 라이브 (/설정 ➔ 세카이 라이브)",
+                value="미플레이 (`/설정` ➔ `⚔️ 세카이 라이브`로 덱을 출격해 스탬프 보상 💎을 모아보세요!)",
                 inline=False
             )
 
@@ -5006,7 +4998,7 @@ class GachaCog(commands.Cog):
 
         has_hof = bool(hall_of_fame.get("top_records") or hall_of_fame.get("recent_pickup_logs") or hall_of_fame.get("recent_high_logs"))
         if not stats_list and not has_hof:
-            await interaction.followup.send("📭 아직 이 서버에서 가챠를 진행한 유저가 없습니다. `/프로세카뽑기`로 첫 주인공이 되어보세요!")
+            await interaction.followup.send("📭 아직 이 서버에서 가챠를 진행한 유저가 없습니다. `/설정` (`🎮 미니게임` ➔ `🎰 프로세카 뽑기`)로 첫 주인공이 되어보세요!")
             return
 
         guild_name = interaction.guild.name if interaction.guild else "서버"
@@ -5083,7 +5075,7 @@ class GachaCog(commands.Cog):
                     f"• **적용 이벤트:** `{pickup_obj.get('event_name')}` ({pickup_obj.get('event_status', '진행 중')})\n"
                     f"• **한정/페스/생일 카드 포함:** `포함됨`\n"
                     f"• **픽업 대상 ({len(labels)}종):**\n{cards_txt}\n\n"
-                    "이제 `/프로세카뽑기` 및 `/프로세카확률목록`에 이벤트 픽업 확률(등급 내 50% 집중 배분)이 즉시 반영됩니다!"
+                    "이제 `/설정`의 프로세카 뽑기 및 확률표에 이벤트 픽업 확률(등급 내 50% 집중 배분)이 즉시 반영됩니다!"
                 ),
                 color=discord.Color.from_rgb(0, 204, 221),
                 timestamp=datetime.datetime.now(core.KST)
@@ -5121,7 +5113,7 @@ class GachaCog(commands.Cog):
                     f"• **적용 배너:** `{b_cfg['name']}`\n"
                     f"• **배너 설명:** {b_cfg['desc']}\n"
                     f"• **유지 중인 픽업:** `{core.format_pickup_summary(gp)}`\n\n"
-                    "이제 모든 유저의 `/프로세카뽑기` 및 `/프로세카확률목록`에 해당 배너가 기본 적용됩니다!"
+                    "이제 모든 유저의 `/설정` 프로세카 뽑기 및 확률표에 해당 배너가 기본 적용됩니다!"
                 ),
                 color=discord.Color.from_rgb(*b_cfg.get("color", (0, 204, 221))),
                 timestamp=datetime.datetime.now(core.KST),
@@ -5154,7 +5146,7 @@ class GachaCog(commands.Cog):
                 f"• **픽업 유닛:** `{selected_unit or '미지정 (전체 동일)'}`\n"
                 f"• **픽업 캐릭터:** `{selected_char or '미지정 (전체 동일)'}`\n"
                 f"• **한정/페스/생일 카드 포함:** `{'포함됨' if 한정포함 else '제외됨 (통상만 등장)'}`\n\n"
-                "이제 `/프로세카뽑기` 및 `/프로세카확률목록`에 픽업 확률(등급 내 50% 집중 배분)이 즉시 반영됩니다!"
+                "이제 `/설정`의 프로세카 뽑기 및 확률표에 픽업 확률(등급 내 50% 집중 배분)이 즉시 반영됩니다!"
             ),
             color=discord.Color.from_rgb(0, 204, 221)
         )
@@ -5297,10 +5289,10 @@ class GachaCog(commands.Cog):
 
         status, res = await asyncio.to_thread(_do_enhance)
         if status == "NO_CARDS":
-            await interaction.followup.send("❌ 보유한 카드가 없습니다. `/프로세카뽑기`로 먼저 캐릭터를 뽑아주세요!", ephemeral=True)
+            await interaction.followup.send("❌ 보유한 카드가 없습니다. `/설정` (`🎰 프로세카 뽑기`)에서 먼저 캐릭터를 뽑아주세요!", ephemeral=True)
             return
         if status == "NOT_FOUND":
-            await interaction.followup.send(f"❌ 검색어 `{카드선택}`에 해당하는 보유 카드를 찾지 못했습니다. `/내캐릭터`에서 보유 카드 목록과 ID를 확인해 주세요.", ephemeral=True)
+            await interaction.followup.send(f"❌ 검색어 `{카드선택}`에 해당하는 보유 카드를 찾지 못했습니다. `/설정` (`👤 개인` ➔ `🎒 프로세카 카드 보관함`)에서 보유 카드 목록과 ID를 확인해 주세요.", ephemeral=True)
             return
         if status == "ALREADY_MAX":
             t_card = res["target"]
@@ -5309,7 +5301,7 @@ class GachaCog(commands.Cog):
         if status == "NO_CRYSTALS":
             await interaction.followup.send(
                 f"❌ 크리스탈이 부족합니다! (필요: `{res['total_cost']:,}💎` / 보유: `{res['user_crystals']:,}💎`)\n"
-                f"출석체크(`/출석체크`)나 중복카드 변환(`/중복카드변환`)으로 크리스탈을 추가 획득해 보세요.",
+                f"`/설정`의 출석체크(`📅 일일 출석체크`)나 중복카드 변환(`💎 중복 카드 변환`)으로 크리스탈을 추가 획득해 보세요.",
                 ephemeral=True
             )
             return
@@ -5342,7 +5334,7 @@ class GachaCog(commands.Cog):
             timestamp=datetime.datetime.now(core.KST)
         )
         embed.set_thumbnail(url=core.get_proseka_card_image_url(target, "auto"))
-        embed.set_footer(text=f"요청자: {interaction.user.display_name} • `/내캐릭터` 및 `/내프로필`에서 강화된 스탯을 확인할 수 있습니다.")
+        embed.set_footer(text=f"요청자: {interaction.user.display_name} • `/설정` (`🎒 프로세카 카드 보관함` 및 `🪪 내 통합 프로필`)에서 강화된 스탯을 확인할 수 있습니다.")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="마이세카이", description="나만의 미니 룸 테마와 세카이 가구를 꾸미고 매일 출석체크 추가 크리스탈 이자(패시브 보너스)를 받습니다.")
@@ -5445,25 +5437,23 @@ class MySekaiHubView(core.SafeView):
         t_opts = []
         for t_key, t_info in core.MY_SEKAI_THEMES.items():
             if t_key == cur_theme:
-                status = "🌟 현재 적용 중"
+                status = "적용중"
             elif t_key in owned_themes:
-                status = "✅ 보유 중 (클릭 시 무료 변경)"
+                status = "보유중"
             else:
-                status = f"💎 {t_info['cost']:,} 크리스탈 구매·적용"
-            label = f"{t_info['name']}"[:95]
-            desc = f"[{status}] 출석 +{t_info['bonus']}💎/일 | {t_info['desc']}"[:95]
-            t_opts.append(discord.SelectOption(label=label, value=t_key, description=desc, default=(t_key == cur_theme)))
-        self.theme_select.options = t_opts
+                status = f"{t_info['cost']:,}💎"
+            label = f"{t_info['name']} ({status} · +{t_info['bonus']}💎/일)"[:80]
+            t_opts.append(discord.SelectOption(label=label, value=t_key, default=(t_key == cur_theme)))
+        self.theme_select.options = t_opts[:25]
         self.theme_select.disabled = not is_owner
 
         f_opts = []
         for f_key, f_info in core.MY_SEKAI_FURNITURE.items():
             has_it = (f_key in owned_furn)
-            status = "✅ 배치 완료" if has_it else f"🛒 {f_info['cost']:,}💎 구매"
-            label = f"{f_info['name']} ({status})"[:95]
-            desc = f"출석 보너스 +{f_info['bonus']}💎/일 · {f_info['desc']}"[:95]
-            f_opts.append(discord.SelectOption(label=label, value=f_key, description=desc, emoji=f_info["emoji"]))
-        self.furniture_select.options = f_opts
+            status = "✅배치됨" if has_it else f"{f_info['cost']:,}💎"
+            label = f"{f_info['name']} ({status} · +{f_info['bonus']}💎/일)"[:80]
+            f_opts.append(discord.SelectOption(label=label, value=f_key, emoji=f_info["emoji"]))
+        self.furniture_select.options = f_opts[:25]
         self.furniture_select.disabled = not is_owner
         self.edit_greeting_btn.disabled = not is_owner
 
@@ -5477,7 +5467,7 @@ class MySekaiHubView(core.SafeView):
         ms = core.ensure_my_sekai(profile)
 
         crystals = profile.get("crystals", 0)
-        oshi_name = profile.get("oshi") or "미설정 (`/오시설정`)"
+        oshi_name = profile.get("oshi") or "미설정 (`/설정` ➔ `💖 오시 설정`)"
         cur_theme_key = ms.get("theme", "default")
         theme_info = core.MY_SEKAI_THEMES.get(cur_theme_key, core.MY_SEKAI_THEMES["default"])
         owned_furn = ms.get("furniture", [])
@@ -5524,7 +5514,7 @@ class MySekaiHubView(core.SafeView):
             value=(
                 f"• 기본 출석 보상: `100 💎`\n"
                 f"• **마이세카이 보너스:** **`+{daily_bonus} 💎 / 매일`**\n"
-                f"👉 `/출석체크` 시 매일 **`{100 + daily_bonus:,} 💎`** 즉시 수령!"
+                f"👉 `/설정` (`📅 일일 출석체크`) 시 매일 **`{100 + daily_bonus:,} 💎`** 즉시 수령!"
             ),
             inline=True
         )
@@ -5552,7 +5542,7 @@ class MySekaiHubView(core.SafeView):
                 oshi_cards.sort(key=lambda x: (-x.get("star_num", 1), -int(x.get("is_limited", False))))
                 embed.set_image(url=core.get_proseka_card_image_url(oshi_cards[0], "auto"))
 
-        embed.set_footer(text="테마와 가구를 수집할수록 매일 /출석체크 시 지급되는 크리스탈 이자가 영구적으로 증가합니다!")
+        embed.set_footer(text="테마와 가구를 수집할수록 매일 /설정 (출석체크) 시 지급되는 크리스탈 이자가 영구적으로 증가합니다!")
         return embed
 
     @discord.ui.select(placeholder="🎨 배경 테마 변경 또는 신규 테마 구매...", row=0)
@@ -5561,7 +5551,7 @@ class MySekaiHubView(core.SafeView):
             self.owner = interaction.user
             self.caller = interaction.user
         if interaction.user.id != self.owner.id:
-            await core.safe_send_response(interaction, "❌ 본인의 마이세카이만 꾸밀 수 있습니다. `/마이세카이`를 입력해 보세요!", ephemeral=True)
+            await core.safe_send_response(interaction, "❌ 본인의 마이세카이만 꾸밀 수 있습니다. `/설정` (`👤 개인` ➔ `🏠 마이세카이 룸`)에서 열어보세요!", ephemeral=True)
             return
 
         t_key = select.values[0]
@@ -5610,7 +5600,7 @@ class MySekaiHubView(core.SafeView):
             self.owner = interaction.user
             self.caller = interaction.user
         if interaction.user.id != self.owner.id:
-            await core.safe_send_response(interaction, "❌ 본인의 마이세카이만 꾸밀 수 있습니다. `/마이세카이`를 입력해 보세요!", ephemeral=True)
+            await core.safe_send_response(interaction, "❌ 본인의 마이세카이만 꾸밀 수 있습니다. `/설정` (`👤 개인` ➔ `🏠 마이세카이 룸`)에서 열어보세요!", ephemeral=True)
             return
 
         f_key = select.values[0]

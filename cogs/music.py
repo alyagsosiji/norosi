@@ -133,7 +133,7 @@ class MusicRecommendView(core.SafeView):
         })
         if any(t.get("title") == norm_trk["title"] and t.get("artist") == norm_trk["artist"] for t in target_pl["tracks"]):
             await interaction.followup.send(
-                f"ℹ️ **{norm_trk['title']}** 곡은 이미 `{target_pl['emoji']} {target_pl['name']}` 플레이리스트에 들어있습니다! (`/플레이리스트`에서 확인)",
+                f"ℹ️ **{norm_trk['title']}** 곡은 이미 `{target_pl['emoji']} {target_pl['name']}` 플레이리스트에 들어있습니다! (`/설정` ➔ `💿 플레이리스트 스튜디오`에서 확인)",
                 ephemeral=True
             )
             return
@@ -143,7 +143,7 @@ class MusicRecommendView(core.SafeView):
         await asyncio.to_thread(core.save_data, data)
         await interaction.followup.send(
             f"💿 **{norm_trk['title']}** — `{norm_trk['artist']}` 곡을 **`{target_pl['emoji']} {target_pl['name']}`** 플레이리스트에 추가했습니다!\n"
-            f"*(💡 `/플레이리스트` 명령어로 편집하거나 채널에 공유할 수 있습니다)*",
+            f"*(💡 `/설정` ➔ `💿 플레이리스트 스튜디오`에서 편집하거나 채널에 공유할 수 있습니다)*",
             ephemeral=True
         )
 
@@ -1609,7 +1609,7 @@ class VoicePlayerControlView(core.SafeView):
                 title=f"⏹️ [{self.player.playlist_name}] 음성채널 자동재생 종료",
                 description=(
                     "음성채널 자동재생이 정지되었거나 완료되었습니다.\n"
-                    "`/플레이리스트` 스튜디오에서 **`[🔊 음성채널 순차 자동재생]`** 버튼을 누르면 언제든 다시 시작할 수 있습니다!"
+                    "`/설정` (`🌐 일반` ➔ `💿 플레이리스트 스튜디오`)에서 **`[🔊 음성채널 순차 자동재생]`** 버튼을 누르면 언제든 다시 시작할 수 있습니다!"
                 ),
                 color=discord.Color.dark_grey(),
                 timestamp=datetime.datetime.now(core.KST)
@@ -3113,7 +3113,7 @@ class SharedPlaylistView(core.SafeView):
     @discord.ui.button(label="📥 내 플리로 스크랩", style=discord.ButtonStyle.secondary, row=2)
     async def clone_pl_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id == self.owner.id:
-            await core.safe_send_response(interaction, "ℹ️ 본인이 만든 플레이리스트입니다! `/플레이리스트`에서 관리할 수 있습니다.", ephemeral=True)
+            await core.safe_send_response(interaction, "ℹ️ 본인이 만든 플레이리스트입니다! `/설정` (`💿 플레이리스트 스튜디오`)에서 관리할 수 있습니다.", ephemeral=True)
             return
 
         await core.safe_defer(interaction, ephemeral=True)
@@ -3122,7 +3122,7 @@ class SharedPlaylistView(core.SafeView):
         my_pls = core.ensure_user_playlists(my_prof, interaction.user.display_name)
 
         if len(my_pls) >= 20:
-            await interaction.followup.send("❌ 내 플레이리스트 슬롯(최대 20개)이 가득 찼습니다. `/플레이리스트`에서 안 쓰는 플리를 정리해 주세요.", ephemeral=True)
+            await interaction.followup.send("❌ 내 플레이리스트 슬롯(최대 20개)이 가득 찼습니다. `/설정` (`💿 플레이리스트 스튜디오`)에서 안 쓰는 플리를 정리해 주세요.", ephemeral=True)
             return
 
         today_s = core.get_today_str()
@@ -3143,7 +3143,7 @@ class SharedPlaylistView(core.SafeView):
 
         await interaction.followup.send(
             f"📥 **{self.owner.display_name}**님의 **`{self.playlist.get('name')}`** 플레이리스트(`{len(cloned_pl['tracks'])}곡`)를 내 보관함으로 통째로 복사했습니다!\n"
-            f"👉 `/플레이리스트` 명령어를 입력하거나 옆의 **`[🛠️ 나도 플리 만들기]`** 버튼을 눌러 확인해 보세요!",
+            f"👉 `/설정` (`💿 플레이리스트 스튜디오`)을 열거나 옆의 **`[🛠️ 나도 플리 만들기]`** 버튼을 눌러 확인해 보세요!",
             ephemeral=True
         )
 
@@ -3183,7 +3183,7 @@ class PlaylistStudioView(core.SafeView):
         if interaction.user.id != self.viewer.id:
             await core.safe_send_response(
                 interaction,
-                f"❌ 이 플레이리스트 스튜디오는 **{self.viewer.display_name}**님 전용입니다. `/플레이리스트` 명령어로 본인의 스튜디오를 열어보세요!",
+                f"❌ 이 플레이리스트 스튜디오는 **{self.viewer.display_name}**님 전용입니다. `/설정` (`🌐 일반` ➔ `💿 플레이리스트 스튜디오`)에서 본인의 스튜디오를 열어보세요!",
                 ephemeral=True
             )
             return False
@@ -3463,8 +3463,8 @@ class PlaylistStudioView(core.SafeView):
         if not liked:
             await core.safe_send_response(
                 interaction,
-                "📭 아직 `/내음악보관함`에 하트(❤️)를 눌러 저장한 곡이 없습니다!\n"
-                "`/음악지금추천`에서 마음에 드는 곡에 `❤️ 보관함에 담기`를 누르거나 **`[➕ 곡 추가]`** 버튼으로 직접 곡을 추가해 보세요.",
+                "📭 아직 `❤️ 내 음악 보관함`에 하트(❤️)를 눌러 저장한 곡이 없습니다!\n"
+                "`/설정` (`🎧 음악 지금 추천`)에서 마음에 드는 곡에 `❤️ 보관함에 담기`를 누르거나 **`[➕ 곡 추가]`** 버튼으로 직접 곡을 추가해 보세요.",
                 ephemeral=True
             )
             return
@@ -4393,7 +4393,7 @@ class MusicCog(commands.Cog):
         if not voice_state or not voice_state.channel:
             await core.safe_send_response(
                 interaction,
-                "❌ 먼저 오디오를 테스트할 **음성채널**에 입장하신 뒤 `/오디오테스트` 명령어를 실행해 주세요!",
+                "❌ 먼저 오디오를 테스트할 **음성채널**에 입장하신 뒤 `/설정` (`🔊 오디오 진단 테스트`)을 실행해 주세요!",
                 ephemeral=True
             )
             return
@@ -4518,7 +4518,7 @@ class MusicCog(commands.Cog):
             description=(
                 f"**{voice_state.channel.name}** 음성채널에서 **5.0초간 고음량 C-메이저 팡파르 화음 멜로디(도-미-솔-도)** 를 재생 중입니다!\n\n"
                 f"### 🎧 소리가 정상적으로 들리시나요?\n"
-                f"• **도-미-솔-도 화음 멜로디가 들림:** 봇의 음성 송출 / 패킷 암호화 / 네트워크가 100% 정상 작동 중입니다. 이제 `/플레이리스트`의 음성채널 자동재생을 마음껏 즐기실 수 있습니다!\n"
+                f"• **도-미-솔-도 화음 멜로디가 들림:** 봇의 음성 송출 / 패킷 암호화 / 네트워크가 100% 정상 작동 중입니다. 이제 `/설정` (`💿 플레이리스트 스튜디오`)의 음성채널 자동재생을 마음껏 즐기실 수 있습니다!\n"
                 f"• **소리가 전혀 안 들림:** 아래 진단 결과 및 **[소리가 안 날 때 필수 조치]** 를 꼭 확인해 주세요."
             ),
             color=discord.Color.green() if is_actively_playing else discord.Color.gold(),
@@ -4606,7 +4606,7 @@ class MusicCog(commands.Cog):
         state_str = "🎧 **헤드셋 끄기 (청각 차단 On / 빨간 사선)**" if player.deaf_mode else "🔊 **헤드셋 켜기 (청각 차단 Off / 일반)**"
         guide_str = (
             "음악 봇은 서버 트래픽과 패킷 안정성을 위해 '헤드셋 끄기(청각 차단)'가 기본 권장 사양입니다.\n"
-            "언제든 `/헤드셋` 명령어 또는 플레이리스트 제어 패널에서 자유롭게 변경하실 수 있습니다."
+            "언제든 `/설정` (`🎧 음성·배속·헤드셋 제어`) 또는 플레이리스트 제어 패널에서 자유롭게 변경하실 수 있습니다."
         )
 
         embed = discord.Embed(
@@ -4784,7 +4784,7 @@ class MusicCog(commands.Cog):
             description=(
                 f"**{voice_state.channel.name}** 음성채널에서 **5.0초간 고음량 C-메이저 팡파르 화음 멜로디(도-미-솔-도)** 를 재생 중입니다!\n\n"
                 f"### 🎧 소리가 정상적으로 들리시나요?\n"
-                f"• **도-미-솔-도 화음 멜로디가 들림:** 봇의 음성 송출 / 패킷 암호화 / 네트워크가 100% 정상 작동 중입니다. 이제 `!플레이리스트` 또는 `/플레이리스트` 자동재생을 안심하고 사용하실 수 있습니다!\n"
+                f"• **도-미-솔-도 화음 멜로디가 들림:** 봇의 음성 송출 / 패킷 암호화 / 네트워크가 100% 정상 작동 중입니다. 이제 `!플레이리스트` 또는 `/설정` (`💿 플레이리스트 스튜디오`) 자동재생을 안심하고 사용하실 수 있습니다!\n"
                 f"• **소리가 전혀 안 들림:** 아래 진단 결과 및 **[소리가 안 날 때 필수 조치]** 를 꼭 확인해 주세요."
             ),
             color=discord.Color.green() if is_actively_playing else discord.Color.gold(),
