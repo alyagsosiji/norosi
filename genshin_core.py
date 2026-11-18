@@ -1991,81 +1991,82 @@ def execute_genshin_pull(guild_id: int, user_id: int, banner_key: str = "char1",
     load_genshin_kr_db()
     std_5_chars, std_4_chars, all_std_4_incl, std_5_wps, gacha_4_wps_std, std_3_wps = _build_gi_pools()
 
-    data = core.load_data()
-    eff_pickup = resolve_effective_genshin_pickup(data.get("genshin_pickup"))
-    u_data = ensure_genshin_user(data, guild_id, user_id)
-
     rng = random.SystemRandom()
-    if practice:
-        sim_state = copy.deepcopy(u_data)
-        owned_items = core.as_dict(u_data.get("items"))
+    with core._DATA_LOCK:
+        data = core.load_data()
+        eff_pickup = resolve_effective_genshin_pickup(data.get("genshin_pickup"))
+        u_data = ensure_genshin_user(data, guild_id, user_id)
+
+        if practice:
+            sim_state = copy.deepcopy(u_data)
+            owned_items = copy.deepcopy(core.as_dict(u_data.get("items")))
+            drawn = []
+            for _ in range(count):
+                it = _roll_single_genshin(sim_state, banner_key, eff_pickup, std_5_chars, std_4_chars, all_std_4_incl, std_5_wps, gacha_4_wps_std, std_3_wps, rng)
+                prev = owned_items.get(it["item_key"])
+                if not isinstance(prev, dict):
+                    prev = None
+                it["is_new"] = prev is None
+                if it["kind"] == "char":
+                    it["new_constellation"] = min(6, int(prev.get("constellation", 0)) + 1) if prev else 0
+                elif it["kind"] == "artifact":
+                    it["new_level"] = min(20, int(prev.get("level", 4)) + 4) if prev else 4
+                    it["new_refinement"] = min(5, int(prev.get("refinement", 1)) + 1) if prev else 1
+                else:
+                    it["new_refinement"] = min(5, int(prev.get("refinement", 1)) + 1) if prev else 1
+                it["gained_starglitter"] = 0
+                it["gained_stardust"] = 0
+                drawn.append(it)
+            return {
+                "drawn": drawn,
+                "banner_key": banner_key,
+                "eff_pickup": eff_pickup,
+                "total_glitter": 0,
+                "total_dust": 0,
+                "user_state": sim_state,
+                "practice": True,
+            }
+
+        now_iso = datetime.datetime.now(core.KST).isoformat()
         drawn = []
+        tot_glitter = 0
+        tot_dust = 0
         for _ in range(count):
-            it = _roll_single_genshin(sim_state, banner_key, eff_pickup, std_5_chars, std_4_chars, all_std_4_incl, std_5_wps, gacha_4_wps_std, std_3_wps, rng)
-            prev = owned_items.get(it["item_key"])
-            if not isinstance(prev, dict):
-                prev = None
-            it["is_new"] = prev is None
-            if it["kind"] == "char":
-                it["new_constellation"] = min(6, int(prev.get("constellation", 0)) + 1) if prev else 0
-            elif it["kind"] == "artifact":
-                it["new_level"] = min(20, int(prev.get("level", 4)) + 4) if prev else 4
-                it["new_refinement"] = min(5, int(prev.get("refinement", 1)) + 1) if prev else 1
-            else:
-                it["new_refinement"] = min(5, int(prev.get("refinement", 1)) + 1) if prev else 1
-            it["gained_starglitter"] = 0
-            it["gained_stardust"] = 0
+            it = _roll_single_genshin(u_data, banner_key, eff_pickup, std_5_chars, std_4_chars, all_std_4_incl, std_5_wps, gacha_4_wps_std, std_3_wps, rng)
+            gg, gd = _apply_gi_item_to_account(u_data, it, now_iso)
+            tot_glitter += gg
+            tot_dust += gd
             drawn.append(it)
+
+        u_data["total_pulls"] = int(u_data.get("total_pulls", 0)) + count
+
+        hist = u_data.setdefault("history", [])
+        b_short = GENSHIN_BANNER_CONFIGS[banner_key]["short_name"]
+        for it in drawn:
+            if it["rank"] >= 4:
+                hist.insert(0, {
+                    "name": it["name"],
+                    "kind": it["kind"],
+                    "rank": it["rank"],
+                    "is_pickup": bool(it.get("is_pickup")),
+                    "pity": it.get("pity_used"),
+                    "banner": b_short,
+                    "at": now_iso,
+                })
+        del hist[50:]
+
+        _record_genshin_hof(data, guild_id, user_id, drawn, banner_key, now_iso)
+        core.save_data(data)
+
         return {
             "drawn": drawn,
             "banner_key": banner_key,
             "eff_pickup": eff_pickup,
-            "total_glitter": 0,
-            "total_dust": 0,
-            "user_state": sim_state,
-            "practice": True,
+            "total_glitter": tot_glitter,
+            "total_dust": tot_dust,
+            "user_state": copy.deepcopy(u_data),
+            "practice": False,
         }
-
-    now_iso = datetime.datetime.now(core.KST).isoformat()
-    drawn = []
-    tot_glitter = 0
-    tot_dust = 0
-    for _ in range(count):
-        it = _roll_single_genshin(u_data, banner_key, eff_pickup, std_5_chars, std_4_chars, all_std_4_incl, std_5_wps, gacha_4_wps_std, std_3_wps, rng)
-        gg, gd = _apply_gi_item_to_account(u_data, it, now_iso)
-        tot_glitter += gg
-        tot_dust += gd
-        drawn.append(it)
-
-    u_data["total_pulls"] = int(u_data.get("total_pulls", 0)) + count
-
-    hist = u_data.setdefault("history", [])
-    b_short = GENSHIN_BANNER_CONFIGS[banner_key]["short_name"]
-    for it in drawn:
-        if it["rank"] >= 4:
-            hist.insert(0, {
-                "name": it["name"],
-                "kind": it["kind"],
-                "rank": it["rank"],
-                "is_pickup": bool(it.get("is_pickup")),
-                "pity": it.get("pity_used"),
-                "banner": b_short,
-                "at": now_iso,
-            })
-    del hist[50:]
-
-    _record_genshin_hof(data, guild_id, user_id, drawn, banner_key, now_iso)
-    core.save_data(data)
-
-    return {
-        "drawn": drawn,
-        "banner_key": banner_key,
-        "eff_pickup": eff_pickup,
-        "total_glitter": tot_glitter,
-        "total_dust": tot_dust,
-        "user_state": u_data,
-        "practice": False,
-    }
 
 
 def _record_genshin_hof(data: dict, guild_id: int, user_id: int, drawn: list[dict], banner_key: str, now_iso: str):
@@ -2112,41 +2113,43 @@ def _record_genshin_hof(data: dict, guild_id: int, user_id: int, drawn: list[dic
 
 
 def toggle_genshin_item_lock(guild_id: int, user_id: int, item_key: str) -> tuple[bool, bool, dict | None]:
-    data = core.load_data()
-    u_data = ensure_genshin_user(data, guild_id, user_id)
-    target = core.as_dict(u_data.get("items")).get(item_key)
-    if not isinstance(target, dict):
-        return False, False, None
-    new_val = not bool(target.get("locked", False))
-    target["locked"] = new_val
-    core.save_data(data)
-    return True, new_val, target
+    with core._DATA_LOCK:
+        data = core.load_data()
+        u_data = ensure_genshin_user(data, guild_id, user_id)
+        target = core.as_dict(u_data.get("items")).get(item_key)
+        if not isinstance(target, dict):
+            return False, False, None
+        new_val = not bool(target.get("locked", False))
+        target["locked"] = new_val
+        core.save_data(data)
+        return True, new_val, copy.deepcopy(target)
 
 
 def set_genshin_fate_path(guild_id: int, user_id: int, target_weapon_id: str | None) -> tuple[bool, str, dict]:
     """신의 주조(무기 이벤트 기원) 운명의 궤도 정해진 무기 변경 (변경 시 명정 포인트 0 초기화)"""
-    data = core.load_data()
-    u_data = ensure_genshin_user(data, guild_id, user_id)
-    eff = resolve_effective_genshin_pickup(data.get("genshin_pickup"))
-    w1, w2 = eff.get("weapon_1"), eff.get("weapon_2")
+    with core._DATA_LOCK:
+        data = core.load_data()
+        u_data = ensure_genshin_user(data, guild_id, user_id)
+        eff = resolve_effective_genshin_pickup(data.get("genshin_pickup"))
+        w1, w2 = eff.get("weapon_1"), eff.get("weapon_2")
 
-    if not target_weapon_id or target_weapon_id == "NONE":
-        u_data["fate_target_id"] = None
-        u_data["fate_point"] = 0
+        if not target_weapon_id or target_weapon_id == "NONE":
+            u_data["fate_target_id"] = None
+            u_data["fate_point"] = 0
+            core.save_data(data)
+            return True, "🧭 **운명의 궤도** 선택이 해제되었습니다. (명정 포인트 `0/1`)", copy.deepcopy(u_data)
+
+        valid = {w["id"]: w for w in (w1, w2) if w}
+        if target_weapon_id not in valid:
+            return False, "현재 진행 중인 신의 주조 픽업 5성 무기만 선택할 수 있습니다.", copy.deepcopy(u_data)
+
+        old_target = u_data.get("fate_target_id")
+        u_data["fate_target_id"] = target_weapon_id
+        if old_target != target_weapon_id:
+            u_data["fate_point"] = 0
         core.save_data(data)
-        return True, "🧭 **운명의 궤도** 선택이 해제되었습니다. (명정 포인트 `0/1`)", u_data
-
-    valid = {w["id"]: w for w in (w1, w2) if w}
-    if target_weapon_id not in valid:
-        return False, "현재 진행 중인 신의 주조 픽업 5성 무기만 선택할 수 있습니다.", u_data
-
-    old_target = u_data.get("fate_target_id")
-    u_data["fate_target_id"] = target_weapon_id
-    if old_target != target_weapon_id:
-        u_data["fate_point"] = 0
-    core.save_data(data)
-    w_obj = valid[target_weapon_id]
-    return True, f"🧭 **운명의 궤도 목표 설정 완료:** `★★★★★ {w_obj['name']}` (현재 명정: `{u_data['fate_point']}/1`)", u_data
+        w_obj = valid[target_weapon_id]
+        return True, f"🧭 **운명의 궤도 목표 설정 완료:** `★★★★★ {w_obj['name']}` (현재 명정: `{u_data['fate_point']}/1`)", copy.deepcopy(u_data)
 
 
 def get_genshin_shop_catalog() -> dict:
@@ -2175,148 +2178,151 @@ def get_genshin_shop_catalog() -> dict:
 def purchase_genshin_shop_item(guild_id: int, user_id: int, offer_id: str) -> tuple[bool, str, dict]:
     """페이몬의 상점에서 스타라이트 또는 스타더스트로 상품 구매"""
     load_genshin_kr_db()
-    data = core.load_data()
-    u_data = ensure_genshin_user(data, guild_id, user_id)
     cat = get_genshin_shop_catalog()
     m_key = cat["month_key"]
-    monthly = core.ensure_dict_path(u_data, "shop_monthly")
-    if monthly.get("month_key") != m_key:
-        monthly.clear()
-        monthly["month_key"] = m_key
-        monthly["dust_intertwined"] = 0
-        monthly["dust_acquaint"] = 0
-        monthly["chars_bought"] = []
-        monthly["dust_hero_wit"] = 0
-
     now_iso = datetime.datetime.now(core.KST).isoformat()
 
-    if offer_id.startswith("buy_char:"):
-        cid = offer_id.split(":", 1)[1]
-        c_obj = next((c for c in cat["chars"] if c["id"] == cid), None)
-        if not c_obj:
-            return False, "이번 달 상점 로테이션 캐릭터가 아닙니다.", u_data
-        bought = monthly.get("chars_bought")
-        if not isinstance(bought, list):
-            bought = []
-            monthly["chars_bought"] = bought
-        if cid in bought:
-            return False, f"이미 이번 달 **{c_obj['name']}** 교환 한도(월 1회)를 완료했습니다.", u_data
-        if u_data["starglitter"] < 34:
-            return False, f"주인 없는 스타라이트가 부족합니다! (필요: `34` / 보유: `{u_data['starglitter']}`)", u_data
-        u_data["starglitter"] -= 34
-        bought.append(cid)
-        _apply_gi_item_to_account(u_data, dict(c_obj), now_iso)
-        core.save_data(data)
-        return True, f"✨ **★★★★ {c_obj['name']}** 영입 완료! (`-34 스타라이트`)", u_data
+    with core._DATA_LOCK:
+        data = core.load_data()
+        u_data = ensure_genshin_user(data, guild_id, user_id)
+        monthly = core.ensure_dict_path(u_data, "shop_monthly")
+        if monthly.get("month_key") != m_key:
+            monthly.clear()
+            monthly["month_key"] = m_key
+            monthly["dust_intertwined"] = 0
+            monthly["dust_acquaint"] = 0
+            monthly["chars_bought"] = []
+            monthly["dust_hero_wit"] = 0
 
-    if offer_id.startswith("buy_wp:"):
-        wid = offer_id.split(":", 1)[1]
-        w_obj = next((w for w in cat["weapons"] if w["id"] == wid), None)
-        if not w_obj:
-            return False, "현재 상점 무기 시리즈가 아닙니다.", u_data
-        if u_data["starglitter"] < 24:
-            return False, f"주인 없는 스타라이트가 부족합니다! (필요: `24` / 보유: `{u_data['starglitter']}`)", u_data
-        u_data["starglitter"] -= 24
-        _apply_gi_item_to_account(u_data, dict(w_obj), now_iso)
-        core.save_data(data)
-        return True, f"⚔️ **★★★★ {w_obj['name']}** 구매 완료! (`-24 스타라이트`)", u_data
+        if offer_id.startswith("buy_char:"):
+            cid = offer_id.split(":", 1)[1]
+            c_obj = next((c for c in cat["chars"] if c["id"] == cid), None)
+            if not c_obj:
+                return False, "이번 달 상점 로테이션 캐릭터가 아닙니다.", copy.deepcopy(u_data)
+            bought = monthly.get("chars_bought")
+            if not isinstance(bought, list):
+                bought = []
+                monthly["chars_bought"] = bought
+            if cid in bought:
+                return False, f"이미 이번 달 **{c_obj['name']}** 교환 한도(월 1회)를 완료했습니다.", copy.deepcopy(u_data)
+            if u_data["starglitter"] < 34:
+                return False, f"주인 없는 스타라이트가 부족합니다! (필요: `34` / 보유: `{u_data['starglitter']}`)", copy.deepcopy(u_data)
+            u_data["starglitter"] -= 34
+            bought.append(cid)
+            _apply_gi_item_to_account(u_data, dict(c_obj), now_iso)
+            core.save_data(data)
+            return True, f"✨ **★★★★ {c_obj['name']}** 영입 완료! (`-34 스타라이트`)", copy.deepcopy(u_data)
 
-    if offer_id == "glitter_intertwined":
-        if u_data["starglitter"] < 5:
-            return False, f"주인 없는 스타라이트가 부족합니다! (필요: `5` / 보유: `{u_data['starglitter']}`)", u_data
-        u_data["starglitter"] -= 5
-        u_data["intertwined_fate"] = int(u_data.get("intertwined_fate", 0)) + 1
-        core.save_data(data)
-        return True, "🌠 **뒤얽힌 인연 ×1**을 교환했습니다! (`-5 스타라이트`)", u_data
+        if offer_id.startswith("buy_wp:"):
+            wid = offer_id.split(":", 1)[1]
+            w_obj = next((w for w in cat["weapons"] if w["id"] == wid), None)
+            if not w_obj:
+                return False, "현재 상점 무기 시리즈가 아닙니다.", copy.deepcopy(u_data)
+            if u_data["starglitter"] < 24:
+                return False, f"주인 없는 스타라이트가 부족합니다! (필요: `24` / 보유: `{u_data['starglitter']}`)", copy.deepcopy(u_data)
+            u_data["starglitter"] -= 24
+            _apply_gi_item_to_account(u_data, dict(w_obj), now_iso)
+            core.save_data(data)
+            return True, f"⚔️ **★★★★ {w_obj['name']}** 구매 완료! (`-24 스타라이트`)", copy.deepcopy(u_data)
 
-    if offer_id == "glitter_acquaint":
-        if u_data["starglitter"] < 5:
-            return False, f"주인 없는 스타라이트가 부족합니다! (필요: `5` / 보유: `{u_data['starglitter']}`)", u_data
-        u_data["starglitter"] -= 5
-        u_data["acquaint_fate"] = int(u_data.get("acquaint_fate", 0)) + 1
-        core.save_data(data)
-        return True, "🌌 **만남의 인연 ×1**을 교환했습니다! (`-5 스타라이트`)", u_data
+        if offer_id == "glitter_intertwined":
+            if u_data["starglitter"] < 5:
+                return False, f"주인 없는 스타라이트가 부족합니다! (필요: `5` / 보유: `{u_data['starglitter']}`)", copy.deepcopy(u_data)
+            u_data["starglitter"] -= 5
+            u_data["intertwined_fate"] = int(u_data.get("intertwined_fate", 0)) + 1
+            core.save_data(data)
+            return True, "🌠 **뒤얽힌 인연 ×1**을 교환했습니다! (`-5 스타라이트`)", copy.deepcopy(u_data)
 
-    if offer_id == "dust_intertwined":
-        used = int(monthly.get("dust_intertwined", 0))
-        if used >= 5:
-            return False, "이달의 스타더스트 뒤얽힌 인연 교환 한도(5/5회)를 모두 사용했습니다.", u_data
-        if u_data["stardust"] < 75:
-            return False, f"주인 없는 스타더스트가 부족합니다! (필요: `75` / 보유: `{u_data['stardust']}`)", u_data
-        u_data["stardust"] -= 75
-        monthly["dust_intertwined"] = used + 1
-        u_data["intertwined_fate"] = int(u_data.get("intertwined_fate", 0)) + 1
-        core.save_data(data)
-        return True, f"🌠 **뒤얽힌 인연 ×1** 교환 완료! (`-75 스타더스트` · 이달 `{used + 1}/5회`)", u_data
+        if offer_id == "glitter_acquaint":
+            if u_data["starglitter"] < 5:
+                return False, f"주인 없는 스타라이트가 부족합니다! (필요: `5` / 보유: `{u_data['starglitter']}`)", copy.deepcopy(u_data)
+            u_data["starglitter"] -= 5
+            u_data["acquaint_fate"] = int(u_data.get("acquaint_fate", 0)) + 1
+            core.save_data(data)
+            return True, "🌌 **만남의 인연 ×1**을 교환했습니다! (`-5 스타라이트`)", copy.deepcopy(u_data)
 
-    if offer_id == "dust_acquaint":
-        used = int(monthly.get("dust_acquaint", 0))
-        if used >= 5:
-            return False, "이달의 스타더스트 만남의 인연 교환 한도(5/5회)를 모두 사용했습니다.", u_data
-        if u_data["stardust"] < 75:
-            return False, f"주인 없는 스타더스트가 부족합니다! (필요: `75` / 보유: `{u_data['stardust']}`)", u_data
-        u_data["stardust"] -= 75
-        monthly["dust_acquaint"] = used + 1
-        u_data["acquaint_fate"] = int(u_data.get("acquaint_fate", 0)) + 1
-        core.save_data(data)
-        return True, f"🌌 **만남의 인연 ×1** 교환 완료! (`-75 스타더스트` · 이달 `{used + 1}/5회`)", u_data
+        if offer_id == "dust_intertwined":
+            used = int(monthly.get("dust_intertwined", 0))
+            if used >= 5:
+                return False, "이달의 스타더스트 뒤얽힌 인연 교환 한도(5/5회)를 모두 사용했습니다.", copy.deepcopy(u_data)
+            if u_data["stardust"] < 75:
+                return False, f"주인 없는 스타더스트가 부족합니다! (필요: `75` / 보유: `{u_data['stardust']}`)", copy.deepcopy(u_data)
+            u_data["stardust"] -= 75
+            monthly["dust_intertwined"] = used + 1
+            u_data["intertwined_fate"] = int(u_data.get("intertwined_fate", 0)) + 1
+            core.save_data(data)
+            return True, f"🌠 **뒤얽힌 인연 ×1** 교환 완료! (`-75 스타더스트` · 이달 `{used + 1}/5회`)", copy.deepcopy(u_data)
 
-    if offer_id == "dust_hero_wit":
-        if u_data["stardust"] < 40:
-            return False, f"주인 없는 스타더스트가 부족합니다! (필요: `40` / 보유: `{u_data['stardust']}`)", u_data
-        u_data["stardust"] -= 40
-        u_data["hero_wit"] = int(u_data.get("hero_wit", 0)) + 5
-        core.save_data(data)
-        return True, f"📘 **영웅의 경험 ×5** 구매 완료! (보유: `{u_data['hero_wit']}권` · 보관함 캐릭터 레벨업 가능)", u_data
+        if offer_id == "dust_acquaint":
+            used = int(monthly.get("dust_acquaint", 0))
+            if used >= 5:
+                return False, "이달의 스타더스트 만남의 인연 교환 한도(5/5회)를 모두 사용했습니다.", copy.deepcopy(u_data)
+            if u_data["stardust"] < 75:
+                return False, f"주인 없는 스타더스트가 부족합니다! (필요: `75` / 보유: `{u_data['stardust']}`)", copy.deepcopy(u_data)
+            u_data["stardust"] -= 75
+            monthly["dust_acquaint"] = used + 1
+            u_data["acquaint_fate"] = int(u_data.get("acquaint_fate", 0)) + 1
+            core.save_data(data)
+            return True, f"🌌 **만남의 인연 ×1** 교환 완료! (`-75 스타더스트` · 이달 `{used + 1}/5회`)", copy.deepcopy(u_data)
 
-    return False, "알 수 없는 상점 상품입니다.", u_data
+        if offer_id == "dust_hero_wit":
+            if u_data["stardust"] < 40:
+                return False, f"주인 없는 스타더스트가 부족합니다! (필요: `40` / 보유: `{u_data['stardust']}`)", copy.deepcopy(u_data)
+            u_data["stardust"] -= 40
+            u_data["hero_wit"] = int(u_data.get("hero_wit", 0)) + 5
+            core.save_data(data)
+            return True, f"📘 **영웅의 경험 ×5** 구매 완료! (보유: `{u_data['hero_wit']}권` · 보관함 캐릭터 레벨업 가능)", copy.deepcopy(u_data)
+
+        return False, "알 수 없는 상점 상품입니다.", copy.deepcopy(u_data)
 
 
 def levelup_genshin_char(guild_id: int, user_id: int, item_key: str) -> tuple[bool, str, dict]:
     """영웅의 경험 ×2권을 소모해 보유 캐릭터 레벨을 Lv.1 -> Lv.90까지 성장시킵니다."""
-    data = core.load_data()
-    u_data = ensure_genshin_user(data, guild_id, user_id)
-    c = core.as_dict(u_data.get("items")).get(item_key)
-    if not isinstance(c, dict) or c.get("kind") != "char":
-        return False, "보유 중인 캐릭터를 찾을 수 없습니다.", u_data
-    cur_lv = int(c.get("level", 1))
-    if cur_lv >= 90:
-        return False, f"**{c['name']}** 캐릭터는 이미 최고 레벨(`Lv.90`)입니다!", u_data
-    wit = int(u_data.get("hero_wit", 0))
-    if wit < 2:
-        return False, f"📘 **영웅의 경험**이 부족합니다! (`/원신 상점`에서 스타더스트 40으로 5권 구매 가능 · 보유 `{wit}권`)", u_data
-    u_data["hero_wit"] = wit - 2
-    new_lv = min(90, cur_lv + 10)
-    c["level"] = new_lv
-    core.save_data(data)
-    return True, f"⬆️ **{c['name']}** 레벨업! `Lv.{cur_lv}` ➔ **`Lv.{new_lv}`** (`-2 영웅의 경험`)", u_data
+    with core._DATA_LOCK:
+        data = core.load_data()
+        u_data = ensure_genshin_user(data, guild_id, user_id)
+        c = core.as_dict(u_data.get("items")).get(item_key)
+        if not isinstance(c, dict) or c.get("kind") != "char":
+            return False, "보유 중인 캐릭터를 찾을 수 없습니다.", copy.deepcopy(u_data)
+        cur_lv = int(c.get("level", 1))
+        if cur_lv >= 90:
+            return False, f"**{c['name']}** 캐릭터는 이미 최고 레벨(`Lv.90`)입니다!", copy.deepcopy(u_data)
+        wit = int(u_data.get("hero_wit", 0))
+        if wit < 2:
+            return False, f"📘 **영웅의 경험**이 부족합니다! (`/원신 상점`에서 스타더스트 40으로 5권 구매 가능 · 보유 `{wit}권`)", copy.deepcopy(u_data)
+        u_data["hero_wit"] = wit - 2
+        new_lv = min(90, cur_lv + 10)
+        c["level"] = new_lv
+        core.save_data(data)
+        return True, f"⬆️ **{c['name']}** 레벨업! `Lv.{cur_lv}` ➔ **`Lv.{new_lv}`** (`-2 영웅의 경험`)", copy.deepcopy(u_data)
 
 
 def levelup_genshin_artifact(guild_id: int, user_id: int, item_key: str) -> tuple[bool, str, dict]:
     """주인 없는 스타더스트 ×20을 소모해 보유 성유물을 +4강씩 최대 +20강까지 강화합니다."""
-    data = core.load_data()
-    u_data = ensure_genshin_user(data, guild_id, user_id)
-    art = core.as_dict(u_data.get("items")).get(item_key)
-    if not isinstance(art, dict) or art.get("kind") != "artifact":
-        return False, "보유 중인 성유물을 찾을 수 없습니다.", u_data
-    cur_lv = int(art.get("level", 4))
-    if cur_lv >= 20:
-        return False, f"🏺 **{art['name']}** 성유물은 이미 최고 강화 단계(`+20강`)입니다!", u_data
-    dust = int(u_data.get("stardust", 0))
-    if dust < 20:
-        return False, f"💠 **주인 없는 스타더스트**가 부족합니다! (필요: `20` / 보유: `{dust}`)", u_data
-    u_data["stardust"] = dust - 20
-    new_lv = min(20, cur_lv + 4)
-    art["level"] = new_lv
-    subs = list(art.get("sub_stats") or [])
-    if len(subs) < 4:
-        avail = [s for s in GENSHIN_ARTIFACT_SUB_POOL if s not in subs]
-        if avail:
-            subs.append(random.choice(avail))
-            art["sub_stats"] = subs
-            art["artifact_sub_stats"] = subs
-    core.save_data(data)
-    return True, f"🔨 **{art['name']}** 성유물 강화 성공! `+{cur_lv}` ➔ **`+{new_lv}`** (`-20 스타더스트`)", u_data
+    with core._DATA_LOCK:
+        data = core.load_data()
+        u_data = ensure_genshin_user(data, guild_id, user_id)
+        art = core.as_dict(u_data.get("items")).get(item_key)
+        if not isinstance(art, dict) or art.get("kind") != "artifact":
+            return False, "보유 중인 성유물을 찾을 수 없습니다.", copy.deepcopy(u_data)
+        cur_lv = int(art.get("level", 4))
+        if cur_lv >= 20:
+            return False, f"🏺 **{art['name']}** 성유물은 이미 최고 강화 단계(`+20강`)입니다!", copy.deepcopy(u_data)
+        dust = int(u_data.get("stardust", 0))
+        if dust < 20:
+            return False, f"💠 **주인 없는 스타더스트**가 부족합니다! (필요: `20` / 보유: `{dust}`)", copy.deepcopy(u_data)
+        u_data["stardust"] = dust - 20
+        new_lv = min(20, cur_lv + 4)
+        art["level"] = new_lv
+        subs = list(art.get("sub_stats") or [])
+        if len(subs) < 4:
+            avail = [s for s in GENSHIN_ARTIFACT_SUB_POOL if s not in subs]
+            if avail:
+                subs.append(random.choice(avail))
+                art["sub_stats"] = subs
+                art["artifact_sub_stats"] = subs
+        core.save_data(data)
+        return True, f"🔨 **{art['name']}** 성유물 강화 성공! `+{cur_lv}` ➔ **`+{new_lv}`** (`-20 스타더스트`)", copy.deepcopy(u_data)
 
 
 def compute_genshin_char_power(char_obj: dict) -> int:
@@ -2374,9 +2380,10 @@ def analyze_genshin_party(party_chars: list[dict]) -> dict:
 def get_genshin_pokedex_stats(guild_id: int, user_id: int) -> dict:
     chars, weapons = load_genshin_kr_db()
     artifacts = GENSHIN_ARTIFACTS
-    data = core.load_data()
-    u_data = ensure_genshin_user(data, guild_id, user_id)
-    owned_map = core.as_dict(u_data.get("items"))
+    with core._DATA_LOCK:
+        data = core.load_data()
+        u_data = ensure_genshin_user(data, guild_id, user_id)
+        owned_map = copy.deepcopy(core.as_dict(u_data.get("items")))
 
     all_master = chars + weapons + artifacts
     wishable_master = [it for it in all_master if it.get("wishable", True)]
@@ -2452,34 +2459,35 @@ def get_genshin_hall_of_fame(data: dict, guild_id: int) -> dict:
 
 def apply_genshin_pickup_preset(preset_key: str) -> tuple[bool, str, dict]:
     load_genshin_kr_db()
-    data = core.load_data()
-    if preset_key == "reset":
-        data["genshin_pickup"] = copy.deepcopy(core.DEFAULT_CONFIG["genshin_pickup"])
+    with core._DATA_LOCK:
+        data = core.load_data()
+        if preset_key == "reset":
+            data["genshin_pickup"] = copy.deepcopy(core.DEFAULT_CONFIG["genshin_pickup"])
+            core.save_data(data)
+            return True, "🧹 원신 기원 픽업 설정이 기본값(시각별 자동 로테이션)으로 초기화되었습니다.", resolve_effective_genshin_pickup(data["genshin_pickup"])
+
+        preset = GENSHIN_BANNER_PRESETS.get(preset_key)
+        if not preset:
+            return False, "알 수 없는 프리셋입니다.", resolve_effective_genshin_pickup(data.get("genshin_pickup"))
+
+        now_iso = datetime.datetime.now(core.KST).isoformat()
+        cfg = {
+            "mode": preset.get("mode", "preset"),
+            "char1": preset.get("char1"),
+            "char2": preset.get("char2"),
+            "char_4_ids": list(preset.get("char_4_ids") or []),
+            "weapon_1": preset.get("weapon_1"),
+            "weapon_2": preset.get("weapon_2"),
+            "weapon_4_ids": [],
+            "artifact_1": preset.get("artifact_1"),
+            "artifact_2": preset.get("artifact_2"),
+            "banner_name": preset.get("banner_name", "티바트 이벤트 기원"),
+            "version_label": preset.get("label", "프리셋 연동"),
+            "updated_at": now_iso,
+        }
+        data["genshin_pickup"] = cfg
         core.save_data(data)
-        return True, "🧹 원신 기원 픽업 설정이 기본값(시각별 자동 로테이션)으로 초기화되었습니다.", resolve_effective_genshin_pickup(data["genshin_pickup"])
-
-    preset = GENSHIN_BANNER_PRESETS.get(preset_key)
-    if not preset:
-        return False, "알 수 없는 프리셋입니다.", resolve_effective_genshin_pickup(data.get("genshin_pickup"))
-
-    now_iso = datetime.datetime.now(core.KST).isoformat()
-    cfg = {
-        "mode": preset.get("mode", "preset"),
-        "char1": preset.get("char1"),
-        "char2": preset.get("char2"),
-        "char_4_ids": list(preset.get("char_4_ids") or []),
-        "weapon_1": preset.get("weapon_1"),
-        "weapon_2": preset.get("weapon_2"),
-        "weapon_4_ids": [],
-        "artifact_1": preset.get("artifact_1"),
-        "artifact_2": preset.get("artifact_2"),
-        "banner_name": preset.get("banner_name", "티바트 이벤트 기원"),
-        "version_label": preset.get("label", "프리셋 연동"),
-        "updated_at": now_iso,
-    }
-    data["genshin_pickup"] = cfg
-    core.save_data(data)
-    return True, f"🎯 **{preset['label']}** 픽업 적용 완료!", resolve_effective_genshin_pickup(cfg)
+        return True, f"🎯 **{preset['label']}** 픽업 적용 완료!", resolve_effective_genshin_pickup(cfg)
 
 
 async def genshin_5star_char_autocomplete(interaction, current: str):

@@ -907,21 +907,29 @@ class NorosiBot(commands.Bot):
                     view.message = msg
 
                     if component_type in (3, 5, 6, 7, 8):
-                        for child in view.children:
-                            if isinstance(child, discord.ui.Select):
-                                if hasattr(child, "_refresh_state"):
-                                    try:
-                                        child._refresh_state(interaction, interaction.data)
-                                    except Exception:
-                                        pass
+                        sel_val = (interaction.data.get("values") or [None])[0] if isinstance(interaction.data, dict) else None
+                        select_children = [c for c in view.children if isinstance(c, discord.ui.Select)]
+                        target_sel = None
+                        for child in select_children:
+                            if sel_val is not None and any(getattr(opt, "value", None) == sel_val for opt in getattr(child, "options", [])):
+                                target_sel = child
+                                break
+                        if target_sel is None and select_children:
+                            target_sel = select_children[0]
+                        if target_sel is not None:
+                            if hasattr(target_sel, "_refresh_state"):
                                 try:
-                                    await child.callback(interaction)
-                                except Exception as cb_err:
-                                    print(f"⚠️ [마스터 대시보드 셀렉트 콜백 예외] {cb_err}", flush=True)
-                                    await core.safe_send_response(interaction, f"⚠️ 메뉴 처리 중 오류가 발생했습니다: `{cb_err}`", ephemeral=True)
-                                if msg:
-                                    self.attach_view_to_message(view, message_id=msg.id)
-                                return
+                                    target_sel._refresh_state(interaction, interaction.data)
+                                except Exception:
+                                    pass
+                            try:
+                                await target_sel.callback(interaction)
+                            except Exception as cb_err:
+                                print(f"⚠️ [마스터 대시보드 셀렉트 콜백 예외] {cb_err}", flush=True)
+                                await core.safe_send_response(interaction, f"⚠️ 메뉴 처리 중 오류가 발생했습니다: `{cb_err}`", ephemeral=True)
+                            if msg:
+                                self.attach_view_to_message(view, message_id=msg.id)
+                            return
                     elif "새로고침" in clicked_label:
                         try:
                             await view._on_refresh_clicked(interaction)
@@ -957,8 +965,28 @@ class NorosiBot(commands.Bot):
                     data = core.get_cached_data()
                     view = PlaylistStudioView(interaction.user, interaction.user, data)
                     view.message = msg
+                    if component_type in (3, 5, 6, 7, 8):
+                        sel_val = (interaction.data.get("values") or [None])[0] if isinstance(interaction.data, dict) else None
+                        select_children = [c for c in view.children if isinstance(c, discord.ui.Select)]
+                        target_sel = next(
+                            (c for c in select_children if sel_val is not None and any(getattr(opt, "value", None) == sel_val for opt in getattr(c, "options", []))),
+                            select_children[0] if select_children else None,
+                        )
+                        if target_sel is not None:
+                            if hasattr(target_sel, "_refresh_state"):
+                                try:
+                                    target_sel._refresh_state(interaction, interaction.data)
+                                except Exception:
+                                    pass
+                            try:
+                                await target_sel.callback(interaction)
+                            except Exception as cb_err:
+                                print(f"⚠️ [플레이리스트 스튜디오 셀렉트 콜백 예외] {cb_err}", flush=True)
+                            if msg:
+                                self.attach_view_to_message(view, message_id=msg.id)
+                            return
                     for child in view.children:
-                        if getattr(child, "label", None) == clicked_label:
+                        if clicked_label and getattr(child, "label", None) == clicked_label:
                             if hasattr(child, "_refresh_state"):
                                 try:
                                     child._refresh_state(interaction, interaction.data)
@@ -978,23 +1006,28 @@ class NorosiBot(commands.Bot):
             if "도움말" in embed_text or "명령어 가이드" in embed_text:
                 try:
                     from cogs.help import HelpCategoryView
-                    view = HelpCategoryView(self)
+                    view = HelpCategoryView(self, author=interaction.user)
                     view.message = msg
                     if component_type in (3, 5, 6, 7, 8):
-                        for child in view.children:
-                            if isinstance(child, discord.ui.Select):
-                                if hasattr(child, "_refresh_state"):
-                                    try:
-                                        child._refresh_state(interaction, interaction.data)
-                                    except Exception:
-                                        pass
+                        sel_val = (interaction.data.get("values") or [None])[0] if isinstance(interaction.data, dict) else None
+                        select_children = [c for c in view.children if isinstance(c, discord.ui.Select)]
+                        target_sel = next(
+                            (c for c in select_children if sel_val is not None and any(getattr(opt, "value", None) == sel_val for opt in getattr(c, "options", []))),
+                            select_children[0] if select_children else None,
+                        )
+                        if target_sel is not None:
+                            if hasattr(target_sel, "_refresh_state"):
                                 try:
-                                    await child.callback(interaction)
-                                except Exception as cb_err:
-                                    print(f"⚠️ [도움말 셀렉트 콜백 예외] {cb_err}", flush=True)
-                                if msg:
-                                    self.attach_view_to_message(view, message_id=msg.id)
-                                return
+                                    target_sel._refresh_state(interaction, interaction.data)
+                                except Exception:
+                                    pass
+                            try:
+                                await target_sel.callback(interaction)
+                            except Exception as cb_err:
+                                print(f"⚠️ [도움말 셀렉트 콜백 예외] {cb_err}", flush=True)
+                            if msg:
+                                self.attach_view_to_message(view, message_id=msg.id)
+                            return
                 except Exception as e:
                     print(f"⚠️ [도움말 구버전 복구 예외] {e}", flush=True)
 
@@ -1129,7 +1162,7 @@ class NorosiBot(commands.Bot):
         alert_ch_id = core.as_dict(data.get("settings")).get("dday_alert_channel_id")
         alert_channel = await self.resolve_channel(alert_ch_id) if alert_ch_id else None
 
-        for name, info in ddays.items():
+        for name, info in list(ddays.items()):
             if not isinstance(info, dict):
                 continue
             ch_id = info.get("channel_id")
@@ -1207,98 +1240,101 @@ class NorosiBot(commands.Bot):
             return_exceptions=True,
         )
 
-        data = await asyncio.to_thread(core.load_data)
         today = datetime.datetime.now(core.KST).date()
-        updated = False
 
-        for name, info in core.as_dict(data.get("ddays")).items():
-            if not isinstance(info, dict):
-                continue
-            if info.get("repeat"):
-                date_val = info.get("date")
-                if not date_val:
-                    continue
-                try:
-                    t_date = datetime.datetime.strptime(date_val, "%Y-%m-%d").date()
-                except ValueError:
-                    continue
-                if t_date < today:
-                    old_target_str = date_val
-                    while t_date < today:
+        def _process_midnight_state():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                updated = False
+                for name, info in list(core.as_dict(data.get("ddays")).items()):
+                    if not isinstance(info, dict):
+                        continue
+                    if info.get("repeat"):
+                        date_val = info.get("date")
+                        if not date_val:
+                            continue
                         try:
-                            t_date = t_date.replace(year=t_date.year + 1)
+                            t_date = datetime.datetime.strptime(date_val, "%Y-%m-%d").date()
                         except ValueError:
-                            t_date += datetime.timedelta(days=365)
-                    info["date"] = t_date.strftime("%Y-%m-%d")
-                    info["start_date"] = old_target_str
-                    updated = True
+                            continue
+                        if t_date < today:
+                            old_target_str = date_val
+                            while t_date < today:
+                                try:
+                                    t_date = t_date.replace(year=t_date.year + 1)
+                                except ValueError:
+                                    t_date += datetime.timedelta(days=365)
+                            info["date"] = t_date.strftime("%Y-%m-%d")
+                            info["start_date"] = old_target_str
+                            updated = True
 
-        # 자정(00:00 KST) 멤버 생일 자동 축하 및 +500 크리스탈 지급
-        bday_map = core.as_dict(data.get("birthdays"))
-        alert_ch_id = core.as_dict(data.get("settings")).get("dday_alert_channel_id")
+                # 자정(00:00 KST) 멤버 생일 자동 축하 및 +500 크리스탈 단일 지급
+                bday_map = core.as_dict(data.get("birthdays"))
+                alert_ch_id = core.as_dict(data.get("settings")).get("dday_alert_channel_id")
+                bday_notifications = []
+
+                for u_key, b_info in list(bday_map.items()):
+                    if not isinstance(b_info, dict):
+                        continue
+                    if b_info.get("month") == today.month and b_info.get("day") == today.day:
+                        if b_info.get("last_celebrated_year") != today.year:
+                            b_info["last_celebrated_year"] = today.year
+                            uid = b_info.get("user_id") or int(u_key)
+                            uname = b_info.get("user_name", "멤버")
+                            prof = core.ensure_user_profile(data, u_key, uname)
+                            prof["crystals"] = int(prof.get("crystals", 0)) + 500
+                            updated = True
+
+                            g_id = b_info.get("guild_id")
+                            g_ch_id = None
+                            if g_id:
+                                g_settings = core.safe_get_dict(data, "guild_settings", str(g_id))
+                                g_ch_id = g_settings.get("dday_alert_channel_id")
+                            bday_notifications.append({
+                                "uid": uid,
+                                "uname": uname,
+                                "crystals": prof["crystals"],
+                                "memo": b_info.get("memo"),
+                                "guild_ch_id": g_ch_id,
+                            })
+
+                if updated:
+                    core.save_data(data)
+                return alert_ch_id, bday_notifications
+
+        alert_ch_id, bday_notifications = await asyncio.to_thread(_process_midnight_state)
         alert_ch = await self.resolve_channel(alert_ch_id) if alert_ch_id else None
-        bday_rewarded_users = {}
 
-        for u_key, b_info in bday_map.items():
-            if not isinstance(b_info, dict):
-                continue
-            if b_info.get("month") == today.month and b_info.get("day") == today.day:
-                if b_info.get("last_celebrated_year") != today.year:
-                    b_info["last_celebrated_year"] = today.year
-                    uid = b_info.get("user_id") or int(u_key)
-                    uname = b_info.get("user_name", "멤버")
-                    prof = core.ensure_user_profile(data, u_key, uname)
-                    prof["crystals"] = prof.get("crystals", 0) + 500
-                    bday_rewarded_users[u_key] = uname
-                    updated = True
+        for item in bday_notifications:
+            uid = item["uid"]
+            uname = item["uname"]
+            bday_embed = discord.Embed(
+                title=f"🎂 Happy Birthday! 오늘은 {uname}님의 생일입니다! 🎉",
+                description=(
+                    f"🎊 <@{uid}>님, 일 년에 단 한 번뿐인 소중한 생일을 진심으로 축하드립니다!\n"
+                    f"🎁 **세카이 생일 축하 보너스:** **`+500 💎 크리스탈`**이 지급되었습니다! (보유: `{item['crystals']:,}💎`)"
+                    + (f"\n💬 **생일 소원:** *\"{item['memo']}\"*" if item.get("memo") else "")
+                ),
+                color=discord.Color.from_rgb(255, 105, 180),
+                timestamp=datetime.datetime.now(core.KST)
+            )
+            target_ch = None
+            if item.get("guild_ch_id"):
+                target_ch = await self.resolve_channel(item["guild_ch_id"])
+            if not target_ch and alert_ch:
+                target_ch = alert_ch
 
-                    bday_embed = discord.Embed(
-                        title=f"🎂 Happy Birthday! 오늘은 {uname}님의 생일입니다! 🎉",
-                        description=(
-                            f"🎊 <@{uid}>님, 일 년에 단 한 번뿐인 소중한 생일을 진심으로 축하드립니다!\n"
-                            f"🎁 **세카이 생일 축하 보너스:** **`+500 💎 크리스탈`**이 지급되었습니다! (보유: `{prof['crystals']:,}💎`)"
-                            + (f"\n💬 **생일 소원:** *\"{b_info['memo']}\"*" if b_info.get("memo") else "")
-                        ),
-                        color=discord.Color.from_rgb(255, 105, 180),
-                        timestamp=datetime.datetime.now(core.KST)
-                    )
-                    target_ch = None
-                    g_id = b_info.get("guild_id")
-                    if g_id:
-                        g_settings = core.safe_get_dict(data, "guild_settings", str(g_id))
-                        g_ch_id = g_settings.get("dday_alert_channel_id")
-                        if g_ch_id:
-                            target_ch = await self.resolve_channel(g_ch_id)
-                    if not target_ch and alert_ch:
-                        target_ch = alert_ch
-
-                    if target_ch:
-                        try:
-                            await target_ch.send(content=f"🎉 <@{uid}>님 생일 축하합니다!!", embed=bday_embed)
-                        except Exception:
-                            pass
-                    try:
-                        user_obj = self.get_user(uid) or await self.fetch_user(uid)
-                        if user_obj:
-                            await user_obj.send(embed=bday_embed)
-                    except Exception:
-                        pass
-
-        if updated:
-            def _save_midnight():
-                with core._DATA_LOCK:
-                    fresh_data = core.load_data()
-                    fresh_data["ddays"] = core.as_dict(data.get("ddays"))
-                    fresh_bmap = core.ensure_dict_path(fresh_data, "birthdays")
-                    for u_k, b_inf in bday_map.items():
-                        if isinstance(b_inf, dict):
-                            fresh_bmap[u_k] = b_inf
-                    for u_k, u_name in bday_rewarded_users.items():
-                        f_prof = core.ensure_user_profile(fresh_data, u_k, u_name)
-                        f_prof["crystals"] = int(f_prof.get("crystals", 0)) + 500
-                    core.save_data(fresh_data)
-
-            await asyncio.to_thread(_save_midnight)
+            if target_ch:
+                try:
+                    await target_ch.send(content=f"🎉 <@{uid}>님 생일 축하합니다!!", embed=bday_embed)
+                except Exception:
+                    pass
+            try:
+                user_obj = self.get_user(uid) or await self.fetch_user(uid)
+                if user_obj:
+                    await user_obj.send(embed=bday_embed)
+            except Exception:
+                pass
 
         await self.update_all_dday_channels()
 
@@ -1341,16 +1377,21 @@ class NorosiBot(commands.Bot):
         now_hm = now.strftime("%H:%M")
         today_str = now.strftime("%Y-%m-%d")
 
-        data = await asyncio.to_thread(core.load_data)
-        raw_schedules = data.get("music_schedules")
-        schedules = raw_schedules if isinstance(raw_schedules, list) else []
-        raw_reminders = data.get("reminders")
-        reminders = raw_reminders if isinstance(raw_reminders, list) else []
+        def _snapshot_schedules():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                raw_schedules = data.get("music_schedules")
+                schedules_snap = copy.deepcopy(raw_schedules) if isinstance(raw_schedules, list) else []
+                raw_reminders = data.get("reminders")
+                reminders_snap = copy.deepcopy(raw_reminders) if isinstance(raw_reminders, list) else []
+                base_prefs_snap = copy.deepcopy(core.as_dict(data.get("music_prefs")) or core.DEFAULT_CONFIG["music_prefs"])
+                return schedules_snap, reminders_snap, base_prefs_snap
+
+        schedules, reminders, base_prefs = await asyncio.to_thread(_snapshot_schedules)
         if not schedules and not reminders:
             return
 
-        updated = False
-        base_prefs = core.as_dict(data.get("music_prefs")) or core.DEFAULT_CONFIG["music_prefs"]
+        sent_schedule_keys = set()
 
         for sched in schedules:
             if not isinstance(sched, dict):
@@ -1371,17 +1412,16 @@ class NorosiBot(commands.Bot):
                             await channel.send(f"⏰ **`{label}` 시간이 되어 추천 곡이 도착했습니다!**", embed=embed, view=view)
                         except Exception:
                             pass
-                sched["last_sent"] = today_str
-                updated = True
+                sent_schedule_keys.add((sched.get("name"), sched.get("time"), sched.get("channel_id")))
 
         # /알림예약 개인 알리미 시각 도달 체크 및 발송
         now_ts = time.time()
-        remaining_reminders = []
+        fired_reminders = False
         for rem in reminders:
             if not isinstance(rem, dict):
                 continue
             if rem.get("trigger_ts", 0) <= now_ts:
-                updated = True
+                fired_reminders = True
                 uid = rem.get("user_id")
                 ch_id = rem.get("channel_id")
                 mode = rem.get("mode", "both")
@@ -1417,24 +1457,24 @@ class NorosiBot(commands.Bot):
                                 await ch_obj.send(content=f"🔔 <@{uid}>님, 예약하신 알림이 도착했습니다!", embed=rem_embed)
                             except Exception:
                                 pass
-            else:
-                remaining_reminders.append(rem)
 
-        if len(remaining_reminders) != len(reminders):
-            data["reminders"] = remaining_reminders
-            updated = True
-
-        if updated:
+        if sent_schedule_keys or fired_reminders:
             def _save_schedules():
                 with core._DATA_LOCK:
                     fresh_data = core.load_data()
-                    fresh_data["music_schedules"] = schedules
-                    fresh_raw_reminders = fresh_data.get("reminders")
-                    fresh_reminders = [
-                        r for r in (fresh_raw_reminders if isinstance(fresh_raw_reminders, list) else [])
-                        if isinstance(r, dict) and r.get("trigger_ts", 0) > now_ts
-                    ]
-                    fresh_data["reminders"] = fresh_reminders
+                    if sent_schedule_keys:
+                        fresh_scheds = fresh_data.get("music_schedules")
+                        if isinstance(fresh_scheds, list):
+                            for s in fresh_scheds:
+                                if isinstance(s, dict) and (s.get("name"), s.get("time"), s.get("channel_id")) in sent_schedule_keys:
+                                    s["last_sent"] = today_str
+                    if fired_reminders:
+                        fresh_raw_reminders = fresh_data.get("reminders")
+                        fresh_reminders = [
+                            r for r in (fresh_raw_reminders if isinstance(fresh_raw_reminders, list) else [])
+                            if isinstance(r, dict) and r.get("trigger_ts", 0) > now_ts
+                        ]
+                        fresh_data["reminders"] = fresh_reminders
                     core.save_data(fresh_data)
 
             await asyncio.to_thread(_save_schedules)
@@ -1452,11 +1492,11 @@ class NorosiBot(commands.Bot):
         dm_updated = False
         notified_secrets = []
         notified_partners = []
-        for u_key, p_info in core.as_dict(data.get("user_profiles")).items():
+        for u_key, p_info in list(core.as_dict(data.get("user_profiles")).items()):
             if not isinstance(p_info, dict):
                 continue
             secret_ddays = core.as_dict(p_info.get("secret_ddays"))
-            for s_name, s_info in secret_ddays.items():
+            for s_name, s_info in list(secret_ddays.items()):
                 if not isinstance(s_info, dict) or not s_info.get("date"):
                     continue
                 try:
@@ -1479,20 +1519,19 @@ class NorosiBot(commands.Bot):
                                 timestamp=datetime.datetime.now(core.KST)
                             )
                             await target_user.send(embed=dm_embed)
-                            s_info["notified_date"] = today_str
                             notified_secrets.append((u_key, s_name))
                             dm_updated = True
                     except Exception as e:
                         print(f"⚠️ 비밀 디데이 DM 전송 실패 ({u_key}): {e}", flush=True)
 
         # 2. 파트너 공동 D-Day 당일 두 사람에게 DM 발송 체크
-        for pair_key, pair_info in core.as_dict(data.get("partners")).items():
+        for pair_key, pair_info in list(core.as_dict(data.get("partners")).items()):
             if not isinstance(pair_info, dict):
                 continue
             uid_parts = str(pair_key).split("_")
             if len(uid_parts) != 2:
                 continue
-            for p_dday_name, p_dday_info in core.as_dict(pair_info.get("ddays")).items():
+            for p_dday_name, p_dday_info in list(core.as_dict(pair_info.get("ddays")).items()):
                 if not isinstance(p_dday_info, dict) or not p_dday_info.get("date"):
                     continue
                 try:
@@ -1516,7 +1555,6 @@ class NorosiBot(commands.Bot):
                                 await u_obj.send(embed=p_embed)
                         except Exception:
                             pass
-                    p_dday_info["notified_date"] = today_str
                     notified_partners.append((pair_key, p_dday_name))
                     dm_updated = True
 
@@ -1625,29 +1663,35 @@ async def set_terminal_log_channel_slash(interaction: discord.Interaction, 채�
         return
 
     await core.safe_defer(interaction, ephemeral=True)
-    data = await asyncio.to_thread(core.load_data)
-
     g_key = str(interaction.guild_id) if interaction.guild_id else "global"
-    settings_dict = core.ensure_dict_path(data, "settings")
-    t_channels = core.ensure_dict_path(data, "settings", "terminal_log_channels")
+
+    def _update_tlog():
+        with core._DATA_LOCK:
+            data = core.load_data()
+            settings_dict = core.ensure_dict_path(data, "settings")
+            t_channels = core.ensure_dict_path(data, "settings", "terminal_log_channels")
+            if 채널 is None:
+                t_channels.pop(g_key, None)
+                if not t_channels:
+                    settings_dict["terminal_log_channel_id"] = None
+            else:
+                t_channels[g_key] = 채널.id
+                settings_dict["terminal_log_channel_id"] = 채널.id
+            core.save_data(data)
+            return len(t_channels)
+
+    total_ch_cnt = await asyncio.to_thread(_update_tlog)
 
     if 채널 is None:
-        t_channels.pop(g_key, None)
-        if not t_channels:
-            settings_dict["terminal_log_channel_id"] = None
-        await asyncio.to_thread(core.save_data, data)
         await interaction.followup.send(f"🛑 **현재 서버({interaction.guild.name if interaction.guild else '글로벌'})의 VM 서버 터미널 로그 채널 전송이 해제되었습니다.**", ephemeral=True)
         print(f"ℹ️ [System] {interaction.user}에 의해 {interaction.guild}의 터미널 로그 채널 전송이 비활성화되었습니다.", flush=True)
     else:
-        t_channels[g_key] = 채널.id
-        settings_dict["terminal_log_channel_id"] = 채널.id
-        await asyncio.to_thread(core.save_data, data)
         embed = discord.Embed(
             title="🖥️ VM 서버 터미널 실시간 로그 채널 지정 완료!",
             description=(
                 f"이제부터 VM 서버 터미널(`stdout` / `stderr` / `logging`)로 출력되는 모든 로그가 {채널.mention} 채널에도 실시간으로 기록됩니다.\n\n"
                 f"• **현재 채널:** {채널.mention} (`#{채널.name}`)\n"
-                f"• **전체 연동 서버:** 총 {len(t_channels)}개 서버 채널에 실시간 동시 전송 중\n"
+                f"• **전체 연동 서버:** 총 {total_ch_cnt}개 서버 채널에 실시간 동시 전송 중\n"
                 "• **전송 주기:** `3초` 단위 버퍼링 묶음 전송 (도배 및 Rate Limit 완벽 방어)\n"
                 "• **해제 방법:** `/터미널로그채널` 명령어를 채널 옵션 없이 실행"
             ),
@@ -1655,7 +1699,7 @@ async def set_terminal_log_channel_slash(interaction: discord.Interaction, 채�
             timestamp=datetime.datetime.now(core.KST)
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
-        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{채널.name} (ID: {채널.id}, 서버: {interaction.guild})로 지정되었습니다. (총 {len(t_channels)}개 서버 동시 전송)", flush=True)
+        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{채널.name} (ID: {채널.id}, 서버: {interaction.guild})로 지정되었습니다. (총 {total_ch_cnt}개 서버 동시 전송)", flush=True)
 
 
 @bot.command(name="터미널로그", aliases=["터미널로그채널", "서버터미널", "vm로그", "콘솔로그"])
@@ -1664,23 +1708,30 @@ async def set_terminal_log_channel_prefix(ctx: commands.Context, channel: Option
         await ctx.send("❌ 이 명령어는 **봇 소유자(봇주)**만 사용할 수 있습니다.", delete_after=5)
         return
 
-    data = await asyncio.to_thread(core.load_data)
     g_key = str(ctx.guild.id) if ctx.guild else "global"
-    settings_dict = core.ensure_dict_path(data, "settings")
-    t_channels = core.ensure_dict_path(data, "settings", "terminal_log_channels")
+
+    def _update_tlog():
+        with core._DATA_LOCK:
+            data = core.load_data()
+            settings_dict = core.ensure_dict_path(data, "settings")
+            t_channels = core.ensure_dict_path(data, "settings", "terminal_log_channels")
+            if channel is None:
+                t_channels.pop(g_key, None)
+                if not t_channels:
+                    settings_dict["terminal_log_channel_id"] = None
+            else:
+                t_channels[g_key] = channel.id
+                settings_dict["terminal_log_channel_id"] = channel.id
+            core.save_data(data)
+            return len(t_channels)
+
+    total_ch_cnt = await asyncio.to_thread(_update_tlog)
 
     if channel is None:
-        t_channels.pop(g_key, None)
-        if not t_channels:
-            settings_dict["terminal_log_channel_id"] = None
-        await asyncio.to_thread(core.save_data, data)
         await ctx.send(f"🛑 **현재 서버({ctx.guild.name if ctx.guild else '글로벌'})의 VM 서버 터미널 로그 채널 기록이 비활성화되었습니다.** (특정 채널에 켜려면 `!터미널로그 #채널` 입력)")
     else:
-        t_channels[g_key] = channel.id
-        settings_dict["terminal_log_channel_id"] = channel.id
-        await asyncio.to_thread(core.save_data, data)
-        await ctx.send(f"🖥️ **VM 서버 터미널 로그 채널 지정 완료:** 이제부터 터미널 출력이 {channel.mention} 채널에 실시간으로 기록됩니다! (총 {len(t_channels)}개 서버 채널 동시 전송)")
-        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{channel.name} (ID: {channel.id}, 서버: {ctx.guild})로 지정되었습니다. (총 {len(t_channels)}개 서버 동시 전송)", flush=True)
+        await ctx.send(f"🖥️ **VM 서버 터미널 로그 채널 지정 완료:** 이제부터 터미널 출력이 {channel.mention} 채널에 실시간으로 기록됩니다! (총 {total_ch_cnt}개 서버 채널 동시 전송)")
+        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{channel.name} (ID: {channel.id}, 서버: {ctx.guild})로 지정되었습니다. (총 {total_ch_cnt}개 서버 동시 전송)", flush=True)
 
 
 # ==========================================

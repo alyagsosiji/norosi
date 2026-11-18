@@ -1010,8 +1010,11 @@ async def build_unified_profile_card_bytes(
     def _collect():
         with core._DATA_LOCK:
             data = core.load_data()
+            u_key = str(uid)
+            had_prof = isinstance(core.safe_get_dict(data, "user_profiles").get(u_key), dict)
+            had_titles = bool(core.safe_get_dict(data, "user_profiles", u_key).get("owned_titles")) if had_prof else False
             st = collect_user_unified_stats(data, guild_id, uid, uname)
-            if st["newly_unlocked_titles"]:
+            if not had_prof or not had_titles or st["newly_unlocked_titles"]:
                 core.save_data(data)
             return st
 

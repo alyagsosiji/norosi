@@ -601,7 +601,7 @@ class CommandRemoteSelect(discord.ui.Select):
             await core.safe_send_response(interaction, embed=sugg_view.build_overview_embed(), view=sugg_view, ephemeral=True)
         elif val == "help":
             embed = build_help_embed("all")
-            await core.safe_send_response(interaction, embed=embed, view=HelpCategoryView(), ephemeral=True)
+            await core.safe_send_response(interaction, embed=embed, view=HelpCategoryView(bot_instance=self.bot_instance, author=interaction.user), ephemeral=True)
         else:
             await core.safe_send_response(interaction, content=f"💡 선택하신 기능(`/{val}`)은 채팅창에 직접 명령어를 입력하여 실행할 수 있습니다.", ephemeral=True)
 
@@ -1499,15 +1499,26 @@ class SecretDDayHubView(core.SafeView):
             self.del_select.disabled = True
         else:
             opts = []
-            for s_name, s_info in sorted(self.s_ddays.items(), key=lambda x: x[1].get("date", ""))[:25]:
+            seen_vals = set()
+            for s_name, s_info in sorted(self.s_ddays.items(), key=lambda x: x[1].get("date", "")):
+                val = str(s_name)[:100]
+                if not val or val in seen_vals:
+                    continue
+                seen_vals.add(val)
                 opts.append(discord.SelectOption(
-                    label=s_name[:95],
-                    value=s_name,
+                    label=str(s_name)[:95],
+                    value=val,
                     description=f"목표일: {s_info.get('date', '-')} | 선택 시 즉시 삭제",
                     emoji="🗑️"
                 ))
-            self.del_select.options = opts
-            self.del_select.disabled = False
+                if len(opts) >= 25:
+                    break
+            if not opts:
+                self.del_select.options = [discord.SelectOption(label="등록된 비밀 디데이가 없습니다", value="NONE")]
+                self.del_select.disabled = True
+            else:
+                self.del_select.options = opts
+                self.del_select.disabled = False
 
     def build_embed(self):
         embed = discord.Embed(
@@ -1551,14 +1562,20 @@ class SecretDDayHubView(core.SafeView):
             await core.safe_defer(interaction)
             return
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
         u_key = str(self.user.id)
-        profile = core.ensure_user_profile(data, u_key, self.user.display_name)
-        s_ddays = core.ensure_dict_path(profile, "secret_ddays")
-        if val in s_ddays:
-            del s_ddays[val]
-            await asyncio.to_thread(core.save_data, data)
-        self.s_ddays = {k: v for k, v in s_ddays.items() if isinstance(v, dict)}
+
+        def _do_del_secret():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                profile = core.ensure_user_profile(data, u_key, self.user.display_name)
+                s_ddays = core.ensure_dict_path(profile, "secret_ddays")
+                target_k = val if val in s_ddays else next((k for k in s_ddays if str(k)[:100] == val), None)
+                if target_k is not None and target_k in s_ddays:
+                    del s_ddays[target_k]
+                    core.save_data(data)
+                return {k: dict(v) for k, v in s_ddays.items() if isinstance(v, dict)}
+
+        self.s_ddays = await asyncio.to_thread(_do_del_secret)
         self.update_delete_select()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
@@ -1588,22 +1605,28 @@ class PartnerDDayAddModal(core.SafeModal, title="💖 파트너 공동 D-Day 추
         plus_one_val = core.parse_dday_plus_one_flag(self.p_plus_one.value)
 
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
         pair_key = core.get_partner_pair_key(self.hub_view.user.id, self.hub_view.partner_id)
-        partners_map = core.ensure_dict_path(data, "partners")
-        pair_obj = core.ensure_dict_path(partners_map, pair_key)
-        if "since" not in pair_obj:
-            pair_obj["since"] = core.get_today_str()
-        p_ddays_map = core.ensure_dict_path(pair_obj, "ddays")
         today_str = core.get_today_str()
-        p_ddays_map[self.p_name.value.strip()] = {
-            "date": d_val,
-            "start_date": today_str,
-            "plus_one": plus_one_val,
-            "notified_date": ""
-        }
-        await asyncio.to_thread(core.save_data, data)
-        self.hub_view.data = data
+        p_name_clean = self.p_name.value.strip()
+
+        def _do_add_partner_dday():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                partners_map = core.ensure_dict_path(data, "partners")
+                pair_obj = core.ensure_dict_path(partners_map, pair_key)
+                if "since" not in pair_obj:
+                    pair_obj["since"] = today_str
+                p_ddays_map = core.ensure_dict_path(pair_obj, "ddays")
+                p_ddays_map[p_name_clean] = {
+                    "date": d_val,
+                    "start_date": today_str,
+                    "plus_one": plus_one_val,
+                    "notified_date": ""
+                }
+                core.save_data(data)
+                return data
+
+        self.hub_view.data = await asyncio.to_thread(_do_add_partner_dday)
         self.hub_view.update_components()
         await interaction.edit_original_response(embed=self.hub_view.build_embed(), view=self.hub_view)
 
@@ -1625,15 +1648,26 @@ class PartnerHubView(core.SafeView):
             self.del_dday_select.disabled = True
         else:
             opts = []
-            for d_name, d_info in sorted(p_ddays.items(), key=lambda x: x[1].get("date", ""))[:25]:
+            seen_vals = set()
+            for d_name, d_info in sorted(p_ddays.items(), key=lambda x: x[1].get("date", "")):
+                val = str(d_name)[:100]
+                if not val or val in seen_vals:
+                    continue
+                seen_vals.add(val)
                 opts.append(discord.SelectOption(
-                    label=d_name[:95],
-                    value=d_name,
+                    label=str(d_name)[:95],
+                    value=val,
                     description=f"목표일: {d_info.get('date', '-')} | 선택 시 삭제",
                     emoji="🗑️"
                 ))
-            self.del_dday_select.options = opts
-            self.del_dday_select.disabled = False
+                if len(opts) >= 25:
+                    break
+            if not opts:
+                self.del_dday_select.options = [discord.SelectOption(label="등록된 공동 D-Day가 없습니다", value="NONE")]
+                self.del_dday_select.disabled = True
+            else:
+                self.del_dday_select.options = opts
+                self.del_dday_select.disabled = False
 
     def build_embed(self):
         u_key = str(self.user.id)
@@ -1715,13 +1749,19 @@ class PartnerHubView(core.SafeView):
             await core.safe_defer(interaction)
             return
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
         pair_key = core.get_partner_pair_key(self.user.id, self.partner_id)
-        p_ddays = core.safe_get_dict(data, "partners", pair_key, "ddays")
-        if val in p_ddays:
-            del p_ddays[val]
-            await asyncio.to_thread(core.save_data, data)
-        self.data = data
+
+        def _do_del_partner_dday():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                p_ddays = core.safe_get_dict(data, "partners", pair_key, "ddays")
+                target_k = val if val in p_ddays else next((k for k in p_ddays if str(k)[:100] == val), None)
+                if target_k is not None and target_k in p_ddays:
+                    del p_ddays[target_k]
+                    core.save_data(data)
+                return data
+
+        self.data = await asyncio.to_thread(_do_del_partner_dday)
         self.update_components()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
@@ -1752,36 +1792,48 @@ class PartnerAcceptView(core.SafeView):
 
     @discord.ui.button(label="💖 파트너 수락하기", style=discord.ButtonStyle.success)
     async def accept_partner(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.target.id:
+        if not self.requester or not self.target:
+            self._restore_from_message(interaction)
+        if not self.target or interaction.user.id != self.target.id:
             await core.safe_send_response(interaction, "❌ 파트너 신청을 받은 당사자만 수락할 수 있습니다.", ephemeral=True)
             return
 
-        if self.requester.id == self.target.id:
+        if self.requester and self.requester.id == self.target.id:
             await core.safe_send_response(interaction, "❌ 본인에게는 파트너 수락을 할 수 없습니다.", ephemeral=True)
             return
 
+        if not self.requester:
+            await core.safe_send_response(interaction, "❌ 신청자 정보를 확인할 수 없습니다. 다시 신청해 주세요.", ephemeral=True)
+            return
+
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
         u1 = str(self.requester.id)
         u2 = str(self.target.id)
+        r_name = self.requester.display_name
+        t_name = self.target.display_name
 
-        p1 = core.ensure_user_profile(data, u1, self.requester.display_name)
-        p2 = core.ensure_user_profile(data, u2, self.target.display_name)
-        if p1.get("partner_id") and str(p1.get("partner_id")) != u2:
-            await interaction.followup.send("❌ 신청자가 이미 다른 유저와 파트너 상태입니다.", ephemeral=True)
+        def _do_accept_partner():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                p1 = core.ensure_user_profile(data, u1, r_name)
+                p2 = core.ensure_user_profile(data, u2, t_name)
+                if p1.get("partner_id") and str(p1.get("partner_id")) != u2:
+                    return False, "❌ 신청자가 이미 다른 유저와 파트너 상태입니다."
+                if p2.get("partner_id") and str(p2.get("partner_id")) != u1:
+                    return False, "❌ 이미 다른 유저와 파트너 상태입니다."
+                p1["partner_id"] = u2
+                p2["partner_id"] = u1
+                pair_key = core.get_partner_pair_key(u1, u2)
+                partners_map = core.ensure_dict_path(data, "partners")
+                if pair_key not in partners_map or not isinstance(partners_map.get(pair_key), dict):
+                    partners_map[pair_key] = {"ddays": {}, "since": core.get_today_str()}
+                core.save_data(data)
+                return True, ""
+
+        ok, err_msg = await asyncio.to_thread(_do_accept_partner)
+        if not ok:
+            await interaction.followup.send(err_msg, ephemeral=True)
             return
-        if p2.get("partner_id") and str(p2.get("partner_id")) != u1:
-            await interaction.followup.send("❌ 이미 다른 유저와 파트너 상태입니다.", ephemeral=True)
-            return
-        p1["partner_id"] = u2
-        p2["partner_id"] = u1
-
-        pair_key = core.get_partner_pair_key(u1, u2)
-        partners_map = core.ensure_dict_path(data, "partners")
-        if pair_key not in partners_map or not isinstance(partners_map.get(pair_key), dict):
-            partners_map[pair_key] = {"ddays": {}, "since": core.get_today_str()}
-
-        await asyncio.to_thread(core.save_data, data)
 
         embed = discord.Embed(
             title="💑 새로운 파트너 탄생!",
@@ -1797,7 +1849,10 @@ class PartnerAcceptView(core.SafeView):
 
     @discord.ui.button(label="거절", style=discord.ButtonStyle.secondary)
     async def decline_partner(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id not in (self.target.id, self.requester.id):
+        if not self.requester or not self.target:
+            self._restore_from_message(interaction)
+        allowed_ids = {u.id for u in (self.target, self.requester) if u is not None}
+        if allowed_ids and interaction.user.id not in allowed_ids:
             await core.safe_send_response(interaction, "❌ 당사자만 누를 수 있습니다.", ephemeral=True)
             return
         embed = discord.Embed(
@@ -1812,16 +1867,23 @@ class DDayDeleteSelect(discord.ui.Select):
     def __init__(self, ddays, bot_instance):
         self.bot_instance = bot_instance
         options = []
+        seen_vals = set()
         sorted_ddays = sorted({k: v for k, v in core.as_dict(ddays).items() if isinstance(v, dict)}.items(), key=lambda x: x[1].get("date", "9999-12-31"))
-        for name, info in sorted_ddays[:25]:
+        for name, info in sorted_ddays:
+            val = str(name)[:100]
+            if not val or val in seen_vals:
+                continue
+            seen_vals.add(val)
             date_str = info.get("date", "")
             repeat_icon = "🔄 " if info.get("repeat") else ""
             ch_icon = "🔊채널있음 | " if info.get("channel_id") else ""
             options.append(discord.SelectOption(
                 label=str(name)[:100],
-                value=str(name)[:100],
+                value=val,
                 description=(f"{ch_icon}{repeat_icon}목표일: {date_str}" if date_str else "목표일 미지정")[:100]
             ))
+            if len(options) >= 25:
+                break
         if not options:
             options.append(discord.SelectOption(label="삭제할 일정이 없습니다", value="NONE"))
         super().__init__(placeholder="🗑️ 삭제할 일정을 선택하세요 (연결된 채널도 함께 삭제됩니다)...", min_values=1, max_values=1, options=options)
@@ -1860,8 +1922,15 @@ class DDayDeleteSelect(discord.ui.Select):
                     except Exception:
                         pass
 
-            del data["ddays"][selected_name]
-            await asyncio.to_thread(core.save_data, data)
+            def _do_remove_dday():
+                with core._DATA_LOCK:
+                    latest = core.load_data()
+                    dmap = core.ensure_dict_path(latest, "ddays")
+                    if selected_name in dmap:
+                        del dmap[selected_name]
+                        core.save_data(latest)
+
+            await asyncio.to_thread(_do_remove_dday)
 
             embed = discord.Embed(
                 title="🗑️ 디데이 및 채널 삭제 완료",

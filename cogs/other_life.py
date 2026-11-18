@@ -1382,7 +1382,14 @@ class OtherLifeGameView(core.SafeView):
         node = other_life_core.build_current_node(active)
         choices = node["choices"]
         num_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣"]
-        split_at = 4 if (len(choices) <= 4 or len(choices) >= 7) else 3
+        cur_beat = int(active.get("beat", 1) or 1)
+        career_id = str(active.get("career") or "none")
+        allowed_specs = other_life_core.CAREER_SPECIALTIES.get(career_id, [])
+        has_spec_select = (cur_beat == 8 and len(allowed_specs) > 1)
+        if has_spec_select and len(choices) <= 5:
+            split_at = 5
+        else:
+            split_at = 4 if (len(choices) <= 4 or len(choices) >= 7) else 3
 
         for idx, ch in enumerate(choices):
             row = 0 if idx < split_at else 1
@@ -1399,15 +1406,16 @@ class OtherLifeGameView(core.SafeView):
             btn.callback = self._make_choice_cb(ch["id"])
             self.add_item(btn)
 
-        # Beat 8 (22세): Row 1에 세부 전공 선택 드롭다운 배치 (Row 0에 선택지 <=4개 보장)
-        cur_beat = int(active.get("beat", 1) or 1)
-        career_id = str(active.get("career") or "none")
-        allowed_specs = other_life_core.CAREER_SPECIALTIES.get(career_id, [])
-        if cur_beat == 8 and len(choices) <= 4 and len(allowed_specs) > 1:
+        # Beat 8 (22세): 세부 전공 선택 드롭다운 배치 (버튼과 행 충돌 방지)
+        spec_row = 1 if len(choices) <= split_at else 2
+        if has_spec_select:
             cur_spec = str(active.get("specialty") or other_life_narratives.resolve_specialty_id(active, career_id))
-            self.add_item(OtherLifeSpecialtySelect(self, career_id, cur_spec, row=1))
+            self.add_item(OtherLifeSpecialtySelect(self, career_id, cur_spec, row=spec_row))
+            util_row = 2 if spec_row == 1 else 3
+        else:
+            util_row = 2
 
-        # Row 2: Utility actions (5 buttons max)
+        # Utility actions (5 buttons max)
         cur_age = int(active.get("age", 6) or 6)
         ceiling = other_life_core._stage_age_ceiling(cur_beat, cur_age)
         max_q = 3 if cur_beat == 18 else 2
@@ -1417,7 +1425,7 @@ class OtherLifeGameView(core.SafeView):
             label="⏳ 1년 조용히",
             style=discord.ButtonStyle.secondary,
             disabled=quiet_disabled,
-            row=2,
+            row=util_row,
             custom_id="norosi:OtherLifeGameView:quiet_year",
         )
         btn_quiet.callback = self._on_quiet_year
@@ -1426,7 +1434,7 @@ class OtherLifeGameView(core.SafeView):
         btn_tick = discord.ui.Button(
             label="🔄 세월 확인",
             style=discord.ButtonStyle.secondary,
-            row=2,
+            row=util_row,
             custom_id="norosi:OtherLifeGameView:refresh_time",
         )
         btn_tick.callback = self._on_refresh_time
@@ -1435,7 +1443,7 @@ class OtherLifeGameView(core.SafeView):
         btn_col = discord.ui.Button(
             label=f"📜 도감 ({unlocked_cnt}/{total_endings})",
             style=discord.ButtonStyle.secondary,
-            row=2,
+            row=util_row,
             custom_id="norosi:OtherLifeGameView:open_collection",
         )
         btn_col.callback = self._on_open_collection
@@ -1444,7 +1452,7 @@ class OtherLifeGameView(core.SafeView):
         btn_rank = discord.ui.Button(
             label="🏆 랭킹",
             style=discord.ButtonStyle.secondary,
-            row=2,
+            row=util_row,
             custom_id="norosi:OtherLifeGameView:open_ranking",
         )
         btn_rank.callback = self._on_open_ranking
@@ -1453,20 +1461,21 @@ class OtherLifeGameView(core.SafeView):
         btn_reset = discord.ui.Button(
             label="🔁 새 인생",
             style=discord.ButtonStyle.danger,
-            row=2,
+            row=util_row,
             custom_id="norosi:OtherLifeGameView:request_reset",
         )
         btn_reset.callback = self._on_request_reset
         self.add_item(btn_reset)
 
-        # Row 3: Live Time Scale Selector
-        self.add_item(
-            OtherLifeScaleSelect(
-                self,
-                str(active.get("time_scale") or self.selected_scale),
-                row=3,
+        # Row 3: Live Time Scale Selector (when util_row <= 2)
+        if util_row <= 2:
+            self.add_item(
+                OtherLifeScaleSelect(
+                    self,
+                    str(active.get("time_scale") or self.selected_scale),
+                    row=3,
+                )
             )
-        )
 
         # Row 4: Full Chronicle & Turning Points Viewer
         btn_chron = discord.ui.Button(

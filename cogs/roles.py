@@ -842,8 +842,6 @@ class AttachExistingMessageModal(core.SafeModal, title="🔗 기존 메시지에
             await core.safe_send_response(interaction, "❌ 올바른 이모지를 입력해 주세요.", ephemeral=True)
             return
 
-        await core.safe_defer(interaction, ephemeral=True)
-
         data = await asyncio.to_thread(core.load_data)
         rr_map = core.ensure_dict_path(data, "reaction_roles")
         mid_str = str(message_id)

@@ -1098,7 +1098,7 @@ def get_user_fishing_summary(guild_id: int | str, user_id: int | str, user_name:
         if not had_u or not had_prof or prev_lvl != lvl:
             core.save_data(data)
         return {
-            "user": u,
+            "user": copy.deepcopy(u),
             "crystals": max(0, _safe_int(prof.get("crystals"), 0)),
             "env": env,
             "rod": RODS[u["rod_id"]],
@@ -1968,14 +1968,17 @@ def remove_fish_from_tank(guild_id: int | str, user_id: int | str, uid: str) -> 
     with _FISHING_LOCK:
         data = core.load_data()
         u = ensure_fishing_user(data, guild_id, user_id)
+        bag = u.get("bag")
+        if not isinstance(bag, list):
+            bag = []
+            u["bag"] = bag
+        bag_cap = get_bag_capacity(u)
+        if len(bag) >= bag_cap:
+            return False, f"⚠️ 가방이 가득 차서 수족관에서 물고기를 회수할 수 없습니다! (`{len(bag):,}/{bag_cap:,}`)"
         tank = u.get("tank", [])
         for idx, item in enumerate(tank):
             if isinstance(item, dict) and item.get("uid") == uid:
                 removed = tank.pop(idx)
-                bag = u.get("bag")
-                if not isinstance(bag, list):
-                    bag = []
-                    u["bag"] = bag
                 bag.append(removed)
                 core.save_data(data)
                 return True, f"🎒 **{removed.get('name', '물고기')}**을(를) 수족관에서 가방으로 회수했습니다."
@@ -2144,10 +2147,11 @@ _TOTAL_BY_RARITY: Dict[int, int] = {
 
 
 def get_fishing_pokedex_stats(guild_id: int | str, user_id: int | str) -> Dict[str, Any]:
-    data = core.get_cached_data_ro()
-    g_key = str(guild_id or 0)
-    u_key = str(user_id)
-    pd = core.safe_get_dict(data, "fishing_users", g_key, u_key, "pokedex")
+    with _FISHING_LOCK:
+        data = core.get_cached_data_ro()
+        g_key = str(guild_id or 0)
+        u_key = str(user_id)
+        pd = copy.deepcopy(core.safe_get_dict(data, "fishing_users", g_key, u_key, "pokedex"))
 
     owned_by_hab = {"lake": 0, "river": 0, "sea": 0}
     owned_by_zone: Dict[Tuple[str, str], int] = {}
@@ -3031,7 +3035,7 @@ def start_fishing_tournament(
                 pass
 
         if isinstance(active, dict) and not active.get("settled") and not active.get("is_auto_weekend"):
-            return False, f"⚠️ 이미 진행 중인 **`{active.get('title', '낚시 대회')}`**가 있습니다! 먼저 종료하거나 정산해 주세요.", active
+            return False, f"⚠️ 이미 진행 중인 **`{active.get('title', '낚시 대회')}`**가 있습니다! 먼저 종료하거나 정산해 주세요.", copy.deepcopy(active)
 
         # 주말 자동 대회가 진행 중이었는데 커스텀 대회를 여는 경우 기존 주말 대회 참가 기록 보존 정산
         if isinstance(active, dict) and active.get("is_auto_weekend") and active.get("participants"):

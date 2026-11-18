@@ -603,7 +603,11 @@ class GenshinInventoryView(core.SafeView):
         data = core.load_data()
         uid = self.user.id if self.user else 0
         u_data = genshin_core.ensure_genshin_user(data, self.guild_id, uid)
-        items = [v for v in core.as_dict(u_data.get("items")).values() if isinstance(v, dict) and v.get("kind") and v.get("name")]
+        items = [
+            {**v, "item_key": str(v.get("item_key") or k)}
+            for k, v in core.as_dict(u_data.get("items")).items()
+            if isinstance(v, dict) and v.get("kind") and v.get("name")
+        ]
         if self.filter_mode == "char":
             items = [it for it in items if it.get("kind") == "char"]
         elif self.filter_mode == "weapon":
@@ -645,7 +649,12 @@ class GenshinInventoryView(core.SafeView):
 
         if slice_items:
             d_opts = []
+            seen_vals = set()
             for it in slice_items:
+                val = str(it.get("item_key") or it.get("id") or it.get("name") or "unknown")[:100]
+                if val in seen_vals:
+                    continue
+                seen_vals.add(val)
                 ikind = it.get("kind")
                 if ikind == "char":
                     tag = f"C{it.get('constellation', 0)}"
@@ -656,12 +665,13 @@ class GenshinInventoryView(core.SafeView):
                 lock_icon = "🔒 " if it.get("locked") else ""
                 d_opts.append(discord.SelectOption(
                     label=f"{lock_icon}{it.get('rarity_label', '⭐')} {it.get('name', '알 수 없음')} ({tag})"[:95],
-                    value=str(it.get("item_key") or it.get("id") or it.get("name") or "unknown")[:100],
+                    value=val,
                     description=f"Lv.{it.get('level', 1)} · 보유 {it.get('count', 1)}회 · 클릭해 스플래시/잠금/레벨업"[:95],
                 ))
-            sel_it = discord.ui.Select(placeholder="🖼️ 상세 일러스트 · 🔒잠금 · ⬆️레벨업 선택...", options=d_opts, row=1)
-            sel_it.callback = self._on_select_item
-            self.add_item(sel_it)
+            if d_opts:
+                sel_it = discord.ui.Select(placeholder="🖼️ 상세 일러스트 · 🔒잠금 · ⬆️레벨업 선택...", options=d_opts, row=1)
+                sel_it.callback = self._on_select_item
+                self.add_item(sel_it)
 
         b_prev = discord.ui.Button(label="◀ 이전", style=discord.ButtonStyle.secondary, disabled=(self.page <= 0), row=2)
         b_prev.callback = self._on_prev
@@ -761,6 +771,23 @@ class GenshinItemDetailView(core.SafeView):
         self.item_key = item_key
         self._build()
 
+    def _restore_from_message(self, interaction: discord.Interaction):
+        if self.user is None:
+            self.user = interaction.user
+        if not self.guild_id:
+            self.guild_id = interaction.guild_id or 0
+        if not self.item_key and interaction.message and interaction.message.embeds:
+            title = (interaction.message.embeds[0].title or "").replace("🔒", "").strip()
+            for star in ("★★★★★", "★★★★", "★★★", "★★", "★"):
+                title = title.replace(star, "").strip()
+            if title:
+                data = core.load_data()
+                u_data = genshin_core.ensure_genshin_user(data, self.guild_id, self.user.id)
+                for k, v in core.as_dict(u_data.get("items")).items():
+                    if isinstance(v, dict) and str(v.get("name", "")).strip() == title:
+                        self.item_key = str(v.get("item_key") or k)
+                        break
+
     def _build(self):
         self.clear_items()
         data = core.load_data()
@@ -851,6 +878,7 @@ class GenshinItemDetailView(core.SafeView):
         return emb, file_obj
 
     async def _on_lock(self, interaction: discord.Interaction):
+        self._restore_from_message(interaction)
         if self.user and interaction.user.id != self.user.id:
             return await core.safe_send_response(interaction, "❌ 본인 아이템만 잠금할 수 있습니다.", ephemeral=True)
         await core.safe_defer(interaction)
@@ -859,10 +887,11 @@ class GenshinItemDetailView(core.SafeView):
         self.guild_id = gid
         await asyncio.to_thread(genshin_core.toggle_genshin_item_lock, gid, interaction.user.id, self.item_key)
         self._build()
-        emb, _ = await self.build_embed_and_file()
-        await core.safe_edit_response(interaction, embed=emb, view=self)
+        emb, f = await self.build_embed_and_file()
+        await core.safe_edit_response(interaction, embed=emb, view=self, attachments=[f] if f else [])
 
     async def _on_lvup(self, interaction: discord.Interaction):
+        self._restore_from_message(interaction)
         if self.user and interaction.user.id != self.user.id:
             return await core.safe_send_response(interaction, "❌ 본인 캐릭터만 레벨업할 수 있습니다.", ephemeral=True)
         await core.safe_defer(interaction)
@@ -873,10 +902,11 @@ class GenshinItemDetailView(core.SafeView):
         if not ok:
             return await core.safe_send_response(interaction, msg, ephemeral=True)
         self._build()
-        emb, _ = await self.build_embed_and_file()
-        await core.safe_edit_response(interaction, content=msg, embed=emb, view=self)
+        emb, f = await self.build_embed_and_file()
+        await core.safe_edit_response(interaction, content=msg, embed=emb, view=self, attachments=[f] if f else [])
 
     async def _on_art_lvup(self, interaction: discord.Interaction):
+        self._restore_from_message(interaction)
         if self.user and interaction.user.id != self.user.id:
             return await core.safe_send_response(interaction, "❌ 본인 성유물만 강화할 수 있습니다.", ephemeral=True)
         await core.safe_defer(interaction)
@@ -887,8 +917,8 @@ class GenshinItemDetailView(core.SafeView):
         if not ok:
             return await core.safe_send_response(interaction, msg, ephemeral=True)
         self._build()
-        emb, _ = await self.build_embed_and_file()
-        await core.safe_edit_response(interaction, content=msg, embed=emb, view=self)
+        emb, f = await self.build_embed_and_file()
+        await core.safe_edit_response(interaction, content=msg, embed=emb, view=self, attachments=[f] if f else [])
 
 
 class GenshinPokedexView(core.SafeView):
@@ -1129,27 +1159,38 @@ class GenshinPartyView(core.SafeView):
         self.clear_items()
         data = core.load_data()
         u_data = genshin_core.ensure_genshin_user(data, self.guild_id, self.user.id if self.user else 0)
-        owned_chars = [v for v in core.as_dict(u_data.get("items")).values() if isinstance(v, dict) and v.get("kind") == "char"]
+        owned_chars = [
+            {**v, "item_key": str(v.get("item_key") or k)}
+            for k, v in core.as_dict(u_data.get("items")).items()
+            if isinstance(v, dict) and v.get("kind") == "char"
+        ]
         owned_chars.sort(key=lambda c: (-int(c.get("rank", 4)), -int(c.get("level", 1)), -int(c.get("constellation", 0)), c.get("name", "")))
 
         if owned_chars:
-            opts = [
-                discord.SelectOption(
-                    label=f"{c['rarity_label']} {c['name']} (C{c.get('constellation', 0)} · Lv.{c.get('level', 1)})"[:95],
-                    value=c["item_key"],
-                    description=f"{c.get('element_emoji', '')}{c.get('element_name', '')} · 전투력 {genshin_core.compute_genshin_char_power(c):,}"[:95],
+            opts = []
+            seen_vals = set()
+            for c in owned_chars[:25]:
+                val = str(c["item_key"])[:100]
+                if val in seen_vals:
+                    continue
+                seen_vals.add(val)
+                opts.append(
+                    discord.SelectOption(
+                        label=f"{c.get('rarity_label', '⭐')} {c.get('name', '알 수 없음')} (C{c.get('constellation', 0)} · Lv.{c.get('level', 1)})"[:95],
+                        value=val,
+                        description=f"{c.get('element_emoji', '')}{c.get('element_name', '')} · 전투력 {genshin_core.compute_genshin_char_power(c):,}"[:95],
+                    )
                 )
-                for c in owned_chars[:25]
-            ]
-            sel = discord.ui.Select(
-                placeholder="⚔️ 파티에 배치할 캐릭터 최대 4명 선택...",
-                options=opts,
-                min_values=1,
-                max_values=min(4, len(opts)),
-                row=0,
-            )
-            sel.callback = self._on_pick_party
-            self.add_item(sel)
+            if opts:
+                sel = discord.ui.Select(
+                    placeholder="⚔️ 파티에 배치할 캐릭터 최대 4명 선택...",
+                    options=opts,
+                    min_values=1,
+                    max_values=min(4, len(opts)),
+                    row=0,
+                )
+                sel.callback = self._on_pick_party
+                self.add_item(sel)
 
         b_auto = discord.ui.Button(label="✨ 최강 전투력 자동 편성", style=discord.ButtonStyle.primary, row=1)
         b_auto.callback = self._on_auto
@@ -1172,32 +1213,39 @@ class GenshinPartyView(core.SafeView):
         if not await self._guard(interaction):
             return
         picked = list(interaction.data["values"])[:4]
-        data = core.load_data()
-        u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
-        u_data["party"] = picked
-        core.save_data(data)
+        with core._DATA_LOCK:
+            data = core.load_data()
+            u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
+            u_data["party"] = picked
+            core.save_data(data)
         self._build()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     async def _on_auto(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
-        data = core.load_data()
-        u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
-        chars = [v for v in core.as_dict(u_data.get("items")).values() if isinstance(v, dict) and v.get("kind") == "char"]
-        chars.sort(key=lambda c: -genshin_core.compute_genshin_char_power(c))
-        u_data["party"] = [c["item_key"] for c in chars[:4]]
-        core.save_data(data)
+        with core._DATA_LOCK:
+            data = core.load_data()
+            u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
+            chars = [
+                {**v, "item_key": str(v.get("item_key") or k)}
+                for k, v in core.as_dict(u_data.get("items")).items()
+                if isinstance(v, dict) and v.get("kind") == "char"
+            ]
+            chars.sort(key=lambda c: -genshin_core.compute_genshin_char_power(c))
+            u_data["party"] = [c["item_key"] for c in chars[:4]]
+            core.save_data(data)
         self._build()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     async def _on_clear(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
-        data = core.load_data()
-        u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
-        u_data["party"] = []
-        core.save_data(data)
+        with core._DATA_LOCK:
+            data = core.load_data()
+            u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
+            u_data["party"] = []
+            core.save_data(data)
         self._build()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 

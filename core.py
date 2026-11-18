@@ -711,6 +711,8 @@ def reconstruct_safe_view(view_cls_or_name: type[SafeView] | str, interaction: d
                 kwargs[name] = interaction
             elif name in ("owner",):
                 kwargs[name] = orig_user
+            elif name in ("owner_id",):
+                kwargs[name] = getattr(orig_user, "id", 0)
             elif name in ("user", "caller", "member", "viewer", "target_user", "host_user", "author", "host"):
                 kwargs[name] = orig_user
             elif name in ("requester", "target"):
@@ -725,6 +727,15 @@ def reconstruct_safe_view(view_cls_or_name: type[SafeView] | str, interaction: d
                 kwargs[name] = getattr(interaction, "channel_id", None)
             elif name in ("data",):
                 kwargs[name] = _data()
+            elif name == "summary":
+                if view_cls.__name__.startswith("Fishing"):
+                    import fishing_core
+                    gid = interaction.guild.id if interaction.guild else 0
+                    kwargs[name] = fishing_core.get_user_fishing_summary(
+                        gid, orig_user.id, getattr(orig_user, "display_name", "강태공")
+                    )
+                else:
+                    kwargs[name] = {}
             elif name in ("s_ddays",):
                 kwargs[name] = safe_get_dict(_data(), "user_profiles", str(orig_user.id), "secret_ddays")
             elif name in ("partner_id",):
@@ -1410,15 +1421,16 @@ def get_costume_by_id(costume_id: str) -> dict | None:
 
     for cos in PROSEKA_KR_COSTUMES.values():
         if cos.get("costume_id") == costume_id_str:
-            return cos
+            return dict(cos)
     if costume_id_str in PROSEKA_KR_COSTUMES:
-        return PROSEKA_KR_COSTUMES[costume_id_str]
+        return dict(PROSEKA_KR_COSTUMES[costume_id_str])
     return None
 
 
 def get_costume_for_card(card_id: int | str) -> dict | None:
     """특정 카드가 제공하는 3D 의상 정보 조회"""
-    return PROSEKA_KR_COSTUMES.get(str(card_id))
+    cos = PROSEKA_KR_COSTUMES.get(str(card_id))
+    return dict(cos) if isinstance(cos, dict) else None
 
 
 CHARACTER_BIRTHDAYS: dict[int, tuple[int, int]] = {
@@ -1502,6 +1514,8 @@ def is_costume_another_color_unlocked(guild_id: int, user_id: int, costume: dict
     u_key = str(user_id)
     u_cards = safe_get_dict(d, "gacha_users", g_key, u_key, "cards")
     c_obj = u_cards.get(str(card_id))
+    if not isinstance(c_obj, dict):
+        c_obj = next((c for c in u_cards.values() if isinstance(c, dict) and str(c.get("id")) == str(card_id)), None)
     if not isinstance(c_obj, dict):
         return False, False
     mr = int(c_obj.get("master_rank", 0))
@@ -1605,11 +1619,18 @@ def upgrade_card_master_rank(guild_id: int, user_id: int, card_id_str: str, use_
         u_key = str(user_id)
         prof = ensure_user_profile(data, u_key)
         u_cards = safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
-        cid_str = str(card_id_str)
-        if cid_str not in u_cards or not isinstance(u_cards[cid_str], dict):
+        cid_str = str(card_id_str).strip()
+        card = u_cards.get(cid_str) if isinstance(u_cards.get(cid_str), dict) else None
+        if not card:
+            for k, c_item in u_cards.items():
+                if isinstance(c_item, dict) and (str(c_item.get("id")) == cid_str or str(k) == cid_str):
+                    card = c_item
+                    break
+        if not card:
             return False, "보유하지 않은 카드입니다.", {}
+        if card.get("id") is None and cid_str.isdigit():
+            card["id"] = int(cid_str)
 
-        card = u_cards[cid_str]
         cur_mr = int(card.get("master_rank", 0))
         if cur_mr >= 5:
             return False, f"**[{card.get('prefix')}] {card.get('char_name')}** 카드는 이미 최고 **마스터 랭크 5(✦5/5)**에 도달했습니다!", {}
@@ -1637,7 +1658,7 @@ def upgrade_card_master_rank(guild_id: int, user_id: int, card_id_str: str, use_
         new_power = get_card_power(card)
         save_data(data)
 
-        cos = get_costume_for_card(card.get("id"))
+        cos = get_costume_for_card(card.get("id") if card.get("id") is not None else cid_str)
         unlocked_ac_now = (cur_mr < 2 and new_mr >= 2 and cos is not None)
         unlocked_hair_now = (unlocked_ac_now and bool(card.get("is_limited")))
 
@@ -4569,8 +4590,18 @@ def sync_todo_history_today(todo: dict):
 
 def get_todo_galaxy_grass(profile: dict) -> tuple[str, str]:
     """최근 7일간의 은하수 잔디(🟪 하드코어 완주 / 🌌 일반 100% / 🌠 진행중 / 🌑 미달성) 요약 줄과 상세 내역 문자열 반환"""
-    todo = ensure_user_todo_today(profile)
-    history = as_dict(todo.get("history"))
+    today_str = get_today_str()
+    todo = as_dict(profile.get("todo"))
+    history = dict(as_dict(todo.get("history")))
+    raw_tasks = todo.get("tasks")
+    tasks_list = raw_tasks if isinstance(raw_tasks, list) else []
+    old_date = todo.get("date")
+    if old_date == today_str:
+        done_cnt = sum(1 for t in tasks_list if isinstance(t, dict) and t.get("done"))
+        history[today_str] = {"done": done_cnt, "total": len(tasks_list)}
+    elif old_date and tasks_list:
+        done_cnt = sum(1 for t in tasks_list if isinstance(t, dict) and t.get("done"))
+        history[old_date] = {"done": done_cnt, "total": len(tasks_list)}
     today_date = datetime.datetime.now(KST).date()
 
     blocks = []
@@ -4899,7 +4930,7 @@ def draw_proseka_cards(pickup_cfg, count=1, banner_type: str = "normal"):
     for c in drawn:
         cid_str = str(c.get("id"))
         if cid_str in PROSEKA_KR_COSTUMES:
-            c["costume"] = PROSEKA_KR_COSTUMES[cid_str]
+            c["costume"] = dict(PROSEKA_KR_COSTUMES[cid_str])
 
     return drawn
 
@@ -5150,7 +5181,7 @@ def draw_birthday_free_pull(guild_id: int, user_id: int, now_dt: datetime.dateti
         for c in drawn:
             cid_str = str(c.get("id"))
             if cid_str in PROSEKA_KR_COSTUMES:
-                c["costume"] = PROSEKA_KR_COSTUMES[cid_str]
+                c["costume"] = dict(PROSEKA_KR_COSTUMES[cid_str])
 
         u_obj["last_bday_free_date"] = today_str
         _save_pulled_cards_in_data(data, guild_id, user_id, drawn)
@@ -5433,28 +5464,32 @@ def _transfer_single_card(g_users: dict, profiles: dict, from_uid: str, to_uid: 
     """특정 유저의 보관함에서 카드를 1장 차감하여 대상 유저의 보관함으로 이전"""
     from_cards = ensure_dict_path(g_users, from_uid, "cards")
     to_cards = ensure_dict_path(g_users, to_uid, "cards")
+    cid_s = str(card_id_str)
 
-    src_card = copy.deepcopy(from_cards[card_id_str])
+    src_card = copy.deepcopy(from_cards[cid_s])
     src_card["locked"] = False
     now_str = get_now_datetime_str()
 
     # 보내는 유저 카드 수량 1 차감 (0장이 되면 보관함 및 덱에서 제거)
-    if from_cards[card_id_str].get("count", 1) > 1:
-        from_cards[card_id_str]["count"] -= 1
+    if from_cards[cid_s].get("count", 1) > 1:
+        from_cards[cid_s]["count"] -= 1
     else:
-        del from_cards[card_id_str]
-        if from_uid in profiles and isinstance(profiles[from_uid], dict) and card_id_str in (profiles[from_uid].get("deck") or []):
-            profiles[from_uid]["deck"] = [cid for cid in profiles[from_uid]["deck"] if cid != card_id_str]
+        del from_cards[cid_s]
+        if from_uid in profiles and isinstance(profiles[from_uid], dict) and isinstance(profiles[from_uid].get("deck"), list):
+            profiles[from_uid]["deck"] = [cid for cid in profiles[from_uid]["deck"] if str(cid) != cid_s]
+        from_g_user = g_users.get(from_uid)
+        if isinstance(from_g_user, dict) and isinstance(from_g_user.get("deck"), list):
+            from_g_user["deck"] = [cid for cid in from_g_user["deck"] if str(cid) != cid_s]
 
     # 받는 유저 보관함에 1장 추가
-    if card_id_str in to_cards and isinstance(to_cards[card_id_str], dict):
-        to_cards[card_id_str]["count"] = to_cards[card_id_str].get("count", 1) + 1
-        to_cards[card_id_str]["last_obtained_at"] = now_str
+    if cid_s in to_cards and isinstance(to_cards[cid_s], dict):
+        to_cards[cid_s]["count"] = to_cards[cid_s].get("count", 1) + 1
+        to_cards[cid_s]["last_obtained_at"] = now_str
     else:
         src_card["count"] = 1
         src_card["obtained_at"] = now_str
         src_card["last_obtained_at"] = now_str
-        to_cards[card_id_str] = src_card
+        to_cards[cid_s] = src_card
 
     return src_card
 
@@ -7024,15 +7059,16 @@ async def resolve_voice_stream(track: dict) -> tuple[dict | None, str | None]:
 # ==========================================
 async def date_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     today_str = get_today_str()
-    if not current:
+    cur_val = (current or "").strip()[:100]
+    if not cur_val:
         return [app_commands.Choice(name=f"예시: {today_str} (오늘 날짜)", value=today_str)]
-    if re.match(r"^\d{4}-\d{2}-\d{2}$", current):
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", cur_val):
         try:
-            _, dday_text = get_dday_info(current)
-            return [app_commands.Choice(name=f"{current} 👉 남은 기간 미리보기: {dday_text}", value=current)]
+            _, dday_text = get_dday_info(cur_val)
+            return [app_commands.Choice(name=f"{cur_val} 👉 남은 기간 미리보기: {dday_text}"[:100], value=cur_val)]
         except ValueError:
-            return [app_commands.Choice(name="❌ 존재하지 않는 날짜입니다", value=current)]
-    return [app_commands.Choice(name=f"{current} (YYYY-MM-DD 형식으로 끝까지 입력해 주세요)", value=current)]
+            return [app_commands.Choice(name="❌ 존재하지 않는 날짜입니다", value=cur_val)]
+    return [app_commands.Choice(name=f"{cur_val[:60]} (YYYY-MM-DD 형식으로 끝까지 입력해 주세요)"[:100], value=cur_val)]
 
 
 async def proseka_char_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
@@ -7040,7 +7076,7 @@ async def proseka_char_autocomplete(interaction: discord.Interaction, current: s
     for cid, info in CHARACTER_MAP.items():
         label = f"{info['name']} ({info['unit']})"
         if not current or current in label:
-            choices.append(app_commands.Choice(name=label, value=info["name"]))
+            choices.append(app_commands.Choice(name=label[:100], value=info["name"][:100]))
     return choices[:25]
 
 
@@ -7049,25 +7085,49 @@ async def oshi_char_autocomplete(interaction: discord.Interaction, current: str)
     for cid, info in CHARACTER_MAP.items():
         label = f"{info['name']} ({info['unit']})"
         if not current or current in label:
-            choices.append(app_commands.Choice(name=label, value=info["name"]))
+            choices.append(app_commands.Choice(name=label[:100], value=info["name"][:100]))
     return choices[:25]
 
 
 async def owned_card_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-    data = get_cached_data()
+    data = get_cached_data_ro()
     g_key = str(interaction.guild_id or 0)
     u_key = str(interaction.user.id)
     user_cards_dict = safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
-    cards = [c for c in user_cards_dict.values() if isinstance(c, dict)]
-    cards.sort(key=lambda x: (-x.get("star_num", 1), -int(x.get("is_limited", False)), x.get("char_id", 99)))
+    cards = []
+    seen = set()
+    for cid_key, c in user_cards_dict.items():
+        if not isinstance(c, dict):
+            continue
+        raw_id = c.get("id") if c.get("id") is not None else cid_key
+        cid_str = str(raw_id).strip()
+        if not cid_str or cid_str in seen:
+            continue
+        seen.add(cid_str)
+        cards.append((cid_str, c))
+
+    cmd_name = getattr(getattr(interaction, "command", None), "name", "") or ""
+    if cmd_name == "마스터랭크":
+        cards.sort(key=lambda pair: (
+            -int(int(pair[1].get("master_rank", 0)) < 5),
+            -int(pair[1].get("star_num", 1)),
+            -int(int(pair[1].get("count", 1)) >= 2),
+            -int(pair[1].get("master_rank", 0)),
+            int(pair[1].get("char_id", 99)),
+        ))
+    else:
+        cards.sort(key=lambda pair: (-pair[1].get("star_num", 1), -int(pair[1].get("is_limited", False)), pair[1].get("char_id", 99)))
 
     choices = []
-    for c in cards:
-        cnt = c.get("count", 1)
+    cur_low = (current or "").lower()
+    for cid_str, c in cards:
+        cnt = int(c.get("count", 1))
+        mr = int(c.get("master_rank", 0))
         lock_prefix = "🔒 " if c.get("locked", False) else ""
-        label = f"{lock_prefix}{c.get('rarity_label', '')} [{c.get('prefix', '')}] {c.get('char_name', '')} (보유:{cnt}장 | ID:{c.get('id')})"[:100]
-        if not current or current.lower() in label.lower():
-            choices.append(app_commands.Choice(name=label, value=str(c["id"])))
+        mr_tag = f"[✦MR.{mr}/5] " if (cmd_name == "마스터랭크" or mr > 0) else ""
+        label = f"{lock_prefix}{mr_tag}{c.get('rarity_label', '')} [{c.get('prefix', '')}] {c.get('char_name', '')} (보유:{cnt}장 | ID:{cid_str})"[:100]
+        if not cur_low or cur_low in label.lower() or cur_low == cid_str.lower():
+            choices.append(app_commands.Choice(name=label, value=cid_str[:100]))
         if len(choices) >= 25:
             break
     return choices
@@ -7083,36 +7143,48 @@ async def target_user_card_autocomplete(interaction: discord.Interaction, curren
     if not target_id:
         return [app_commands.Choice(name="올바른 상대 유저를 먼저 선택해 주세요", value="NONE")]
 
-    data = get_cached_data()
+    data = get_cached_data_ro()
     g_key = str(interaction.guild_id or 0)
     t_key = str(target_id)
     target_cards_dict = safe_get_dict(data, "gacha_users", g_key, t_key, "cards")
-    cards = [c for c in target_cards_dict.values() if isinstance(c, dict)]
-    cards.sort(key=lambda x: (-x.get("star_num", 1), -int(x.get("is_limited", False)), x.get("char_id", 99)))
+    cards = []
+    seen = set()
+    for cid_key, c in target_cards_dict.items():
+        if not isinstance(c, dict):
+            continue
+        raw_id = c.get("id") if c.get("id") is not None else cid_key
+        cid_str = str(raw_id).strip()
+        if not cid_str or cid_str in seen:
+            continue
+        seen.add(cid_str)
+        cards.append((cid_str, c))
+    cards.sort(key=lambda pair: (-pair[1].get("star_num", 1), -int(pair[1].get("is_limited", False)), pair[1].get("char_id", 99)))
 
     choices = []
-    for c in cards:
+    cur_low = (current or "").lower()
+    for cid_str, c in cards:
         cnt = c.get("count", 1)
         lock_prefix = "🔒 " if c.get("locked", False) else ""
-        label = f"{lock_prefix}{c.get('rarity_label', '')} [{c.get('prefix', '')}] {c.get('char_name', '')} (보유:{cnt}장 | ID:{c.get('id')})"[:100]
-        if not current or current.lower() in label.lower():
-            choices.append(app_commands.Choice(name=label, value=str(c["id"])))
+        label = f"{lock_prefix}{c.get('rarity_label', '')} [{c.get('prefix', '')}] {c.get('char_name', '')} (보유:{cnt}장 | ID:{cid_str})"[:100]
+        if not cur_low or cur_low in label.lower() or cur_low == cid_str.lower():
+            choices.append(app_commands.Choice(name=label, value=cid_str[:100]))
         if len(choices) >= 25:
             break
     return choices
 
 
 async def secret_dday_name_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-    data = get_cached_data()
+    data = get_cached_data_ro()
     u_key = str(interaction.user.id)
     s_ddays = safe_get_dict(data, "user_profiles", u_key, "secret_ddays")
     choices = []
     for name, info in s_ddays.items():
         if not isinstance(info, dict):
             continue
-        label = f"{name} ({info.get('date', '-')})"[:100]
+        name_str = str(name)
+        label = f"{name_str} ({info.get('date', '-')})"[:100]
         if not current or current.lower() in label.lower():
-            choices.append(app_commands.Choice(name=label, value=name))
+            choices.append(app_commands.Choice(name=label, value=name_str[:100]))
     return choices[:25]
 
 
@@ -7130,11 +7202,12 @@ def is_schedule_in_guild(sched: dict, guild) -> bool:
 
 
 async def music_schedule_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-    data = get_cached_data()
+    data = get_cached_data_ro()
     schedules = [s for s in data.get("music_schedules", []) if is_schedule_in_guild(s, interaction.guild)]
     choices = []
     for idx, s in enumerate(sorted(schedules, key=lambda x: x.get("time", ""))):
-        s_id = s.get("id", str(idx))
+        raw_sid = s.get("id")
+        s_id = str(raw_sid if raw_sid is not None else idx)[:100]
         label = f"[{s.get('time', '-')}] {s.get('name', '알림')} (장르: {s.get('genre') or '자동'})"[:100]
         if not current or current.lower() in label.lower():
             choices.append(app_commands.Choice(name=label, value=s_id))

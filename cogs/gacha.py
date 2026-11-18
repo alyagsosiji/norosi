@@ -362,9 +362,10 @@ class DuplicateConvertConfirmView(core.SafeView):
         tot_excess = self.preview_info.get("total_excess_cards", 0)
         tot_crystals = self.preview_info.get("total_crystals", 0)
         locked_skip = self.preview_info.get("locked_skipped", 0)
+        u_name = self.user.display_name if self.user else "유저"
 
         embed = discord.Embed(
-            title=f"💎 {self.user.display_name}님의 중복 카드 크리스탈 변환소",
+            title=f"💎 {u_name}님의 중복 카드 크리스탈 변환소",
             color=discord.Color.from_rgb(0, 204, 221) if tot_excess > 0 else discord.Color.dark_grey(),
             timestamp=datetime.datetime.now(core.KST)
         )
@@ -380,7 +381,7 @@ class DuplicateConvertConfirmView(core.SafeView):
 
         r_lines = []
         for r_key in ("rarity_4", "rarity_birthday", "rarity_3", "rarity_2", "rarity_1"):
-            r_data = self.preview_info["by_rarity"].get(r_key, {})
+            r_data = self.preview_info.get("by_rarity", {}).get(r_key, {})
             if r_data.get("count", 0) > 0:
                 r_lines.append(f"• **{r_data['label']}** : 초과분 `{r_data['count']:,}장` ➔ **`+{r_data['crystals']:,} 💎`**")
 
@@ -397,12 +398,15 @@ class DuplicateConvertConfirmView(core.SafeView):
 
     @discord.ui.button(label="💎 중복 카드 일괄 변환 확정", style=discord.ButtonStyle.success)
     async def convert_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user.id:
+        if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인만 변환을 실행할 수 있습니다.", ephemeral=True)
             return
+        if not self.user:
+            self.user = interaction.user
 
         await core.safe_defer(interaction)
-        res = await asyncio.to_thread(core.execute_duplicate_card_conversion, self.guild_id, self.user.id)
+        gid = self.guild_id or (interaction.guild_id or 0)
+        res = await asyncio.to_thread(core.execute_duplicate_card_conversion, gid, self.user.id)
         if res["converted_count"] <= 0:
             await interaction.edit_original_response(
                 embed=discord.Embed(title="ℹ️ 변환할 중복 카드가 없습니다.", color=discord.Color.dark_grey()),
@@ -461,7 +465,7 @@ class DuplicateConvertConfirmView(core.SafeView):
 
     @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
     async def cancel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user.id:
+        if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인만 취소할 수 있습니다.", ephemeral=True)
             return
         await interaction.response.edit_message(
@@ -1198,7 +1202,7 @@ class CardTradeAcceptView(core.SafeView):
 
     @discord.ui.button(label="🤝 교환 수락하기", style=discord.ButtonStyle.success, row=0)
     async def accept_trade(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not self.target or not self.requester or not self.req_card or not self.tgt_card:
+        if not self.target or not self.requester or not self.req_card or not self.tgt_card or self.requester.id == self.target.id:
             await core.safe_send_response(interaction, "⚠️ 교환 요청 정보가 만료되었습니다. `/카드교환` 명령어로 다시 신청해 주세요.", ephemeral=True)
             return
         if interaction.user.id != self.target.id:
@@ -1300,32 +1304,44 @@ class InteractiveCardTradeStudioView(core.SafeView):
         self._populate_selects()
 
     def _populate_selects(self):
-        my_unlocked = [c for c in self.req_cards.values() if not c.get("locked", False) and c.get("count", 0) >= 1]
+        my_unlocked = [c for c in self.req_cards.values() if isinstance(c, dict) and not c.get("locked", False) and c.get("count", 0) >= 1 and c.get("id") is not None]
         my_unlocked.sort(key=lambda x: (-x.get("count", 1), -x.get("star_num", 1), -int(x.get("is_limited", False))))
         if my_unlocked:
             opts1 = []
-            for c in my_unlocked[:25]:
+            seen1 = set()
+            for c in my_unlocked:
                 cid_s = str(c["id"])
+                if cid_s in seen1:
+                    continue
+                seen1.add(cid_s)
                 dup_tag = f"중복 {c.get('count', 1)}장" if c.get("count", 1) > 1 else "1장 보유"
                 label = f"{c['rarity_label']} [{c['prefix']}] {c['char_name']}"[:95]
                 desc = f"{dup_tag} · {c.get('limit_label', '통상')} · Lv.{c.get('level', 1)} (ID:{cid_s})"[:95]
                 opts1.append(discord.SelectOption(label=label, value=cid_s, description=desc, default=(cid_s == self.selected_my_cid)))
+                if len(opts1) >= 25:
+                    break
             self.my_card_select.options = opts1
             self.my_card_select.disabled = False
         else:
             self.my_card_select.options = [discord.SelectOption(label="교환 가능한(잠금 해제된) 내 카드가 없습니다", value="NONE")]
             self.my_card_select.disabled = True
 
-        tgt_unlocked = [c for c in self.tgt_cards.values() if not c.get("locked", False) and c.get("count", 0) >= 1]
+        tgt_unlocked = [c for c in self.tgt_cards.values() if isinstance(c, dict) and not c.get("locked", False) and c.get("count", 0) >= 1 and c.get("id") is not None]
         tgt_unlocked.sort(key=lambda x: (-x.get("count", 1), -x.get("star_num", 1), -int(x.get("is_limited", False))))
         if tgt_unlocked:
             opts2 = []
-            for c in tgt_unlocked[:25]:
+            seen2 = set()
+            for c in tgt_unlocked:
                 cid_s = str(c["id"])
+                if cid_s in seen2:
+                    continue
+                seen2.add(cid_s)
                 dup_tag = f"중복 {c.get('count', 1)}장" if c.get("count", 1) > 1 else "1장 보유"
                 label = f"{c['rarity_label']} [{c['prefix']}] {c['char_name']}"[:95]
                 desc = f"{dup_tag} · {c.get('limit_label', '통상')} · Lv.{c.get('level', 1)} (ID:{cid_s})"[:95]
                 opts2.append(discord.SelectOption(label=label, value=cid_s, description=desc, default=(cid_s == self.selected_tgt_cid)))
+                if len(opts2) >= 25:
+                    break
             self.tgt_card_select.options = opts2
             self.tgt_card_select.disabled = False
         else:
@@ -1338,6 +1354,8 @@ class InteractiveCardTradeStudioView(core.SafeView):
         self._populate_selects()
         my_c = self.req_cards.get(self.selected_my_cid) if self.selected_my_cid else None
         tgt_c = self.tgt_cards.get(self.selected_tgt_cid) if self.selected_tgt_cid else None
+        req_name = self.requester.display_name if self.requester else "신청자"
+        tgt_name = self.target.display_name if self.target else "상대방"
 
         my_line = (
             f"**`[{my_c.get('limit_label', '통상')}]` {my_c['rarity_label']} [{my_c['prefix']}] {my_c['char_name']}** "
@@ -1351,13 +1369,13 @@ class InteractiveCardTradeStudioView(core.SafeView):
         )
 
         embed = discord.Embed(
-            title=f"🤝 프로세카 1:1 카드 교환 스튜디오 ({self.requester.display_name} ⇄ {self.target.display_name})",
+            title=f"🤝 프로세카 1:1 카드 교환 스튜디오 ({req_name} ⇄ {tgt_name})",
             description=(
                 "중복 보유 카드를 우선 정렬하여 보여드립니다. (`🔒 잠금` 카드는 자동 보호됨)\n"
                 "양쪽 카드를 선택한 뒤 **`[📨 교환 신청서 발송하기]`** 버튼을 눌러주세요!\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"📤 **내가 제공할 카드:**\n└ {my_line}\n\n"
-                f"📥 **{self.target.display_name}님에게 받을 카드:**\n└ {tgt_line}\n"
+                f"📥 **{tgt_name}님에게 받을 카드:**\n└ {tgt_line}\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"💎 **교환 수수료:** `100 💎` (상대방 수락 시에만 차감 · 내 보유: `{self.my_crystals:,} 💎`)"
             ),
@@ -1373,7 +1391,10 @@ class InteractiveCardTradeStudioView(core.SafeView):
 
     @discord.ui.select(placeholder="📤 1단계: 내가 상대방에게 보낼 카드를 선택하세요...", row=0)
     async def my_card_select(self, interaction: discord.Interaction, select: discord.ui.Select):
-        if self.requester and interaction.user.id != self.requester.id:
+        if not self.requester or not self.req_cards:
+            await core.safe_send_response(interaction, "⚠️ 교환 스튜디오 세션이 만료되었습니다. `/카드교환` 명령어를 다시 입력해 주세요.", ephemeral=True)
+            return
+        if interaction.user.id != self.requester.id:
             await core.safe_send_response(interaction, "❌ 교환 스튜디오를 연 본인만 조작할 수 있습니다.", ephemeral=True)
             return
         val = select.values[0]
@@ -1386,7 +1407,10 @@ class InteractiveCardTradeStudioView(core.SafeView):
 
     @discord.ui.select(placeholder="📥 2단계: 상대방으로부터 받을 카드를 선택하세요...", row=1)
     async def tgt_card_select(self, interaction: discord.Interaction, select: discord.ui.Select):
-        if self.requester and interaction.user.id != self.requester.id:
+        if not self.requester or not self.tgt_cards:
+            await core.safe_send_response(interaction, "⚠️ 교환 스튜디오 세션이 만료되었습니다. `/카드교환` 명령어를 다시 입력해 주세요.", ephemeral=True)
+            return
+        if interaction.user.id != self.requester.id:
             await core.safe_send_response(interaction, "❌ 교환 스튜디오를 연 본인만 조작할 수 있습니다.", ephemeral=True)
             return
         val = select.values[0]
@@ -1399,6 +1423,9 @@ class InteractiveCardTradeStudioView(core.SafeView):
 
     @discord.ui.button(label="📨 교환 신청서 발송하기 (100💎)", style=discord.ButtonStyle.success, row=2, disabled=True)
     async def send_offer_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.requester or not self.target or self.requester.id == self.target.id:
+            await core.safe_send_response(interaction, "⚠️ 교환 스튜디오 세션이 만료되었습니다. `/카드교환` 명령어를 다시 입력해 주세요.", ephemeral=True)
+            return
         if interaction.user.id != self.requester.id:
             await core.safe_send_response(interaction, "❌ 교환 스튜디오를 연 본인만 발송할 수 있습니다.", ephemeral=True)
             return
@@ -1434,7 +1461,7 @@ class InteractiveCardTradeStudioView(core.SafeView):
 
 
 class CardIllustToggleView(core.SafeView):
-    """보유 카드 일러스트 감상, 각성 전(Normal)/각성 후(After Training) 전환 및 카드 잠금(🔒) 토글 뷰"""
+    """보유 카드 일러스트 감상, 각성 전(Normal)/각성 후(After Training) 전환, 잠금(🔒) 토글 및 마스터 랭크 바로가기 뷰"""
     def __init__(
         self,
         card: dict | None = None,
@@ -1453,6 +1480,48 @@ class CardIllustToggleView(core.SafeView):
         self.has_awakening = core.can_card_awaken(self.card) if self.card else False
         self.current_mode = initial_mode if self.has_awakening else "normal"
         self.update_buttons()
+
+    def _restore_from_message(self, interaction: discord.Interaction):
+        msg = getattr(interaction, "message", None)
+        if not msg:
+            return
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
+        orig_inter = getattr(msg, "interaction_metadata", None) or getattr(msg, "interaction", None)
+        orig_user = getattr(orig_inter, "user", None) or interaction.user
+        if not self.owner_id and orig_user:
+            self.owner_id = orig_user.id
+
+        if not self.card or "id" not in self.card:
+            cid_str = None
+            embeds = getattr(msg, "embeds", None) or []
+            if embeds and embeds[0].description:
+                import re
+                m = re.search(r"\(ID:\s*`?(\d+)`?\)", embeds[0].description)
+                if m:
+                    cid_str = m.group(1)
+            if cid_str:
+                data = core.get_cached_data_ro()
+                u_cards = core.safe_get_dict(data, "gacha_users", str(self.guild_id or 0), str(self.owner_id or interaction.user.id), "cards")
+                found = u_cards.get(cid_str)
+                if not isinstance(found, dict):
+                    found = next((c for c in u_cards.values() if isinstance(c, dict) and str(c.get("id")) == cid_str), None)
+                if not isinstance(found, dict):
+                    found = next((c for c in core.PROSEKA_KR_CARDS if str(c.get("id")) == cid_str), None)
+                if isinstance(found, dict):
+                    self.card = dict(found)
+                    self.has_awakening = core.can_card_awaken(self.card)
+                    if embeds and embeds[0].description and "각성 전 (Normal)" in embeds[0].description:
+                        self.current_mode = "normal"
+                    else:
+                        self.current_mode = "after_training" if self.has_awakening else "normal"
+                    self.update_buttons()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
+        if not self.card or "id" not in self.card:
+            self._restore_from_message(interaction)
+        return True
 
     def update_buttons(self):
         self.normal_btn.disabled = (self.current_mode == "normal")
@@ -1500,6 +1569,9 @@ class CardIllustToggleView(core.SafeView):
         return embed
 
     async def switch_mode(self, interaction: discord.Interaction, target_mode: str):
+        if not self.card or "id" not in self.card:
+            await core.safe_send_response(interaction, "❌ 카드 정보를 찾을 수 없습니다. `/내캐릭터`에서 다시 선택해 주세요.", ephemeral=True)
+            return
         await core.safe_defer(interaction)
         self.current_mode = target_mode
         self.update_buttons()
@@ -1525,6 +1597,9 @@ class CardIllustToggleView(core.SafeView):
     async def lock_toggle_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.owner_id and interaction.user.id != self.owner_id:
             await core.safe_send_response(interaction, "❌ 카드 소유자 본인만 잠금 상태를 변경할 수 있습니다.", ephemeral=True)
+            return
+        if not self.card or "id" not in self.card:
+            await core.safe_send_response(interaction, "❌ 카드 정보를 찾을 수 없습니다.", ephemeral=True)
             return
 
         await core.safe_defer(interaction)
@@ -1568,6 +1643,17 @@ class CardIllustToggleView(core.SafeView):
             embed.set_image(url=core.get_proseka_card_image_url(self.card, self.current_mode))
             await interaction.edit_original_response(embed=embed, attachments=[], view=self)
 
+    @discord.ui.button(label="🏆 마스터 랭크 돌파", style=discord.ButtonStyle.primary, row=0)
+    async def master_rank_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.owner_id and interaction.user.id != self.owner_id:
+            await core.safe_send_response(interaction, "❌ 카드 소유자 본인만 마스터 랭크를 돌파할 수 있습니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction)
+        gid = self.guild_id or (interaction.guild_id or 0)
+        cid_str = str(self.card.get("id")) if self.card and self.card.get("id") is not None else None
+        mr_view = MasterRankView(interaction.user, guild_id=gid, initial_card_id=cid_str)
+        await interaction.followup.send(embed=mr_view.build_embed(), view=mr_view)
+
 
 class CharacterCostumeWardrobeView(core.SafeView):
     """캐릭터별 3D 의상 착용 및 다른 캐릭터 의상 제작/구매(300 💎) 뷰"""
@@ -1582,8 +1668,48 @@ class CharacterCostumeWardrobeView(core.SafeView):
         if self.user:
             self.update_components()
 
+    def _restore_from_message(self, interaction: discord.Interaction):
+        msg = getattr(interaction, "message", None)
+        if not msg:
+            return
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
+        restored_unit = None
+        restored_cid = None
+        for row in getattr(msg, "components", []) or []:
+            for comp in getattr(row, "children", []):
+                cid = getattr(comp, "custom_id", "") or ""
+                if cid.endswith(":unit_select"):
+                    for opt in getattr(comp, "options", []):
+                        if getattr(opt, "default", False) and getattr(opt, "value", None) in core.UNIT_ORDER:
+                            restored_unit = str(opt.value)
+                elif cid.endswith(":char_select"):
+                    for opt in getattr(comp, "options", []):
+                        if getattr(opt, "default", False) and str(getattr(opt, "value", "")).isdigit():
+                            restored_cid = int(opt.value)
+        if restored_cid is None:
+            embeds = getattr(msg, "embeds", None) or []
+            if embeds and embeds[0].title:
+                for map_cid, info in core.CHARACTER_MAP.items():
+                    if info["name"] in embeds[0].title:
+                        restored_cid = map_cid
+                        break
+        if restored_cid in core.CHARACTER_MAP:
+            self.current_char_id = restored_cid
+            self.current_unit = core.CHARACTER_MAP[restored_cid]["unit"]
+        elif restored_unit in core.UNIT_ORDER:
+            self.current_unit = restored_unit
+            for map_cid, info in core.CHARACTER_MAP.items():
+                if info["unit"] == self.current_unit:
+                    self.current_char_id = map_cid
+                    break
+        if self.user:
+            self.update_components()
+
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         await super().interaction_check(interaction)
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
@@ -1593,6 +1719,7 @@ class CharacterCostumeWardrobeView(core.SafeView):
             return False
         if not self.user:
             self.user = interaction.user
+            self._restore_from_message(interaction)
             self.update_components()
         return True
 
@@ -1632,23 +1759,48 @@ class CharacterCostumeWardrobeView(core.SafeView):
         eq_id = equipped.get("costume_id")
 
         equip_opts = []
-        for c in unlocked[:25]:
-            is_active = (c["costume_id"] == eq_id)
+        seen_eq = set()
+        for c in unlocked:
+            c_val = str(c.get("costume_id") or "")
+            if not c_val or c_val in seen_eq:
+                continue
+            seen_eq.add(c_val)
+            is_active = (c_val == eq_id)
             tag = "[착용 중] " if is_active else ""
             label = f"{tag}{c['name']}"[:100]
             desc = f"{c.get('obtained_how', '기본')} | 구성:{'/'.join(c.get('parts', ['body']))}"[:100]
             equip_opts.append(discord.SelectOption(
                 label=label,
-                value=c["costume_id"],
+                value=c_val[:100],
                 description=desc,
                 default=is_active
             ))
+            if len(equip_opts) >= 25:
+                break
+        if not equip_opts:
+            equip_opts = [discord.SelectOption(label="기본 의상", value=f"default_{self.current_char_id}", default=True)]
         self.equip_select.options = equip_opts
         self.equip_select.disabled = False
 
         # 4. Shop / purchase select (Row 3)
         purchasable = core.get_purchasable_costumes_for_char(self.guild_id, self.user.id, self.current_char_id)
-        if not purchasable:
+        shop_opts = []
+        seen_shop = set()
+        for c in purchasable:
+            c_val = str(c.get("costume_id") or "")
+            if not c_val or c_val in seen_shop:
+                continue
+            seen_shop.add(c_val)
+            label = f"💎 [300💎] {c['name']}"[:100]
+            desc = f"★4 [{c.get('card_prefix')}] 기반 | 원래:{c.get('char_name')}"[:100]
+            shop_opts.append(discord.SelectOption(
+                label=label,
+                value=c_val[:100],
+                description=desc
+            ))
+            if len(shop_opts) >= 25:
+                break
+        if not shop_opts:
             self.shop_select.options = [
                 discord.SelectOption(
                     label="제작 가능한 새 의상이 없습니다",
@@ -1658,15 +1810,6 @@ class CharacterCostumeWardrobeView(core.SafeView):
             ]
             self.shop_select.disabled = True
         else:
-            shop_opts = []
-            for c in purchasable[:25]:
-                label = f"💎 [300💎] {c['name']}"[:100]
-                desc = f"★4 [{c.get('card_prefix')}] 기반 | 원래:{c.get('char_name')}"[:100]
-                shop_opts.append(discord.SelectOption(
-                    label=label,
-                    value=c["costume_id"],
-                    description=desc
-                ))
             self.shop_select.options = shop_opts
             self.shop_select.disabled = False
 
@@ -2078,12 +2221,10 @@ class MyInventoryView(core.SafeView):
         super().__init__(timeout=600)
         self.user = user
         self.guild_id = guild_id
-        if card_list is not None:
+        if card_list:
             self.all_cards = [c for c in card_list if isinstance(c, dict)]
         elif self.user:
-            d = core.get_cached_data()
-            u_cards = core.safe_get_dict(d, "gacha_users", str(self.guild_id or 0), str(self.user.id), "cards")
-            self.all_cards = [c for c in u_cards.values() if isinstance(c, dict)]
+            self.all_cards = self._load_user_cards()
         else:
             self.all_cards = []
         self.cards: list = []
@@ -2097,8 +2238,77 @@ class MyInventoryView(core.SafeView):
         self.has_more_chars_notice = False
         self.apply_filters_and_sort()
 
+    def _load_user_cards(self) -> list[dict]:
+        if not self.user:
+            return []
+        d = core.get_cached_data_ro()
+        u_cards = core.safe_get_dict(d, "gacha_users", str(self.guild_id or 0), str(self.user.id), "cards")
+        out = []
+        seen = set()
+        for k, c in u_cards.items():
+            if not isinstance(c, dict):
+                continue
+            raw_id = c.get("id") if c.get("id") is not None else k
+            cid_s = str(raw_id).strip()
+            if not cid_s or cid_s in seen:
+                continue
+            seen.add(cid_s)
+            if c.get("id") is None:
+                c = dict(c)
+                c["id"] = int(cid_s) if cid_s.isdigit() else cid_s
+            out.append(c)
+        return out
+
+    def _restore_from_message(self, interaction: discord.Interaction):
+        msg = getattr(interaction, "message", None)
+        if not msg:
+            return
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
+        if self.user and not self.all_cards:
+            self.all_cards = self._load_user_cards()
+        for row in getattr(msg, "components", []) or []:
+            for comp in getattr(row, "children", []):
+                cid = getattr(comp, "custom_id", "") or ""
+                if cid.endswith(":unit_select"):
+                    for opt in getattr(comp, "options", []):
+                        if getattr(opt, "default", False) and getattr(opt, "value", None):
+                            self.selected_unit = str(opt.value)
+                elif cid.endswith(":char_select"):
+                    for opt in getattr(comp, "options", []):
+                        if getattr(opt, "default", False) and getattr(opt, "value", None):
+                            val_s = str(opt.value)
+                            self.selected_char_id = int(val_s) if val_s.isdigit() else None
+        embeds = getattr(msg, "embeds", None) or []
+        if embeds:
+            import re
+            emb = embeds[0]
+            if emb.description:
+                sort_map = {
+                    "획득일 최신순": "obtained_desc",
+                    "획득일 오래된순": "obtained_asc",
+                    "성(레어도) 높은순": "star_desc",
+                    "성(레어도) 낮은순": "star_asc",
+                    "유닛 기준": "unit",
+                    "캐릭터 이름순": "char_name",
+                    "중복 보유 많은순": "count_desc",
+                    "🔒 잠금 카드 우선": "locked_only",
+                }
+                for lbl, sm in sort_map.items():
+                    if f"`{lbl}`" in emb.description:
+                        self.sort_mode = sm
+                        break
+            for f in getattr(emb, "fields", []) or []:
+                m = re.search(r"\(페이지\s*(\d+)\s*/\s*(\d+)\)", getattr(f, "name", "") or "")
+                if m:
+                    self.current_page = max(0, int(m.group(1)) - 1)
+                    break
+        self.apply_filters_and_sort()
+
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         await super().interaction_check(interaction)
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
@@ -2108,11 +2318,10 @@ class MyInventoryView(core.SafeView):
             return False
         if not self.user:
             self.user = interaction.user
-            if not self.all_cards:
-                d = core.get_cached_data()
-                u_cards = core.safe_get_dict(d, "gacha_users", str(self.guild_id or 0), str(self.user.id), "cards")
-                self.all_cards = [c for c in u_cards.values() if isinstance(c, dict)]
-                self.apply_filters_and_sort()
+            self._restore_from_message(interaction)
+        elif not self.all_cards:
+            self.all_cards = self._load_user_cards()
+            self.apply_filters_and_sort()
         return True
 
     @staticmethod
@@ -2273,16 +2482,21 @@ class MyInventoryView(core.SafeView):
             self.illust_select.disabled = True
         else:
             opts = []
+            seen_vals = set()
             start_idx = self.current_page * self.items_per_page
             for idx, c in enumerate(page_items, start=start_idx + 1):
+                cid_val = str(c.get("id") or idx)
+                if cid_val in seen_vals:
+                    continue
+                seen_vals.add(cid_val)
                 lock_icon = "🔒 " if c.get("locked", False) else ""
                 mr = int(c.get("master_rank", 0))
                 mr_desc = f" | ✦MR.{mr}" if mr > 0 else ""
                 label = f"{idx}. {lock_icon}{c['rarity_label']} [{c['prefix']}] {c['char_name']}"[:100]
                 desc = f"[{c.get('limit_label', '통상')}] 보유:{c.get('count', 1)}장{mr_desc} | 일러스트·각성·잠금"[:100]
-                opts.append(discord.SelectOption(label=label, value=str(c["id"]), description=desc))
-            self.illust_select.options = opts
-            self.illust_select.disabled = False
+                opts.append(discord.SelectOption(label=label, value=cid_val[:100], description=desc))
+            self.illust_select.options = opts or [discord.SelectOption(label="표시할 카드가 없습니다", value="NONE")]
+            self.illust_select.disabled = not bool(opts)
 
     def apply_sort(self, mode: str):
         self.sort_mode = mode
@@ -3205,28 +3419,27 @@ class MasterRankView(core.SafeView):
         self.guild_id = guild_id
         self.per_page = 25
         self.card_page = 0
-        self.selected_card_id: str | None = str(initial_card_id) if initial_card_id else None
+        self.selected_unit: str = "ALL"
+        self.selected_char_id: int | None = None
+        self.selected_card_id: str | None = str(initial_card_id) if initial_card_id is not None else None
         self.status_notice = ""
 
-        data = core.get_cached_data()
-        sorted_cards = self._get_sorted_cards(data) if self.user else []
-        if self.selected_card_id:
-            for idx, c in enumerate(sorted_cards):
-                if str(c.get("id")) == self.selected_card_id:
-                    self.card_page = idx // self.per_page
-                    break
-        elif sorted_cards:
-            self.selected_card_id = str(sorted_cards[0].get("id"))
-        self._refresh(data)
+        data = core.get_cached_data_ro()
+        self._refresh(data, sync_page_to_selected=True)
 
     def _restore_from_message(self, interaction: discord.Interaction):
-        """봇 재시작/뷰 복원 시 기존 메시지 컴포넌트에서 현재 페이지와 선택된 카드 ID를 복구합니다."""
+        """봇 재시작/뷰 복원 시 기존 메시지 컴포넌트 및 임베드에서 필터, 페이지, 선택된 카드 ID를 복구합니다."""
         msg = getattr(interaction, "message", None)
-        if not msg or not getattr(msg, "components", None):
+        if not msg:
             return
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
         restored_cid = None
         restored_page = None
-        for row in msg.components:
+        restored_unit = None
+        restored_char = None
+        has_char_select = False
+        for row in getattr(msg, "components", []) or []:
             for comp in getattr(row, "children", []):
                 cid = getattr(comp, "custom_id", "") or ""
                 if cid.endswith(":list_page_btn") or "📄" in (getattr(comp, "label", "") or ""):
@@ -3234,15 +3447,42 @@ class MasterRankView(core.SafeView):
                     parts = lbl.replace("📄", "").strip().split("/")
                     if parts and parts[0].strip().isdigit():
                         restored_page = max(0, int(parts[0].strip()) - 1)
-                for opt in getattr(comp, "options", []):
-                    if getattr(opt, "default", False) and getattr(opt, "value", None) not in (None, "NONE"):
-                        restored_cid = str(opt.value)
+                elif cid.endswith(":unit_select"):
+                    for opt in getattr(comp, "options", []):
+                        if getattr(opt, "default", False) and getattr(opt, "value", None):
+                            restored_unit = str(opt.value)
+                elif cid.endswith(":char_select"):
+                    has_char_select = True
+                    for opt in getattr(comp, "options", []):
+                        if getattr(opt, "default", False) and getattr(opt, "value", None):
+                            val_s = str(opt.value)
+                            restored_char = int(val_s) if val_s.isdigit() else None
+                elif cid.endswith(":card_select") or getattr(comp, "options", None):
+                    for opt in getattr(comp, "options", []):
+                        if getattr(opt, "default", False) and getattr(opt, "value", None) not in (None, "NONE"):
+                            restored_cid = str(opt.value)
+
+        if restored_cid is None:
+            embeds = getattr(msg, "embeds", None) or []
+            if embeds and embeds[0].description:
+                import re
+                m = re.search(r"\(ID:\s*`?(\d+)`?\)", embeds[0].description)
+                if m:
+                    restored_cid = m.group(1)
+
+        if restored_unit is not None:
+            self.selected_unit = restored_unit
+        if has_char_select:
+            self.selected_char_id = restored_char
         if restored_page is not None:
             self.card_page = restored_page
         if restored_cid is not None:
             self.selected_card_id = restored_cid
-        if restored_page is not None or restored_cid is not None:
-            self._refresh(core.get_cached_data())
+
+        self._refresh(
+            core.get_cached_data_ro(),
+            sync_page_to_selected=(restored_page is None and restored_cid is not None),
+        )
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         await super().interaction_check(interaction)
@@ -3259,7 +3499,7 @@ class MasterRankView(core.SafeView):
             self.user = interaction.user
             self._restore_from_message(interaction)
             if not self.selected_card_id:
-                self._refresh(core.get_cached_data())
+                self._refresh(core.get_cached_data_ro(), sync_page_to_selected=True)
         return True
 
     @staticmethod
@@ -3269,14 +3509,150 @@ class MasterRankView(core.SafeView):
         except Exception:
             return default
 
-    def _get_sorted_cards(self, data: dict) -> list[dict]:
+    def _get_all_owned_cards(self, data: dict) -> list[dict]:
         g_key = str(self.guild_id or 0)
         u_key = str(self.user.id) if self.user else "0"
         u_cards = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
-        cards = [c for c in u_cards.values() if isinstance(c, dict) and c.get("id") is not None]
+        out = []
+        seen = set()
+        for cid_key, c in u_cards.items():
+            if not isinstance(c, dict):
+                continue
+            raw_id = c.get("id") if c.get("id") is not None else cid_key
+            cid_str = str(raw_id).strip()
+            if not cid_str or cid_str in seen:
+                continue
+            seen.add(cid_str)
+            if c.get("id") is None or str(c.get("id")) != cid_str:
+                c = dict(c)
+                c["id"] = int(cid_str) if cid_str.isdigit() else cid_str
+            out.append(c)
+        return out
+
+    @classmethod
+    def _matches_unit_or_quick_filter(cls, card: dict, filter_val: str) -> bool:
+        if filter_val == "ALL":
+            return True
+        if filter_val == "DUP_ONLY":
+            return cls._safe_int(card.get("count", 1), 1) >= 2 and cls._safe_int(card.get("master_rank", 0), 0) < 5
+        if filter_val == "STAR4_ONLY":
+            return cls._safe_int(card.get("star_num", 1), 1) >= 4 or card.get("rarity_type") == "rarity_birthday"
+        if filter_val == "COSTUME_ONLY":
+            return core.get_costume_for_card(card.get("id")) is not None
+        return MyInventoryView._card_matches_unit(card, filter_val)
+
+    def _update_filter_selects(self, all_cards: list[dict]):
+        unit_emojis = {
+            "Leo/need": "🎸",
+            "MORE MORE JUMP!": "🍀",
+            "Vivid BAD SQUAD": "🎧",
+            "원더랜즈×쇼타임": "🎪",
+            "25시, 나이트 코드에서.": "🌃",
+            "버츄얼 싱어": "🎤",
+        }
+        total_cnt = len(all_cards)
+        dup_cnt = sum(1 for c in all_cards if self._matches_unit_or_quick_filter(c, "DUP_ONLY"))
+        s4_cnt = sum(1 for c in all_cards if self._matches_unit_or_quick_filter(c, "STAR4_ONLY"))
+        cos_cnt = sum(1 for c in all_cards if self._matches_unit_or_quick_filter(c, "COSTUME_ONLY"))
+
+        unit_opts = [
+            discord.SelectOption(
+                label=f"🌐 전체 보유 카드 보기 ({total_cnt}종)"[:100],
+                value="ALL",
+                description="★4 우선 · 중복 보유 우선으로 모든 보유 카드를 표시합니다",
+                default=(self.selected_unit == "ALL"),
+            ),
+            discord.SelectOption(
+                label=f"🃏 중복 보유 카드만 ({dup_cnt}종 · 0💎 무료 돌파)"[:100],
+                value="DUP_ONLY",
+                description="크리스탈 소모 없이 중복 카드로 즉시 돌파 가능한 카드만 모아보기",
+                default=(self.selected_unit == "DUP_ONLY"),
+            ),
+            discord.SelectOption(
+                label=f"⭐ ★4 · 🎀생일 카드만 모아보기 ({s4_cnt}종)"[:100],
+                value="STAR4_ONLY",
+                description="크리스탈 돌파 및 고성능 주력 ★4/생일 카드만 모아보기",
+                default=(self.selected_unit == "STAR4_ONLY"),
+            ),
+            discord.SelectOption(
+                label=f"👗 3D 의상 카드만 ({cos_cnt}종 · ✦MR.2 특전)"[:100],
+                value="COSTUME_ONLY",
+                description="✦MR.2 달성 시 어나더 컬러 3종·한정 헤어가 해금되는 의상 카드만 보기",
+                default=(self.selected_unit == "COSTUME_ONLY"),
+            ),
+        ]
+        for u_name in core.UNIT_ORDER:
+            u_list = [c for c in all_cards if MyInventoryView._card_matches_unit(c, u_name)]
+            u_emoji = unit_emojis.get(u_name, "🏷️")
+            unit_opts.append(
+                discord.SelectOption(
+                    label=f"{u_emoji} {u_name} ({len(u_list)}종)"[:100],
+                    value=u_name,
+                    description=f"{u_name} 소속 보유 카드만 필터링"[:100],
+                    default=(self.selected_unit == u_name),
+                )
+            )
+        self.unit_select.options = unit_opts[:25]
+
+        base_pool = [c for c in all_cards if self._matches_unit_or_quick_filter(c, self.selected_unit)]
+        char_counts: dict[int, tuple[int, int]] = {}
+        for c in base_pool:
+            cid = MyInventoryView._resolve_card_char_id(c)
+            if cid is None:
+                continue
+            prev_u, prev_dup = char_counts.get(cid, (0, 0))
+            is_dup = 1 if self._safe_int(c.get("count", 1), 1) >= 2 else 0
+            char_counts[cid] = (prev_u + 1, prev_dup + is_dup)
+
+        if self.selected_unit in core.UNIT_ORDER:
+            unit_member_cids = [cid for cid, info in core.CHARACTER_MAP.items() if info.get("unit") == self.selected_unit]
+            extra_cids = [cid for cid in sorted(char_counts.keys()) if cid in core.CHARACTER_MAP and cid not in unit_member_cids]
+            candidate_cids = unit_member_cids + extra_cids
+        else:
+            candidate_cids = sorted(cid for cid in char_counts.keys() if cid in core.CHARACTER_MAP)
+            if self.selected_char_id is not None and self.selected_char_id in core.CHARACTER_MAP and self.selected_char_id not in candidate_cids:
+                candidate_cids.append(self.selected_char_id)
+                candidate_cids.sort()
+
+        if len(candidate_cids) > 24:
+            display_cids = candidate_cids[:24]
+            if self.selected_char_id is not None and self.selected_char_id in candidate_cids and self.selected_char_id not in display_cids:
+                display_cids = display_cids[:-1] + [self.selected_char_id]
+        else:
+            display_cids = candidate_cids
+
+        char_opts = [
+            discord.SelectOption(
+                label=f"🌐 전체 캐릭터 보기 ({len(base_pool)}종)"[:100],
+                value="ALL",
+                description="현재 필터 범위의 모든 캐릭터 카드를 표시합니다",
+                default=(self.selected_char_id is None),
+            )
+        ]
+        for cid in display_cids:
+            c_info = core.CHARACTER_MAP.get(cid, {"name": f"캐릭터 #{cid}", "unit": "-"})
+            u_cnt, d_cnt = char_counts.get(cid, (0, 0))
+            dup_note = f" · 중복 {d_cnt}종" if d_cnt > 0 else ""
+            char_opts.append(
+                discord.SelectOption(
+                    label=f"👤 {c_info['name']} ({u_cnt}종{dup_note})"[:100],
+                    value=str(cid),
+                    description=f"{c_info['unit']} · {c_info['name']} 카드만 선택"[:100],
+                    default=(self.selected_char_id == cid),
+                )
+            )
+        self.char_select.options = char_opts[:25]
+
+    def _get_sorted_cards(self, data: dict) -> list[dict]:
+        all_cards = self._get_all_owned_cards(data)
+        self._update_filter_selects(all_cards)
+        cards = [c for c in all_cards if self._matches_unit_or_quick_filter(c, self.selected_unit)]
+        if self.selected_char_id is not None:
+            cards = [c for c in cards if MyInventoryView._resolve_card_char_id(c) == self.selected_char_id]
         cards.sort(key=lambda c: (
-            -int(self._safe_int(c.get("count", 1), 1) >= 2 and self._safe_int(c.get("master_rank", 0), 0) < 5),
+            -int(self._safe_int(c.get("master_rank", 0), 0) < 5),
             -self._safe_int(c.get("star_num", 1), 1),
+            -int(self._safe_int(c.get("count", 1), 1) >= 2),
             -self._safe_int(c.get("master_rank", 0), 0),
             -core.get_card_power(c),
             self._safe_int(c.get("char_id", 99), 99),
@@ -3284,15 +3660,22 @@ class MasterRankView(core.SafeView):
         ))
         return cards
 
-    def _refresh(self, data: dict | None = None) -> tuple[dict, list[dict], dict | None]:
+    def _refresh(self, data: dict | None = None, sync_page_to_selected: bool = True) -> tuple[dict, list[dict], dict | None]:
         d = data if data is not None else core.load_data()
         cards = self._get_sorted_cards(d)
+
+        if sync_page_to_selected and self.selected_card_id is not None:
+            for idx, c in enumerate(cards):
+                if str(c.get("id")) == str(self.selected_card_id):
+                    self.card_page = idx // self.per_page
+                    break
+
         max_page = max(0, (len(cards) - 1) // self.per_page) if cards else 0
         self.card_page = max(0, min(self.card_page, max_page))
         start = self.card_page * self.per_page
         page_cards = cards[start:start + self.per_page]
 
-        selected = next((c for c in cards if str(c.get("id")) == str(self.selected_card_id)), None)
+        selected = next((c for c in page_cards if str(c.get("id")) == str(self.selected_card_id)), None)
         if not selected and page_cards:
             selected = page_cards[0]
             self.selected_card_id = str(selected.get("id"))
@@ -3300,11 +3683,16 @@ class MasterRankView(core.SafeView):
             self.selected_card_id = None
 
         if not page_cards:
-            self.card_select.options = [discord.SelectOption(label="보유한 카드가 없습니다", value="NONE")]
+            self.card_select.options = [discord.SelectOption(label="해당 필터 조건에 맞는 카드가 없습니다", value="NONE")]
             self.card_select.disabled = True
         else:
             opts = []
+            seen_vals = set()
             for c in page_cards:
+                cid_val = str(c.get("id"))
+                if cid_val in seen_vals:
+                    continue
+                seen_vals.add(cid_val)
                 mr = self._safe_int(c.get("master_rank", 0), 0)
                 cnt = self._safe_int(c.get("count", 1), 1)
                 dup_txt = f"중복{cnt - 1}" if cnt >= 2 else "1장"
@@ -3315,23 +3703,25 @@ class MasterRankView(core.SafeView):
                 cname = c.get("char_name") or "알 수 없음"
                 u_name = c.get("unit") or "기타"
                 label = f"{cos_badge}[✦MR.{mr}/5] {r_lbl} [{prefix}] {cname}"[:100]
-                desc = f"보유 {cnt}장({dup_txt}) | ⚔️{core.get_card_power(c):,} | {u_name}"[:100]
+                desc = f"보유 {cnt}장({dup_txt}) | ⚔️{core.get_card_power(c):,} | {u_name} (ID:{cid_val})"[:100]
                 opts.append(discord.SelectOption(
                     label=label,
-                    value=str(c.get("id")),
+                    value=cid_val[:100],
                     description=desc,
-                    default=(str(c.get("id")) == str(self.selected_card_id))
+                    default=(cid_val == str(self.selected_card_id))
                 ))
-            self.card_select.options = opts
-            self.card_select.disabled = False
+            self.card_select.options = opts or [discord.SelectOption(label="표시할 카드가 없습니다", value="NONE")]
+            self.card_select.disabled = not bool(opts)
 
         self.prev_list_btn.disabled = (self.card_page <= 0)
-        self.list_page_btn.label = f"📄 {self.card_page + 1} / {max_page + 1}"
+        self.list_page_btn.label = f"📄 {self.card_page + 1} / {max_page + 1} ({len(cards)}종)"
         self.next_list_btn.disabled = (self.card_page >= max_page)
 
         if not selected:
             self.btn_upgrade_dup.disabled = True
+            self.btn_upgrade_dup.label = "🃏 중복 카드로 돌파 (0💎)"
             self.btn_upgrade_crystal.disabled = True
+            self.btn_upgrade_crystal.label = "💎 크리스탈로 돌파"
             self.btn_goto_wardrobe.disabled = True
         else:
             cur_mr = self._safe_int(selected.get("master_rank", 0), 0)
@@ -3352,18 +3742,35 @@ class MasterRankView(core.SafeView):
 
         return d, cards, selected
 
-    def build_embed(self, data: dict | None = None) -> discord.Embed:
+    def build_embed(self, data: dict | None = None, sync_page_to_selected: bool = True) -> discord.Embed:
         d_in = data if data is not None else core.load_data()
-        d, cards, selected = self._refresh(d_in)
+        d, cards, selected = self._refresh(d_in, sync_page_to_selected=sync_page_to_selected)
         u_id = self.user.id if self.user else 0
         u_name = self.user.display_name if self.user else "유저"
         prof = core.ensure_user_profile(d, u_id, u_name)
         crystals = self._safe_int(prof.get("crystals", 0), 0)
 
+        filter_names = {
+            "ALL": "전체 보유 카드",
+            "DUP_ONLY": "중복 보유 카드만 (0💎)",
+            "STAR4_ONLY": "★4 · 🎀생일 카드만",
+            "COSTUME_ONLY": "3D 의상 카드만",
+        }
+        u_lbl = filter_names.get(self.selected_unit, self.selected_unit)
+        c_lbl = (
+            core.CHARACTER_MAP.get(self.selected_char_id, {}).get("name", f"캐릭터 #{self.selected_char_id}")
+            if self.selected_char_id is not None
+            else "전체 캐릭터"
+        )
+
         if not selected:
             return discord.Embed(
                 title=f"🏆 {u_name}님의 마스터 랭크 (한계 돌파)",
-                description="📭 보유한 프로세카 카드가 없습니다.\n`/프로세카뽑기`로 카드를 먼저 뽑아주세요!",
+                description=(
+                    f"• **현재 필터:** `{u_lbl}` · `{c_lbl}`\n\n"
+                    "📭 해당 필터 조건에 맞는 프로세카 카드가 없습니다.\n"
+                    "위 드롭다운에서 **`🌐 전체 보유 카드 보기`** 또는 다른 캐릭터를 선택해 보세요!"
+                ),
                 color=discord.Color.dark_grey(),
                 timestamp=datetime.datetime.now(core.KST)
             )
@@ -3403,12 +3810,14 @@ class MasterRankView(core.SafeView):
         r_lbl = selected.get("rarity_label") or f"★{star_num}"
         prefix = selected.get("prefix") or "카드"
         cname = selected.get("char_name") or "알 수 없음"
+        cid_disp = selected.get("id", "-")
         notice_block = f"\n🎉 {self.status_notice}\n" if self.status_notice else ""
         embed = discord.Embed(
             title=f"🏆 {u_name}님의 마스터 랭크 한계 돌파",
             description=(
                 f"{notice_block}"
-                f"**선택 카드:** `[{selected.get('limit_label', '통상')}]` **{r_lbl} [{prefix}] {cname}**\n"
+                f"• **필터:** `{u_lbl}` · `{c_lbl}` (총 `{len(cards)}종`)\n"
+                f"• **선택 카드:** `[{selected.get('limit_label', '통상')}]` **{r_lbl} [{prefix}] {cname}** (ID: `{cid_disp}`)\n"
                 f"• **마스터 랭크:** {mr_gauge} **`✦MR.{mr} / 5`** (`종합력 +{mr * 8}%`)\n"
                 f"• **레벨 & 종합력:** `Lv.{cur_lvl}/{max_lvl}` · **`⚔️ {cur_pwr:,}`** · **보유 크리스탈:** **`{crystals:,} 💎`**\n"
                 f"{next_line}\n"
@@ -3422,19 +3831,56 @@ class MasterRankView(core.SafeView):
         embed.set_footer(text="✦MR.1당 종합력 +8% (MR.5 최대 +40%) · 3D 의상 카드는 MR.2에서 어나더 컬러 3종 & 한정 헤어 해금!")
         return embed
 
-    @discord.ui.select(placeholder="🏆 한계 돌파할 보유 카드를 선택하세요...", row=0)
+    @discord.ui.select(
+        placeholder="🏷️ 1단계: 유닛 / 돌파 조건 필터 선택 (전체·중복·★4·의상·유닛)...",
+        row=0,
+        options=[discord.SelectOption(label="🌐 전체 보유 카드 보기", value="ALL")]
+    )
+    async def unit_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await core.safe_defer(interaction)
+        chosen_unit = select.values[0]
+        self.selected_unit = chosen_unit
+        if self.selected_char_id is not None and chosen_unit in core.UNIT_ORDER:
+            char_unit = core.CHARACTER_MAP.get(self.selected_char_id, {}).get("unit")
+            if char_unit != chosen_unit:
+                self.selected_char_id = None
+        self.card_page = 0
+        self.selected_card_id = None
+        self.status_notice = ""
+        data = await asyncio.to_thread(core.load_data)
+        await core.safe_edit_response(interaction, embed=self.build_embed(data=data, sync_page_to_selected=False), view=self)
+
+    @discord.ui.select(
+        placeholder="👤 2단계: 캐릭터별 필터 선택 (원하는 캐릭터 카드만 모아보기)...",
+        row=1,
+        options=[discord.SelectOption(label="🌐 전체 캐릭터 보기", value="ALL")]
+    )
+    async def char_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await core.safe_defer(interaction)
+        chosen = select.values[0]
+        try:
+            self.selected_char_id = None if chosen == "ALL" else int(chosen)
+        except Exception:
+            self.selected_char_id = None
+        self.card_page = 0
+        self.selected_card_id = None
+        self.status_notice = ""
+        data = await asyncio.to_thread(core.load_data)
+        await core.safe_edit_response(interaction, embed=self.build_embed(data=data, sync_page_to_selected=False), view=self)
+
+    @discord.ui.select(placeholder="🏆 3단계: 한계 돌파할 보유 카드를 선택하세요...", row=2)
     async def card_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         val = select.values[0]
         if val == "NONE":
-            await core.safe_send_response(interaction, "ℹ️ 먼저 `/프로세카뽑기`로 카드를 뽑아주세요.", ephemeral=True)
+            await core.safe_send_response(interaction, "ℹ️ 표시된 카드가 없습니다. 위 필터를 변경하거나 `/프로세카뽑기`로 카드를 뽑아주세요.", ephemeral=True)
             return
         await core.safe_defer(interaction)
-        self.selected_card_id = val
+        self.selected_card_id = str(val)
         self.status_notice = ""
         data = await asyncio.to_thread(core.load_data)
-        await core.safe_edit_response(interaction, embed=self.build_embed(data=data), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(data=data, sync_page_to_selected=True), view=self)
 
-    @discord.ui.button(label="🃏 중복 카드로 돌파 (0💎)", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="🃏 중복 카드로 돌파 (0💎)", style=discord.ButtonStyle.success, row=3)
     async def btn_upgrade_dup(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         if not self.selected_card_id:
@@ -3454,9 +3900,9 @@ class MasterRankView(core.SafeView):
             extra += " 💇 **한정 헤어스타일 해금!**"
         self.status_notice = f"{msg} (`+{info.get('diff_power', 0):,} ⚔️`){extra}"
         data = await asyncio.to_thread(core.load_data)
-        await core.safe_edit_response(interaction, embed=self.build_embed(data=data), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(data=data, sync_page_to_selected=True), view=self)
 
-    @discord.ui.button(label="💎 크리스탈로 돌파", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="💎 크리스탈로 돌파", style=discord.ButtonStyle.primary, row=3)
     async def btn_upgrade_crystal(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         if not self.selected_card_id:
@@ -3476,9 +3922,9 @@ class MasterRankView(core.SafeView):
             extra += " 💇 **한정 헤어스타일 해금!**"
         self.status_notice = f"{msg} (`-{info.get('cost_crystals', 0):,}💎`, `+{info.get('diff_power', 0):,} ⚔️`){extra}"
         data = await asyncio.to_thread(core.load_data)
-        await core.safe_edit_response(interaction, embed=self.build_embed(data=data), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(data=data, sync_page_to_selected=True), view=self)
 
-    @discord.ui.button(label="👗 의상실 바로가기", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="👗 의상실 바로가기", style=discord.ButtonStyle.secondary, row=3)
     async def btn_goto_wardrobe(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
@@ -3486,30 +3932,33 @@ class MasterRankView(core.SafeView):
         g_key = str(gid)
         u_obj = self.user or interaction.user
         u_key = str(u_obj.id)
-        card = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards").get(str(self.selected_card_id))
+        u_cards = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
+        card = u_cards.get(str(self.selected_card_id))
+        if not isinstance(card, dict):
+            card = next((c for c in u_cards.values() if isinstance(c, dict) and str(c.get("id")) == str(self.selected_card_id)), None)
         init_cid = self._safe_int(card.get("char_id", 1), 1) if isinstance(card, dict) else 1
         view = CharacterCostumeWardrobeView(u_obj, guild_id=gid, initial_char_id=init_cid)
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
-    @discord.ui.button(label="◀ 카드 목록", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="◀ 카드 목록", style=discord.ButtonStyle.secondary, row=4)
     async def prev_list_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.card_page = max(0, self.card_page - 1)
         self.status_notice = ""
         data = await asyncio.to_thread(core.load_data)
-        await core.safe_edit_response(interaction, embed=self.build_embed(data=data), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(data=data, sync_page_to_selected=False), view=self)
 
-    @discord.ui.button(label="📄 1 / 1", style=discord.ButtonStyle.secondary, disabled=True, row=2)
+    @discord.ui.button(label="📄 1 / 1", style=discord.ButtonStyle.secondary, disabled=True, row=4)
     async def list_page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         pass
 
-    @discord.ui.button(label="카드 목록 ▶", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="카드 목록 ▶", style=discord.ButtonStyle.secondary, row=4)
     async def next_list_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.card_page += 1
         self.status_notice = ""
         data = await asyncio.to_thread(core.load_data)
-        await core.safe_edit_response(interaction, embed=self.build_embed(data=data), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(data=data, sync_page_to_selected=False), view=self)
 
 
 class SekaiLiveView(core.SafeView):
@@ -3541,7 +3990,7 @@ class SekaiLiveView(core.SafeView):
 
     def _refresh_components(self):
         opts = []
-        for s in core.PROSEKA_LIVE_SONGS:
+        for s in core.PROSEKA_LIVE_SONGS[:25]:
             opts.append(discord.SelectOption(
                 label=f"{s['attr']} {s['title']} (Lv.{s['level']})"[:100],
                 value=s["id"],
@@ -3554,8 +4003,10 @@ class SekaiLiveView(core.SafeView):
         self._refresh_components()
         data = core.load_data()
         g_key = str(self.guild_id or 0)
-        u_key = str(self.user.id)
-        prof = core.ensure_user_profile(data, u_key, self.user.display_name)
+        u_id = self.user.id if self.user else 0
+        u_name = self.user.display_name if self.user else "유저"
+        u_key = str(u_id)
+        prof = core.ensure_user_profile(data, u_key, u_name)
         g_user = core.safe_get_dict(data, "gacha_users", g_key, u_key)
         u_cards = core.as_dict(g_user.get("cards"))
 
@@ -4725,6 +5176,39 @@ class GachaCog(commands.Cog):
             ephemeral=True
         )
 
+    @staticmethod
+    def _find_user_card_by_query(u_cards: dict, query_raw: str) -> tuple[str | None, dict | None]:
+        if not u_cards or not query_raw:
+            return None, None
+        q = query_raw.strip()
+        if q in u_cards and isinstance(u_cards[q], dict):
+            c = u_cards[q]
+            return str(c.get("id") if c.get("id") is not None else q), c
+        import re
+        m_id = re.search(r"(?:id[:\s]*)(\d+)", q, flags=re.IGNORECASE)
+        id_cand = m_id.group(1) if m_id else (q if q.isdigit() else None)
+        if id_cand and id_cand in u_cards and isinstance(u_cards[id_cand], dict):
+            c = u_cards[id_cand]
+            return str(c.get("id") if c.get("id") is not None else id_cand), c
+
+        q_low = q.lower()
+        for k, c in u_cards.items():
+            if not isinstance(c, dict):
+                continue
+            cid_s = str(c.get("id") if c.get("id") is not None else k)
+            if cid_s == q_low or (id_cand and cid_s == id_cand):
+                return cid_s, c
+        for k, c in u_cards.items():
+            if not isinstance(c, dict):
+                continue
+            cid_s = str(c.get("id") if c.get("id") is not None else k)
+            cname = str(c.get("char_name") or "").lower()
+            prefix = str(c.get("prefix") or "").lower()
+            full_lbl = f"{c.get('rarity_label', '')} [{c.get('prefix', '')}] {c.get('char_name', '')}".lower()
+            if q_low in cname or q_low in prefix or q_low in full_lbl:
+                return cid_s, c
+        return None, None
+
     @app_commands.command(name="카드강화", description="[프로세카] 크리스탈을 소모하여 보유 카드의 레벨과 종합력을 상승시킵니다.")
     @app_commands.autocomplete(카드선택=core.owned_card_autocomplete)
     @app_commands.describe(
@@ -4743,76 +5227,105 @@ class GachaCog(commands.Cog):
         강화단계: app_commands.Choice[str]
     ):
         await core.safe_defer(interaction, ephemeral=True)
-        data = await asyncio.to_thread(core.load_data)
         g_key = str(interaction.guild_id or 0)
         u_key = str(interaction.user.id)
+        u_disp = interaction.user.display_name
+        mode = 강화단계.value
 
-        profile = core.ensure_user_profile(data, u_key, interaction.user.display_name)
-        user_crystals = profile.get("crystals", 0)
-        user_cards_dict = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
+        def _do_enhance():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                profile = core.ensure_user_profile(data, u_key, u_disp)
+                user_crystals = int(profile.get("crystals", 0))
+                user_cards_dict = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
+                if not user_cards_dict:
+                    return "NO_CARDS", None
 
-        if not user_cards_dict:
+                _, target = self._find_user_card_by_query(user_cards_dict, 카드선택)
+                if not target:
+                    return "NOT_FOUND", None
+
+                star_num = target.get("star_num", 3)
+                max_lvl = core.get_card_max_level(target)
+                cur_lvl = max(1, int(target.get("level", 1)))
+                if cur_lvl >= max_lvl:
+                    return "ALREADY_MAX", {"target": copy.deepcopy(target), "max_lvl": max_lvl}
+
+                target_lvl = max_lvl if mode == "MAX" else min(max_lvl, cur_lvl + int(mode))
+                total_cost = 0
+                for l in range(cur_lvl, target_lvl):
+                    if star_num <= 1:
+                        cost = min(120, 15 + l * 5)
+                    elif star_num == 2:
+                        cost = min(350, 30 + l * 10)
+                    elif star_num == 3:
+                        cost = min(850, 60 + l * 20)
+                    else:
+                        cost = min(1850, 100 + l * 35)
+                    total_cost += cost
+
+                if user_crystals < total_cost:
+                    return "NO_CRYSTALS", {"total_cost": total_cost, "user_crystals": user_crystals}
+
+                old_power = core.get_card_power(target)
+                is_max = (target_lvl == max_lvl)
+                max_bonus = (50 if star_num <= 1 else 100 if star_num == 2 else 200 if star_num == 3 else 500) if (is_max and cur_lvl < max_lvl) else 0
+                was_awakened = bool(target.get("awakened"))
+                if is_max and core.can_card_awaken(target):
+                    target["awakened"] = True
+                new_crystals = user_crystals - total_cost + max_bonus
+                profile["crystals"] = new_crystals
+                target["level"] = target_lvl
+                target["max_level"] = max_lvl
+                new_power = core.get_card_power(target)
+                diff_power = new_power - old_power
+                core.save_data(data)
+                return "OK", {
+                    "target": copy.deepcopy(target),
+                    "cur_lvl": cur_lvl,
+                    "target_lvl": target_lvl,
+                    "max_lvl": max_lvl,
+                    "old_power": old_power,
+                    "new_power": new_power,
+                    "diff_power": diff_power,
+                    "total_cost": total_cost,
+                    "new_crystals": new_crystals,
+                    "max_bonus": max_bonus,
+                    "is_max": is_max,
+                    "was_awakened": was_awakened,
+                }
+
+        status, res = await asyncio.to_thread(_do_enhance)
+        if status == "NO_CARDS":
             await interaction.followup.send("❌ 보유한 카드가 없습니다. `/프로세카뽑기`로 먼저 캐릭터를 뽑아주세요!", ephemeral=True)
             return
-
-        target = None
-        query = 카드선택.strip().lower()
-        if query in user_cards_dict:
-            target = user_cards_dict[query]
-        else:
-            for c in user_cards_dict.values():
-                if str(c.get("id")) == query or query in c.get("char_name", "").lower() or query in c.get("prefix", "").lower():
-                    target = c
-                    break
-
-        if not target:
+        if status == "NOT_FOUND":
             await interaction.followup.send(f"❌ 검색어 `{카드선택}`에 해당하는 보유 카드를 찾지 못했습니다. `/내캐릭터`에서 보유 카드 목록과 ID를 확인해 주세요.", ephemeral=True)
             return
-
-        star_num = target.get("star_num", 3)
-        max_lvl = core.get_card_max_level(target)
-        cur_lvl = max(1, int(target.get("level", 1)))
-
-        if cur_lvl >= max_lvl:
-            await interaction.followup.send(f"ℹ️ **[{target.get('prefix')}] {target.get('char_name')}** 카드는 이미 **MAX 레벨(Lv.{max_lvl})**에 도달했습니다!", ephemeral=True)
+        if status == "ALREADY_MAX":
+            t_card = res["target"]
+            await interaction.followup.send(f"ℹ️ **[{t_card.get('prefix')}] {t_card.get('char_name')}** 카드는 이미 **MAX 레벨(Lv.{res['max_lvl']})**에 도달했습니다!", ephemeral=True)
             return
-
-        mode = 강화단계.value
-        target_lvl = max_lvl if mode == "MAX" else min(max_lvl, cur_lvl + int(mode))
-
-        total_cost = 0
-        for l in range(cur_lvl, target_lvl):
-            if star_num <= 1:
-                cost = min(120, 15 + l * 5)
-            elif star_num == 2:
-                cost = min(350, 30 + l * 10)
-            elif star_num == 3:
-                cost = min(850, 60 + l * 20)
-            else:
-                cost = min(1850, 100 + l * 35)
-            total_cost += cost
-
-        if user_crystals < total_cost:
+        if status == "NO_CRYSTALS":
             await interaction.followup.send(
-                f"❌ 크리스탈이 부족합니다! (필요: `{total_cost:,}💎` / 보유: `{user_crystals:,}💎`)\n"
+                f"❌ 크리스탈이 부족합니다! (필요: `{res['total_cost']:,}💎` / 보유: `{res['user_crystals']:,}💎`)\n"
                 f"출석체크(`/출석체크`)나 중복카드 변환(`/중복카드변환`)으로 크리스탈을 추가 획득해 보세요.",
                 ephemeral=True
             )
             return
 
-        old_power = core.get_card_power(target)
-        is_max = (target_lvl == max_lvl)
-        max_bonus = (50 if star_num <= 1 else 100 if star_num == 2 else 200 if star_num == 3 else 500) if (is_max and cur_lvl < max_lvl) else 0
-        was_awakened = bool(target.get("awakened"))
-        if is_max and core.can_card_awaken(target):
-            target["awakened"] = True
-        new_crystals = user_crystals - total_cost + max_bonus
-        profile["crystals"] = new_crystals
-        target["level"] = target_lvl
-        target["max_level"] = max_lvl
-        new_power = core.get_card_power(target)
-        diff_power = new_power - old_power
-        await asyncio.to_thread(core.save_data, data)
+        target = res["target"]
+        cur_lvl = res["cur_lvl"]
+        target_lvl = res["target_lvl"]
+        max_lvl = res["max_lvl"]
+        old_power = res["old_power"]
+        new_power = res["new_power"]
+        diff_power = res["diff_power"]
+        total_cost = res["total_cost"]
+        new_crystals = res["new_crystals"]
+        max_bonus = res["max_bonus"]
+        is_max = res["is_max"]
+        was_awakened = res["was_awakened"]
 
         awaken_notice = "\n✨ **특훈(각성) 달성!** MAX 레벨 달성으로 각성 보너스(`+3,000⚔️`)가 활성화되었습니다!" if (target.get("awakened") and not was_awakened) else ""
         embed = discord.Embed(
@@ -4866,14 +5379,7 @@ class GachaCog(commands.Cog):
             g_key = str(interaction.guild_id or 0)
             u_key = str(interaction.user.id)
             u_cards = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
-            q = 카드선택.strip().lower()
-            if q in u_cards:
-                initial_cid = q
-            else:
-                for c in u_cards.values():
-                    if str(c.get("id")) == q or q in c.get("char_name", "").lower() or q in c.get("prefix", "").lower():
-                        initial_cid = str(c.get("id"))
-                        break
+            initial_cid, _ = self._find_user_card_by_query(u_cards, 카드선택)
         view = MasterRankView(interaction.user, guild_id=interaction.guild_id or 0, initial_card_id=initial_cid)
         await interaction.followup.send(embed=view.build_embed(), view=view)
 
