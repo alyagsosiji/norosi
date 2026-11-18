@@ -829,12 +829,36 @@ class NorosiBot(commands.Bot):
                             if not target_item:
                                 for child in view.children:
                                     cb_name = getattr(getattr(child, "callback", None), "__name__", "")
-                                    if cb_name == item_name:
+                                    if cb_name and (cb_name == item_name or item_name.startswith(f"{cb_name}_r")):
                                         target_item = child
                                         break
                                     if getattr(child, "label", None) == item_name:
                                         target_item = child
                                         break
+                                    ph = getattr(child, "placeholder", None) or ""
+                                    if ph and (ph == item_name or ph[:30] == item_name[:30]):
+                                        target_item = child
+                                        break
+                                    child_cid = getattr(child, "custom_id", "") or ""
+                                    if child_cid.endswith(f":{item_name}"):
+                                        target_item = child
+                                        break
+                            if not target_item and interaction.data.get("component_type") in (3, 5, 6, 7, 8):
+                                select_children = [
+                                    c for c in view.children
+                                    if isinstance(
+                                        c,
+                                        (
+                                            discord.ui.Select,
+                                            discord.ui.UserSelect,
+                                            discord.ui.RoleSelect,
+                                            discord.ui.ChannelSelect,
+                                            discord.ui.MentionableSelect,
+                                        ),
+                                    )
+                                ]
+                                if len(select_children) == 1:
+                                    target_item = select_children[0]
                             if target_item and hasattr(target_item, "callback"):
                                 try:
                                     allowed = await view.interaction_check(interaction)

@@ -1039,12 +1039,13 @@ class DashboardHSROwnerPickupModal(core.SafeModal, title="🎛️ [봇주인] �
 class OshiQuickSelectView(core.SafeView):
     """26인 프로세카 캐릭터 중 최애(오시)를 드롭다운으로 즉시 선택하는 뷰"""
 
-    def __init__(self, user: discord.abc.User, parent_dashboard: Optional["MasterDashboardView"] = None):
+    def __init__(self, user: Optional[discord.abc.User] = None, parent_dashboard: Optional["MasterDashboardView"] = None):
         super().__init__(timeout=300)
         self.user = user
         self.parent_dashboard = parent_dashboard
 
-        all_chars = list(core.ALL_CHARACTERS)
+        char_unit_map = {c["name"]: c.get("unit", "세카이") for c in core.CHARACTER_MAP.values()}
+        all_chars = list(char_unit_map.keys())
         group_a = all_chars[:14]
         group_b = all_chars[14:]
 
@@ -1054,7 +1055,7 @@ class OshiQuickSelectView(core.SafeView):
                 discord.SelectOption(
                     label=ch_name,
                     value=ch_name,
-                    description=f"소속 유닛: {core.CHAR_UNIT_MAP.get(ch_name, '세카이')}",
+                    description=f"소속 유닛: {char_unit_map.get(ch_name, '세카이')}",
                     emoji="🌟",
                 )
                 for ch_name in group_a
@@ -1071,7 +1072,7 @@ class OshiQuickSelectView(core.SafeView):
                     discord.SelectOption(
                         label=ch_name,
                         value=ch_name,
-                        description=f"소속 유닛: {core.CHAR_UNIT_MAP.get(ch_name, '세카이')}",
+                        description=f"소속 유닛: {char_unit_map.get(ch_name, '세카이')}",
                         emoji="🎶",
                     )
                     for ch_name in group_b
@@ -1082,7 +1083,7 @@ class OshiQuickSelectView(core.SafeView):
             self.add_item(sel_b)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.user.id:
+        if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인의 오시 설정 창만 조작할 수 있습니다.", ephemeral=True)
             return False
         return True
@@ -1115,10 +1116,11 @@ class OshiQuickSelectView(core.SafeView):
                 except Exception:
                     pass
 
+        unit_name = next((c.get("unit", "세카이") for c in core.CHARACTER_MAP.values() if c.get("name") == picked), "세카이")
         embed = discord.Embed(
             title="💖 최애(오시) 캐릭터 설정 완료!",
             description=(
-                f"**{interaction.user.display_name}**님의 대표 오시 캐릭터가 **`{picked}`** ({core.CHAR_UNIT_MAP.get(picked, '세카이')})로 변경되었습니다!\n"
+                f"**{interaction.user.display_name}**님의 대표 오시 캐릭터가 **`{picked}`** ({unit_name})로 변경되었습니다!\n"
                 "• `/설정` (`👤 개인` ➔ `🪪 내 통합 프로필` 및 `🎨 비주얼 프로필 카드`)에 우선 반영됩니다.\n"
                 "• `/설정` (`📅 일일 출석체크`) 시 오시 캐릭터의 세카이 보이스 대사가 매칭됩니다."
             ),
@@ -1578,7 +1580,13 @@ class MasterDashboardView(core.SafeView):
         mapped_cat, mapped_page = self._resolve_initial_target(initial_tab, initial_page)
         self.current_category: str = mapped_cat
         self.current_page: int = mapped_page
-        self.sub_mode: Optional[str] = None
+        tk_norm = (initial_tab or "").strip().lower()
+        if tk_norm in ("ranking", "rank", "랭킹"):
+            self.sub_mode: Optional[str] = "ranking_hub"
+        elif tk_norm in ("pokedex", "codex", "도감"):
+            self.sub_mode = "pokedex_hub"
+        else:
+            self.sub_mode = None
 
         self._pages_cache: Dict[str, List[Dict[str, Any]]] = self._build_catalog_pages()
         self.refresh_components()
@@ -1588,6 +1596,10 @@ class MasterDashboardView(core.SafeView):
         tk = (tab_key or "home").strip().lower()
         if tk in ("home", "main", "홈"):
             return "home", 0
+        if tk in ("ranking", "rank", "랭킹"):
+            return "minigame", 3
+        if tk in ("pokedex", "codex", "도감"):
+            return "minigame", 3
         if tk in ("general", "일반", "life"):
             return "general", max(0, min(2, page_idx))
         if tk == "music":
@@ -2618,12 +2630,13 @@ class MasterDashboardView(core.SafeView):
             btn_pers.callback = self._make_cat_enter_cb("personal")
             self.add_item(btn_pers)
 
-            # Row 1: 원클릭 자주 쓰는 핵심 단축 버튼 4개
+            # Row 1: 원클릭 자주 쓰는 핵심 단축 버튼 5개 (랭킹 버튼 전면 배치!)
             quick_items = [
                 ("즉시 출석체크", "📅", discord.ButtonStyle.success, self._act_attendance, "q_att"),
                 ("통합 프로필카드", "🪪", discord.ButtonStyle.primary, self._act_profile_card_png, "q_prof"),
                 ("프로세카 10연차", "🌈", discord.ButtonStyle.secondary, self._act_sekai_pull_10, "q_p10"),
                 ("낚시 출조", "🎣", discord.ButtonStyle.secondary, self._act_fishing_cast, "q_fish"),
+                ("통합 랭킹", "🏆", discord.ButtonStyle.primary, self._act_ranking_hub, "q_rank"),
             ]
             for q_label, q_emoji, q_style, q_cb, q_id in quick_items:
                 qb = discord.ui.Button(
@@ -2636,12 +2649,40 @@ class MasterDashboardView(core.SafeView):
                 qb.callback = q_cb
                 self.add_item(qb)
 
-            # Row 2: 통합 페이지네이션 시작 바 + 도움말 + 새로고침
+            # Row 2: 올인원 빠른 기능 · 랭킹 · 도감 · 보관함 바로가기 셀렉터 (구 /메뉴 빠른 실행 복구 & 확장)
+            quick_sel = discord.ui.Select(
+                placeholder="🔍 빠른 실행 · 전 분야 랭킹 · 도감 · 보관함 바로가기...",
+                custom_id="norosi:Settings:quick_jump_select",
+                row=2,
+                options=[
+                    discord.SelectOption(label="🏆 전 분야 통합 랭킹 보드", value="ranking_hub", description="출석·프로세카·원신·붕스·낚시·타인의삶·자산 순위", emoji="🏆"),
+                    discord.SelectOption(label="📅 서버 출석체크 랭킹 Top 10", value="att_rank", description="누적 출석일 및 연속 개근 순위표", emoji="📅"),
+                    discord.SelectOption(label="🎤 프로세카 가챠 랭킹 보드", value="sekai_rank", description="카드 수집·★4·덱 종합력 서버 랭킹", emoji="🎤"),
+                    discord.SelectOption(label="🌠 원신 수집 · 명예의 전당 랭킹", value="gi_rank", description="5성 수집·모험등급·운명의자리 랭킹", emoji="🌠"),
+                    discord.SelectOption(label="🚄 스타레일 워프 랭킹 보드", value="hsr_rank", description="5성 캐릭터·광추·개척레벨 랭킹", emoji="🚄"),
+                    discord.SelectOption(label="🎣 낚시 최대어(cm·kg) · 대회 랭킹", value="fish_rank", description="역대 대물 기록 및 낚시왕 순위", emoji="🎣"),
+                    discord.SelectOption(label="👶 타인의 삶 엔딩 · 환생 랭킹", value="ol_rank", description="최고 업적 점수 및 엔딩 수집 랭킹", emoji="👶"),
+                    discord.SelectOption(label="🏦 통합 순자산 · 크리스탈 랭킹", value="eco_rank", description="보유 크리스탈 + 4대 게임 컬렉션 자산 순위", emoji="🏦"),
+                    discord.SelectOption(label="📖 5대 통합 도감 & 배너 확률표", value="pokedex_hub", description="프로세카·원신·붕스·낚시·타인의삶 도감", emoji="📖"),
+                    discord.SelectOption(label="🎒 프로세카 내 카드 보관함", value="sekai_inv", description="보유 카드 일러스트·레벨·마스터랭크 조회", emoji="🎒"),
+                    discord.SelectOption(label="🏆 프로세카 마스터 랭크(✦MR) 돌파", value="sekai_mr", description="중복 카드 또는 크리스탈로 MR 돌파", emoji="✨"),
+                    discord.SelectOption(label="👗 캐릭터 3D 의상실 & 의상 상점", value="sekai_costume", description="26인 캐릭터 의상 장착 및 구매", emoji="👗"),
+                    discord.SelectOption(label="⚔️ 세카이 협동 라이브 (리듬게임)", value="sekai_live", description="5인 덱으로 라이브 스코어 달성 & 보상", emoji="⚔️"),
+                    discord.SelectOption(label="💿 내 플레이리스트 스튜디오", value="music_pl", description="유튜브·스포티파이·사클 플리 제작/음성재생", emoji="💿"),
+                    discord.SelectOption(label="🌤️ 실시간 기상청 날씨 & 미세먼지", value="weather", description="전국/해외 도시 기온·체감온도·강수확률", emoji="🌤️"),
+                    discord.SelectOption(label="🔤 끝말잇기 대결 (AI / 유저)", value="wordchain", description="크리스탈 보상 끝말잇기 매치", emoji="🔤"),
+                    discord.SelectOption(label="🔫 러시안 룰렛 서바이벌", value="roulette", description="심장 쫄깃 서바이벌 미니게임", emoji="🔫"),
+                ],
+            )
+            quick_sel.callback = self._on_home_quick_jump_selected
+            self.add_item(quick_sel)
+
+            # Row 3: 통합 페이지네이션 시작 바 + 도움말 + 새로고침
             flat_total = len(self._get_flat_pages())
             prev_btn = discord.ui.Button(
                 label="◀ 이전",
                 style=discord.ButtonStyle.secondary,
-                row=2,
+                row=3,
                 custom_id="norosi:Settings:nav_prev",
             )
             prev_btn.callback = self._on_prev_page_clicked
@@ -2651,7 +2692,7 @@ class MasterDashboardView(core.SafeView):
                 label=f"🏠 홈 (통합 {flat_total}p)",
                 style=discord.ButtonStyle.secondary,
                 disabled=True,
-                row=2,
+                row=3,
                 custom_id="norosi:Settings:nav_ind",
             )
             self.add_item(ind_btn)
@@ -2659,7 +2700,7 @@ class MasterDashboardView(core.SafeView):
             next_btn = discord.ui.Button(
                 label="다음 ▶",
                 style=discord.ButtonStyle.secondary,
-                row=2,
+                row=3,
                 custom_id="norosi:Settings:nav_next",
             )
             next_btn.callback = self._on_next_page_clicked
@@ -2669,7 +2710,7 @@ class MasterDashboardView(core.SafeView):
                 label="도움말",
                 emoji="📖",
                 style=discord.ButtonStyle.secondary,
-                row=2,
+                row=3,
                 custom_id="norosi:Settings:nav_help",
             )
             help_btn.callback = self._act_open_help
@@ -2679,7 +2720,7 @@ class MasterDashboardView(core.SafeView):
                 label="새로고침",
                 emoji="🔄",
                 style=discord.ButtonStyle.primary,
-                row=2,
+                row=3,
                 custom_id="norosi:Settings:nav_refresh",
             )
             ref_btn.callback = self._on_refresh_clicked
@@ -2820,6 +2861,36 @@ class MasterDashboardView(core.SafeView):
         self._step_global_page(1)
         self.refresh_components()
         await core.safe_edit_response(interaction, embed=self.build_current_embed(), view=self)
+
+    async def _on_home_quick_jump_selected(self, interaction: discord.Interaction):
+        val = (interaction.data.get("values") or [None])[0] if isinstance(interaction.data, dict) else None
+        if not val:
+            await core.safe_defer(interaction, ephemeral=True)
+            return
+        jump_map = {
+            "ranking_hub": self._act_ranking_hub,
+            "att_rank": self._act_att_ranking,
+            "sekai_rank": self._act_sekai_rank,
+            "gi_rank": self._act_gi_rank,
+            "hsr_rank": self._act_hsr_rank,
+            "fish_rank": self._act_fishing_rank,
+            "ol_rank": self._act_other_life_rank,
+            "eco_rank": self._act_economy_rank,
+            "pokedex_hub": self._act_pokedex_hub,
+            "sekai_inv": self._act_sekai_inventory,
+            "sekai_mr": self._act_sekai_master_rank,
+            "sekai_costume": self._act_sekai_costume,
+            "sekai_live": self._act_sekai_live,
+            "music_pl": self._act_music_playlist,
+            "weather": self._act_weather,
+            "wordchain": self._act_word_chain,
+            "roulette": self._act_roulette,
+        }
+        handler = jump_map.get(val)
+        if handler:
+            await handler(interaction)
+        else:
+            await core.safe_defer(interaction, ephemeral=True)
 
     async def _on_refresh_clicked(self, interaction: discord.Interaction):
         try:
@@ -3002,14 +3073,16 @@ class MasterDashboardView(core.SafeView):
                 ],
             },
             "ranking_hub": {
-                "title": "🏆 전 분야 서버 통합 랭킹 허브",
-                "desc": "프로세카 · 원신 · 스타레일 · 낚시 대물 · 타인의 삶 · 통합 순자산 순위표를 즉시 확인합니다.",
+                "title": "🏆 전 분야 서버 통합 랭킹 허브 (8대 순위표)",
+                "desc": "출석체크 · 프로세카 · 원신 · 스타레일 · 낚시 대물 · 주말 낚시대회 · 타인의 삶 · 통합 순자산 순위표를 즉시 확인합니다.",
                 "perm": PERM_USER,
                 "buttons": [
+                    ("출석체크 랭킹 Top 10", "📅", discord.ButtonStyle.success, self._act_att_ranking),
                     ("프로세카 가챠랭킹", "🎤", discord.ButtonStyle.primary, self._act_sekai_rank),
                     ("원신 수집·명예의전당", "🌠", discord.ButtonStyle.primary, self._act_gi_rank),
                     ("스타레일 워프랭킹", "🚄", discord.ButtonStyle.primary, self._act_hsr_rank),
                     ("낚시 최대어(cm·kg) 랭킹", "🎣", discord.ButtonStyle.success, self._act_fishing_rank),
+                    ("주말·제철 낚시대회 순위", "🏅", discord.ButtonStyle.success, self._act_fishing_tourney),
                     ("타인의 삶 엔딩랭킹", "👶", discord.ButtonStyle.secondary, self._act_other_life_rank),
                     ("통합 순자산·크리스탈 랭킹", "🏦", discord.ButtonStyle.secondary, self._act_economy_rank),
                 ],
@@ -5206,6 +5279,8 @@ class Dashboard(commands.Cog, name="설정"):
             app_commands.Choice(name="⚙️ [고급] 서버 관리자 & 봇 주인 전용 설정 (4페이지)", value="advanced"),
             app_commands.Choice(name="🎮 [미니게임] 프로세카·원신·스타레일·낚시·농장·게임 (4페이지)", value="minigame"),
             app_commands.Choice(name="👤 [개인] 내 프로필·보관함·목표·집중·파트너 (3페이지)", value="personal"),
+            app_commands.Choice(name="🏆 [랭킹] 전 분야 서버 통합 랭킹 보드 바로가기 (8종)", value="ranking"),
+            app_commands.Choice(name="📖 [도감] 5대 게임 통합 도감 & 배너 확률표 바로가기", value="pokedex"),
         ]
     )
     async def slash_settings(

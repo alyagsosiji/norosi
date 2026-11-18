@@ -2099,29 +2099,30 @@ class AnnouncementPreviewView(core.SafeView):
         self.add_item(color_select)
 
         # Row 3: 발송 채널 변경 드롭다운
-        if self.guild and self.guild.text_channels:
+        if self.guild and getattr(self.guild, "text_channels", None):
             raw_channels = list(self.guild.text_channels)
-            if self.target_channel in raw_channels:
+            if self.target_channel and self.target_channel in raw_channels:
                 raw_channels.remove(self.target_channel)
                 raw_channels.insert(0, self.target_channel)
             ch_options = []
             for ch in raw_channels[:25]:
-                is_selected = (ch.id == self.target_channel.id)
+                is_selected = bool(self.target_channel and ch.id == self.target_channel.id)
                 ch_options.append(discord.SelectOption(
                     label=f"#{ch.name}"[:100],
                     value=str(ch.id),
                     description="[현재 선택된 채널]" if is_selected else None,
                     default=is_selected
                 ))
-            ch_select = discord.ui.Select(
-                placeholder="📢 공지 발송 채널 변경...",
-                min_values=1,
-                max_values=1,
-                row=3,
-                options=ch_options
-            )
-            ch_select.callback = self.on_channel_select
-            self.add_item(ch_select)
+            if ch_options:
+                ch_select = discord.ui.Select(
+                    placeholder="📢 공지 발송 채널 변경...",
+                    min_values=1,
+                    max_values=1,
+                    row=3,
+                    options=ch_options
+                )
+                ch_select.callback = self.on_channel_select
+                self.add_item(ch_select)
 
     async def _check_admin(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.author.id:

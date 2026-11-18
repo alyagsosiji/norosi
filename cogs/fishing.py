@@ -259,9 +259,8 @@ class FishingBaitSelect(discord.ui.Select):
                 cnt = int(bag_baits.get(b_id, 0))
                 qty_txt = f"{cnt}개"
             opts.append(discord.SelectOption(
-                label=f"{b['name']} ({qty_txt})"[:95],
+                label=f"{b['name']} ({qty_txt})"[:70],
                 value=b_id,
-                description=b["desc"][:40],
                 emoji=b["emoji"],
                 default=(b_id == cur_bait),
             ))

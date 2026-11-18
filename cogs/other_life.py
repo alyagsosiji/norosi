@@ -467,9 +467,8 @@ class OtherLifeCollectionOriginSelect(discord.ui.Select):
             if not orig:
                 continue
             opts.append(discord.SelectOption(
-                label=orig["name"][:95],
+                label=orig["name"][:70],
                 value=oid,
-                description=orig["hook"][:40],
                 default=(current == oid),
             ))
         opts.append(discord.SelectOption(

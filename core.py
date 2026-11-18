@@ -633,8 +633,28 @@ class SafeView(discord.ui.View):
             or getattr(item, "style", None) == discord.ButtonStyle.link
         )
         if not is_link and hasattr(item, "_provided_custom_id") and not item._provided_custom_id:
-            lbl = getattr(item, "label", "") or getattr(item, "placeholder", "") or str(len(self.children))
-            item.custom_id = f"norosi:{self.__class__.__name__}:{lbl}"[:100]
+            cb = getattr(item, "callback", None)
+            cb_name = getattr(cb, "__name__", "") or ""
+            is_select_cls = isinstance(
+                item,
+                (
+                    discord.ui.Select,
+                    discord.ui.UserSelect,
+                    discord.ui.RoleSelect,
+                    discord.ui.ChannelSelect,
+                    discord.ui.MentionableSelect,
+                ),
+            )
+            if is_select_cls and cb_name and cb_name not in ("callback", "_ViewCallback"):
+                lbl = f"{cb_name}_r{getattr(item, 'row', None) if getattr(item, 'row', None) is not None else len(self.children)}"
+            else:
+                lbl = getattr(item, "label", "") or getattr(item, "placeholder", "") or cb_name or str(len(self.children))
+            base_cid = f"norosi:{self.__class__.__name__}:{lbl}"[:95]
+            existing_cids = {getattr(c, "custom_id", None) for c in self.children}
+            final_cid = base_cid
+            if final_cid in existing_cids:
+                final_cid = f"{base_cid[:90]}_{len(self.children)}"
+            item.custom_id = final_cid[:100]
             item._provided_custom_id = True
         elif not is_link and getattr(item, "custom_id", None):
             item.custom_id = str(item.custom_id)[:100]

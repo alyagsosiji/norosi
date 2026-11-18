@@ -609,9 +609,10 @@ class CommandRemoteSelect(discord.ui.Select):
 
 class QuickMenuHubView(core.SafeView):
     """이전 빠른 메뉴 호환 래퍼 — 통합 설정 허브(/설정, MasterDashboardView)로 즉시 연결"""
-    def __new__(cls, bot_instance, user: discord.User | discord.Member, guild: discord.Guild | None, data: dict):
+    def __new__(cls, bot_instance=None, user: discord.User | discord.Member | None = None, guild: discord.Guild | None = None, data: dict | None = None, **kwargs):
         from cogs.dashboard import MasterDashboardView
-        return MasterDashboardView(bot_instance, user, guild, data)
+        bot_obj = bot_instance or kwargs.get("bot")
+        return MasterDashboardView(bot=bot_obj, user=user, guild=guild, data=data)
 
 
 # ==========================================

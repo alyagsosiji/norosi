@@ -1485,14 +1485,15 @@ class VoicePlayerControlView(core.SafeView):
     - [🔉 볼륨 -15%] [🔊 볼륨 +15%] [🔀 순번 셔플] [🌙 취침타이머] [💿 현재 곡 내 플리에 담기]
     - 드롭다운: 원하는 순번의 곡으로 즉시 점프 재생
     """
-    def __init__(self, player: GuildVoicePlaylistPlayer):
+    def __init__(self, player: Optional[GuildVoicePlaylistPlayer] = None):
         super().__init__(timeout=3600)
         self.player = player
         self.update_components()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         await super().interaction_check(interaction)
-        vc = self.player.guild.voice_client
+        guild_obj = getattr(self.player, "guild", None) or interaction.guild
+        vc = getattr(guild_obj, "voice_client", None)
         if not vc or not vc.channel:
             await core.safe_send_response(interaction, "❌ 봇이 현재 음성채널에 연결되어 있지 않습니다.", ephemeral=True)
             return False
@@ -1506,7 +1507,12 @@ class VoicePlayerControlView(core.SafeView):
         return True
 
     def update_components(self):
-        vc = self.player.guild.voice_client
+        if not self.player:
+            self.jump_select.options = [discord.SelectOption(label="재생 대기열이 비어 있습니다", value="NONE")]
+            self.jump_select.disabled = True
+            return
+        guild_obj = getattr(self.player, "guild", None)
+        vc = getattr(guild_obj, "voice_client", None)
         connected = bool(vc and vc.is_connected())
         has_tracks = len(self.player.tracks) > 0
 
@@ -2419,22 +2425,28 @@ class PlaylistSearchModal(core.SafeModal, title="🔍 플레이리스트 곡 검
 
 class PlaylistSearchResultView(core.SafeView):
     """검색 결과에서 곡을 골라 상세(재생 / 순번 이동 / 삭제)를 열거나, 검색된 곡을 한 번에 삭제하는 뷰"""
-    def __init__(self, studio_view: "PlaylistStudioView", matches: list, parent_message: Optional[discord.Message] = None):
+    def __init__(self, studio_view: Optional["PlaylistStudioView"] = None, matches: Optional[list] = None, parent_message: Optional[discord.Message] = None):
         super().__init__(timeout=300)
         self.studio_view = studio_view
-        self.matches = matches[:25]
-        self.total_matches = len(matches)
+        self.matches = (matches or [])[:25]
+        self.total_matches = len(matches or [])
         self.parent_message = parent_message
-        self.result_select.options = [
-            discord.SelectOption(
-                label=f"#{i + 1:02d}. {t.get('title', '제목 없음')}"[:95],
-                value=str(i),
-                description=f"{t.get('artist', '-')} · 선택 시 재생/순번 변경/삭제"[:95],
-                emoji="🎵"
-            )
-            for i, t in self.matches
-        ]
+        if self.matches:
+            self.result_select.options = [
+                discord.SelectOption(
+                    label=f"#{i + 1:02d}. {t.get('title', '제목 없음')}"[:85],
+                    value=str(i),
+                    description=f"{t.get('artist', '-')} · 재생/순번 변경/삭제"[:70],
+                    emoji="🎵"
+                )
+                for i, t in self.matches
+            ]
+            self.result_select.disabled = False
+        else:
+            self.result_select.options = [discord.SelectOption(label="검색 결과가 없습니다", value="NONE")]
+            self.result_select.disabled = True
         self.delete_all_matches_btn.label = f"🗑️ 검색된 {len(self.matches)}곡 모두 삭제"
+        self.delete_all_matches_btn.disabled = not bool(self.matches)
 
     def build_content(self, keyword: str) -> str:
         lines = [f"`#{i + 1:02d}` **{t.get('title', '제목 없음')}** — `{t.get('artist', '-')}`" for i, t in self.matches[:15]]
@@ -2444,6 +2456,9 @@ class PlaylistSearchResultView(core.SafeView):
     @discord.ui.select(placeholder="🎵 곡을 선택하면 재생 / 순번 변경 / 삭제 메뉴가 열립니다...", row=0,
                        options=[discord.SelectOption(label="결과 없음", value="NONE")])
     async def result_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if not select.values or select.values[0] == "NONE" or not self.studio_view:
+            await core.safe_defer(interaction, ephemeral=True)
+            return
         idx = int(select.values[0])
         cur_pl = self.studio_view.get_current_playlist()
         tracks = cur_pl.get("tracks", [])
@@ -2865,10 +2880,10 @@ class PlaylistTrackDetailView(core.SafeView):
 
 class ImportLikedMusicView(core.SafeView):
     """내 음악보관함(하트 누른 곡)에서 원하는 곡들을 골라 플레이리스트로 한 번에 가져오는 뷰"""
-    def __init__(self, studio_view: "PlaylistStudioView", liked_music: list, parent_message: Optional[discord.Message] = None):
+    def __init__(self, studio_view: Optional["PlaylistStudioView"] = None, liked_music: Optional[list] = None, parent_message: Optional[discord.Message] = None):
         super().__init__(timeout=300)
         self.studio_view = studio_view
-        self.liked_music = list(reversed(liked_music))[:25]
+        self.liked_music = list(reversed(liked_music or []))[:25]
         self.parent_message = parent_message
 
         opts = []
@@ -2877,16 +2892,31 @@ class ImportLikedMusicView(core.SafeView):
             artist = str(m.get("artist", "-"))[:35]
             plat = str(m.get("platform", "Spotify"))
             opts.append(discord.SelectOption(
-                label=f"{idx}. {title}"[:95],
+                label=f"{idx}. {title}"[:80],
                 value=str(idx - 1),
-                description=f"{artist} · {plat}"[:95],
+                description=f"{artist} · {plat}"[:70],
                 emoji="❤️"
             ))
-        self.import_select.options = opts
-        self.import_select.max_values = min(10, len(opts))
+        if opts:
+            self.import_select.options = opts
+            self.import_select.max_values = min(10, len(opts))
+            self.import_select.disabled = False
+        else:
+            self.import_select.options = [discord.SelectOption(label="음악보관함이 비어 있습니다", value="NONE")]
+            self.import_select.max_values = 1
+            self.import_select.disabled = True
 
-    @discord.ui.select(placeholder="❤️ 플레이리스트에 담을 보관함 곡을 선택하세요 (최대 10곡 동시 선택)...", min_values=1, max_values=1, row=0)
+    @discord.ui.select(
+        placeholder="❤️ 플레이리스트에 담을 보관함 곡을 선택하세요 (최대 10곡 동시 선택)...",
+        min_values=1,
+        max_values=1,
+        row=0,
+        options=[discord.SelectOption(label="음악보관함 곡 선택", value="NONE")],
+    )
     async def import_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if not select.values or select.values[0] == "NONE" or not self.studio_view:
+            await core.safe_defer(interaction, ephemeral=True)
+            return
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
         u_key = str(self.studio_view.owner.id)
@@ -2896,6 +2926,8 @@ class ImportLikedMusicView(core.SafeView):
 
         added_cnt = 0
         for idx_str in select.values:
+            if idx_str == "NONE":
+                continue
             idx = int(idx_str)
             if 0 <= idx < len(self.liked_music):
                 src = self.liked_music[idx]
@@ -3235,15 +3267,14 @@ class PlaylistStudioView(core.SafeView):
             p_cnt = len(p.get("tracks", []))
             p_plat = p.get("platform", "YouTube")
             is_sel = (p["id"] == cur_pl["id"])
+            p_em = p.get("emoji", "🎧")
             pl_opts.append(discord.SelectOption(
-                label=f"{idx}. {p.get('name', '플레이리스트')} ({p_cnt}곡)"[:95],
-                value=str(p["id"]),
-                description=f"기본 플랫폼: {p_plat} | {p.get('desc', '')}"[:95],
-                emoji=p.get("emoji", "🎧"),
+                label=f"{p_em} {idx}. {p.get('name', '플리')[:22]} ({p_cnt}곡·{p_plat})"[:52],
+                value=str(p["id"])[:60],
                 default=is_sel
             ))
-        self.playlist_select.options = pl_opts
-        self.playlist_select.placeholder = f"📁 플레이리스트 전환 (현재: {cur_pl.get('name')} · 총 {len(pls)}개)..."
+        self.playlist_select.options = pl_opts or [discord.SelectOption(label="플레이리스트가 없습니다", value="NONE")]
+        self.playlist_select.placeholder = f"📁 플레이리스트 전환 (현재: {str(cur_pl.get('name', ''))[:25]} · 총 {len(pls)}개)..."[:85]
 
         # Row 2: 수록곡 선택 드롭다운
         page_tracks = self.get_page_tracks()
@@ -3257,10 +3288,8 @@ class PlaylistStudioView(core.SafeView):
                 t_plat = t.get("platform", "YouTube")
                 t_emoji = core.PLAYLIST_PLATFORMS.get(t_plat, core.PLAYLIST_PLATFORMS["YouTube"])["emoji"]
                 t_opts.append(discord.SelectOption(
-                    label=f"#{idx:02d}. {t.get('title', '제목 없음')}"[:95],
-                    value=str(t.get("id")),
-                    description=f"{t.get('artist', '-')} · 이 순번부터 재생 / 순번 변경(⬆️⬇️) / 삭제"[:95],
-                    emoji=t_emoji
+                    label=f"{t_emoji} #{idx:02d}. {t.get('title', '제목 없음')[:28]} - {str(t.get('artist', '-'))[:14]}"[:55],
+                    value=str(t.get("id"))[:60],
                 ))
             self.track_select.options = t_opts
             self.track_select.disabled = False
