@@ -58,6 +58,9 @@ EMOJI_SLOT_SIZE = EMOTE_TARGET_WIDTH
 STATIC_TARGET_SIZE = EMOTE_TARGET_WIDTH
 ANIMATED_TARGET_SIZE = EMOTE_TARGET_WIDTH
 MULTI_EMOJI_GAP = 8
+SAFE_CORNER_PAD = 4                                              # 디스코드 첨부 라운딩(border-radius: 8px) 모서리 잘림 방지 여백
+MOBILE_SAFE_STRIP_WIDTH = 320                                    # 모바일 가로 100% 확대 방지용 투명 스티커 스트립 최소 너비 (~1.90:1)
+MOBILE_SAFE_STRIP_HEIGHT = EMOTE_TARGET_HEIGHT + SAFE_CORNER_PAD * 2  # 168px (160px 스티커 높이 + 상하 4px 안전 여백)
 
 MAX_UPLOAD_BYTES = 24 * 1024 * 1024  # Discord 25MB 제한 안전 마진
 WEBHOOK_NAME = "norosi-emoji-upscale"
@@ -467,17 +470,32 @@ def _extract_rgba_frames(
     return resized_frames, durations, loop_count
 
 
-def _compose_horizontal_sprites(sprites: list[Image.Image], gap: int = MULTI_EMOJI_GAP) -> Image.Image:
-    """2~3개의 160x160 리사이징된 이모지를 불필요한 여백 없이 가로로 나란히 배치합니다."""
+def _compose_horizontal_sprites(
+    sprites: list[Image.Image],
+    gap: int = MULTI_EMOJI_GAP,
+    canvas_w: Optional[int] = None,
+    canvas_h: Optional[int] = None,
+) -> Image.Image:
+    """
+    1~3개의 emote-cdn-rust 방식(160x160 종횡비 유지 · Lanczos3) 리사이징된 이모지를
+    모바일/PC 공용 투명 스티커 스트립 캔버스(기본 320x168, ~1.90:1 비율) 좌측에 배치합니다.
+    - PC: 320x168이 1:1 픽셀로 렌더링되며 우측 투명 영역은 보이지 않아 정확한 160x160 스티커 크기 유지
+    - 모바일: 1:1 정사각형 첨부파일이 모바일 화면 가로 100%(~320x320dp)로 확대되는 현상을 방지하고,
+      원본 종횡비를 100% 보존한 채 스티커 크기(~150x150dp)로 렌더링
+    """
     items = sprites[:MAX_EMOJIS_PER_MESSAGE]
-    if len(items) == 1:
-        return items[0]
-    total_w = sum(sp.width for sp in items) + gap * (len(items) - 1)
-    max_h = max(sp.height for sp in items)
-    canvas = Image.new("RGBA", (max(1, total_w), max(1, max_h)), (0, 0, 0, 0))
-    cur_x = 0
+    if not items:
+        return Image.new("RGBA", (MOBILE_SAFE_STRIP_WIDTH, MOBILE_SAFE_STRIP_HEIGHT), (0, 0, 0, 0))
+
+    content_w = sum(sp.width for sp in items) + gap * max(0, len(items) - 1)
+    max_sp_h = max(sp.height for sp in items)
+    w = canvas_w or max(MOBILE_SAFE_STRIP_WIDTH, content_w + SAFE_CORNER_PAD * 2)
+    h = canvas_h or max(MOBILE_SAFE_STRIP_HEIGHT, max_sp_h + SAFE_CORNER_PAD * 2)
+
+    canvas = Image.new("RGBA", (max(1, w), max(1, h)), (0, 0, 0, 0))
+    cur_x = SAFE_CORNER_PAD
     for sp in items:
-        dy = (max_h - sp.height) // 2
+        dy = max(SAFE_CORNER_PAD, (h - sp.height) // 2)
         canvas.alpha_composite(sp, (cur_x, dy))
         cur_x += sp.width + gap
     return canvas
@@ -502,26 +520,24 @@ def build_sticker_strip_bytes(
     canvas_h: Optional[int] = None,
 ) -> tuple[bytes, str]:
     """
-    1~3개의 커스텀 이모지를 emote-cdn-rust 방식(160x160 종횡비 유지 + Lanczos3 + WebP 출력)으로 변환합니다.
-    - 단일 이모지(1개): process_emote_bytes_to_webp를 통해 불필요한 여백 없이 정확한 160x160 종횡비 WebP로 변환
-    - 복수 이모지(2~3개): 각 이모지를 160x160 종횡비로 리사이징 후 가로 결합하여 WebP로 인코딩
+    1~3개의 커스텀 이모지를 emote-cdn-rust 방식(160x160 종횡비 유지 + Lanczos3 + WebP 출력)으로 리사이징한 뒤,
+    모바일 화면 가로 꽉참을 방지하는 투명 스티커 스트립 캔버스(320x168 WebP)로 인코딩합니다.
     """
     if not raw_items:
         raise ValueError("empty raw_items")
 
     items = raw_items[:MAX_EMOJIS_PER_MESSAGE]
-    target_w = canvas_w or EMOTE_TARGET_WIDTH
-    target_h = canvas_h or EMOTE_TARGET_HEIGHT
+    slot_size = EMOTE_TARGET_WIDTH
 
-    # 단일 이모지는 emote-cdn-rust 파이프라인 그대로 처리
-    if len(items) == 1:
-        return process_emote_bytes_to_webp(items[0], target_w, target_h)
-
-    extracted = [_extract_rgba_frames(raw, slot_size=target_w) for raw in items]
+    extracted = [_extract_rgba_frames(raw, slot_size=slot_size) for raw in items]
     has_anim = any(len(frames) > 1 for frames, _, _ in extracted)
 
     if not has_anim:
-        composed = _compose_horizontal_sprites([frames[0] for frames, _, _ in extracted])
+        composed = _compose_horizontal_sprites(
+            [frames[0] for frames, _, _ in extracted],
+            canvas_w=canvas_w,
+            canvas_h=canvas_h,
+        )
         out = io.BytesIO()
         composed.save(out, format="WEBP", lossless=True, quality=90, method=4)
         return out.getvalue(), "webp"
@@ -530,10 +546,14 @@ def build_sticker_strip_bytes(
     if len(anim_entries) == 1 and len(anim_entries[0][0]) <= 60:
         base_frames, out_durations, _ = anim_entries[0]
         canvas_frames_rgba = [
-            _compose_horizontal_sprites([
-                frames[idx] if len(frames) > 1 else frames[0]
-                for frames, _, _ in extracted
-            ])
+            _compose_horizontal_sprites(
+                [
+                    frames[idx] if len(frames) > 1 else frames[0]
+                    for frames, _, _ in extracted
+                ],
+                canvas_w=canvas_w,
+                canvas_h=canvas_h,
+            )
             for idx in range(len(base_frames))
         ]
     else:
@@ -542,10 +562,14 @@ def build_sticker_strip_bytes(
         n_steps = max(2, min(60, (max_total + step_ms - 1) // step_ms))
         out_durations = [step_ms] * n_steps
         canvas_frames_rgba = [
-            _compose_horizontal_sprites([
-                _sample_frame_at_time(frames, durs, step * step_ms)
-                for frames, durs, _ in extracted
-            ])
+            _compose_horizontal_sprites(
+                [
+                    _sample_frame_at_time(frames, durs, step * step_ms)
+                    for frames, durs, _ in extracted
+                ],
+                canvas_w=canvas_w,
+                canvas_h=canvas_h,
+            )
             for step in range(n_steps)
         ]
 
@@ -563,7 +587,23 @@ def build_sticker_strip_bytes(
         minimize_size=False,
         allow_mixed=True,
     )
-    return out.getvalue(), "webp"
+    webp_bytes = out.getvalue()
+    if len(webp_bytes) > MAX_UPLOAD_BYTES:
+        out_lossy = io.BytesIO()
+        canvas_frames_rgba[0].save(
+            out_lossy,
+            format="WEBP",
+            save_all=True,
+            append_images=canvas_frames_rgba[1:],
+            duration=out_durations,
+            loop=0,
+            lossless=False,
+            quality=75,
+            method=4,
+            minimize_size=False,
+        )
+        webp_bytes = out_lossy.getvalue()
+    return webp_bytes, "webp"
 
 
 def upscale_static_emoji_bytes(raw_bytes: bytes, target_size: int = STATIC_TARGET_SIZE) -> tuple[bytes, str]:
@@ -859,15 +899,15 @@ def build_emoji_upscale_embed(
     cdn_base = get_emote_cdn_base_url()
     desc_lines = [
         "커스텀 디스코드 이모지(1~3개)만 포함된 채팅을 보내면 원본 메시지를 삭제한 뒤,",
-        "원본 종횡비를 그대로 유지하며 **`160×160` 스티커 크기 WebP (`emote-cdn-rust` · Lanczos3 · 24시간 캐시)** 마스킹 링크(`[⠀](url)`)로",
+        "원본 종횡비를 그대로 유지하며 **`160×160` 스티커 크기 WebP (`emote-cdn-rust` · Lanczos3 · 24시간 캐시)**로 변환하여",
         "**보낸 사람의 프로필 사진과 서버 닉네임**으로 즉시 전송합니다.",
-        "• **📱 모바일 & PC 완벽 호환:** 파일 첨부(`attachments`)가 아닌 CDN 언펄 방식을 사용하여 **모바일에서도 화면이 가득 차지 않고 스티커 크기(`160×160`)와 원본 종횡비·애니메이션이 그대로 유지**됩니다.",
+        "• **📱 모바일 & PC 완벽 호환:** `160×160` 종횡비 유지 이모지를 `320×168` 투명 스티커 스트립에 배치하여 **모바일에서도 화면이 가득 차지 않고 스티커 크기(`160×160`)와 원본 종횡비·애니메이션이 그대로 유지**됩니다.",
         "• **🗑️ 삭제 방법:** 전송된 이모지 메시지에 직접 `:x:`(❌) 반응을 추가하면 즉시 삭제됩니다.",
         "",
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         f"• **🏠 대상 서버:** `{guild.name}`",
         f"• **⚡ 현재 기능 상태:** {status_badge}",
-        f"• **🌐 연동 CDN 엔드포인트:** `{cdn_base}/e/{{id}}.webp`",
+        f"• **🌐 내장/연동 CDN 엔드포인트:** `{cdn_base}/e/{{id}}.webp`",
         "• **🖼️ 리사이징 엔진:** `160×160 WebP` (원본 종횡비 유지 · Lanczos3 · Animated WebP / APNG 지원)",
         "• **🛡️ 변경 가능 권한:** 서버 관리자 (`Administrator` / `서버 관리`)",
         "• **🔒 기본 동작 정책:** 모든 서버 최초 기본값은 **OFF**입니다.",
@@ -1061,52 +1101,28 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
 
     async def _prewarm_and_verify_emoji(self, emoji_id: str, cdn_url: str) -> bool:
         """
-        웹훅 전송 전 emote-cdn-rust 서버(https://cdn.kamibot.app/e/{id}.webp)와 로컬 인메모리 캐시를 동시에 예열합니다.
-        - Discordbot/2.0 언펄러가 웹훅 메시지 직후 요청할 때 0ms 캐시 히트로 즉시 160x160 WebP를 반환하게 합니다.
-        - 존재하지 않는 이모지(404/400)인 경우 False를 반환하여 원본 메시지 삭제를 방지합니다.
+        외부 emote-cdn-rust 엔드포인트(cdn_url)가 실제로 200 OK 및 유효한 WebP 이미지를 반환하는지 검증합니다.
+        - 401(서명 키 불일치/미설정), 403, 404, 5xx 또는 연결 실패 시 False를 반환하여 깨진 빈 링크 전송을 원천 차단합니다.
         """
         clean_id = clean_id_from_path(emoji_id)
         if not validate_id(clean_id):
             return False
 
-        # 이미 로컬 24시간 캐시에 존재하면 유효한 이모지로 즉시 통과 (백그라운드로 외부 CDN 예열)
-        if GLOBAL_EMOTE_CACHE.get(f"emoji:{clean_id}") is not None:
-            async def _bg_warm():
-                try:
-                    session = await self._get_session()
-                    async with session.get(cdn_url, timeout=aiohttp.ClientTimeout(total=4)) as resp:
-                        await resp.read()
-                except Exception:
-                    pass
-            try:
-                asyncio.create_task(_bg_warm())
-            except Exception:
-                pass
-            return True
-
         session = await self._get_session()
-        # 1차: emote-cdn-rust 엔드포인트(cdn_url) 직접 호출로 원격 moka 캐시 예열 + 유효성 검증
         try:
             async with session.get(cdn_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                 if 200 <= resp.status < 300:
                     raw = await resp.read()
-                    if raw and len(raw) >= 12:
+                    if raw and len(raw) >= 12 and detect_image_format(raw) != DetectedFormat.UNKNOWN:
                         GLOBAL_EMOTE_CACHE.insert(f"emoji:{clean_id}", raw, cdn_url)
                         return True
-                elif resp.status in (400, 404, 415):
-                    return False
+                return False
         except Exception:
-            pass
-
-        # 2차 폴백: 컨테이너 네트워크에서 외부 CDN 직접 연결이 제한된 경우 Discord CDN으로 로컬 캐시 예열 및 검증
-        res = await fetch_and_resize_cdn_item(session, clean_id, content_type="emoji")
-        return res is not None
+            return False
 
     async def _prepare_upscaled_masked_link(self, emojis: list[dict]) -> Optional[str]:
         """
-        1~3개의 커스텀 이모지를 emote-cdn-rust 마스킹 링크([⠀](https://cdn.kamibot.app/e/{id}.webp))로 변환합니다.
-        - 모바일과 PC 모두에서 파일 첨부(attachments)로 인한 가로 100% 확대 현상 없이,
-          원본 종횡비를 유지한 정확한 스티커 크기(160x160 박스)와 애니메이션 WebP로 렌더링됩니다.
+        외부 emote-cdn-rust 서버가 정상 응답(200 OK)하는 경우에만 마스킹 링크([⠀](url))를 반환합니다.
         """
         items = emojis[:MAX_EMOJIS_PER_MESSAGE]
         if not items:
@@ -1134,30 +1150,23 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
             return None
         return " ".join(masked_links)
 
-    async def _build_sticker_strip_file(self, emojis: list[dict]) -> Optional[discord.File]:
+    async def _build_sticker_strip_payload(self, emojis: list[dict]) -> Optional[tuple[bytes, str]]:
+        """
+        1~3개의 커스텀 이모지를 emote-cdn-rust(160x160 종횡비 유지 · Lanczos3 · WebP) + 모바일 안전 투명 스트립(320x168)으로 변환하고
+        24시간 TTL 인메모리 캐시(GLOBAL_EMOTE_CACHE)에 저장하여 (바이트, 파일명) 튜플로 반환합니다.
+        """
         items = emojis[:MAX_EMOJIS_PER_MESSAGE]
         if not items:
             return None
 
-        session = await self._get_session()
         safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", items[0]["name"])[:48] or "emoji"
-
-        # 단일 이모지는 24시간 TTL 인메모리 캐시(fetch_and_resize_cdn_item)를 즉시 활용
-        if len(items) == 1:
-            res = await fetch_and_resize_cdn_item(session, items[0]["id"], content_type="emoji")
-            if not res:
-                return None
-            webp_bytes, _ = res
-            if not webp_bytes or len(webp_bytes) > MAX_UPLOAD_BYTES:
-                return None
-            return discord.File(io.BytesIO(webp_bytes), filename=f"{safe_name}.webp")
-
-        # 복수 이모지(2~3개)도 조합 키로 24시간 캐시 지원
-        combo_key = "combo:" + "+".join(clean_id_from_path(em["id"]) for em in items)
-        cached_combo = GLOBAL_EMOTE_CACHE.get(combo_key)
-        if cached_combo is not None:
-            webp_bytes, _ = cached_combo
-            return discord.File(io.BytesIO(webp_bytes), filename=f"{safe_name}.webp")
+        strip_key = "strip:" + "+".join(clean_id_from_path(em["id"]) for em in items)
+        cached_strip = GLOBAL_EMOTE_CACHE.get(strip_key)
+        if cached_strip is not None:
+            webp_bytes, ext_meta = cached_strip
+            ext = ext_meta if ext_meta in ("webp", "gif", "png") else "webp"
+            if webp_bytes and len(webp_bytes) <= MAX_UPLOAD_BYTES:
+                return webp_bytes, f"{safe_name}.{ext}"
 
         raw_list: list[bytes] = []
         for em in items:
@@ -1170,8 +1179,15 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         if not out_bytes or len(out_bytes) > MAX_UPLOAD_BYTES:
             return None
 
-        GLOBAL_EMOTE_CACHE.insert(combo_key, out_bytes, "combo")
-        return discord.File(io.BytesIO(out_bytes), filename=f"{safe_name}.{ext}")
+        GLOBAL_EMOTE_CACHE.insert(strip_key, out_bytes, ext)
+        return out_bytes, f"{safe_name}.{ext}"
+
+    async def _build_sticker_strip_file(self, emojis: list[dict]) -> Optional[discord.File]:
+        res = await self._build_sticker_strip_payload(emojis)
+        if not res:
+            return None
+        out_bytes, filename = res
+        return discord.File(io.BytesIO(out_bytes), filename=filename)
 
     async def _get_or_create_webhook(self, base_channel: discord.abc.GuildChannel) -> Optional[discord.Webhook]:
         cached = self._webhook_cache.get(base_channel.id)
@@ -1317,16 +1333,16 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         if not me:
             return
         perms = channel.permissions_for(me)
-        can_send = perms.send_messages_in_threads if isinstance(channel, discord.Thread) else perms.send_messages
-        if not (perms.manage_messages and perms.manage_webhooks and can_send):
+        if not (perms.manage_messages and perms.manage_webhooks):
             return
 
-        # 1. emote-cdn-rust 마스킹 링크([⠀](https://cdn.kamibot.app/e/{id}.webp)) 생성 및 캐시 예열
-        #    (파일 첨부 대신 CDN 언펄을 사용하여 모바일에서도 가로 100% 늘어남 없이 160x160 스티커 크기 & 애니메이션 유지)
+        # 1. emote-cdn-rust(160x160 종횡비 유지 · Lanczos3 · WebP) + 모바일 안전 투명 스트립(320x168) 이미지 생성
+        #    (변환 실패 시 원본 메시지를 절대 삭제하지 않으며, 외부 CDN 서명 키 유무와 무관하게 100% 표시 보장)
         try:
-            masked_content = await self._prepare_upscaled_masked_link(emojis)
-            if not masked_content:
+            payload_res = await self._build_sticker_strip_payload(emojis)
+            if not payload_res:
                 return
+            out_bytes, filename = payload_res
         except Exception as e:
             print(f"⚠️ [이모지 업스케일 변환 예외] {e}", flush=True)
             return
@@ -1342,29 +1358,34 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
             return
 
-        # 4. 보낸 사람 프로필 사진 & 닉네임으로 웹훅 마스킹 링크 전송
+        # 4. 보낸 사람 프로필 사진 & 닉네임으로 웹훅 전송
         sender_name = sanitize_webhook_username(message.author.display_name)
         sender_avatar = message.author.display_avatar.url if hasattr(message.author, "display_avatar") else None
-        send_kwargs = {
-            "content": masked_content,
+        base_kwargs = {
             "username": sender_name,
             "avatar_url": sender_avatar,
             "allowed_mentions": discord.AllowedMentions.none(),
             "wait": True,
         }
         if isinstance(channel, discord.Thread):
-            send_kwargs["thread"] = channel
+            base_kwargs["thread"] = channel
 
         sent_msg = None
         try:
-            sent_msg = await webhook.send(**send_kwargs)
+            sent_msg = await webhook.send(
+                file=discord.File(io.BytesIO(out_bytes), filename=filename),
+                **base_kwargs,
+            )
         except discord.NotFound:
             self._webhook_cache.pop(base_channel.id, None)
             fresh_webhook = await self._get_or_create_webhook(base_channel)
             if not fresh_webhook:
                 return
             try:
-                sent_msg = await fresh_webhook.send(**send_kwargs)
+                sent_msg = await fresh_webhook.send(
+                    file=discord.File(io.BytesIO(out_bytes), filename=filename),
+                    **base_kwargs,
+                )
             except Exception as retry_err:
                 print(f"⚠️ [이모지 업스케일 웹훅 재전송 실패] {retry_err}", flush=True)
         except Exception as send_err:
