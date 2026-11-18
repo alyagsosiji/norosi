@@ -698,6 +698,7 @@ class StatsCog(commands.Cog):
             self._msg_save_counter = 0
 
             def _apply_stats() -> None:
+                week_key = datetime.datetime.now(core.KST).strftime("%Y-W%W")
                 with core._DATA_LOCK:
                     data = core.load_data()
                     s_stats = core.ensure_dict_path(data, "server_stats")
@@ -720,6 +721,10 @@ class StatsCog(commands.Cog):
                             g_stat["today_msgs"] = 0
                             g_stat["channel_msgs"] = {}
                             g_stat["hourly_msgs"] = {}
+
+                        if g_stat.get("week_key") != week_key:
+                            g_stat["week_key"] = week_key
+                            g_stat["weekly_msgs"] = 0
 
                         cnt = bucket["count"]
                         g_stat["today_msgs"] = g_stat.get("today_msgs", 0) + cnt
@@ -1677,11 +1682,14 @@ class WordChainGameView(core.SafeView):
 
         if self.opponent:
             winner = self.opponent if interaction.user.id == self.host_user.id else self.host_user
-            data = await asyncio.to_thread(core.load_data)
-            prof = core.ensure_user_profile(data, str(winner.id), winner.display_name)
-            prof["crystals"] = prof.get("crystals", 0) + 100
-            await asyncio.to_thread(core.save_data, data)
-            self.status_notice = f"🏳️ **{interaction.user.display_name}**님이 기권하여 **{winner.display_name}**님이 승리했습니다! (승리 보상 **`+100 💎`** 지급)"
+            if self.rally_count >= 5:
+                data = await asyncio.to_thread(core.load_data)
+                prof = core.ensure_user_profile(data, str(winner.id), winner.display_name)
+                prof["crystals"] = prof.get("crystals", 0) + 100
+                await asyncio.to_thread(core.save_data, data)
+                self.status_notice = f"🏳️ **{interaction.user.display_name}**님이 기권하여 **{winner.display_name}**님이 승리했습니다! (승리 보상 **`+100 💎`** 지급)"
+            else:
+                self.status_notice = f"🏳️ **{interaction.user.display_name}**님이 기권하여 **{winner.display_name}**님이 승리했습니다! (5랠리 미만 기권으로 크리스탈 보상은 지급되지 않습니다)"
         else:
             self.status_notice = f"🏳️ **{interaction.user.display_name}**님이 아쉽게 기권하셨습니다. (총 `{self.rally_count}`랠리 달성)"
 
@@ -1752,6 +1760,13 @@ class RussianRouletteView(core.SafeView):
         if self.finished:
             await core.safe_send_response(interaction, content="ℹ️ 이미 종료된 게임입니다.", ephemeral=True)
             return
+        if self.bet_crystals > 0 and self.host_user and interaction.user.id != self.host_user.id:
+            await core.safe_send_response(
+                interaction,
+                content=f"❌ 참가비(`{self.bet_crystals:,} 💎`)가 걸린 유료 러시안룰렛은 개설자(**{self.host_user.display_name}**)만 진행할 수 있습니다! (다같이 즐기려면 `참가비: 0`으로 개설해 주세요)",
+                ephemeral=True,
+            )
+            return
 
         await core.safe_defer(interaction)
         import random
@@ -1774,7 +1789,7 @@ class RussianRouletteView(core.SafeView):
             self.current_idx += 1
             self.survivor_streak += 1
             self.last_survivor_user = interaction.user
-            bonus = 30 * self.bullets + (self.survivor_streak * 20)
+            bonus = (30 * self.bullets + (self.survivor_streak * 20)) if self.bet_crystals > 0 else 0
             self.pot_crystals += bonus
             if interaction.user.display_name not in self.participants:
                 self.participants.append(interaction.user.display_name)
@@ -1786,10 +1801,11 @@ class RussianRouletteView(core.SafeView):
                 self.pull_trigger_btn.disabled = True
                 self.cashout_btn.disabled = True
                 self.spin_btn.disabled = True
-                data = await asyncio.to_thread(core.load_data)
-                prof = core.ensure_user_profile(data, str(interaction.user.id), interaction.user.display_name)
-                prof["crystals"] = prof.get("crystals", 0) + self.pot_crystals
-                await asyncio.to_thread(core.save_data, data)
+                if self.pot_crystals > 0:
+                    data = await asyncio.to_thread(core.load_data)
+                    prof = core.ensure_user_profile(data, str(interaction.user.id), interaction.user.display_name)
+                    prof["crystals"] = prof.get("crystals", 0) + self.pot_crystals
+                    await asyncio.to_thread(core.save_data, data)
                 self.last_log = (
                     f"💨 **찰칵! ({self.current_idx}번째 약실 생존!)**\n"
                     f"🎊 **퍼펙트 서바이벌!** 빈 약실을 모두 찾아내어 {interaction.user.mention}님이 최종 상금 **`+{self.pot_crystals:,} 💎`**를 획득했습니다!"
@@ -1824,18 +1840,22 @@ class RussianRouletteView(core.SafeView):
 
         data = await asyncio.to_thread(core.load_data)
         prof = core.ensure_user_profile(data, str(interaction.user.id), interaction.user.display_name)
-        prof["crystals"] = prof.get("crystals", 0) + self.pot_crystals
-        await asyncio.to_thread(core.save_data, data)
+        if self.pot_crystals > 0:
+            prof["crystals"] = prof.get("crystals", 0) + self.pot_crystals
+            await asyncio.to_thread(core.save_data, data)
 
         self.last_log = (
             f"💰 **생존 스톱 성공!** {interaction.user.mention}님이 `{self.survivor_streak}연속` 생존 후 멈추어 "
-            f"누적 상금 **`+{self.pot_crystals:,} 💎`**를 안전하게 수령했습니다! (보유: `{prof['crystals']:,}💎`)"
+            f"누적 상금 **`+{self.pot_crystals:,} 💎`**를 안전하게 수령했습니다! (보유: `{prof.get('crystals', 0):,}💎`)"
         )
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🔄 실린더 다시 돌리기 (1회)", style=discord.ButtonStyle.secondary)
     async def spin_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.finished:
+            return
+        if self.bet_crystals > 0 and self.host_user and interaction.user.id != self.host_user.id:
+            await core.safe_send_response(interaction, content="❌ 유료 러시안룰렛에서는 개설자만 실린더를 다시 돌릴 수 있습니다.", ephemeral=True)
             return
         await core.safe_defer(interaction)
         import random

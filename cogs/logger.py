@@ -217,6 +217,9 @@ class ServerLogConfigModal(core.SafeModal, title="⚙️ 서버 7대 카테고�
         return v in ("O", "ON", "Y", "YES", "TRUE", "1", "ㅇ", "예")
 
     async def on_submit(self, interaction: discord.Interaction):
+        if not interaction.guild or not interaction.user.guild_permissions.administrator:
+            await core.safe_send_response(interaction, "❌ 서버 관리자(Administrator)만 변경할 수 있습니다.", ephemeral=True)
+            return
         await core.safe_defer(interaction, ephemeral=True)
         mod_val = self._parse_bool(self.mod_admin_input.value)
         msg_val = self._parse_bool(self.messages_input.value)
@@ -1049,6 +1052,7 @@ class LoggerCog(commands.Cog):
             await core.safe_send_response(interaction, "❌ 이 명령어를 사용하려면 **서버 관리(Manage Server)** 권한이 필요합니다.", ephemeral=True)
             return
 
+        await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
 
         # 1. 연동 해제 요청 처리
@@ -1084,7 +1088,7 @@ class LoggerCog(commands.Cog):
         except Exception:
             pass
 
-        # 4. 봇 전용 aiohttp 웹훅 URL 계산 (기본 도메인: n.kami.live)
+        # 4. 봇 전용 aiohttp 웹훅 URL 계산
         ext_host = os.getenv("EXTERNAL_URL") or os.getenv("WEBHOOK_HOST")
         if not ext_host:
             ext_host = f"http://n.kami.live:{core.PORT}"
@@ -1141,7 +1145,7 @@ class LoggerCog(commands.Cog):
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
         if not member.guild or member.bot:
             return
-        data = await core.asyncio.to_thread(core.load_data)
+        data = core.get_cached_data_ro()
         ch = self._get_log_channel(member.guild, data, category_key="voice")
         if not ch:
             return
@@ -1208,7 +1212,7 @@ class LoggerCog(commands.Cog):
     async def on_message_delete(self, message: discord.Message):
         if not message.guild or message.author.bot:
             return
-        data = await core.asyncio.to_thread(core.load_data)
+        data = core.get_cached_data_ro()
         ch = self._get_log_channel(message.guild, data, category_key="messages")
         if not ch:
             return
@@ -1244,7 +1248,7 @@ class LoggerCog(commands.Cog):
         if before.content == after.content and before.attachments == after.attachments:
             return
 
-        data = await core.asyncio.to_thread(core.load_data)
+        data = core.get_cached_data_ro()
         ch = self._get_log_channel(before.guild, data, category_key="messages")
         if not ch:
             return
@@ -1287,7 +1291,7 @@ class LoggerCog(commands.Cog):
         if not messages or not messages[0].guild:
             return
         guild = messages[0].guild
-        data = await core.asyncio.to_thread(core.load_data)
+        data = core.get_cached_data_ro()
         ch = self._get_log_channel(guild, data, category_key="messages")
         if not ch:
             return
@@ -1311,7 +1315,7 @@ class LoggerCog(commands.Cog):
     async def on_member_join(self, member: discord.Member):
         if not member.guild:
             return
-        data = await core.asyncio.to_thread(core.load_data)
+        data = core.get_cached_data_ro()
         ch = self._get_log_channel(member.guild, data, category_key="members")
         if not ch:
             return
@@ -1335,7 +1339,7 @@ class LoggerCog(commands.Cog):
     async def on_member_remove(self, member: discord.Member):
         if not member.guild:
             return
-        data = await core.asyncio.to_thread(core.load_data)
+        data = core.get_cached_data_ro()
         ch = self._get_log_channel(member.guild, data, category_key="members")
         if not ch:
             return
@@ -1355,7 +1359,7 @@ class LoggerCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_ban(self, guild: discord.Guild, user: discord.User):
-        data = await core.asyncio.to_thread(core.load_data)
+        data = core.get_cached_data_ro()
         ch = self._get_log_channel(guild, data, category_key="members")
         if not ch: return
 
@@ -1370,7 +1374,7 @@ class LoggerCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_unban(self, guild: discord.Guild, user: discord.User):
-        data = await core.asyncio.to_thread(core.load_data)
+        data = core.get_cached_data_ro()
         ch = self._get_log_channel(guild, data, category_key="members")
         if not ch: return
 
@@ -1387,7 +1391,7 @@ class LoggerCog(commands.Cog):
     async def on_member_update(self, before: discord.Member, after: discord.Member):
         if not before.guild:
             return
-        data = await core.asyncio.to_thread(core.load_data)
+        data = core.get_cached_data_ro()
 
         # 1. Nicknames -> Mod/Admin
         if before.nick != after.nick:
@@ -1475,7 +1479,7 @@ class LoggerCog(commands.Cog):
             return
         if entry.user and self.bot.user and entry.user.id == self.bot.user.id:
             return
-        data = await core.asyncio.to_thread(core.load_data)
+        data = core.get_cached_data_ro()
         ch = self._get_log_channel(entry.guild, data, category_key="mod_admin")
         if not ch:
             return
@@ -1511,7 +1515,7 @@ class LoggerCog(commands.Cog):
     @commands.Cog.listener()
     async def on_guild_channel_create(self, channel: discord.abc.GuildChannel):
         if not channel.guild: return
-        data = await core.asyncio.to_thread(core.load_data)
+        data = core.get_cached_data_ro()
         ch = self._get_log_channel(channel.guild, data, category_key="channels")
         if not ch: return
 
@@ -1527,7 +1531,7 @@ class LoggerCog(commands.Cog):
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
         if not channel.guild: return
-        data = await core.asyncio.to_thread(core.load_data)
+        data = core.get_cached_data_ro()
         ch = self._get_log_channel(channel.guild, data, category_key="channels")
         if not ch: return
 
@@ -1543,7 +1547,7 @@ class LoggerCog(commands.Cog):
     @commands.Cog.listener()
     async def on_guild_channel_update(self, before: discord.abc.GuildChannel, after: discord.abc.GuildChannel):
         if not before.guild: return
-        data = await core.asyncio.to_thread(core.load_data)
+        data = core.get_cached_data_ro()
         ch = self._get_log_channel(before.guild, data, category_key="channels")
         if not ch: return
 
@@ -1622,7 +1626,7 @@ class LoggerCog(commands.Cog):
     @commands.Cog.listener()
     async def on_guild_role_create(self, role: discord.Role):
         if not role.guild: return
-        data = await core.asyncio.to_thread(core.load_data)
+        data = core.get_cached_data_ro()
         ch = self._get_log_channel(role.guild, data, category_key="roles")
         if not ch: return
 
@@ -1638,7 +1642,7 @@ class LoggerCog(commands.Cog):
     @commands.Cog.listener()
     async def on_guild_role_delete(self, role: discord.Role):
         if not role.guild: return
-        data = await core.asyncio.to_thread(core.load_data)
+        data = core.get_cached_data_ro()
         ch = self._get_log_channel(role.guild, data, category_key="roles")
         if not ch: return
 
@@ -1654,7 +1658,7 @@ class LoggerCog(commands.Cog):
     @commands.Cog.listener()
     async def on_guild_role_update(self, before: discord.Role, after: discord.Role):
         if not before.guild: return
-        data = await core.asyncio.to_thread(core.load_data)
+        data = core.get_cached_data_ro()
         ch = self._get_log_channel(before.guild, data, category_key="roles")
         if not ch: return
 
@@ -1706,7 +1710,7 @@ class LoggerCog(commands.Cog):
     # ==========================================
     @commands.Cog.listener()
     async def on_guild_update(self, before: discord.Guild, after: discord.Guild):
-        data = await core.asyncio.to_thread(core.load_data)
+        data = core.get_cached_data_ro()
         ch = self._get_log_channel(after, data, category_key="server")
         if not ch: return
 
@@ -1802,7 +1806,7 @@ class LoggerCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_emojis_update(self, guild: discord.Guild, before: list[discord.Emoji], after: list[discord.Emoji]):
-        data = await core.asyncio.to_thread(core.load_data)
+        data = core.get_cached_data_ro()
         ch = self._get_log_channel(guild, data, category_key="server")
         if not ch: return
 

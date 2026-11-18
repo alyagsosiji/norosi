@@ -314,8 +314,6 @@ FAMILY_BIOLOGY: Dict[str, Tuple[str, str, Tuple[float, float], Tuple[float, floa
     "Ephippidae": ("sea", "산호초·열대 해역", (20.0, 52.0), (0.025, 3.00), 3, "day", "clear", "shrimp", "🐠", "제비활치과"),
     "Lobotidae": ("sea", "원양·회유 해역", (32.0, 92.0), (0.020, 3.02), 3, "day", "fog", "shrimp", "🐟", "백세미돔과"),
     "Cheilodactylidae": ("sea", "연안 갯바위·내만", (24.0, 68.0), (0.018, 3.02), 2, "day", "clear", "shrimp", "🐠", "다동가리과"),
-    "Acanthuridae": ("sea", "산호초·열대 해역", (16.0, 48.0), (0.023, 3.02), 2, "day", "clear", "dough", "🐠", "양쥐돔과"),
-    "Chaetodontidae": ("sea", "산호초·열대 해역", (10.0, 24.0), (0.026, 3.00), 2, "day", "clear", "shrimp", "🐠", "나비고기과"),
 }
 
 # 속(Genus) 기준 정밀 서식지/구역 오버라이드 (특히 호수 심수층·중층수·열대 대호 정확도 극대화)
@@ -1179,7 +1177,6 @@ def main():
 
     out_paths = [
         os.path.join(ROOT_DIR, "fish_species_db.json"),
-        os.path.join(SCRIPTS_DIR, "fish_species_db.json"),
     ]
     for opt_path in (
         os.path.join(ROOT_DIR, "public", "data", "fish_species_db.json"),

@@ -1808,15 +1808,15 @@ def _apply_gi_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[i
             new_lv = min(20, cur_lv + 4)
             existing["level"] = new_lv
             existing["refinement"] = min(5, int(existing.get("refinement", 1)) + 1)
-            if item.get("slot_name"):
+            if item.get("slot_name") and rank >= int(existing.get("rank", 5)):
                 existing["slot_name"] = item["slot_name"]
                 existing["main_stat"] = item.get("main_stat", "")
                 existing["sub_stats"] = item.get("sub_stats", [])
                 existing["artifact_piece"] = item["slot_name"]
                 existing["artifact_main_stat"] = item.get("main_stat", "")
                 existing["artifact_sub_stats"] = item.get("sub_stats", [])
-            if item.get("artifact_stats_summary"):
-                existing["special_prop_name"] = item["artifact_stats_summary"]
+                if item.get("artifact_stats_summary"):
+                    existing["special_prop_name"] = item["artifact_stats_summary"]
             existing["bonus_2p"] = item.get("bonus_2p") or item.get("set_2p") or existing.get("bonus_2p", "")
             existing["bonus_4p"] = item.get("bonus_4p") or item.get("set_4p") or existing.get("bonus_4p", "")
             item["new_level"] = new_lv
@@ -2408,8 +2408,11 @@ def apply_genshin_pickup_preset(preset_key: str) -> tuple[bool, str, dict]:
 
 
 async def genshin_5star_char_autocomplete(interaction, current: str):
+    import asyncio
     from discord import app_commands
-    chars, _ = load_genshin_kr_db()
+    if not GENSHIN_CHARS:
+        await asyncio.to_thread(load_genshin_kr_db)
+    chars = GENSHIN_CHARS
     q = (current or "").strip().lower()
     cands = [c for c in chars if c["rank"] == 5 and (not q or q in c["name"].lower() or q in c["id"])]
     return [
@@ -2419,8 +2422,11 @@ async def genshin_5star_char_autocomplete(interaction, current: str):
 
 
 async def genshin_4star_char_autocomplete(interaction, current: str):
+    import asyncio
     from discord import app_commands
-    chars, _ = load_genshin_kr_db()
+    if not GENSHIN_CHARS:
+        await asyncio.to_thread(load_genshin_kr_db)
+    chars = GENSHIN_CHARS
     q = (current or "").strip().lower()
     cands = [c for c in chars if c["rank"] == 4 and c["id"] not in GENSHIN_STARTER_4_CHARS and (not q or q in c["name"].lower() or q in c["id"])]
     return [
@@ -2430,19 +2436,24 @@ async def genshin_4star_char_autocomplete(interaction, current: str):
 
 
 async def genshin_5star_weapon_autocomplete(interaction, current: str):
+    import asyncio
     from discord import app_commands
-    _, weapons = load_genshin_kr_db()
+    if not GENSHIN_WEAPONS:
+        await asyncio.to_thread(load_genshin_kr_db)
+    weapons = GENSHIN_WEAPONS
     q = (current or "").strip().lower()
     cands = [w for w in weapons if w["rank"] == 5 and w.get("wishable", True) and (not q or q in w["name"].lower() or q in w["id"])]
     return [
         app_commands.Choice(name=f"★★★★★ {w['name']} ({w['weapon_type_emoji']}{w['weapon_type_name']} · {w['pool_type']})"[:100], value=w["id"])
-        for c, w in enumerate(cands[:25])
+        for w in cands[:25]
     ]
 
 
 async def genshin_artifact_autocomplete(interaction, current: str):
+    import asyncio
     from discord import app_commands
-    load_genshin_kr_db()
+    if not GENSHIN_ARTIFACTS:
+        await asyncio.to_thread(load_genshin_kr_db)
     q = (current or "").strip().lower()
     cands = [a for a in GENSHIN_ARTIFACTS if a.get("rank") == 5 and (not q or q in a["name"].lower() or q in a["id"])]
     if not cands:
@@ -2455,7 +2466,7 @@ async def genshin_artifact_autocomplete(interaction, current: str):
 
 async def genshin_owned_char_autocomplete(interaction, current: str):
     from discord import app_commands
-    data = core.get_cached_data()
+    data = core.get_cached_data_ro()
     g_key = str(interaction.guild_id or 0)
     u_key = str(interaction.user.id)
     items = core.safe_get_dict(data, "genshin_users", g_key, u_key, "items")

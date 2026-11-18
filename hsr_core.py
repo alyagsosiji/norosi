@@ -1050,27 +1050,33 @@ def _compress_hsr_if_needed(raw_bytes: bytes, base_name: str, is_splash: bool) -
     if Image is None or not is_splash or len(raw_bytes) <= 450 * 1024:
         return raw_bytes, f"{base_name}.png"
     try:
-        im = Image.open(io.BytesIO(raw_bytes))
-        if im.mode != "RGBA":
-            im = im.convert("RGBA")
-        max_dim = 1080
-        if im.width > max_dim or im.height > max_dim:
-            im.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
-        buf = io.BytesIO()
-        im.save(buf, format="WEBP", quality=88, method=4)
-        return buf.getvalue(), f"{base_name}.webp"
+        with Image.open(io.BytesIO(raw_bytes)) as src_im:
+            im = src_im.convert("RGBA") if src_im.mode != "RGBA" else src_im.copy()
+        try:
+            max_dim = 1080
+            if im.width > max_dim or im.height > max_dim:
+                im.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+            buf = io.BytesIO()
+            im.save(buf, format="WEBP", quality=88, method=4)
+            return buf.getvalue(), f"{base_name}.webp"
+        finally:
+            im.close()
     except Exception:
         return raw_bytes, f"{base_name}.png"
 
 
 def fetch_hsr_item_image_bytes(item: dict, splash: bool = True) -> tuple[bytes | None, str]:
     cache_key = f"{'sp' if splash else 'ic'}:{item.get('kind')}:{item.get('id')}"
+    base_n = f"hsr_{item.get('kind')}_{item.get('id')}"
     with _HSR_IMG_LOCK:
         if cache_key in _HSR_IMG_CACHE:
             _HSR_IMG_CACHE.move_to_end(cache_key)
-            raw = _HSR_IMG_CACHE[cache_key]
-            base_n = f"hsr_{item.get('kind')}_{item.get('id')}"
-            return _compress_hsr_if_needed(raw, base_n, is_splash=splash)
+            cached_val = _HSR_IMG_CACHE[cache_key]
+            if isinstance(cached_val, tuple):
+                return cached_val
+            comp_bytes, comp_name = _compress_hsr_if_needed(cached_val, base_n, is_splash=splash)
+            _HSR_IMG_CACHE[cache_key] = (comp_bytes, comp_name)
+            return comp_bytes, comp_name
 
     urls = get_hsr_item_urls(item, splash=splash)
     raw_bytes = None
@@ -1086,13 +1092,13 @@ def fetch_hsr_item_image_bytes(item: dict, splash: bool = True) -> tuple[bytes |
     if not raw_bytes:
         return None, "hsr.png"
 
+    comp_bytes, comp_name = _compress_hsr_if_needed(raw_bytes, base_n, is_splash=splash)
     with _HSR_IMG_LOCK:
-        _HSR_IMG_CACHE[cache_key] = raw_bytes
+        _HSR_IMG_CACHE[cache_key] = (comp_bytes, comp_name)
         while len(_HSR_IMG_CACHE) > 80:
             _HSR_IMG_CACHE.popitem(last=False)
 
-    base_n = f"hsr_{item.get('kind')}_{item.get('id')}"
-    return _compress_hsr_if_needed(raw_bytes, base_n, is_splash=splash)
+    return comp_bytes, comp_name
 
 
 def fetch_hsr_thumb_bytes(item: dict) -> bytes | None:
@@ -1820,7 +1826,7 @@ def _apply_hsr_item_to_account(u_data: dict, item: dict, now_iso: str) -> tuple[
             new_lv = min(15, cur_lv + 3)
             existing["level"] = new_lv
             existing["superimposition"] = min(5, int(existing.get("superimposition", 1)) + 1)
-            if item.get("slot_name"):
+            if item.get("slot_name") and rank >= int(existing.get("rank", 5)):
                 existing["slot_name"] = item["slot_name"]
                 existing["main_stat"] = item.get("main_stat", "")
                 existing["sub_stats"] = item.get("sub_stats", [])
@@ -2461,8 +2467,11 @@ def apply_hsr_pickup_preset(preset_key: str) -> tuple[bool, str, dict]:
 
 
 async def hsr_5star_char_autocomplete(interaction, current: str):
+    import asyncio
     from discord import app_commands
-    chars, _ = load_hsr_kr_db()
+    if not HSR_CHARS:
+        await asyncio.to_thread(load_hsr_kr_db)
+    chars = HSR_CHARS
     q = (current or "").strip().lower()
     cands = [c for c in chars if c["rank"] == 5 and (not q or q in c["name"].lower() or q in c["id"])]
     return [
@@ -2472,8 +2481,11 @@ async def hsr_5star_char_autocomplete(interaction, current: str):
 
 
 async def hsr_4star_char_autocomplete(interaction, current: str):
+    import asyncio
     from discord import app_commands
-    chars, _ = load_hsr_kr_db()
+    if not HSR_CHARS:
+        await asyncio.to_thread(load_hsr_kr_db)
+    chars = HSR_CHARS
     q = (current or "").strip().lower()
     cands = [c for c in chars if c["rank"] == 4 and c["warpable"] and (not q or q in c["name"].lower() or q in c["id"])]
     return [
@@ -2483,8 +2495,11 @@ async def hsr_4star_char_autocomplete(interaction, current: str):
 
 
 async def hsr_5star_lc_autocomplete(interaction, current: str):
+    import asyncio
     from discord import app_commands
-    _, lcs = load_hsr_kr_db()
+    if not HSR_LIGHT_CONES:
+        await asyncio.to_thread(load_hsr_kr_db)
+    lcs = HSR_LIGHT_CONES
     q = (current or "").strip().lower()
     cands = [l for l in lcs if l["rank"] == 5 and (not q or q in l["name"].lower() or q in l["id"])]
     return [
@@ -2494,8 +2509,10 @@ async def hsr_5star_lc_autocomplete(interaction, current: str):
 
 
 async def hsr_relic_autocomplete(interaction, current: str):
+    import asyncio
     from discord import app_commands
-    load_hsr_kr_db()
+    if not HSR_RELICS:
+        await asyncio.to_thread(load_hsr_kr_db)
     q = (current or "").strip().lower()
     cands = [r for r in HSR_RELICS if not q or q in r["name"].lower() or q in r["id"]]
     return [
@@ -2506,7 +2523,7 @@ async def hsr_relic_autocomplete(interaction, current: str):
 
 async def hsr_owned_char_autocomplete(interaction, current: str):
     from discord import app_commands
-    data = core.get_cached_data()
+    data = core.get_cached_data_ro()
     g_key = str(interaction.guild_id or 0)
     u_key = str(interaction.user.id)
     items = core.safe_get_dict(data, "hsr_users", g_key, u_key, "items")

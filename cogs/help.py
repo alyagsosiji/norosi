@@ -2,6 +2,7 @@
 cogs/help.py - norosi bot help: 전체 79개 슬래시 명령어(99종 기능) 통합 도움말 & 가독성 최적화 가이드
 """
 
+import asyncio
 import math
 import datetime
 import discord
@@ -1296,7 +1297,7 @@ class HelpCategoryView(core.SafeView):
     async def open_quick_menu_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
         bot_ref = self.bot_instance or interaction.client
-        data = await core.asyncio.to_thread(core.load_data)
+        data = await asyncio.to_thread(core.load_data)
         dday_cog = bot_ref.get_cog("DDayCog")
         if dday_cog:
             from cogs.dday import QuickMenuHubView

@@ -1127,6 +1127,9 @@ def claim_community_farm_daily(guild_id: int | str, user_id: int | str, user_nam
         if claimed_today.get(u_key):
             return False, "ℹ️ 오늘의 공동 농장 수확 배당금을 이미 수령했습니다! 내일(00:00 KST) 다시 수령할 수 있습니다."
 
+        if _safe_int(gf.get("level"), 1) <= 1 and _safe_int(gf.get("exp"), 0) <= 0 and not gf.get("water_log"):
+            return False, "🌱 먼저 서버 공동 농장에 물주기 또는 수확 기여를 1회 이상 진행해 주세요!"
+
         lvl = gf["level"]
         gold_div = 150 + lvl * 80
         cry_div = 10 + lvl * 5

@@ -783,8 +783,6 @@ def latin_to_hangul(word: str) -> str:
     w = re.sub(r"[^a-z]", "", (word or "").lower())
     if not w:
         return "어"
-    # Replace common taxonomic endings smoothly
-    w = re.sub(r"ae$", "에", w) if False else w
 
     # Tokenize into phonological chunks
     i = 0

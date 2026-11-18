@@ -605,7 +605,7 @@ _FALLBACK_ORIGINAL_140: List[Dict[str, Any]] = [
     _sp("sea_webfoot_octopus", "주꾸미", "Amphioctopus fangsiao", "sea", "서해 얕은 모래", 1, 12.0, 28.0, 0.014, 2.98, 48, "day", "clear", "lure", "🐙", "다리 밑에 둥근 황금빛 고리 무늬가 반짝이는 가을 선상 에깅의 주인공."),
     _sp("sea_surfperch", "망상어", "Ditrema temminckii", "sea", "방파제 테트라포드", 1, 14.0, 30.0, 0.018, 3.00, 35, "day", "all", "shrimp", "🐟", "알이 아닌 새끼를 직접 낳는 신기한 태생 연안어."),
 
-    _sp("sea_rockfish_inermis", "볼락", "Sebastes inermis", "sea", "방파제 암초 야간", 2, 15.0, 32.0, 0.018, 3.02, 84, "night", "calm" if False else "clear", "shrimp", "🐟", "큰 눈으로 야간에 먹이를 쫓으며 릴을 차고 내려가는 손맛이 중독적인 갯바위의 왕자."),
+    _sp("sea_rockfish_inermis", "볼락", "Sebastes inermis", "sea", "방파제 암초 야간", 2, 15.0, 32.0, 0.018, 3.02, 84, "night", "clear", "shrimp", "🐟", "큰 눈으로 야간에 먹이를 쫓으며 릴을 차고 내려가는 손맛이 중독적인 갯바위의 왕자."),
     _sp("sea_korean_rockfish", "조피볼락 (우럭)", "Sebastes schlegelii", "sea", "어초·암초 바닥", 2, 22.0, 58.0, 0.020, 3.02, 92, "all", "all", "shrimp", "🐟", "한국 바다 배낚시의 상징! 묵직하게 처박는 힘과 쫄깃한 식감 모두 최고."),
     _sp("sea_fat_greenling", "쥐노래미", "Hexagrammos otakii", "sea", "북방 암초·방파제", 2, 22.0, 52.0, 0.014, 3.02, 86, "day", "rain", "worm", "🐟", "노래미보다 훨씬 크고 힘이 좋아 추운 계절에도 연안에서 짜릿한 손맛을 준다."),
     _sp("sea_marbled_rockfish", "쏨뱅이", "Sebastiscus marmoratus", "sea", "테트라포드 바닥", 2, 14.0, 32.0, 0.020, 3.02, 78, "night", "all", "shrimp", "🐠", "붉은 얼룩 위장색으로 구멍 사이에 숨어 지내는 작지만 매운 낚시 대상어."),
@@ -2089,37 +2089,57 @@ def claim_all_completed_quests(guild_id: int | str, user_id: int | str, user_nam
 # ==========================================
 # 도감 통계 · 서버 최대어/도감 랭킹 조회
 # ==========================================
+_TOTAL_BY_RARITY: Dict[int, int] = {
+    r: sum(1 for sp in FISH_SPECIES_DB if sp["rarity"] == r)
+    for r in range(1, 6)
+}
+
+
 def get_fishing_pokedex_stats(guild_id: int | str, user_id: int | str) -> Dict[str, Any]:
-    data = core.get_cached_data()
+    data = core.get_cached_data_ro()
     g_key = str(guild_id or 0)
     u_key = str(user_id)
     pd = core.safe_get_dict(data, "fishing_users", g_key, u_key, "pokedex")
+
+    owned_by_hab = {"lake": 0, "river": 0, "sea": 0}
+    owned_by_zone: Dict[Tuple[str, str], int] = {}
+    owned_by_rar = {r: 0 for r in range(1, 6)}
+    owned_total = 0
+
+    for sp_id in pd.keys():
+        sp = FISH_BY_ID.get(sp_id)
+        if not sp:
+            continue
+        owned_total += 1
+        hab = sp.get("habitat", "lake")
+        if hab in owned_by_hab:
+            owned_by_hab[hab] += 1
+        z = sp.get("zone") or sp.get("sub_zone") or ""
+        owned_by_zone[(hab, z)] = owned_by_zone.get((hab, z), 0) + 1
+        r = int(sp.get("rarity", 1))
+        if r in owned_by_rar:
+            owned_by_rar[r] += 1
 
     by_habitat: Dict[str, Dict[str, int]] = {}
     by_zone: Dict[str, Dict[str, Dict[str, int]]] = {}
     for hab in ("lake", "river", "sea"):
         all_sp = FISH_BY_HABITAT[hab]
-        owned_cnt = sum(1 for sp in all_sp if sp["id"] in pd)
-        by_habitat[hab] = {"owned": owned_cnt, "total": len(all_sp)}
+        by_habitat[hab] = {"owned": owned_by_hab[hab], "total": len(all_sp)}
         z_map: Dict[str, Dict[str, int]] = {}
         for z in CANONICAL_ZONES[hab]:
             z_sp = FISH_BY_ZONE.get((hab, z), [])
             z_map[z] = {
-                "owned": sum(1 for sp in z_sp if sp["id"] in pd),
+                "owned": owned_by_zone.get((hab, z), 0),
                 "total": len(z_sp),
             }
         by_zone[hab] = z_map
 
-    by_rarity: Dict[int, Dict[str, int]] = {}
-    for r in range(1, 6):
-        r_sp = [sp for sp in FISH_SPECIES_DB if sp["rarity"] == r]
-        by_rarity[r] = {
-            "owned": sum(1 for sp in r_sp if sp["id"] in pd),
-            "total": len(r_sp),
-        }
+    by_rarity: Dict[int, Dict[str, int]] = {
+        r: {"owned": owned_by_rar[r], "total": _TOTAL_BY_RARITY[r]}
+        for r in range(1, 6)
+    }
 
     total_species = len(FISH_SPECIES_DB)
-    owned_total = sum(1 for sp in FISH_SPECIES_DB if sp["id"] in pd)
     return {
         "total_species": total_species,
         "owned_total": owned_total,
@@ -2131,7 +2151,7 @@ def get_fishing_pokedex_stats(guild_id: int | str, user_id: int | str) -> Dict[s
 
 
 def get_fishing_leaderboard(guild_id: int | str, habitat_filter: str = "all") -> Dict[str, Any]:
-    data = core.get_cached_data()
+    data = core.get_cached_data_ro()
     g_key = str(guild_id or 0)
     rec_map = core.safe_get_dict(data, "fishing_records", g_key)
     u_map = core.safe_get_dict(data, "fishing_users", g_key)
@@ -2454,6 +2474,7 @@ def build_catch_card_bytes(catch_res: Dict[str, Any], user_name: str) -> Optiona
 
         buf = io.BytesIO()
         img.save(buf, format="PNG")
+        img.close()
         buf.seek(0)
         return buf
     except Exception as e:

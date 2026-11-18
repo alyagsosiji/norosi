@@ -584,8 +584,8 @@ class RaidThresholdModal(core.SafeModal, title="⚙️ 레이드 감지 기준 �
         self.min_age_input.default = str(cfg.get("min_account_age_days", 0))
 
     async def on_submit(self, interaction: discord.Interaction):
-        if not interaction.guild:
-            await core.safe_send_response(interaction, "❌ 서버 채널에서만 설정할 수 있습니다.", ephemeral=True)
+        if not interaction.guild or not _is_guild_admin(interaction.user, need_admin=True):
+            await core.safe_send_response(interaction, "❌ 서버 관리자(Administrator)만 레이드 감지 기준을 설정할 수 있습니다.", ephemeral=True)
             return
         try:
             th = int(self.threshold_input.value.strip())
@@ -659,8 +659,14 @@ class RaidQuarantineRoleSelect(discord.ui.RoleSelect):
         if not interaction.guild:
             await core.safe_send_response(interaction, "❌ 서버 채널에서만 설정할 수 있습니다.", ephemeral=True)
             return
-        await core.safe_defer(interaction)
         role = self.values[0]
+        if role.is_default() or role.managed or role.permissions.administrator or role.permissions.manage_guild or role.permissions.manage_roles:
+            await core.safe_send_response(interaction, "❌ 관리자/서버관리 권한이 포함된 역할이나 봇 전용 역할은 격리 역할로 지정할 수 없습니다.", ephemeral=True)
+            return
+        if interaction.guild.me and role >= interaction.guild.me.top_role:
+            await core.safe_send_response(interaction, "❌ 봇의 최고 역할보다 높거나 같은 역할은 부여할 수 없습니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction)
         guild_id = interaction.guild.id
 
         def _save_qrole():

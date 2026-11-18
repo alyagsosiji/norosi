@@ -1193,6 +1193,17 @@ class AttendanceRankingView(core.SafeView):
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
 
+def _has_dday_manage_perm(interaction: discord.Interaction) -> bool:
+    if not interaction.guild:
+        return True
+    if core.BOT_OWNER_ID and interaction.user.id == core.BOT_OWNER_ID:
+        return True
+    if isinstance(interaction.user, discord.Member):
+        perms = interaction.user.guild_permissions
+        return perms.administrator or perms.manage_guild or perms.manage_channels
+    return False
+
+
 # ==========================================
 # D-Day 은하수 잔디 막대 그래프 대시보드 (/디데이목록) Modal & View
 # ==========================================
@@ -1234,6 +1245,13 @@ class DDayQuickAddModal(core.SafeModal, title="📅 새 D-Day 일정 빠른 등�
         self.board_view = board_view
 
     async def on_submit(self, interaction: discord.Interaction):
+        if not _has_dday_manage_perm(interaction):
+            await core.safe_send_response(
+                interaction,
+                "❌ 서버 D-Day 일정 추가/수정은 **서버 관리자** 또는 **채널/서버 관리 권한**이 있는 멤버만 가능합니다. (개인 일정은 `/비밀디데이`를 이용해 주세요!)",
+                ephemeral=True,
+            )
+            return
         target_val = self.d_date.value.strip()
         start_val = self.d_start.value.strip() or core.get_today_str()
         try:
@@ -1399,6 +1417,13 @@ class DDayListBoardView(core.SafeView):
 
     @discord.ui.button(label="➕ 새 디데이 등록", style=discord.ButtonStyle.success, row=1)
     async def quick_add_dday_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not _has_dday_manage_perm(interaction):
+            await core.safe_send_response(
+                interaction,
+                "❌ 서버 D-Day 일정 추가는 **서버 관리자** 또는 **채널/서버 관리 권한**이 있는 멤버만 가능합니다. (개인 일정은 `/비밀디데이`를 이용해 주세요!)",
+                ephemeral=True,
+            )
+            return
         await interaction.response.send_modal(DDayQuickAddModal(self))
 
     @discord.ui.button(label="🧭 빠른 메뉴 (/메뉴)", style=discord.ButtonStyle.secondary, row=1)
@@ -1781,6 +1806,13 @@ class DDayDeleteSelect(discord.ui.Select):
         super().__init__(placeholder="🗑️ 삭제할 일정을 선택하세요 (연결된 채널도 함께 삭제됩니다)...", min_values=1, max_values=1, options=options)
 
     async def callback(self, interaction: discord.Interaction):
+        if not _has_dday_manage_perm(interaction):
+            await core.safe_send_response(
+                interaction,
+                "❌ 서버 D-Day 일정 삭제는 **서버 관리자** 또는 **채널/서버 관리 권한**이 있는 멤버만 가능합니다.",
+                ephemeral=True,
+            )
+            return
         selected_name = self.values[0]
         if selected_name == "NONE":
             await core.safe_defer(interaction, ephemeral=True)
@@ -1801,7 +1833,7 @@ class DDayDeleteSelect(discord.ui.Select):
                         ch = await interaction.guild.fetch_channel(int(ch_id))
                     except Exception:
                         ch = None
-                if ch:
+                if ch and (not interaction.guild or getattr(ch, "guild", None) == interaction.guild):
                     try:
                         await ch.delete(reason=f"디데이 '{selected_name}' 삭제에 따른 자동 채널 삭제")
                         channel_deleted_msg = "\n• 연결된 디데이 전광판 채널도 함께 삭제되었습니다."
@@ -1836,7 +1868,7 @@ class ResetConfirmView(core.SafeView):
 
     @discord.ui.button(label="⚠️ 모든 데이터 및 디데이 채널 초기화 실행", style=discord.ButtonStyle.danger)
     async def confirm_reset(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.administrator:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.administrator:
             await core.safe_send_response(interaction, "❌ 서버 관리자만 실행할 수 있습니다.", ephemeral=True)
             return
         await core.safe_defer(interaction, ephemeral=True)
@@ -1925,6 +1957,13 @@ class DDayCog(commands.Cog):
         채널생성: bool = True,
         플러스1: bool = False,
     ):
+        if not _has_dday_manage_perm(interaction):
+            await core.safe_send_response(
+                interaction,
+                "❌ 서버 D-Day 및 전광판 설정은 **서버 관리자** 또는 **채널/서버 관리 권한**이 있는 멤버만 가능합니다. (개인 일정은 `/비밀디데이`를 이용해 주세요!)",
+                ephemeral=True,
+            )
+            return
         try:
             datetime.datetime.strptime(날짜, "%Y-%m-%d")
             if 시작일:
@@ -2103,6 +2142,13 @@ class DDayCog(commands.Cog):
         알림채널: discord.TextChannel,
         기본카테고리: discord.CategoryChannel = None
     ):
+        if not _has_dday_manage_perm(interaction):
+            await core.safe_send_response(
+                interaction,
+                "❌ 알림 채널 및 카테고리 설정은 **서버 관리자** 또는 **채널/서버 관리 권한**이 있는 멤버만 가능합니다.",
+                ephemeral=True,
+            )
+            return
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
         settings_map = core.ensure_dict_path(data, "settings")
@@ -2306,6 +2352,13 @@ class DDayCog(commands.Cog):
 
     @app_commands.command(name="디데이삭제", description="드롭다운 메뉴에서 일정을 선택해 삭제합니다. (생성된 디데이 채널도 함께 삭제됩니다)")
     async def delete_dday(self, interaction: discord.Interaction):
+        if not _has_dday_manage_perm(interaction):
+            await core.safe_send_response(
+                interaction,
+                "❌ 서버 D-Day 일정 삭제는 **서버 관리자** 또는 **채널/서버 관리 권한**이 있는 멤버만 가능합니다.",
+                ephemeral=True,
+            )
+            return
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
         ddays = {k: v for k, v in core.as_dict(data.get("ddays")).items() if isinstance(v, dict)}
@@ -2556,6 +2609,10 @@ class DDayCog(commands.Cog):
         await core.safe_send_response(interaction, embed=embed)
 
         muted_member_ids: set[int] = set()
+        can_mute_others = bool(
+            isinstance(interaction.user, discord.Member)
+            and (interaction.user.guild_permissions.administrator or interaction.user.guild_permissions.mute_members)
+        )
 
         async def run_pomodoro_cycle():
             try:
@@ -2563,7 +2620,7 @@ class DDayCog(commands.Cog):
                     muted_count = 0
                     if target_vc:
                         for member in target_vc.members:
-                            if not member.bot:
+                            if not member.bot and (can_mute_others or member.id == interaction.user.id):
                                 try:
                                     await member.edit(mute=True, reason=f"뽀모도로 집중모드 {cycle}세트 시작")
                                     muted_member_ids.add(member.id)
@@ -2594,13 +2651,6 @@ class DDayCog(commands.Cog):
                         for m_id in list(muted_member_ids):
                             member = guild.get_member(m_id)
                             if member:
-                                try:
-                                    await member.edit(mute=False, reason=f"뽀모도로 휴식 시간 ({cycle}세트 완료)")
-                                except Exception:
-                                    pass
-                    if target_vc:
-                        for member in target_vc.members:
-                            if not member.bot:
                                 try:
                                     await member.edit(mute=False, reason=f"뽀모도로 휴식 시간 ({cycle}세트 완료)")
                                 except Exception:
@@ -2810,21 +2860,28 @@ class DDayCog(commands.Cog):
         embed.set_footer(text="중도 포기 없이 완주 시 은하수 보라잔디와 대량 크리스탈이 즉시 지급됩니다! 화이팅! 💪")
         await core.safe_send_response(interaction, embed=embed)
 
-        # 음성 연결 준비
+        # 음성 연결 준비 (음악 재생 중인 세션 하이재킹 방지)
         voice_client = None
         if 음성안내 and target_vc and interaction.guild:
             try:
                 vc_existing = interaction.guild.voice_client
                 if vc_existing and vc_existing.is_connected():
-                    if vc_existing.channel != target_vc:
-                        await vc_existing.move_to(target_vc)
-                    voice_client = vc_existing
+                    if vc_existing.is_playing() or vc_existing.is_paused():
+                        voice_client = None
+                    else:
+                        if vc_existing.channel != target_vc:
+                            await vc_existing.move_to(target_vc)
+                        voice_client = vc_existing
                 else:
                     voice_client = await target_vc.connect(timeout=10.0, self_deaf=False, self_mute=False)
             except Exception as vc_err:
                 print(f"⚠️ [하드코어 스터디 음성 연결 예외] {vc_err}", flush=True)
 
         muted_member_ids: set[int] = set()
+        can_mute_others = bool(
+            isinstance(interaction.user, discord.Member)
+            and (interaction.user.guild_permissions.administrator or interaction.user.guild_permissions.mute_members)
+        )
 
         info_dict = {
             "voice_channel": target_vc,
@@ -2844,7 +2901,7 @@ class DDayCog(commands.Cog):
                     muted_count = 0
                     if target_vc and 자동음소거:
                         for member in target_vc.members:
-                            if not member.bot:
+                            if not member.bot and (can_mute_others or member.id == interaction.user.id):
                                 try:
                                     await member.edit(mute=True, reason=f"하드코어 스터디 {cycle}세트 집중 시작")
                                     muted_member_ids.add(member.id)
@@ -2890,12 +2947,6 @@ class DDayCog(commands.Cog):
                                         unmuted_count += 1
                                     except Exception:
                                         pass
-                        for member in target_vc.members:
-                            if not member.bot:
-                                try:
-                                    await member.edit(mute=False, reason=f"하드코어 스터디 {cycle}세트 완료 휴식")
-                                except Exception:
-                                    pass
                         muted_member_ids.clear()
 
                     if voice_client and voice_client.is_connected() and 음성안내:
@@ -3009,7 +3060,7 @@ class DDayCog(commands.Cog):
     @app_commands.command(name="데이터초기화", description="[관리자 전용] 데이터베이스에 저장된 모든 D-Day(채널 포함) 및 음악 설정을 초기화합니다.")
     @app_commands.default_permissions(administrator=True)
     async def reset_database_cmd(self, interaction: discord.Interaction):
-        if not interaction.user.guild_permissions.administrator:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.administrator:
             await core.safe_send_response(interaction, "❌ 이 명령어는 **서버 관리자**만 사용할 수 있습니다.", ephemeral=True)
             return
 

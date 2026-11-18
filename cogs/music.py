@@ -271,6 +271,34 @@ def _normalize_music_time_str(time_str: str):
     return None
 
 
+def _has_music_sched_perm(interaction: discord.Interaction) -> bool:
+    if str(interaction.user.id) == str(core.BOT_OWNER_ID):
+        return True
+    if not interaction.guild or not isinstance(interaction.user, discord.Member):
+        return False
+    perms = interaction.user.guild_permissions
+    return bool(perms.administrator or perms.manage_guild)
+
+
+def _can_control_voice_player(user: discord.abc.User, guild: Optional[discord.Guild]) -> tuple[bool, str]:
+    if not guild:
+        return False, "❌ 서버 채널에서만 사용할 수 있습니다."
+    if str(user.id) == str(core.BOT_OWNER_ID):
+        return True, ""
+    if isinstance(user, discord.Member):
+        perms = user.guild_permissions
+        if perms.administrator or perms.manage_guild or perms.move_members:
+            return True, ""
+        vc = guild.voice_client
+        if vc and vc.is_connected() and vc.channel:
+            if not user.voice or not user.voice.channel or user.voice.channel.id != vc.channel.id:
+                return False, f"❌ 현재 봇이 재생 중인 **{vc.channel.name}** 음성채널에 함께 입장한 멤버만 조작할 수 있습니다."
+            return True, ""
+        if user.voice and user.voice.channel:
+            return True, ""
+    return False, "❌ 먼저 음성채널에 입장한 상태에서 사용해 주세요."
+
+
 class MusicScheduleAddModal(core.SafeModal, title="⏰ 새 맞춤 음악 추천 타이머 추가"):
     sched_time = discord.ui.TextInput(
         label="추천받을 시간 (24시간제 HH:MM 또는 H:MM)",
@@ -298,6 +326,13 @@ class MusicScheduleAddModal(core.SafeModal, title="⏰ 새 맞춤 음악 추천 
         self.default_channel = default_channel
 
     async def on_submit(self, interaction: discord.Interaction):
+        if not _has_music_sched_perm(interaction):
+            await core.safe_send_response(
+                interaction,
+                "❌ 음악 알림 타이머 추가/수정은 **서버 관리(Manage Guild)** 또는 **관리자(Administrator)** 권한이 있는 멤버만 사용할 수 있습니다.",
+                ephemeral=True,
+            )
+            return
         clean_time = _normalize_music_time_str(self.sched_time.value)
         if not clean_time:
             await core.safe_send_response(
@@ -381,10 +416,24 @@ class MusicScheduleHubView(core.SafeView):
 
     @discord.ui.button(label="➕ 새 알림 타이머 추가", style=discord.ButtonStyle.primary, row=0)
     async def add_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not _has_music_sched_perm(interaction):
+            await core.safe_send_response(
+                interaction,
+                "❌ 음악 알림 타이머 추가는 **서버 관리(Manage Guild)** 또는 **관리자(Administrator)** 권한이 있는 멤버만 사용할 수 있습니다.",
+                ephemeral=True,
+            )
+            return
         await interaction.response.send_modal(MusicScheduleAddModal(self, self.default_channel or interaction.channel))
 
     @discord.ui.select(placeholder="🗑️ 삭제할 음악 알림 타이머를 선택하세요...", row=1, options=[discord.SelectOption(label="선택", value="NONE")])
     async def delete_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if not _has_music_sched_perm(interaction):
+            await core.safe_send_response(
+                interaction,
+                "❌ 음악 알림 타이머 삭제는 **서버 관리(Manage Guild)** 또는 **관리자(Administrator)** 권한이 있는 멤버만 사용할 수 있습니다.",
+                ephemeral=True,
+            )
+            return
         val = select.values[0]
         if val == "NONE":
             await core.safe_defer(interaction)
@@ -1278,6 +1327,10 @@ class GuildVoicePlaylistPlayer:
 
         # 재생 준비 도중 스킵이나 정지 지시가 있었다면 중단
         if my_gen != self._play_generation or self._stop_requested:
+            try:
+                source.cleanup()
+            except Exception:
+                pass
             return
 
         # 발화 상태(Speaking Indicator) 사전 활성화로 첫 오디오 패킷 드롭 방지
@@ -3634,6 +3687,10 @@ class MusicCog(commands.Cog):
             if not interaction.guild:
                 await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
                 return
+            can_ctrl, ctrl_err = _can_control_voice_player(interaction.user, interaction.guild)
+            if not can_ctrl:
+                await core.safe_send_response(interaction, ctrl_err, ephemeral=True)
+                return
             await core.safe_defer(interaction)
             player = get_voice_player(self.bot, interaction.guild)
             await player.stop_and_disconnect()
@@ -3669,6 +3726,10 @@ class MusicCog(commands.Cog):
                 await interaction.followup.send(f"❌ 플레이리스트에서 곡을 추출하지 못했습니다: {err or '수록곡 없음'}", ephemeral=True)
                 return
 
+            data = await asyncio.to_thread(core.load_data)
+            prof = core.ensure_user_profile(data, target_user.id, target_user.display_name)
+            pls = core.ensure_user_playlists(prof, target_user.display_name)
+            selected_pl = next((p for p in pls if p["id"] == 플리선택 or p["name"] == 플리선택), pls[0])
             # mode == "add_track" 이거나 플리선택이 지정되어 기존 플리에 담는 경우
             target_pl_id = selected_pl["id"] if (mode == "add_track" and 플리선택) else None
             try:
@@ -3740,10 +3801,15 @@ class MusicCog(commands.Cog):
                 artist_hint=(아티스트 or "").strip(),
                 preferred_platform=use_plat
             )
-            is_dup = any(_track_matches(resolved, et) for et in tracks_list)
-            tracks_list.append(resolved)
-            selected_pl["updated_at"] = core.get_today_str()
-            await asyncio.to_thread(core.save_data, data)
+            data = await asyncio.to_thread(core.load_data)
+            prof = core.ensure_user_profile(data, target_user.id, target_user.display_name)
+            pls = core.ensure_user_playlists(prof, target_user.display_name)
+            selected_pl = next((p for p in pls if p["id"] == 플리선택 or p["name"] == 플리선택), pls[0])
+            tracks_list = selected_pl.setdefault("tracks", [])
+            if len(tracks_list) < 100:
+                tracks_list.append(resolved)
+                selected_pl["updated_at"] = core.get_today_str()
+                await asyncio.to_thread(core.save_data, data)
 
         elif mode == "delete_tracks" and target_user.id == interaction.user.id:
             tracks = selected_pl.get("tracks", [])
@@ -4025,6 +4091,10 @@ class MusicCog(commands.Cog):
             if err or not pl_tracks:
                 await interaction.followup.send(f"❌ 플레이리스트 링크 추출 실패: {err or '수록곡 없음'}", ephemeral=True)
                 return
+            data = await asyncio.to_thread(core.load_data)
+            prof = core.ensure_user_profile(data, interaction.user.id, interaction.user.display_name)
+            pls = core.ensure_user_playlists(prof, interaction.user.display_name)
+            target_pl = next((p for p in pls if p["id"] == 플리선택 or p["name"] == 플리선택), pls[0])
             try:
                 target_pl, added_cnt, action_msg = core.import_playlist_into_profile_sync(
                     prof,
@@ -4056,6 +4126,15 @@ class MusicCog(commands.Cog):
             artist_hint=(아티스트 or "").strip(),
             preferred_platform=target_pl.get("platform", "YouTube")
         )
+
+        data = await asyncio.to_thread(core.load_data)
+        prof = core.ensure_user_profile(data, interaction.user.id, interaction.user.display_name)
+        pls = core.ensure_user_playlists(prof, interaction.user.display_name)
+        target_pl = next((p for p in pls if p["id"] == 플리선택 or p["name"] == 플리선택), pls[0])
+        existing_tracks = target_pl.setdefault("tracks", [])
+        if len(existing_tracks) >= 100:
+            await interaction.followup.send("❌ 하나의 플레이리스트에는 최대 **100곡**까지만 담을 수 있습니다.", ephemeral=True)
+            return
 
         is_dup = any(_track_matches(resolved, et) for et in existing_tracks)
         if is_dup and not 중복허용:
@@ -4140,11 +4219,19 @@ class MusicCog(commands.Cog):
         장르: str = None,
         삭제할알림: str = None
     ):
+        mode = 동작.value if 동작 else ("add" if 시간 else "hub")
+        if mode in ("add", "delete") and not _has_music_sched_perm(interaction):
+            await core.safe_send_response(
+                interaction,
+                "❌ 음악 알림 타이머 추가/삭제는 **서버 관리(Manage Guild)** 또는 **관리자(Administrator)** 권한이 있는 멤버만 사용할 수 있습니다.",
+                ephemeral=True,
+            )
+            return
+
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
         schedules = data.setdefault("music_schedules", [])
         target_ch = 채널 or interaction.channel
-        mode = 동작.value if 동작 else ("add" if 시간 else "hub")
 
         if mode in ("hub", "list"):
             hub_view = MusicScheduleHubView(schedules, target_ch, interaction.guild)
@@ -4309,6 +4396,10 @@ class MusicCog(commands.Cog):
                 "❌ 먼저 오디오를 테스트할 **음성채널**에 입장하신 뒤 `/오디오테스트` 명령어를 실행해 주세요!",
                 ephemeral=True
             )
+            return
+        can_ctrl, ctrl_err = _can_control_voice_player(interaction.user, interaction.guild)
+        if not can_ctrl:
+            await core.safe_send_response(interaction, ctrl_err, ephemeral=True)
             return
 
         await core.safe_defer(interaction)
@@ -4497,6 +4588,10 @@ class MusicCog(commands.Cog):
         if not interaction.guild:
             await core.safe_send_response(interaction, "❌ 이 명령어는 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
             return
+        can_ctrl, ctrl_err = _can_control_voice_player(interaction.user, interaction.guild)
+        if not can_ctrl:
+            await core.safe_send_response(interaction, ctrl_err, ephemeral=True)
+            return
 
         player = get_voice_player(self.bot, interaction.guild)
         choice_val = 모드.value if 모드 else "toggle"
@@ -4538,6 +4633,10 @@ class MusicCog(commands.Cog):
         if not interaction.guild:
             await core.safe_send_response(interaction, "❌ 음성채널 배속 설정은 서버(길드)에서만 사용할 수 있습니다.", ephemeral=True)
             return
+        can_ctrl, ctrl_err = _can_control_voice_player(interaction.user, interaction.guild)
+        if not can_ctrl:
+            await core.safe_send_response(interaction, ctrl_err, ephemeral=True)
+            return
 
         try:
             val = float(속도)
@@ -4564,6 +4663,10 @@ class MusicCog(commands.Cog):
         voice_state = ctx.author.voice if isinstance(ctx.author, discord.Member) else None
         if not voice_state or not voice_state.channel:
             await ctx.send("❌ 먼저 오디오를 테스트할 **음성채널**에 입장하신 뒤 `!오디오테스트` 명령어를 입력해 주세요!")
+            return
+        can_ctrl, ctrl_err = _can_control_voice_player(ctx.author, ctx.guild)
+        if not can_ctrl:
+            await ctx.send(ctrl_err)
             return
 
         status_msg = await ctx.send("⏳ **[오디오 진단]** 음성채널 연결 및 5초 비프음 재생 준비 중...")
@@ -4755,6 +4858,8 @@ class MusicCog(commands.Cog):
                 if err or not tracks:
                     await status_msg.edit(content=f"❌ 플레이리스트에서 곡을 추출하지 못했습니다: {err or '수록곡 없음'}")
                     return
+                data = await asyncio.to_thread(core.load_data)
+                prof = core.ensure_user_profile(data, ctx.author.id, ctx.author.display_name)
                 try:
                     target_pl, count, action_msg = core.import_playlist_into_profile_sync(
                         prof, ctx.author.display_name, meta, tracks, target_pl_id=None, custom_name=None
@@ -4785,10 +4890,16 @@ class MusicCog(commands.Cog):
                     raw_target,
                     preferred_platform=target_pl.get("platform", "YouTube")
                 )
+                data = await asyncio.to_thread(core.load_data)
+                prof = core.ensure_user_profile(data, ctx.author.id, ctx.author.display_name)
+                playlists = core.ensure_user_playlists(prof, ctx.author.display_name)
+                target_pl = playlists[0]
+                existing_tracks = target_pl.setdefault("tracks", [])
                 is_dup = any(_track_matches(resolved, et) for et in existing_tracks)
-                existing_tracks.append(resolved)
-                target_pl["updated_at"] = core.get_today_str()
-                await asyncio.to_thread(core.save_data, data)
+                if len(existing_tracks) < 100:
+                    existing_tracks.append(resolved)
+                    target_pl["updated_at"] = core.get_today_str()
+                    await asyncio.to_thread(core.save_data, data)
                 studio = PlaylistStudioView(ctx.author, ctx.author, data, initial_pl_id=target_pl["id"])
                 studio.current_page = max(0, (len(existing_tracks) - 1) // studio.items_per_page)
                 p_meta = core.PLAYLIST_PLATFORMS.get(target_pl.get("platform", "YouTube"), core.PLAYLIST_PLATFORMS["YouTube"])
@@ -4853,6 +4964,10 @@ class MusicCog(commands.Cog):
             if err or not tracks:
                 await status_msg.edit(content=f"❌ 플레이리스트에서 곡을 추출하지 못했습니다: {err or '수록곡 없음'}")
                 return
+            data = await asyncio.to_thread(core.load_data)
+            prof = core.ensure_user_profile(data, ctx.author.id, ctx.author.display_name)
+            pls = core.ensure_user_playlists(prof, ctx.author.display_name)
+            target_pl = pls[0]
             try:
                 target_pl, count, action_msg = core.import_playlist_into_profile_sync(
                     prof, ctx.author.display_name, meta, tracks, target_pl_id=target_pl["id"], skip_duplicates=True
@@ -4879,10 +4994,16 @@ class MusicCog(commands.Cog):
             raw_val,
             preferred_platform=target_pl.get("platform", "YouTube")
         )
+        data = await asyncio.to_thread(core.load_data)
+        prof = core.ensure_user_profile(data, ctx.author.id, ctx.author.display_name)
+        pls = core.ensure_user_playlists(prof, ctx.author.display_name)
+        target_pl = pls[0]
+        existing_tracks = target_pl.setdefault("tracks", [])
         is_dup = any(_track_matches(resolved, et) for et in existing_tracks)
-        existing_tracks.append(resolved)
-        target_pl["updated_at"] = core.get_today_str()
-        await asyncio.to_thread(core.save_data, data)
+        if len(existing_tracks) < 100:
+            existing_tracks.append(resolved)
+            target_pl["updated_at"] = core.get_today_str()
+            await asyncio.to_thread(core.save_data, data)
 
         studio = PlaylistStudioView(ctx.author, ctx.author, data, initial_pl_id=target_pl["id"])
         studio.current_page = max(0, (len(existing_tracks) - 1) // studio.items_per_page)
@@ -5032,6 +5153,10 @@ class MusicCog(commands.Cog):
         """채팅창에 !헤드셋 입력 시 봇의 헤드셋 끄기(청각 차단 / deafen) 즉시 토글"""
         if not ctx.guild:
             return
+        can_ctrl, ctrl_err = _can_control_voice_player(ctx.author, ctx.guild)
+        if not can_ctrl:
+            await ctx.send(ctrl_err)
+            return
         player = get_voice_player(self.bot, ctx.guild)
         new_state = await player.toggle_deafen()
         st = "🎧 **헤드셋 끄기 (청각 차단 On / 빨간 사선)**" if new_state else "🔊 **헤드셋 켜기 (청각 차단 Off / 일반)**"
@@ -5041,6 +5166,10 @@ class MusicCog(commands.Cog):
     async def prefix_playback_speed(self, ctx: commands.Context, 속도: Optional[str] = None):
         """채팅창에 !배속 [0.5 ~ 2.0] 입력 시 음성 재생 배속 변경 (기본값: 1.0)"""
         if not ctx.guild:
+            return
+        can_ctrl, ctrl_err = _can_control_voice_player(ctx.author, ctx.guild)
+        if not can_ctrl:
+            await ctx.send(ctrl_err)
             return
         player = get_voice_player(self.bot, ctx.guild)
         if not 속도 or not 속도.strip():

@@ -129,9 +129,12 @@ class TitleShopSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         pv = self.parent_view
-        if interaction.user.id != (pv.user.id if pv.user else interaction.user.id):
+        if pv.user and interaction.user.id != pv.user.id:
             await core.safe_send_response(interaction, "❌ 본인만 칭호를 변경/구매할 수 있습니다.", ephemeral=True)
             return
+        if pv.user is None:
+            pv.user = interaction.user
+        pv.guild_id = pv.guild_id or (interaction.guild_id or 0)
         await core.safe_defer(interaction)
         tid = self.values[0]
         ok, msg = await asyncio.to_thread(
@@ -249,18 +252,21 @@ class EconomyLeaderboardView(core.SafeView):
 
     @discord.ui.button(label="🏦 통합 순자산순", style=discord.ButtonStyle.primary, row=0)
     async def btn_net(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.guild_id = self.guild_id or (interaction.guild_id or 0)
         self.mode = "net_worth"
         self.lb = await asyncio.to_thread(economy_core.get_economy_leaderboard, self.guild_id)
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="💎 크리스탈순", style=discord.ButtonStyle.secondary, row=0)
     async def btn_cry(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.guild_id = self.guild_id or (interaction.guild_id or 0)
         self.mode = "crystal"
         self.lb = await asyncio.to_thread(economy_core.get_economy_leaderboard, self.guild_id)
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🪙 낚시골드순", style=discord.ButtonStyle.secondary, row=0)
     async def btn_gold(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.guild_id = self.guild_id or (interaction.guild_id or 0)
         self.mode = "gold"
         self.lb = await asyncio.to_thread(economy_core.get_economy_leaderboard, self.guild_id)
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)

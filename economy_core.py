@@ -37,7 +37,7 @@ except Exception:
 def _safe_int(val: Any, default: int = 0) -> int:
     try:
         if val is None or isinstance(val, bool):
-            return int(val) if isinstance(val, bool) else default
+            return default
         return int(val)
     except (TypeError, ValueError):
         return default
@@ -462,7 +462,7 @@ def transfer_crystals(
 
         # 세금의 30%는 주간 로또 상금 풀로 적립
         lot_contrib = max(1, int(tax * 0.30))
-        lot_state = data.setdefault("lottery_state", copy.deepcopy(core.DEFAULT_CONFIG["lottery_state"]))
+        lot_state = _ensure_lottery_state(data)
         lot_state["pool"] = max(0, _safe_int(lot_state.get("pool"), 0)) + lot_contrib
 
         core.save_data(data)
@@ -492,6 +492,28 @@ LOTTERY_MAX_TICKETS_PER_ROUND: int = 10
 LOTTERY_POOL_MAX_NUM: int = 20
 LOTTERY_PICK_COUNT: int = 4
 
+DEFAULT_LOTTERY_STATE: Dict[str, Any] = {
+    "round": 1,
+    "jackpot": 1000,
+    "pool": 0,
+    "tickets": [],
+    "announce_channels": {},
+    "last_draw": None,
+    "history": [],
+}
+
+
+def _ensure_lottery_state(data: dict) -> dict:
+    lot = data.get("lottery_state")
+    if not isinstance(lot, dict):
+        lot = copy.deepcopy(core.DEFAULT_CONFIG.get("lottery_state", DEFAULT_LOTTERY_STATE))
+        data["lottery_state"] = lot
+    else:
+        for k, v in DEFAULT_LOTTERY_STATE.items():
+            if k not in lot:
+                lot[k] = copy.deepcopy(v) if isinstance(v, (dict, list)) else v
+    return lot
+
 
 def _validate_lottery_picks(picks: List[int]) -> Optional[List[int]]:
     if not isinstance(picks, (list, tuple)) or len(picks) != LOTTERY_PICK_COUNT:
@@ -509,7 +531,7 @@ def _validate_lottery_picks(picks: List[int]) -> Optional[List[int]]:
 
 
 def get_lottery_overview(user_id: int | str) -> Dict[str, Any]:
-    data = core.get_cached_data()
+    data = core.get_cached_data_ro()
     lot = core.as_dict(data.get("lottery_state"))
     u_key = str(user_id)
     prof = core.safe_get_dict(data, "user_profiles", u_key)
@@ -546,7 +568,7 @@ def buy_lottery_tickets(
     with core._DATA_LOCK:
         data = core.load_data()
         prof = core.ensure_user_profile(data, u_key, user_name)
-        lot = data.setdefault("lottery_state", copy.deepcopy(core.DEFAULT_CONFIG["lottery_state"]))
+        lot = _ensure_lottery_state(data)
         tickets = lot.setdefault("tickets", [])
         cur_user_cnt = sum(1 for t in tickets if isinstance(t, dict) and str(t.get("user_id")) == u_key)
 
@@ -594,7 +616,7 @@ def buy_lottery_tickets(
 def set_lottery_announce_channel(guild_id: int | str, channel_id: Optional[int]) -> None:
     with core._DATA_LOCK:
         data = core.load_data()
-        lot = data.setdefault("lottery_state", copy.deepcopy(core.DEFAULT_CONFIG["lottery_state"]))
+        lot = _ensure_lottery_state(data)
         ch_map = core.ensure_dict_path(lot, "announce_channels")
         g_key = str(guild_id or 0)
         if channel_id:
@@ -611,7 +633,7 @@ def execute_lottery_draw(triggered_by: str = "auto", winning_override: Optional[
     """
     with core._DATA_LOCK:
         data = core.load_data()
-        lot = data.setdefault("lottery_state", copy.deepcopy(core.DEFAULT_CONFIG["lottery_state"]))
+        lot = _ensure_lottery_state(data)
         round_no = max(1, _safe_int(lot.get("round"), 1))
         jackpot = max(0, _safe_int(lot.get("jackpot"), 1000))
         pool = max(0, _safe_int(lot.get("pool"), 0))
@@ -715,7 +737,7 @@ def execute_lottery_draw(triggered_by: str = "auto", winning_override: Optional[
 # 4. 통합 자산/컬렉션 랭킹 집계
 # ==========================================
 def get_economy_leaderboard(guild_id: int | str) -> Dict[str, Any]:
-    data = core.get_cached_data()
+    data = core.get_cached_data_ro()
     g_key = str(guild_id or 0)
     profiles = core.as_dict(data.get("user_profiles"))
     f_users = core.safe_get_dict(data, "fishing_users", g_key)
@@ -764,6 +786,7 @@ def render_unified_profile_card_png(
     """4대 게임·출석·칭호·배지를 한 장에 시각화하는 1080×720 PNG 프로필 카드 생성."""
     if Image is None or ImageDraw is None:
         return None
+    img = None
     try:
         w, h = 1080, 720
         img = Image.new("RGBA", (w, h), (12, 16, 30, 255))
@@ -799,10 +822,13 @@ def render_unified_profile_card_png(
         avatar_loaded = False
         if avatar_bytes:
             try:
-                av_img = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA").resize((ar * 2, ar * 2), Image.Resampling.LANCZOS)
+                with Image.open(io.BytesIO(avatar_bytes)) as raw_av:
+                    av_img = raw_av.convert("RGBA").resize((ar * 2, ar * 2), Image.Resampling.LANCZOS)
                 mask = Image.new("L", (ar * 2, ar * 2), 0)
                 ImageDraw.Draw(mask).ellipse([0, 0, ar * 2, ar * 2], fill=255)
                 img.paste(av_img, (ax - ar, ay - ar), mask)
+                av_img.close()
+                mask.close()
                 avatar_loaded = True
             except Exception:
                 avatar_loaded = False
@@ -952,6 +978,12 @@ def render_unified_profile_card_png(
     except Exception as e:
         print(f"⚠️ [economy_core] 프로필 카드 PNG 렌더링 예외: {e}", flush=True)
         return None
+    finally:
+        if img is not None:
+            try:
+                img.close()
+            except Exception:
+                pass
 
 
 async def build_unified_profile_card_bytes(
@@ -976,16 +1008,23 @@ async def build_unified_profile_card_bytes(
     stats = await asyncio.to_thread(_collect)
 
     if avatar_bytes is None:
-        av_url = str(getattr(getattr(user, "display_avatar", None), "url", "") or "")
-        if aiohttp is not None and av_url.startswith(("http://", "https://")) and "example.com" not in av_url:
+        disp_av = getattr(user, "display_avatar", None)
+        if disp_av is not None and hasattr(disp_av, "read"):
             try:
-                timeout = aiohttp.ClientTimeout(total=2.5)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.get(av_url) as resp:
-                        if resp.status == 200:
-                            avatar_bytes = await resp.read()
+                avatar_bytes = await asyncio.wait_for(disp_av.read(), timeout=2.5)
             except Exception:
                 avatar_bytes = None
+        if avatar_bytes is None:
+            av_url = str(getattr(disp_av, "url", "") or "")
+            if aiohttp is not None and av_url.startswith(("http://", "https://")) and "example.com" not in av_url:
+                try:
+                    timeout = aiohttp.ClientTimeout(total=2.5)
+                    async with aiohttp.ClientSession(timeout=timeout) as session:
+                        async with session.get(av_url) as resp:
+                            if resp.status == 200:
+                                avatar_bytes = await resp.read()
+                except Exception:
+                    avatar_bytes = None
 
     png_buf = await asyncio.to_thread(render_unified_profile_card_png, stats, avatar_bytes)
     return stats, png_buf

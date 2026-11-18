@@ -6,19 +6,20 @@ import copy
 import json
 import time
 import random
+import socket
+import ipaddress
 import colorsys
+import calendar
 import asyncio
 import datetime
-import calendar
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from collections import OrderedDict, defaultdict, deque
-from typing import Optional, List, Dict, Any, Union
+from collections import OrderedDict
+from typing import Optional, List, Dict, Any
 import inspect
 import urllib.request
 import urllib.parse
 import urllib.error
-import tempfile
 import base64
 
 try:
@@ -270,7 +271,7 @@ _load_env_file()
 # 실제 키 값을 코드에서 완전히 비워둡니다 (.env에서만 로드)
 TOKEN = get_token()
 PORT = int(os.getenv("PORT", "10000") or "10000")
-BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID", "1028926437710905375") or "1028926437710905375")
+BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID", "0") or "0")
 
 # 🔥 Firebase Realtime Database 설정 (.env)
 FIREBASE_DB_URL = os.getenv("FIREBASE_DB_URL", "").strip().rstrip("/")
@@ -279,6 +280,97 @@ FIREBASE_SECRET = os.getenv("FIREBASE_SECRET", "").strip()
 # 🎵 Spotify API 키 설정 (.env)
 SPOTIPY_CLIENT_ID = os.getenv("SPOTIPY_CLIENT_ID", "").strip()
 SPOTIPY_CLIENT_SECRET = os.getenv("SPOTIPY_CLIENT_SECRET", "").strip()
+
+_SECRET_REDACT_PATTERNS = [
+    re.compile(r"(\?auth=)[^&\s'\"<>]+", re.IGNORECASE),
+    re.compile(r"(Bearer\s+)[A-Za-z0-9._\-]+", re.IGNORECASE),
+    re.compile(r"\b([MN][A-Za-z\d]{23,}\.[\w-]{6}\.[\w-]{27,})\b"),
+    re.compile(r"\b(gsk_[A-Za-z0-9]{20,})\b"),
+    re.compile(r"\b(AIza[0-9A-Za-z\-_]{30,})\b"),
+]
+
+
+def redact_secrets(text: str) -> str:
+    """로그나 에러 메시지에 포함될 수 있는 민감 토큰/시크릿을 마스킹합니다."""
+    if not text:
+        return ""
+    out = str(text)
+    if FIREBASE_SECRET and len(FIREBASE_SECRET) >= 6:
+        out = out.replace(FIREBASE_SECRET, "***REDACTED***")
+    if TOKEN and len(TOKEN) >= 8:
+        out = out.replace(TOKEN, "***REDACTED_TOKEN***")
+    if SPOTIPY_CLIENT_SECRET and len(SPOTIPY_CLIENT_SECRET) >= 6:
+        out = out.replace(SPOTIPY_CLIENT_SECRET, "***REDACTED***")
+    out = _SECRET_REDACT_PATTERNS[0].sub(r"\1***REDACTED***", out)
+    out = _SECRET_REDACT_PATTERNS[1].sub(r"\1***REDACTED***", out)
+    for pat in _SECRET_REDACT_PATTERNS[2:]:
+        out = pat.sub("***REDACTED_KEY***", out)
+    return out
+
+
+_ALLOWED_MUSIC_DOMAINS = (
+    "youtube.com",
+    "www.youtube.com",
+    "m.youtube.com",
+    "music.youtube.com",
+    "youtu.be",
+    "spotify.com",
+    "open.spotify.com",
+    "soundcloud.com",
+    "www.soundcloud.com",
+    "m.soundcloud.com",
+    "on.soundcloud.com",
+)
+
+
+def is_allowed_music_url(url: str) -> bool:
+    """외부 미디어 추출기(yt-dlp 등)에 전달하기 전 허용된 음악 플랫폼 도메인인지 검증합니다."""
+    if not isinstance(url, str):
+        return False
+    raw = url.strip()
+    if not (raw.startswith("http://") or raw.startswith("https://")):
+        return False
+    try:
+        parsed = urllib.parse.urlparse(raw)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        if not host:
+            return False
+        return any(host == d or host.endswith("." + d) for d in _ALLOWED_MUSIC_DOMAINS)
+    except Exception:
+        return False
+
+
+def is_safe_external_url(url: str) -> bool:
+    """SSRF 방지용: 루프백, 사설망, 링크로컬(클라우드 메타데이터 169.254.169.254 등) IP로의 요청을 차단합니다."""
+    if not isinstance(url, str):
+        return False
+    raw = url.strip()
+    if not (raw.startswith("http://") or raw.startswith("https://")):
+        return False
+    try:
+        parsed = urllib.parse.urlparse(raw)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        if not host or host in ("localhost", "metadata.google.internal", "metadata"):
+            return False
+        infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
+        if not infos:
+            return False
+        for info in infos:
+            ip_str = info[4][0]
+            ip_obj = ipaddress.ip_address(ip_str)
+            if (
+                ip_obj.is_loopback
+                or ip_obj.is_private
+                or ip_obj.is_link_local
+                or ip_obj.is_multicast
+                or ip_obj.is_reserved
+                or ip_obj.is_unspecified
+            ):
+                return False
+        return True
+    except Exception:
+        return False
+
 
 KST = datetime.timezone(datetime.timedelta(hours=9))
 DATA_FILE = "ddays_data.json"
@@ -313,19 +405,24 @@ ATTENDANCE_MILESTONES = [
 _DATA_LOCK = threading.RLock()
 _DATA_CACHE = None
 _FIREBASE_DISABLED_UNTIL = 0.0
+_FIREBASE_SYNC_LOCK = threading.Lock()
+_FIREBASE_PENDING_SYNC = None
+_FIREBASE_WORKER_RUNNING = False
 
 # 일러스트 바이트 & 성공 URL LRU 캐시 (응답 지연 및 타임아웃 방지용)
 _IMAGE_BYTES_CACHE = OrderedDict()
 _IMAGE_CACHE_LOCK = threading.Lock()
 _THUMB_BYTES_CACHE = OrderedDict()
 _THUMB_CACHE_LOCK = threading.Lock()
-_ASSET_URL_CACHE = {}
+_ASSET_URL_CACHE = OrderedDict()
 _FONT_CACHE = {}
 _FONT_CACHE_LOCK = threading.Lock()
 _RAINBOW_FRAME_CACHE = {}
 _THREAD_LOCAL_HTTP = threading.local()
 MAX_IMAGE_CACHE_SIZE = 80
 MAX_THUMB_CACHE_SIZE = 240
+MAX_ASSET_URL_CACHE_SIZE = 2000
+MAX_COOLDOWN_CACHE_SIZE = 2000
 
 
 def get_today_str():
@@ -563,7 +660,7 @@ class SafeView(discord.ui.View):
             pass
 
 
-def reconstruct_safe_view(view_cls_or_name: Union[type[SafeView], str], interaction: discord.Interaction) -> Optional[SafeView]:
+def reconstruct_safe_view(view_cls_or_name: type[SafeView] | str, interaction: discord.Interaction) -> Optional[SafeView]:
     """
     봇 재시작 또는 코드 업데이트로 메모리에서 유실된 SafeView를 인터랙션 컨텍스트로부터 지능적으로 복원합니다.
     """
@@ -617,9 +714,9 @@ def reconstruct_safe_view(view_cls_or_name: Union[type[SafeView], str], interact
             elif name in ("char_key",):
                 kwargs[name] = safe_get_dict(_data(), "user_ai_config", str(orig_user.id)).get("default_char", "kanade")
             elif name in ("s_ddays",):
-                kwargs[name] = safe_get_dict(_data(), "secret_ddays", str(orig_user.id))
+                kwargs[name] = safe_get_dict(_data(), "user_profiles", str(orig_user.id), "secret_ddays")
             elif name in ("partner_id",):
-                p_val = safe_get_dict(_data(), "partners", str(orig_user.id)).get("partner_id", "")
+                p_val = safe_get_dict(_data(), "user_profiles", str(orig_user.id)).get("partner_id", "")
                 kwargs[name] = str(p_val or "")
             elif name in ("ddays",):
                 kwargs[name] = as_dict(_data().get("ddays"))
@@ -713,6 +810,10 @@ def check_and_update_gacha_cooldown(user_id: int, skip_anim: bool = False) -> tu
     if now < cooldown_until:
         rem = cooldown_until - now
         return False, rem
+    if len(GACHA_GLOBAL_COOLDOWN) > MAX_COOLDOWN_CACHE_SIZE:
+        expired = [uid for uid, exp in list(GACHA_GLOBAL_COOLDOWN.items()) if exp <= now]
+        for uid in expired:
+            GACHA_GLOBAL_COOLDOWN.pop(uid, None)
     duration = GACHA_SKIP_COOLDOWN_SECONDS if skip_anim else GACHA_COOLDOWN_SECONDS
     GACHA_GLOBAL_COOLDOWN[user_id] = now + duration
     return True, 0.0
@@ -959,8 +1060,7 @@ def hydrate_proseka_kr_cache_from_disk() -> bool:
             cached = json.load(f)
         if cached and isinstance(cached, list) and len(cached) > 50 and isinstance(cached[0], dict):
             valid_cached = [c for c in cached if isinstance(c, dict)]
-            PROSEKA_KR_CARDS.clear()
-            PROSEKA_KR_CARDS.extend(valid_cached)
+            PROSEKA_KR_CARDS[:] = valid_cached
             quotes = []
             for c in valid_cached:
                 gp = (c.get("gachaPhrase") or "").strip()
@@ -974,8 +1074,7 @@ def hydrate_proseka_kr_cache_from_disk() -> bool:
                         "card": c
                     })
             if quotes:
-                PROSEKA_KR_QUOTES.clear()
-                PROSEKA_KR_QUOTES.extend(quotes)
+                PROSEKA_KR_QUOTES[:] = quotes
             return True
     except Exception:
         pass
@@ -984,8 +1083,6 @@ def hydrate_proseka_kr_cache_from_disk() -> bool:
 
 def load_proseka_kr_db():
     """프로세카 한국 서버(KR) 마스터 DB에서 전체 카드 및 캐릭터 대사(gachaPhrase, systemLive2ds)를 로드"""
-    global PROSEKA_KR_CARDS, PROSEKA_KR_QUOTES
-
     # 1. 로컬 캐시 파일이 존재하면 먼저 로드하여 메모리 폭증(OOM Killer) 방지
     if hydrate_proseka_kr_cache_from_disk():
         try:
@@ -1125,11 +1222,9 @@ def load_proseka_kr_db():
                 })
 
     if parsed_cards:
-        PROSEKA_KR_CARDS.clear()
-        PROSEKA_KR_CARDS.extend(parsed_cards)
+        PROSEKA_KR_CARDS[:] = parsed_cards
     if parsed_quotes:
-        PROSEKA_KR_QUOTES.clear()
-        PROSEKA_KR_QUOTES.extend(parsed_quotes)
+        PROSEKA_KR_QUOTES[:] = parsed_quotes
 
     print(
         f"✅ 프로세카 한섭 DB 로드 완료: 카드 {len(PROSEKA_KR_CARDS)}장 | 대사 {len(PROSEKA_KR_QUOTES)}개",
@@ -1140,7 +1235,6 @@ def load_proseka_kr_db():
 
 def load_proseka_costumes_db():
     """프로세카 한국 서버 3D 의상 마스터 데이터 로드 및 캐시"""
-    global PROSEKA_KR_COSTUMES
     if os.path.exists(PROSEKA_COSTUMES_CACHE_FILE):
         try:
             with open(PROSEKA_COSTUMES_CACHE_FILE, "r", encoding="utf-8") as f:
@@ -2002,6 +2096,8 @@ def fetch_proseka_card_image_bytes(card: dict, mode: str = "auto"):
                 with _IMAGE_CACHE_LOCK:
                     _ASSET_URL_CACHE[cache_key] = url
                     _ASSET_URL_CACHE[f"{asset_name}:{used_sfx}"] = url
+                    while len(_ASSET_URL_CACHE) > MAX_ASSET_URL_CACHE_SIZE:
+                        _ASSET_URL_CACHE.popitem(last=False)
                     _IMAGE_BYTES_CACHE[cache_key] = (out_bytes, filename)
                     if len(_IMAGE_BYTES_CACHE) > MAX_IMAGE_CACHE_SIZE:
                         _IMAGE_BYTES_CACHE.popitem(last=False)
@@ -2930,7 +3026,25 @@ DEFAULT_CONFIG = {
     "birthdays": {},
     "reminders": [],
     "suggestions": [],
-    "reaction_roles": {}
+    "reaction_roles": {},
+    "sticky_messages": {},
+    "link_preview_configs": {},
+    "raid_defense_configs": {},
+    "relay_novels": {},
+    "lottery_state": {
+        "round": 1,
+        "jackpot": 1000,
+        "pool": 0,
+        "tickets": [],
+        "announce_channels": {},
+        "last_draw": None,
+        "history": [],
+    },
+    "ticket_configs": {},
+    "tickets": {},
+    "life_users": {},
+    "guild_farms": {},
+    "other_life_users": {},
 }
 
 
@@ -3546,6 +3660,33 @@ def normalize_data(data):
     data["reaction_roles"] = {str(k): v for k, v in raw_rr.items() if isinstance(v, dict)}
     data["proseka_accounts"] = coerce_dict_like(data.get("proseka_accounts"))
 
+    for map_key in (
+        "sticky_messages",
+        "link_preview_configs",
+        "raid_defense_configs",
+        "relay_novels",
+        "ticket_configs",
+        "tickets",
+        "life_users",
+        "guild_farms",
+        "other_life_users",
+    ):
+        raw_map = coerce_dict_like(data.get(map_key))
+        data[map_key] = {str(k): v for k, v in raw_map.items() if isinstance(v, dict)}
+
+    lot_raw = coerce_dict_like(data.get("lottery_state"))
+    if not lot_raw:
+        data["lottery_state"] = copy.deepcopy(DEFAULT_CONFIG["lottery_state"])
+    else:
+        for k, v in DEFAULT_CONFIG["lottery_state"].items():
+            lot_raw.setdefault(k, copy.deepcopy(v) if isinstance(v, (dict, list)) else v)
+        if not isinstance(lot_raw.get("tickets"), list):
+            lot_raw["tickets"] = [t for t in coerce_list_like(lot_raw.get("tickets")) if isinstance(t, dict)]
+        if not isinstance(lot_raw.get("history"), list):
+            lot_raw["history"] = [h for h in coerce_list_like(lot_raw.get("history")) if isinstance(h, dict)]
+        lot_raw["announce_channels"] = coerce_dict_like(lot_raw.get("announce_channels"))
+        data["lottery_state"] = lot_raw
+
     return data
 
 
@@ -3730,13 +3871,46 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
         if s_v is not None and not merged_settings.get(s_k):
             merged_settings[s_k] = copy.deepcopy(s_v)
 
-    # 반응역할(reaction_roles) 로컬 백업 보존
-    merged_rr = ensure_dict_path(merged, "reaction_roles")
-    for mid_s, rr_cfg in as_dict(local_norm.get("reaction_roles")).items():
-        if mid_s not in merged_rr:
-            merged_rr[mid_s] = copy.deepcopy(rr_cfg)
+    # 반응역할(reaction_roles) 및 신규 커뮤니티/티켓/생활/전생 데이터 로컬 백업 보존
+    for preserve_key in (
+        "reaction_roles",
+        "sticky_messages",
+        "link_preview_configs",
+        "raid_defense_configs",
+        "relay_novels",
+        "ticket_configs",
+        "tickets",
+        "life_users",
+        "guild_farms",
+        "other_life_users",
+    ):
+        merged_sub = ensure_dict_path(merged, preserve_key)
+        for k_s, v_cfg in as_dict(local_norm.get(preserve_key)).items():
+            if k_s not in merged_sub:
+                merged_sub[k_s] = copy.deepcopy(v_cfg)
+
+    l_lot = as_dict(local_norm.get("lottery_state"))
+    r_lot = ensure_dict_path(merged, "lottery_state")
+    if int(l_lot.get("round", 1) or 1) > int(r_lot.get("round", 1) or 1) or (
+        int(l_lot.get("round", 1) or 1) == int(r_lot.get("round", 1) or 1)
+        and len(l_lot.get("tickets") or []) > len(r_lot.get("tickets") or [])
+    ):
+        merged["lottery_state"] = copy.deepcopy(l_lot)
 
     return normalize_data(merged)
+
+
+def get_cached_data_ro() -> dict:
+    """
+    읽기 전용 경로에서 deepcopy 오버헤드 없이 인메모리 캐시 참조를 즉시 반환합니다.
+    (주의: 반환된 dict를 직접 수정하지 마세요. 수정이 필요한 경우 load_data()를 사용하세요.)
+    """
+    with _DATA_LOCK:
+        if _DATA_CACHE is not None:
+            return _DATA_CACHE
+    load_data()
+    with _DATA_LOCK:
+        return _DATA_CACHE if _DATA_CACHE is not None else DEFAULT_CONFIG
 
 
 def get_cached_data() -> dict:
@@ -3744,7 +3918,6 @@ def get_cached_data() -> dict:
     네트워크 I/O 없이 인메모리 캐시에서 즉시 데이터 사본을 반환합니다.
     디스코드 3초 제한이 있는 슬래시 명령어 자동완성(Autocomplete)에서 사용됩니다.
     """
-    global _DATA_CACHE
     with _DATA_LOCK:
         if _DATA_CACHE is not None:
             return copy.deepcopy(_DATA_CACHE)
@@ -3783,7 +3956,7 @@ def load_data():
                     print(f"ℹ️ Firebase 엔드포인트 비활성 (HTTP {res.status_code}) — 로컬 저장소 모드로 동작합니다.", flush=True)
                     _FIREBASE_DISABLED_UNTIL = time.time() + 3600
             except Exception as e:
-                print(f"⚠️ Firebase 연결 실패 (로컬 백업 사용): {e}", flush=True)
+                print(f"⚠️ Firebase 연결 실패 (로컬 백업 사용): {redact_secrets(str(e))}", flush=True)
                 _FIREBASE_DISABLED_UNTIL = time.time() + 300
 
         if local_data:
@@ -3795,15 +3968,23 @@ def load_data():
         return copy.deepcopy(_DATA_CACHE)
 
 
-def _sync_firebase_background(endpoint, payload):
-    global _FIREBASE_DISABLED_UNTIL
-    try:
-        res = requests.put(endpoint, json=payload, timeout=5)
-        if res.status_code in (401, 403, 404):
-            _FIREBASE_DISABLED_UNTIL = time.time() + 3600
-    except Exception as e:
-        print(f"⚠️ Firebase 저장 오류 (로컬 백업에는 정상 저장됨): {e}", flush=True)
-        _FIREBASE_DISABLED_UNTIL = time.time() + 300
+def _firebase_sync_worker():
+    """직렬화된 단일 워커로 Firebase PUT 순서 역전(Race Condition) 및 스레드 폭증을 방지합니다."""
+    global _FIREBASE_DISABLED_UNTIL, _FIREBASE_PENDING_SYNC, _FIREBASE_WORKER_RUNNING
+    while True:
+        with _FIREBASE_SYNC_LOCK:
+            if _FIREBASE_PENDING_SYNC is None:
+                _FIREBASE_WORKER_RUNNING = False
+                return
+            endpoint, payload = _FIREBASE_PENDING_SYNC
+            _FIREBASE_PENDING_SYNC = None
+        try:
+            res = requests.put(endpoint, json=payload, timeout=5)
+            if res.status_code in (401, 403, 404):
+                _FIREBASE_DISABLED_UNTIL = time.time() + 3600
+        except Exception as e:
+            print(f"⚠️ Firebase 저장 오류 (로컬 백업에는 정상 저장됨): {redact_secrets(str(e))}", flush=True)
+            _FIREBASE_DISABLED_UNTIL = time.time() + 300
 
 
 def save_data(data):
@@ -3811,7 +3992,7 @@ def save_data(data):
     인메모리 캐시 갱신 + 원자적 로컬 파일 저장 + Firebase RTDB 비동기 백그라운드 동기화.
     _DATA_LOCK 점유 중 동기식 네트워크 I/O(requests.put)를 배제하여 봇 프리징 및 타임아웃을 방지합니다.
     """
-    global _DATA_CACHE
+    global _DATA_CACHE, _FIREBASE_PENDING_SYNC, _FIREBASE_WORKER_RUNNING
     endpoint = None
     payload = None
     with _DATA_LOCK:
@@ -3824,8 +4005,12 @@ def save_data(data):
             payload = copy.deepcopy(normalized)
 
     if endpoint and payload:
-        t = threading.Thread(target=_sync_firebase_background, args=(endpoint, payload), daemon=True)
-        t.start()
+        with _FIREBASE_SYNC_LOCK:
+            _FIREBASE_PENDING_SYNC = (endpoint, payload)
+            if not _FIREBASE_WORKER_RUNNING:
+                _FIREBASE_WORKER_RUNNING = True
+                t = threading.Thread(target=_firebase_sync_worker, daemon=True)
+                t.start()
 
 
 def reset_dday_and_music_data():
@@ -3852,7 +4037,7 @@ def is_emoji_upscale_enabled(guild_id: int | str | None, data: dict | None = Non
     """서버별 이모지 업스케일 활성화 여부 반환 (기본값: False / OFF)"""
     if not guild_id:
         return False
-    d = data if data is not None else get_cached_data()
+    d = data if data is not None else get_cached_data_ro()
     guilds_map = safe_get_dict(d, "settings", "emoji_upscale_guilds")
     return bool(guilds_map.get(str(guild_id), False))
 
@@ -3888,7 +4073,7 @@ def get_emoji_upscale_message_author(message_id: int | str | None, data: dict | 
     """업스케일 웹훅 메시지 ID에 매핑된 원 발신자 유저 ID 조회"""
     if not message_id:
         return None
-    d = data if data is not None else get_cached_data()
+    d = data if data is not None else get_cached_data_ro()
     msg_map = safe_get_dict(d, "settings", "emoji_upscale_messages")
     raw_uid = msg_map.get(str(message_id))
     if raw_uid is None:
@@ -5616,7 +5801,9 @@ class _QuietYdlLogger:
 
 
 def fetch_soundcloud_track_sync(genre=None, artist=None, playlist_url=None):
-    ydl_flat_opts = {"extract_flat": True, "quiet": True, "no_warnings": True, "nocheckcertificate": True, "logger": _QuietYdlLogger()}
+    if playlist_url and not is_allowed_music_url(playlist_url):
+        return None, "허용되지 않은 사운드클라우드 링크입니다."
+    ydl_flat_opts = {"extract_flat": True, "quiet": True, "no_warnings": True, "logger": _QuietYdlLogger()}
     try:
         with yt_dlp.YoutubeDL(ydl_flat_opts) as ydl:
             if playlist_url:
@@ -5635,7 +5822,7 @@ def fetch_soundcloud_track_sync(genre=None, artist=None, playlist_url=None):
                 chosen = random.choice(entries)
 
         track_url = chosen.get("url") or chosen.get("webpage_url")
-        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "nocheckcertificate": True, "logger": _QuietYdlLogger()}) as ydl_detail:
+        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "logger": _QuietYdlLogger()}) as ydl_detail:
             detail = ydl_detail.extract_info(track_url, download=False)
 
         return {
@@ -5653,12 +5840,13 @@ def fetch_youtube_track_sync(genre, artist, playlist_url=None):
     """유튜브에서 장르/아티스트 맞춤 또는 플레이리스트 곡을 1곡 추출하여 반환합니다."""
     if not yt_dlp:
         return None, "yt-dlp 모듈이 설치되어 있지 않습니다."
+    if playlist_url and not is_allowed_music_url(playlist_url):
+        return None, "허용되지 않은 유튜브 링크입니다."
     try:
         ydl_flat_opts = {
             "quiet": True,
             "no_warnings": True,
             "extract_flat": True,
-            "nocheckcertificate": True,
             "logger": _QuietYdlLogger(),
             "default_search": "ytsearch",
         }
@@ -5784,7 +5972,7 @@ def resolve_playlist_track_sync(raw_query_or_url: str, artist_hint: str = "", pr
     artist_in = (artist_hint or "").strip()
     plat = preferred_platform if preferred_platform in PLAYLIST_PLATFORMS else "YouTube"
 
-    is_url = raw.startswith("http://") or raw.startswith("https://")
+    is_url = (raw.startswith("http://") or raw.startswith("https://")) and is_allowed_music_url(raw)
     if is_url:
         low_url = raw.lower()
         if "spotify.com" in low_url:
@@ -5860,7 +6048,6 @@ def resolve_playlist_track_sync(raw_query_or_url: str, artist_hint: str = "", pr
                 "noplaylist": True,
                 "quiet": True,
                 "no_warnings": True,
-                "nocheckcertificate": True,
                 "socket_timeout": 5,
                 "logger": _QuietYdlLogger(),
             }
@@ -6133,7 +6320,6 @@ def extract_playlist_from_url_sync(url: str, max_tracks: int = 100) -> tuple[dic
         "extract_flat": True,
         "quiet": True,
         "no_warnings": True,
-        "nocheckcertificate": True,
         "socket_timeout": 8,
         "ignoreerrors": True,
         "logger": _QuietYdlLogger(),
@@ -6356,7 +6542,7 @@ def import_playlist_into_profile_sync(
 
 async def user_playlist_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     """유저가 만든 플레이리스트 목록을 실시간 자동완성"""
-    data = get_cached_data()
+    data = get_cached_data_ro()
     u_key = str(interaction.user.id)
     prof = safe_get_dict(data, "user_profiles", u_key)
     pls = prof.get("playlists", [])
@@ -6382,7 +6568,7 @@ async def user_playlist_autocomplete(interaction: discord.Interaction, current: 
 
 async def user_playlist_track_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     """유저가 선택한 플레이리스트 내의 수록곡 목록을 실시간 자동완성"""
-    data = get_cached_data()
+    data = get_cached_data_ro()
     u_key = str(interaction.user.id)
     prof = safe_get_dict(data, "user_profiles", u_key)
     pls = prof.get("playlists", [])
@@ -6453,6 +6639,7 @@ async def generate_korean_tts_audio_source(text: str) -> tuple[Optional[discord.
     한국어 텍스트를 Google Translate TTS로 음성 합성하여
     디스코드 음성 채널에서 재생 가능한 AudioSource와 임시 파일 경로를 반환합니다.
     """
+    import tempfile
     try:
         url = "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ko&q=" + urllib.parse.quote(text)
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
@@ -6589,14 +6776,15 @@ def resolve_voice_stream_sync(track: dict) -> tuple[dict | None, str | None]:
 
     # 2. 직접 재생 가능한 단일 영상/트랙 URL인 경우 1순위 후보로 등록
     # (단, &list=... 등 플레이리스트 파라미터가 섞여있으면 엉뚱한 곡이 재생되므로 반드시 순수 영상 URL로 정규화)
-    if "youtube.com" in raw_url.lower() or "youtu.be" in raw_url.lower():
-        cleaned_yt = clean_youtube_url(raw_url)
-        if "watch?v=" in cleaned_yt:
-            add_candidate(cleaned_yt)
-    elif "soundcloud.com/" in raw_url.lower() and "/search" not in raw_url.lower() and "/sets/" not in raw_url.lower():
-        add_candidate(raw_url)
+    if is_allowed_music_url(raw_url):
+        if "youtube.com" in raw_url.lower() or "youtu.be" in raw_url.lower():
+            cleaned_yt = clean_youtube_url(raw_url)
+            if "watch?v=" in cleaned_yt:
+                add_candidate(cleaned_yt)
+        elif "soundcloud.com/" in raw_url.lower() and "/search" not in raw_url.lower() and "/sets/" not in raw_url.lower():
+            add_candidate(raw_url)
 
-    if yt_url and ("youtube.com" in yt_url.lower() or "youtu.be" in yt_url.lower()):
+    if yt_url and is_allowed_music_url(yt_url) and ("youtube.com" in yt_url.lower() or "youtu.be" in yt_url.lower()):
         cleaned_yt2 = clean_youtube_url(yt_url)
         if "watch?v=" in cleaned_yt2:
             add_candidate(cleaned_yt2)
@@ -6631,7 +6819,6 @@ def resolve_voice_stream_sync(track: dict) -> tuple[dict | None, str | None]:
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
-        "nocheckcertificate": True,
         "ignoreerrors": True,
         "socket_timeout": 12,
         "default_search": "ytsearch",

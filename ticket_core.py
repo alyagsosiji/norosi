@@ -45,7 +45,7 @@ def _safe_optional_id(val: Any) -> Optional[int]:
 
 def get_ticket_config(guild_id: int | str, data: Optional[dict] = None) -> Dict[str, Any]:
     if data is None:
-        data = core.get_cached_data()
+        data = core.get_cached_data_ro()
     g_key = str(guild_id or 0)
     raw = core.safe_get_dict(data, "ticket_configs", g_key)
     cfg = copy.deepcopy(DEFAULT_TICKET_CONFIG)
@@ -90,7 +90,7 @@ def update_ticket_config(guild_id: int | str, **updates) -> Dict[str, Any]:
 
 def count_user_open_tickets(guild_id: int | str, user_id: int | str, data: Optional[dict] = None) -> int:
     if data is None:
-        data = core.get_cached_data()
+        data = core.get_cached_data_ro()
     g_key = str(guild_id or 0)
     u_id = int(user_id)
     g_tickets = core.safe_get_dict(data, "tickets", g_key)
@@ -102,17 +102,18 @@ def count_user_open_tickets(guild_id: int | str, user_id: int | str, data: Optio
 
 
 def can_open_ticket(guild_id: int | str, user_id: int | str) -> Tuple[bool, str, Dict[str, Any]]:
-    data = core.get_cached_data()
-    cfg = get_ticket_config(guild_id, data=data)
-    open_cnt = count_user_open_tickets(guild_id, user_id, data=data)
-    limit = int(cfg["max_per_user"])
-    if open_cnt >= limit:
-        return (
-            False,
-            f"⚠️ 현재 열려 있는 티켓이 이미 **`{open_cnt}/{limit}개`**입니다. 기존 티켓을 닫은 뒤 새로 열어주세요!",
-            cfg,
-        )
-    return True, "", cfg
+    with core._DATA_LOCK:
+        data = core.get_cached_data_ro()
+        cfg = get_ticket_config(guild_id, data=data)
+        open_cnt = count_user_open_tickets(guild_id, user_id, data=data)
+        limit = int(cfg["max_per_user"])
+        if open_cnt >= limit:
+            return (
+                False,
+                f"⚠️ 현재 열려 있는 티켓이 이미 **`{open_cnt}/{limit}개`**입니다. 기존 티켓을 닫은 뒤 새로 열어주세요!",
+                cfg,
+            )
+        return True, "", cfg
 
 
 def reserve_next_ticket_number(guild_id: int | str) -> int:
@@ -171,7 +172,7 @@ def register_ticket(
 
 
 def get_ticket(guild_id: int | str, channel_id: int | str) -> Optional[Dict[str, Any]]:
-    data = core.get_cached_data()
+    data = core.get_cached_data_ro()
     rec = core.safe_get_dict(data, "tickets", str(guild_id or 0), str(channel_id))
     return copy.deepcopy(rec) if isinstance(rec, dict) and rec else None
 
@@ -275,7 +276,7 @@ def delete_ticket_record(guild_id: int | str, channel_id: int | str) -> Optional
 
 
 def list_guild_tickets(guild_id: int | str, status_filter: str = "all") -> List[Dict[str, Any]]:
-    data = core.get_cached_data()
+    data = core.get_cached_data_ro()
     g_tickets = core.safe_get_dict(data, "tickets", str(guild_id or 0))
     rows: List[Dict[str, Any]] = []
     for rec in g_tickets.values():

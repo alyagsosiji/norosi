@@ -80,6 +80,7 @@ ALL_COG_EXTENSIONS = (
     "cogs.ai",
     "cogs.stats",
     "cogs.roles",
+    "cogs.emoji_upscale",
     "cogs.help",
     "cogs.dashboard",
 )

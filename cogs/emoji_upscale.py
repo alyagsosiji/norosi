@@ -298,9 +298,9 @@ def build_sticker_strip_bytes(
         canvas.save(out, format="PNG", optimize=True)
         return out.getvalue(), "png"
 
-    # 애니메이션 프레임 타임라인 구성
+    # 애니메이션 프레임 타임라인 구성 (메모리·CPU 폭주 방지를 위해 최대 60프레임 상한 적용)
     anim_entries = [(frames, durs, loop) for frames, durs, loop in extracted if len(frames) > 1]
-    if len(anim_entries) == 1:
+    if len(anim_entries) == 1 and len(anim_entries[0][0]) <= 60:
         base_frames, out_durations, loop_count = anim_entries[0]
         canvas_frames_rgba = []
         for idx in range(len(base_frames)):
@@ -569,6 +569,10 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         if cached is not None:
             return cached
 
+        if len(self._webhook_locks) > 500:
+            for k in list(self._webhook_locks.keys())[:100]:
+                if not self._webhook_locks[k].locked():
+                    self._webhook_locks.pop(k, None)
         lock = self._webhook_locks.setdefault(base_channel.id, asyncio.Lock())
         async with lock:
             cached = self._webhook_cache.get(base_channel.id)
@@ -583,6 +587,8 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
                     existing = next((w for w in webhooks if w.user and self.bot.user and w.user.id == self.bot.user.id and w.token), None)
                 if not existing:
                     existing = await base_channel.create_webhook(name=WEBHOOK_NAME, reason="이모지 업스케일 대리 전송용 웹훅")
+                if len(self._webhook_cache) >= 500:
+                    self._webhook_cache.pop(next(iter(self._webhook_cache)), None)
                 self._webhook_cache[base_channel.id] = existing
                 return existing
             except Exception:
@@ -825,10 +831,8 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
                 return
             if not await self._is_upscale_webhook_message(base_channel, target_msg.webhook_id):
                 return
-            same_sender_fallback = bool(
-                member and target_msg.author.display_name == sanitize_webhook_username(member.display_name)
-            )
-            if not (is_mod or is_owner or same_sender_fallback):
+            # 닉네임 변경을 통한 타인 메시지 위장 삭제 방지: 작성자 ID 매핑이 만료된 경우 관리자/봇주만 삭제 가능
+            if not (is_mod or is_owner):
                 return
 
         self._deleting_msgs.add(payload.message_id)

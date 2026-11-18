@@ -559,6 +559,15 @@ class TicketMemberModal(core.SafeModal, title="👥 티켓에 멤버 초대"):
             await core.safe_send_response(interaction, "❌ 서버 티켓 채널에서만 사용할 수 있습니다.", ephemeral=True)
             return
 
+        rec = ticket_core.get_ticket(guild.id, channel.id)
+        if not rec:
+            await core.safe_send_response(interaction, "❌ 이 채널은 등록된 티켓 채널이 아닙니다.", ephemeral=True)
+            return
+        opener_id = int(rec.get("opener_id", 0) or 0)
+        if interaction.user.id != opener_id and not _is_ticket_staff(interaction.user, guild.id, interaction.client):
+            await core.safe_send_response(interaction, "❌ 티켓 개설자 또는 담당 운영진만 멤버를 초대할 수 있습니다.", ephemeral=True)
+            return
+
         digits = re.sub(r"\D", "", self.member_input.value or "")
         if not digits:
             await core.safe_send_response(interaction, "❌ 올바른 디스코드 유저 ID를 입력해 주세요.", ephemeral=True)

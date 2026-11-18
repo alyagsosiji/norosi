@@ -32,7 +32,7 @@ from other_life_narratives import (
     get_role_context,
 )
 
-_OTHER_LIFE_LOCK = threading.RLock()
+_OTHER_LIFE_LOCK = getattr(core, "_DATA_LOCK", threading.RLock())
 
 DAILY_CRYSTAL_REWARD_LIMIT = 3
 MIN_BEATS_FOR_REWARD = 10

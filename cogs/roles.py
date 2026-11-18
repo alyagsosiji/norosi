@@ -32,6 +32,29 @@ def _is_admin_user(user: discord.abc.User, guild: Optional[discord.Guild], bot: 
     return False
 
 
+def _check_caller_role_hierarchy(
+    user: discord.abc.User,
+    target_role: discord.Role,
+    is_bot_owner: bool = False,
+) -> tuple[bool, str]:
+    """호출자가 본인보다 높거나 같은 서열의 역할 또는 관리자 권한 역할을 반응역할로 지정하여 권한 상승하는 것을 차단"""
+    if not isinstance(user, discord.Member):
+        return False, "❌ 서버 멤버만 역할을 설정할 수 있습니다."
+    if is_bot_owner or user == user.guild.owner:
+        return True, "OK"
+    if target_role.permissions.administrator and not user.guild_permissions.administrator:
+        return (
+            False,
+            f"❌ 관리자(Administrator) 권한이 포함된 역할(`{target_role.name}`)은 서버 관리자만 반응역할로 지정할 수 있습니다.",
+        )
+    if target_role >= user.top_role:
+        return (
+            False,
+            f"❌ 본인의 최고 역할(`{user.top_role.name}`)보다 높거나 같은 서열의 역할(`{target_role.name}`)은 반응역할로 설정할 수 없습니다.",
+        )
+    return True, "OK"
+
+
 def _build_reaction_role_embed(
     title: str,
     description: str,
@@ -135,7 +158,7 @@ class PersistentRoleButton(discord.ui.Button):
             return
 
         # 단일 선택 모드(unique) 체크
-        data = await asyncio.to_thread(core.load_data)
+        data = core.get_cached_data_ro()
         mid_s = str(interaction.message.id) if interaction.message else ""
         panel_cfg = core.safe_get_dict(data, "reaction_roles", mid_s)
         is_unique_mode = panel_cfg.get("mode") == "unique"
@@ -188,21 +211,26 @@ class PersistentReactionRoleView(discord.ui.View):
             "red": discord.ButtonStyle.danger,
             "빨강": discord.ButtonStyle.danger,
         }
+        seen_role_ids: set[int] = set()
         for r_entry in roles_list[:25]:
             rid = r_entry.get("role_id")
             if not rid:
                 continue
+            rid_int = int(rid)
+            if rid_int in seen_role_ids:
+                continue
+            seen_role_ids.add(rid_int)
             btn_label = r_entry.get("button_label") or r_entry.get("role_name") or "역할"
             btn_emoji = r_entry.get("button_emoji") or r_entry.get("emoji")
             style_val = str(r_entry.get("style", "primary")).lower()
             btn_style = style_map.get(style_val, discord.ButtonStyle.primary)
 
             self.add_item(PersistentRoleButton(
-                role_id=int(rid),
+                role_id=rid_int,
                 label=btn_label,
                 emoji_str=btn_emoji,
                 style=btn_style,
-                custom_id=f"rr_btn_{rid}"
+                custom_id=f"rr_btn_{rid_int}"
             ))
 
 
@@ -317,7 +345,16 @@ class AddRoleMappingModal(core.SafeModal, title="➕ 역할 및 버튼/이모지
             )
             return
 
-        # 봇 권한 서열 검사
+        # 봇 권한 서열 검사 및 호출자 역할 서열 검사 (권한 상승 방어)
+        if not _is_admin_user(interaction.user, guild, interaction.client):
+            await core.safe_send_response(interaction, "❌ 서버 관리자 또는 역할 관리 권한이 필요합니다.", ephemeral=True)
+            return
+        is_owner = bool(core.BOT_OWNER_ID and interaction.user.id == core.BOT_OWNER_ID)
+        ok_hier, hier_reason = _check_caller_role_hierarchy(interaction.user, target_role, is_bot_owner=is_owner)
+        if not ok_hier:
+            await core.safe_send_response(interaction, hier_reason, ephemeral=True)
+            return
+
         bot_member = guild.me or await guild.fetch_member(interaction.client.user.id)
         can_assign, reason = core.check_role_assignable(bot_member, target_role)
         if not can_assign:
@@ -444,7 +481,16 @@ class QuickRoleButtonModal(core.SafeModal, title="🚀 역할 버튼 패널 생�
             )
             return
 
-        # 봇 권한 서열 검사
+        # 봇 권한 서열 검사 및 호출자 역할 서열 검사 (권한 상승 방어)
+        if not _is_admin_user(interaction.user, guild, interaction.client):
+            await core.safe_send_response(interaction, "❌ 서버 관리자 또는 역할 관리 권한이 필요합니다.", ephemeral=True)
+            return
+        is_owner = bool(core.BOT_OWNER_ID and interaction.user.id == core.BOT_OWNER_ID)
+        ok_hier, hier_reason = _check_caller_role_hierarchy(interaction.user, target_role, is_bot_owner=is_owner)
+        if not ok_hier:
+            await core.safe_send_response(interaction, hier_reason, ephemeral=True)
+            return
+
         bot_member = guild.me or await guild.fetch_member(interaction.client.user.id)
         can_assign, reason = core.check_role_assignable(bot_member, target_role)
         if not can_assign:
@@ -728,6 +774,10 @@ class AttachExistingMessageModal(core.SafeModal, title="🔗 기존 메시지에
             await core.safe_send_response(interaction, "❌ 서버에서만 실행 가능합니다.", ephemeral=True)
             return
 
+        if not _is_admin_user(interaction.user, guild, interaction.client):
+            await core.safe_send_response(interaction, "❌ 서버 관리자 또는 역할 관리 권한이 필요합니다.", ephemeral=True)
+            return
+
         raw_msg_input = self.msg_link_or_id.value.strip()
         channel_id = None
         message_id = None
@@ -771,6 +821,12 @@ class AttachExistingMessageModal(core.SafeModal, title="🔗 기존 메시지에
 
         if not target_role:
             await core.safe_send_response(interaction, f"❌ `{role_q}` 역할을 찾을 수 없습니다.", ephemeral=True)
+            return
+
+        is_owner = bool(core.BOT_OWNER_ID and interaction.user.id == core.BOT_OWNER_ID)
+        ok_hier, hier_reason = _check_caller_role_hierarchy(interaction.user, target_role, is_bot_owner=is_owner)
+        if not ok_hier:
+            await core.safe_send_response(interaction, hier_reason, ephemeral=True)
             return
 
         bot_member = guild.me or await guild.fetch_member(interaction.client.user.id)
@@ -987,7 +1043,7 @@ class ReactionRoleStudioView(core.SafeView):
         return True
 
     def build_dashboard_embed(self) -> discord.Embed:
-        data = core.get_cached_data()
+        data = core.get_cached_data_ro()
         guild_rr = core.get_guild_reaction_roles(data, self.guild.id)
         total_panels = len(guild_rr)
         total_roles = sum(len(c.get("roles", [])) for c in guild_rr.values())
@@ -1217,13 +1273,20 @@ class Roles(commands.Cog, name="역할"):
         ]
 
         roles_list = []
+        seen_rids: set[int] = set()
+        is_owner = bool(core.BOT_OWNER_ID and interaction.user.id == core.BOT_OWNER_ID)
         for r_obj, b_label, b_emo, b_style in items:
-            if not r_obj:
+            if not r_obj or r_obj.id in seen_rids:
                 continue
+            ok_hier, hier_reason = _check_caller_role_hierarchy(interaction.user, r_obj, is_bot_owner=is_owner)
+            if not ok_hier:
+                await interaction.edit_original_response(content=hier_reason)
+                return
             can_assign, reason = core.check_role_assignable(bot_member, r_obj)
             if not can_assign:
                 await interaction.edit_original_response(content=f"⚠️ `{r_obj.name}` 검증 실패: {reason}")
                 return
+            seen_rids.add(r_obj.id)
 
             emoji_obj, emoji_disp, emoji_id = None, "", None
             if b_emo:
@@ -1366,9 +1429,15 @@ class Roles(commands.Cog, name="역할"):
         ]
 
         roles_list = []
+        seen_rids: set[int] = set()
+        is_owner = bool(core.BOT_OWNER_ID and interaction.user.id == core.BOT_OWNER_ID)
         for r_obj, e_str, b_lbl in pairs:
-            if not r_obj or not e_str:
+            if not r_obj or not e_str or r_obj.id in seen_rids:
                 continue
+            ok_hier, hier_reason = _check_caller_role_hierarchy(interaction.user, r_obj, is_bot_owner=is_owner)
+            if not ok_hier:
+                await interaction.edit_original_response(content=hier_reason)
+                return
             can_assign, reason = core.check_role_assignable(bot_member, r_obj)
             if not can_assign:
                 await interaction.edit_original_response(content=f"⚠️ `{r_obj.name}` 검증 실패: {reason}")
@@ -1377,6 +1446,7 @@ class Roles(commands.Cog, name="역할"):
             if not e_obj:
                 await interaction.edit_original_response(content=f"⚠️ `{e_str}` 이모지를 인식하지 못했습니다.")
                 return
+            seen_rids.add(r_obj.id)
             roles_list.append({
                 "emoji": e_disp,
                 "emoji_name": e_obj.name if hasattr(e_obj, "name") else str(e_obj),
@@ -1517,7 +1587,7 @@ class Roles(commands.Cog, name="역할"):
         if not guild:
             return
 
-        data = core.get_cached_data()
+        data = core.get_cached_data_ro()
         rr_map = core.safe_get_dict(data, "reaction_roles")
         mid_str = str(payload.message_id)
 
@@ -1611,7 +1681,7 @@ class Roles(commands.Cog, name="역할"):
         if not guild:
             return
 
-        data = core.get_cached_data()
+        data = core.get_cached_data_ro()
         rr_map = core.safe_get_dict(data, "reaction_roles")
         mid_str = str(payload.message_id)
 
@@ -1659,7 +1729,7 @@ class Roles(commands.Cog, name="역할"):
     @commands.Cog.listener()
     async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
         mid_str = str(payload.message_id)
-        data = core.get_cached_data()
+        data = core.get_cached_data_ro()
         if mid_str in core.safe_get_dict(data, "reaction_roles"):
             async def _bg_clean():
                 try:
@@ -1677,7 +1747,7 @@ class Roles(commands.Cog, name="역할"):
     @commands.Cog.listener()
     async def on_guild_role_delete(self, role: discord.Role):
         guild_id = role.guild.id
-        data = core.get_cached_data()
+        data = core.get_cached_data_ro()
         rr_map = core.safe_get_dict(data, "reaction_roles")
 
         has_changed = False
@@ -1686,10 +1756,9 @@ class Roles(commands.Cog, name="역할"):
                 continue
             if int(cfg.get("guild_id", 0)) == guild_id:
                 roles_arr = [r for r in (cfg.get("roles") or []) if isinstance(r, dict)]
-                orig_len = len(roles_arr)
-                cfg["roles"] = [r for r in roles_arr if r.get("role_id") != role.id]
-                if len(cfg["roles"]) != orig_len:
+                if any(r.get("role_id") == role.id for r in roles_arr):
                     has_changed = True
+                    break
 
         if has_changed:
             async def _bg_save_role_del():

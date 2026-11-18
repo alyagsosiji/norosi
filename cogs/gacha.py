@@ -526,6 +526,15 @@ class GachaPullAgainView(core.SafeView):
         ]
 
     async def _handle_repull(self, interaction: discord.Interaction, pull_count: int):
+        if self.user and interaction.user.id != self.user.id:
+            await core.safe_send_response(
+                interaction,
+                "❌ 가챠를 실행한 본인만 재뽑기 버튼을 사용할 수 있습니다. `/프로세카뽑기`를 직접 입력해 보세요!",
+                ephemeral=True,
+            )
+            return
+        if not self.user:
+            self.user = interaction.user
         can_pull, rem = check_and_update_gacha_cooldown(interaction.user.id, skip_anim=self.skip_anim)
         if not can_pull:
             await core.safe_send_response(
@@ -745,7 +754,9 @@ class RerollSimulatorView(core.SafeView):
             color=discord.Color.from_rgb(255, 105, 180) if cur_high > 0 else discord.Color.from_rgb(*b_cfg.get("color", (0, 204, 221))),
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_author(name=f"{self.user.display_name}님의 연습 시뮬레이션", icon_url=getattr(self.user.display_avatar, "url", None))
+        u_name = self.user.display_name if self.user else "유저"
+        u_icon = getattr(self.user.display_avatar, "url", None) if self.user else None
+        embed.set_author(name=f"{u_name}님의 연습 시뮬레이션", icon_url=u_icon)
         if grid_filename:
             embed.set_image(url=f"attachment://{grid_filename}")
         embed.set_footer(text="연습 모드로 뽑은 카드는 보관함/도감/랭킹에 저장되지 않습니다.")
@@ -753,9 +764,11 @@ class RerollSimulatorView(core.SafeView):
 
     @discord.ui.button(label="🔁 10연차 다시 돌리기", style=discord.ButtonStyle.primary, row=0)
     async def reroll_once(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user.id:
+        if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 연습 시뮬레이션을 시작한 본인만 조작할 수 있습니다.", ephemeral=True)
             return
+        if not self.user:
+            self.user = interaction.user
         if self._lock.locked():
             await core.safe_send_response(interaction, "⏳ 이전 시뮬레이션을 처리 중입니다. 잠시 후 다시 눌러주세요.", ephemeral=True)
             return
@@ -787,9 +800,11 @@ class RerollSimulatorView(core.SafeView):
 
     @discord.ui.button(label="🎯 픽업/★4 뜰 때까지 돌리기 (최대 50회)", style=discord.ButtonStyle.success, row=0)
     async def auto_reroll_until_hit(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user.id:
+        if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 연습 시뮬레이션을 시작한 본인만 조작할 수 있습니다.", ephemeral=True)
             return
+        if not self.user:
+            self.user = interaction.user
         if self._lock.locked():
             await core.safe_send_response(interaction, "⏳ 이전 시뮬레이션을 처리 중입니다. 잠시 후 다시 눌러주세요.", ephemeral=True)
             return
@@ -871,9 +886,11 @@ class RerollSimulatorView(core.SafeView):
                 ephemeral=True,
             )
             return
-        if interaction.user.id != self.user.id:
+        if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 연습 시뮬레이션을 시작한 본인만 배너를 바꿀 수 있습니다.", ephemeral=True)
             return
+        if not self.user:
+            self.user = interaction.user
         if self._lock.locked():
             await core.safe_send_response(interaction, "⏳ 이전 시뮬레이션을 처리 중입니다. 잠시 후 다시 눌러주세요.", ephemeral=True)
             return
@@ -915,7 +932,7 @@ class DestinyRerollView(core.SafeView):
 
     def build_destiny_embed(self, grid_filename: str | None = None) -> discord.Embed:
         b_cfg = core.BANNER_CONFIGS.get(self.banner_type, core.BANNER_CONFIGS["normal"])
-        cur_cards = self.sets[self.current_idx]
+        cur_cards = self.sets[self.current_idx] if self.sets and 0 <= self.current_idx < len(self.sets) else []
         lines = []
         for idx, c in enumerate(cur_cards, start=1):
             p_mark = "🎯**[픽업!]** " if c.get("is_pickup") else ""
@@ -947,7 +964,9 @@ class DestinyRerollView(core.SafeView):
             color=discord.Color.from_rgb(255, 105, 180) if cur_high > 0 else discord.Color.purple(),
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_author(name=f"{self.user.display_name}님의 운명 다시 뽑기", icon_url=getattr(self.user.display_avatar, "url", None))
+        u_name = self.user.display_name if self.user else "유저"
+        u_icon = getattr(self.user.display_avatar, "url", None) if self.user else None
+        embed.set_author(name=f"{u_name}님의 운명 다시 뽑기", icon_url=u_icon)
         if grid_filename:
             embed.set_image(url=f"attachment://{grid_filename}")
         embed.set_footer(text="확정 수령 버튼을 누르기 전까지 카드가 보관함에 저장되지 않습니다.")
@@ -969,7 +988,7 @@ class DestinyRerollView(core.SafeView):
 
     @discord.ui.button(label="🔁 다시 뽑기 (남은 2/2회)", style=discord.ButtonStyle.primary, row=0)
     async def reroll_set(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user.id:
+        if not self.user or interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 운명 다시 뽑기를 시작한 본인만 조작할 수 있습니다.", ephemeral=True)
             return
         if self._lock.locked():
@@ -994,7 +1013,7 @@ class DestinyRerollView(core.SafeView):
 
     @discord.ui.button(label="◀️ 이전 세트", style=discord.ButtonStyle.secondary, row=0)
     async def prev_set(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user.id:
+        if not self.user or interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인만 세트를 전환할 수 있습니다.", ephemeral=True)
             return
         if self._lock.locked():
@@ -1010,7 +1029,7 @@ class DestinyRerollView(core.SafeView):
 
     @discord.ui.button(label="▶️ 다음 세트", style=discord.ButtonStyle.secondary, row=0)
     async def next_set(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user.id:
+        if not self.user or interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인만 세트를 전환할 수 있습니다.", ephemeral=True)
             return
         if self._lock.locked():
@@ -1026,7 +1045,7 @@ class DestinyRerollView(core.SafeView):
 
     @discord.ui.button(label="✅ 1세트 확정 수령!", style=discord.ButtonStyle.success, row=0)
     async def confirm_set(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user.id:
+        if not self.user or interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인만 세트를 확정 수령할 수 있습니다.", ephemeral=True)
             return
         if self._lock.locked():
@@ -2843,7 +2862,7 @@ class GuildGachaResetConfirmView(core.SafeView):
 
     @discord.ui.button(label="⚠️ 이 서버 캐릭터 데이터 초기화 실행", style=discord.ButtonStyle.danger)
     async def confirm_guild_reset(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.administrator:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.administrator:
             await core.safe_send_response(interaction, "❌ 서버 관리자만 실행할 수 있습니다.", ephemeral=True)
             return
 
@@ -3506,13 +3525,17 @@ class SekaiLiveView(core.SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         await super().interaction_check(interaction)
-        if interaction.user.id != self.user.id:
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
+        if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
                 f"❌ 이 세카이 라이브 무대는 **{self.user.display_name}**님 전용입니다. `/라이브`를 입력해 보세요!",
                 ephemeral=True
             )
             return False
+        if not self.user:
+            self.user = interaction.user
         return True
 
     def _refresh_components(self):
@@ -4902,7 +4925,10 @@ class MySekaiHubView(core.SafeView):
             self._refresh_components()
 
     def _refresh_components(self):
-        is_owner = (self.caller.id == self.owner.id)
+        if not self.owner:
+            return
+        caller_id = self.caller.id if self.caller else self.owner.id
+        is_owner = (caller_id == self.owner.id)
         profile = core.ensure_user_profile(self.data, self.owner.id, self.owner.display_name)
         ms = core.ensure_my_sekai(profile)
         cur_theme = ms.get("theme", "default")
@@ -4936,6 +4962,8 @@ class MySekaiHubView(core.SafeView):
 
     def build_embed(self) -> discord.Embed:
         self._refresh_components()
+        if not self.owner:
+            return discord.Embed(title="🏠 마이세카이 미니 룸", description="유저 정보를 불러올 수 없습니다.", color=discord.Color.from_rgb(0, 204, 221))
         u_key = str(self.owner.id)
         g_key = str(self.guild_id or 0)
         profile = core.ensure_user_profile(self.data, u_key, self.owner.display_name)
@@ -5022,6 +5050,9 @@ class MySekaiHubView(core.SafeView):
 
     @discord.ui.select(placeholder="🎨 배경 테마 변경 또는 신규 테마 구매...", row=0)
     async def theme_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if not self.owner:
+            self.owner = interaction.user
+            self.caller = interaction.user
         if interaction.user.id != self.owner.id:
             await core.safe_send_response(interaction, "❌ 본인의 마이세카이만 꾸밀 수 있습니다. `/마이세카이`를 입력해 보세요!", ephemeral=True)
             return
@@ -5068,6 +5099,9 @@ class MySekaiHubView(core.SafeView):
 
     @discord.ui.select(placeholder="🛋️ 세카이 가구·소품 구매 및 배치하기...", row=1)
     async def furniture_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if not self.owner:
+            self.owner = interaction.user
+            self.caller = interaction.user
         if interaction.user.id != self.owner.id:
             await core.safe_send_response(interaction, "❌ 본인의 마이세카이만 꾸밀 수 있습니다. `/마이세카이`를 입력해 보세요!", ephemeral=True)
             return
@@ -5116,6 +5150,9 @@ class MySekaiHubView(core.SafeView):
 
     @discord.ui.button(label="🪧 방 한줄 소개글 변경", style=discord.ButtonStyle.primary, row=2)
     async def edit_greeting_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.owner:
+            self.owner = interaction.user
+            self.caller = interaction.user
         if interaction.user.id != self.owner.id:
             await core.safe_send_response(interaction, "❌ 본인의 마이세카이 소개글만 수정할 수 있습니다.", ephemeral=True)
             return
@@ -5123,6 +5160,9 @@ class MySekaiHubView(core.SafeView):
 
     @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=2)
     async def refresh_room_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.owner:
+            self.owner = interaction.user
+            self.caller = interaction.user
         await core.safe_defer(interaction)
         self.data = await asyncio.to_thread(core.load_data)
         self.status_notice = ""

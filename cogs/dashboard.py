@@ -54,6 +54,13 @@ class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 등록"
         self.dashboard_view = dashboard_view
 
     async def on_submit(self, interaction: discord.Interaction):
+        if not dday._has_dday_manage_perm(interaction):
+            await core.safe_send_response(
+                interaction,
+                "❌ 공용 D-Day 일정 추가는 **서버 관리(Manage Guild)** 또는 **관리자(Administrator)** 권한이 있는 멤버만 사용할 수 있습니다.\n💡 개인 일정은 `/비밀디데이` 명령어를 이용해 주세요!",
+                ephemeral=True,
+            )
+            return
         target_val = self.d_date.value.strip()
         start_val = self.d_start.value.strip() or core.get_today_str()
         try:
@@ -1062,23 +1069,9 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction, ephemeral=True)
             guild_id = interaction.guild_id or 0
-            res = await asyncio.to_thread(core.execute_duplicate_card_conversion, guild_id, interaction.user.id)
-            if res["converted_count"] == 0:
-                await interaction.followup.send("ℹ️ 환전 가능한 중복 카드가 없습니다. (잠금🔒 카드는 제외됩니다)", ephemeral=True)
-                return
-
-            self.data = await asyncio.to_thread(core.load_data)
-            try:
-                await interaction.message.edit(embed=self.build_current_embed(), view=self)
-            except Exception:
-                pass
-
-            await interaction.followup.send(
-                f"🎉 **중복 카드 일괄 환전 완료!**\n"
-                f"• 중복 카드 `{res['converted_count']}장` 변환 → **`+{res['gained_crystals']:,}💎`** 획득!\n"
-                f"• 현재 보유 크리스탈: **`{res['current_crystals']:,}개`**",
-                ephemeral=True
-            )
+            preview = await asyncio.to_thread(core.preview_duplicate_cards, guild_id, interaction.user.id)
+            view = gacha.DuplicateConvertConfirmView(guild_id, interaction.user, preview)
+            await core.safe_send_response(interaction, embed=view.build_preview_embed(), view=view, ephemeral=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 중복 환전 중 오류: {e}", ephemeral=True)
 
@@ -1277,6 +1270,13 @@ class MasterDashboardView(core.SafeView):
     # 일정 / D-Day 관련
     async def _on_add_dday_clicked(self, interaction: discord.Interaction):
         try:
+            if not dday._has_dday_manage_perm(interaction):
+                await core.safe_send_response(
+                    interaction,
+                    "❌ 공용 D-Day 일정 추가는 **서버 관리(Manage Guild)** 또는 **관리자(Administrator)** 권한이 있는 멤버만 사용할 수 있습니다.\n💡 개인 일정은 `/비밀디데이` 명령어를 이용해 주세요!",
+                    ephemeral=True,
+                )
+                return
             await interaction.response.send_modal(DashboardDDayAddModal(self))
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ D-Day 등록 모달 열기 실패: {e}", ephemeral=True)
@@ -1307,9 +1307,10 @@ class MasterDashboardView(core.SafeView):
                 if task_info:
                     task_info["task"].cancel()
                     v_ch = task_info.get("voice_channel")
+                    muted_ids = task_info.get("muted_member_ids", set())
                     if v_ch:
                         for member in v_ch.members:
-                            if not member.bot:
+                            if not member.bot and (not muted_ids or member.id in muted_ids):
                                 try:
                                     await member.edit(mute=False, reason="집중모드 수동 중지")
                                 except Exception:
@@ -1329,9 +1330,10 @@ class MasterDashboardView(core.SafeView):
                 if task_info:
                     task_info["task"].cancel()
                     v_ch = task_info.get("voice_channel")
+                    muted_ids = task_info.get("muted_member_ids", set())
                     if v_ch:
                         for member in v_ch.members:
-                            if not member.bot:
+                            if not member.bot and (not muted_ids or member.id in muted_ids):
                                 try:
                                     await member.edit(mute=False, reason="하드코어 스터디 수동 중지")
                                 except Exception:

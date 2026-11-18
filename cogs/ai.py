@@ -118,12 +118,30 @@ class AiCog(commands.Cog):
 
         return True, "", usage
 
+    def _consume_rate_limit(self, user_id: int) -> tuple[bool, str, dict, dict]:
+        """core._DATA_LOCK 하에서 원자적으로 15초 쿨타임 및 일일 15회 한도를 검사하고 선반영합니다."""
+        with core._DATA_LOCK:
+            data = core.load_data()
+            ok, err_msg, usage = self._check_rate_limit(user_id, data)
+            if not ok:
+                return False, err_msg, usage, data
+            u_key = str(user_id)
+            usage["last_time"] = time.time()
+            usage["daily_count"] = usage.get("daily_count", 0) + 1
+            core.ensure_dict_path(data, "ai_usage")[u_key] = usage
+            core.save_data(data)
+            return True, "", dict(usage), data
+
     async def _update_rate_limit(self, usage: dict, data: dict, user_id: int):
-        u_key = str(user_id)
-        usage["last_time"] = time.time()
-        usage["daily_count"] = usage.get("daily_count", 0) + 1
-        core.ensure_dict_path(data, "ai_usage")[u_key] = usage
-        await asyncio.to_thread(core.save_data, data)
+        def _sync_update():
+            with core._DATA_LOCK:
+                latest = core.load_data()
+                u_key = str(user_id)
+                usage["last_time"] = time.time()
+                usage["daily_count"] = usage.get("daily_count", 0) + 1
+                core.ensure_dict_path(latest, "ai_usage")[u_key] = usage
+                core.save_data(latest)
+        await asyncio.to_thread(_sync_update)
 
     @app_commands.command(name="인공지능대화", description="[제미나이 AI] 프로세카 캐릭터(카나데, 미쿠 등)의 말투로 실시간 대화를 나눠보세요.")
     @app_commands.describe(
@@ -146,9 +164,7 @@ class AiCog(commands.Cog):
         캐릭터: app_commands.Choice[str] = None
     ):
         await core.safe_defer(interaction, ephemeral=False)
-        data = await asyncio.to_thread(core.load_data)
-
-        ok, err_msg, usage = self._check_rate_limit(interaction.user.id, data)
+        ok, err_msg, usage, data = await asyncio.to_thread(self._consume_rate_limit, interaction.user.id)
         if not ok:
             await interaction.followup.send(err_msg, ephemeral=True)
             return
@@ -162,9 +178,6 @@ class AiCog(commands.Cog):
         sys_prompt = char_info["prompt"]
         if custom_prompt and not 캐릭터:
             sys_prompt = f"너는 프로세카 캐릭터야. 다음 유저의 프롬프트와 어조를 따라 대답해줘:\n{custom_prompt}"
-
-        # 쿨타임 및 일일 한도 선반영 (API 응답 대기 중 동시 다발적 쿨타임 우회 방지)
-        await self._update_rate_limit(usage, data, interaction.user.id)
 
         # Request reply via internal helper or simulation text
         reply = await self._call_gemini_api(sys_prompt, 메시지, char_key=char_key)
@@ -219,8 +232,8 @@ class AiCog(commands.Cog):
             )
             await core.safe_send_response(interaction, embed=embed, ephemeral=True)
         else:
-            data = core.get_cached_data()
-            user_cfg = core.ensure_dict_path(data, "user_ai_config", u_key)
+            data = core.get_cached_data_ro()
+            user_cfg = core.safe_get_dict(data, "user_ai_config", u_key)
             cur_p = user_cfg.get("custom_prompt", "")
             modal = AiPersonaModal(cur_p)
             await interaction.response.send_modal(modal)
@@ -237,8 +250,8 @@ class AiCog(commands.Cog):
             if not clean_content:
                 clean_content = "안녕!"
 
-            data = await asyncio.to_thread(core.load_data)
-            ok, err_msg, usage = self._check_rate_limit(message.author.id, data)
+            # API 호출 전 원자적으로 쿨타임 및 일일 한도를 검사·선반영 (동시 다발적 멘션 쿨타임 우회 및 구버전 data 덮어쓰기 방지)
+            ok, err_msg, usage, data = await asyncio.to_thread(self._consume_rate_limit, message.author.id)
             if not ok:
                 try: await message.reply(err_msg, mention_author=False)
                 except Exception: pass
@@ -255,7 +268,6 @@ class AiCog(commands.Cog):
                 sys_prompt = f"너는 프로세카 캐릭터야. 다음 유저의 프롬프트와 어조를 따라 대답해줘:\n{custom_prompt}"
 
             reply = await self._call_gemini_api(sys_prompt, clean_content, char_key=char_key)
-            await self._update_rate_limit(usage, data, message.author.id)
 
             rem = max(0, 15 - usage["daily_count"])
             embed = discord.Embed(
@@ -265,7 +277,7 @@ class AiCog(commands.Cog):
                 timestamp=datetime.datetime.now(core.KST)
             )
             embed.set_footer(text=f"💡 오늘 남은 AI 대화: {rem}/15회 (15초 쿨타임)")
-            view = AiChatReplyView(self, char_key, message.author)
+            view = AiChatReplyView(self, char_key, message.author, prev_q=clean_content, prev_a=reply)
             try: await message.reply(embed=embed, view=view, mention_author=False)
             except Exception: pass
 
@@ -280,19 +292,20 @@ class AiCog(commands.Cog):
                     if resp.status == 200:
                         res_data = await resp.json()
                         if isinstance(res_data, dict) and res_data.get("reply"):
-                            return res_data["reply"]
+                            return discord.utils.escape_mentions(str(res_data["reply"]))
         except Exception:
             pass
 
         # 2. 오프라인/프록시 미가동 시 프로세카 캐릭터별 감성 대사 다변화
+        safe_user_text = discord.utils.escape_mentions(user_text[:200])
         fallback_replies = {
-            "kanade": f"응, 네 마음이 전해져 오네... (살포시 건반을 누르며) '{user_text}'에 대해 생각해봤어. 네 곁에서 언제든 위로가 되는 곡을 만들어줄게. 고마워...",
-            "miku": f"와아, 정말? 🎵 '{user_text}'라니 멋진 생각이야! ✨ 우리 세카이에서 언제나 노래하고 함께 웃자♪",
-            "mizuki": f"후후~ '{user_text}'라니 역시 넌 흥미진진해♪ 귀여운 리본처럼 네 마음도 예쁘게 묶어주고 싶네. 언제든 또 이야기해줘~",
-            "mafuyu": f"...'{user_text}'. 따뜻한 말이네. 아직 내 마음을 온전히 다 알지는 못하지만, 네 목소리를 들으면 조금은 알 것 같아. 고마워.",
-            "ena": f"뭐, 뭐야... '{user_text}' 같은 말을 아무렇지도 않게 하다니! ...그래도 고맙잖아. 나도 네 생각하며 그림 열심히 그릴 테니까 지켜봐줘!",
-            "tsukasa": f"하하하! '{user_text}'라고 했는가! 미래의 세계 최고 스타 텐마 츠카사가 네 곁에서 언제나 가장 빛나는 희망의 쇼를 보여주마! 기운 내라!",
-            "ichika": f"응, '{user_text}'라는 말, 마음에 깊이 와닿아... Leo/need 멤버들과 함께 이 소중한 감정을 기타 선율과 노래에 담아 전해줄게."
+            "kanade": f"응, 네 마음이 전해져 오네... (살포시 건반을 누르며) '{safe_user_text}'에 대해 생각해봤어. 네 곁에서 언제든 위로가 되는 곡을 만들어줄게. 고마워...",
+            "miku": f"와아, 정말? 🎵 '{safe_user_text}'라니 멋진 생각이야! ✨ 우리 세카이에서 언제나 노래하고 함께 웃자♪",
+            "mizuki": f"후후~ '{safe_user_text}'라니 역시 넌 흥미진진해♪ 귀여운 리본처럼 네 마음도 예쁘게 묶어주고 싶네. 언제든 또 이야기해줘~",
+            "mafuyu": f"...'{safe_user_text}'. 따뜻한 말이네. 아직 내 마음을 온전히 다 알지는 못하지만, 네 목소리를 들으면 조금은 알 것 같아. 고마워.",
+            "ena": f"뭐, 뭐야... '{safe_user_text}' 같은 말을 아무렇지도 않게 하다니! ...그래도 고맙잖아. 나도 네 생각하며 그림 열심히 그릴 테니까 지켜봐줘!",
+            "tsukasa": f"하하하! '{safe_user_text}'라고 했는가! 미래의 세계 최고 스타 텐마 츠카사가 네 곁에서 언제나 가장 빛나는 희망의 쇼를 보여주마! 기운 내라!",
+            "ichika": f"응, '{safe_user_text}'라는 말, 마음에 깊이 와닿아... Leo/need 멤버들과 함께 이 소중한 감정을 기타 선율과 노래에 담아 전해줄게."
         }
         return fallback_replies.get(char_key, fallback_replies["kanade"])
 
@@ -317,14 +330,10 @@ class AiContinueChatModal(core.SafeModal, title="💬 세카이 AI 이어서 대
 
     async def on_submit(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        ok, err_msg, usage = self.ai_cog._check_rate_limit(interaction.user.id, data)
+        ok, err_msg, usage, data = await asyncio.to_thread(self.ai_cog._consume_rate_limit, interaction.user.id)
         if not ok:
             await interaction.followup.send(err_msg, ephemeral=True)
             return
-
-        # 쿨타임 및 일일 한도 선반영 (API 응답 대기 중 동시 다발적 쿨타임 우회 방지)
-        await self.ai_cog._update_rate_limit(usage, data, interaction.user.id)
 
         u_key = str(interaction.user.id)
         user_cfg = core.safe_get_dict(data, "user_ai_config", u_key)
@@ -403,7 +412,7 @@ class AiPersonaSelect(discord.ui.Select):
 
 class AiChatReplyView(core.SafeView):
     """AI 응답 화면에서 원클릭으로 다음 대화를 이어가거나 캐릭터를 변경하는 뷰"""
-    def __init__(self, ai_cog: AiCog, char_key: str, user: discord.User, prev_q: str = "", prev_a: str = ""):
+    def __init__(self, ai_cog: AiCog = None, char_key: str = "kanade", user: discord.User = None, prev_q: str = "", prev_a: str = ""):
         super().__init__(timeout=300)
         self.ai_cog = ai_cog
         self.char_key = char_key
@@ -413,18 +422,27 @@ class AiChatReplyView(core.SafeView):
 
     @discord.ui.button(label="💬 이어서 대화하기", style=discord.ButtonStyle.primary, emoji="💬")
     async def continue_chat_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user.id:
+        if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, content="❌ 질문자 본인만 이어서 대화할 수 있습니다.", ephemeral=True)
             return
-        await interaction.response.send_modal(AiContinueChatModal(self.ai_cog, self.char_key, prev_q=self.prev_q, prev_a=self.prev_a))
+        if not self.user:
+            self.user = interaction.user
+        cog = self.ai_cog or interaction.client.get_cog("AiCog")
+        if not cog:
+            await core.safe_send_response(interaction, content="❌ AI 모듈을 불러올 수 없습니다.", ephemeral=True)
+            return
+        await interaction.response.send_modal(AiContinueChatModal(cog, self.char_key, prev_q=self.prev_q, prev_a=self.prev_a))
 
     @discord.ui.button(label="🎭 캐릭터 변경", style=discord.ButtonStyle.secondary, emoji="🎭")
     async def change_char_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user.id:
+        if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, content="❌ 본인만 설정을 변경할 수 있습니다.", ephemeral=True)
             return
+        if not self.user:
+            self.user = interaction.user
+        cog = self.ai_cog or interaction.client.get_cog("AiCog")
         v = core.SafeView(timeout=180)
-        v.add_item(AiPersonaSelect(self.ai_cog, self.user, current_char=self.char_key, parent_reply_view=self))
+        v.add_item(AiPersonaSelect(cog, self.user, current_char=self.char_key, parent_reply_view=self))
         await core.safe_send_response(interaction, content="👇 **대화할 기본 캐릭터를 선택해 주세요:**", view=v, ephemeral=True)
 
 
