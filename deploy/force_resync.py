@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ==============================================================================
-# norosi 디스코드 봇 - 슬래시 명령어 전체(18대 Cogs · 86개 루트 / 132종 기능) 강제 재등록 유틸리티 (force_resync.py)
+# norosi 디스코드 봇 - 슬래시 명령어 전체(17대 Cogs · 89개 루트 / 131종 기능) 강제 재등록 유틸리티 (force_resync.py)
 # ==============================================================================
 import os
 import sys
@@ -77,7 +77,6 @@ ALL_COG_EXTENSIONS = (
     "cogs.music",
     "cogs.dday",
     "cogs.logger",
-    "cogs.ai",
     "cogs.stats",
     "cogs.roles",
     "cogs.emoji_upscale",

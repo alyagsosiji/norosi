@@ -745,27 +745,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "source": "cogs/dday.py",
     },
 
-    # 5. 💬 AI 세카이 캐릭터 대화 (2종)
-    {
-        "category": "ai",
-        "cat_label": "💬 AI 세카이 대화",
-        "name": "/인공지능대화",
-        "desc": "구글 Gemini AI로 프로세카 캐릭터(카나데, 미쿠 등)와 실시간 1:1 대화",
-        "params": "메시지: [전할말] 캐릭터: [선택]",
-        "example": "/인공지능대화 메시지:안녕! 캐릭터:kanade",
-        "source": "cogs/ai.py",
-    },
-    {
-        "category": "ai",
-        "cat_label": "💬 AI 세카이 대화",
-        "name": "/인공지능캐릭터설정",
-        "desc": "기본 대화 캐릭터 지정 또는 나만의 맞춤 프롬프트(말투/성격/관계성) 설정",
-        "params": "기본캐릭터: [카나데/미쿠/미즈키...]",
-        "example": "/인공지능캐릭터설정 기본캐릭터:kanade",
-        "source": "cogs/ai.py",
-    },
-
-    # 6. 🎵 음악 & 플레이리스트 (5종)
+    # 5. 🎵 음악 & 플레이리스트 (5종)
     {
         "category": "music",
         "cat_label": "🎵 음악 & 플레이리스트",
@@ -1062,27 +1042,25 @@ CATEGORY_META = [
     ("cards", "🎮 출석 & 프로세카 카드/가챠 (21종 · 5페이지)", "출석체크, 배너별 프로세카 뽑기, 마스터랭크, 세카이라이브, 3D 의상·어나더컬러 등"),
     ("genshin", "🌠 원신 기원 & 도감 & 상점 (11종 · 3페이지)", "/원신 기원(90/80천장·포착된 광휘), 운명의 궤도, 페이몬의 상점, 4인 원소 공명 파티 등"),
     ("hsr", "🚄 스타레일 워프 & 아카이브 & 상점 (11종 · 3페이지)", "/스타레일 워프(광추 75/25·300회 선택), 별빛/헤르타 상점, 4인 편대 시너지 등"),
-    ("fishing", "🎣 통합 낚시 — 호수·강·바다 13,444종 (12종 · 3페이지)", "/낚시 출조(세부 수역·cm/kg·날씨), /낚시대회(주말·제철 토너먼트), /낚시랭킹, 도감, 수족관, 상점 등"),
+    ("fishing", "🎣 통합 낚시 — 호수·강·바다 36,700종 (12종 · 3페이지)", "/낚시 출조(세부 수역·cm/kg·날씨), /낚시대회(주말·제철 토너먼트), /낚시랭킹, 도감, 수족관, 상점 등"),
     ("dday", "📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", "멤버 생일 전광판, 공용/비밀 D-Day, 파트너, 하드코어스터디, 뽀모도로 집중모드 등"),
     ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (18종 · 4페이지)", "올인원 /대시보드, /메뉴, /임시음성방, /이모지업스케일, /깃허브연동, 반응역할, 공지발송 등"),
     ("games", "🎲 미니게임 & 파티 모집 (5종 · 1페이지)", "파티원 모집, 끝말잇기(두음법칙), 러시안룰렛, 초정밀 실시간 날씨, 스마트 알림예약"),
     ("stats", "📊 서버/유저 통계 & 건의 (4종 · 1페이지)", "멤버 상세 유저정보, 실시간 서버통계 보드, 호스트 봇상태, 익명/공개 건의"),
     ("music", "🎵 음악 & 플레이리스트 (13종 · 3페이지)", "나만의 음악 플레이리스트 제작·공유(유튜브/스포티파이/사클), 음성 순차재생, 배속(0.5x~2.0x), 헤드셋제어, 오디오테스트 등"),
-    ("ai", "💬 AI 세카이 대화 (2종 · 1페이지)", "구글 Gemini AI 기반 프로세카 캐릭터 대화 및 맞춤 페르소나"),
 ]
 
 CATEGORY_DROPDOWN_OPTIONS = [
-    ("all", "🌟 전체 명령어 한눈에 보기 (요약판)", "10대 카테고리 요약 보드 (다음 버튼으로 상세 가이드 열람)", "🌐"),
+    ("all", "🌟 전체 명령어 한눈에 보기 (요약판)", "전체 카테고리 요약 보드 (다음 버튼으로 상세 가이드 열람)", "🌐"),
     ("cards", "🎮 출석 & 프로세카 가챠 (21종 · 5페이지)", "/프로세카뽑기, /마스터랭크, /라이브, /의상, /마이세카이 등", "🎮"),
     ("genshin", "🌠 원신 기원·도감·상점 (11종 · 3페이지)", "/원신 기원, /원신 운명의궤도, /원신 상점, /원신 파티편성 등", "🌠"),
     ("hsr", "🚄 스타레일 워프·상점·편대 (11종 · 3페이지)", "/스타레일 워프, /스타레일 상시300선택, /스타레일 상점, /스타레일 파티편성 등", "🚄"),
-    ("fishing", "🎣 통합 낚시 (12종 · 호수·강·바다 13,444종)", "/낚시 출조, /낚시대회, /낚시랭킹, /낚시 도감, /낚시 수족관, /낚시 상점 등", "🎣"),
+    ("fishing", "🎣 통합 낚시 (12종 · 호수·강·바다 36,700종)", "/낚시 출조, /낚시대회, /낚시랭킹, /낚시 도감, /낚시 수족관, /낚시 상점 등", "🎣"),
     ("dday", "📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", "/디데이추가, /하드코어스터디, /생일등록, /파트너, /집중모드 등", "📅"),
     ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (18종 · 4페이지)", "/대시보드, /메뉴, /임시음성방, /이모지업스케일, /깃허브연동, /반응역할 등", "⚙️"),
     ("games", "🎲 미니게임 & 파티 모집 (5종 · 1페이지)", "/모집, /끝말잇기, /러시안룰렛, /날씨, /알림예약", "🎲"),
     ("stats", "📊 서버/유저 통계 & 건의 (4종 · 1페이지)", "/서버통계, /유저정보, /건의, /봇상태", "📊"),
     ("music", "🎵 음악 & 플레이리스트 (13종 · 3페이지)", "/플레이리스트, /플리재생, /배속, /헤드셋, /플리곡추가 등", "🎵"),
-    ("ai", "💬 AI 세카이 대화 (2종 · 1페이지)", "/인공지능대화, /인공지능캐릭터설정", "💬"),
 ]
 
 
@@ -1340,27 +1318,26 @@ class HelpCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="도움말", description="norosi bot help - 전체 슬래시 명령어(133종 기능) 한눈에 보기 및 카테고리별 상세 가이드")
+    @app_commands.command(name="도움말", description="norosi bot help - 전체 슬래시 명령어(131종 기능) 한눈에 보기 및 카테고리별 상세 가이드")
     @app_commands.describe(
-        category="안내받을 카테고리 (all/cards/genshin/hsr/fishing/economy/life/other_life/tickets/dday/admin/games/stats/music/ai)",
+        category="안내받을 카테고리 (all/cards/genshin/hsr/fishing/economy/life/other_life/tickets/dday/admin/games/stats/music)",
         search="검색할 명령어 이름 또는 키워드 (예: 낚시대회, 임시음성방, 이모지업스케일, 원신, 스타레일, 플레이리스트)"
     )
     @app_commands.choices(category=[
-        app_commands.Choice(name="🌟 전체 명령어 한눈에 보기 (133종 요약판)", value="all"),
+        app_commands.Choice(name="🌟 전체 명령어 한눈에 보기 (131종 요약판)", value="all"),
         app_commands.Choice(name="🎮 출석 & 프로세카 가챠 (21종 · 5페이지)", value="cards"),
         app_commands.Choice(name="🌠 원신 기원 & 도감 & 상점 (11종 · 3페이지)", value="genshin"),
         app_commands.Choice(name="🚄 스타레일 워프 & 아카이브 & 상점 (11종 · 3페이지)", value="hsr"),
-        app_commands.Choice(name="🎣 통합 낚시 & 대회 (11종 · 호수·강·바다 36,700종)", value="fishing"),
+        app_commands.Choice(name="🎣 통합 낚시 & 대회 (12종 · 호수·강·바다 36,700종)", value="fishing"),
         app_commands.Choice(name="💳 통합 경제 & 프로필카드 & 칭호 (4종 · 1페이지)", value="economy"),
         app_commands.Choice(name="🌾 농장 & 공동농장 & 펫 & 요리 (5종 · 1페이지)", value="life"),
         app_commands.Choice(name="👶 타인의 삶 — 인생 시뮬레이션 (3종 · 1페이지)", value="other_life"),
         app_commands.Choice(name="🎫 1:1 티켓 & 임시음성방 & 커뮤니티 방어 (12종 · 3페이지)", value="tickets"),
         app_commands.Choice(name="📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", value="dday"),
-        app_commands.Choice(name="⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", value="admin"),
+        app_commands.Choice(name="⚙️ 봇 관리 & 마스터 대시보드 (18종 · 4페이지)", value="admin"),
         app_commands.Choice(name="🎲 미니게임 & 파티 모집 (5종 · 1페이지)", value="games"),
         app_commands.Choice(name="📊 서버/유저 통계 & 건의 (4종 · 1페이지)", value="stats"),
         app_commands.Choice(name="🎵 음악 & 플레이리스트 (13종 · 3페이지)", value="music"),
-        app_commands.Choice(name="💬 AI 세카이 대화 (2종 · 1페이지)", value="ai"),
     ])
     async def help_cmd(
         self,

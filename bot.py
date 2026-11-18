@@ -486,7 +486,6 @@ class NorosiBot(commands.Bot):
             "cogs.music",
             "cogs.dday",
             "cogs.logger",
-            "cogs.ai",
             "cogs.stats",
             "cogs.roles",
             "cogs.emoji_upscale",

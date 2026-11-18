@@ -725,10 +725,6 @@ def reconstruct_safe_view(view_cls_or_name: type[SafeView] | str, interaction: d
                 kwargs[name] = getattr(interaction, "channel_id", None)
             elif name in ("data",):
                 kwargs[name] = _data()
-            elif name in ("ai_cog",):
-                kwargs[name] = interaction.client.get_cog("AiCog") if hasattr(interaction.client, "get_cog") else None
-            elif name in ("char_key",):
-                kwargs[name] = safe_get_dict(_data(), "user_ai_config", str(orig_user.id)).get("default_char", "kanade")
             elif name in ("s_ddays",):
                 kwargs[name] = safe_get_dict(_data(), "user_profiles", str(orig_user.id), "secret_ddays")
             elif name in ("partner_id",):
@@ -3085,8 +3081,6 @@ DEFAULT_CONFIG = {
     "proseka_accounts": {},
     "server_logs": {},
     "server_stats": {},
-    "user_ai_config": {},
-    "ai_usage": {},
     "birthdays": {},
     "reminders": [],
     "suggestions": [],
@@ -3710,8 +3704,6 @@ def normalize_data(data):
             del raw_stats[gk]
     data["server_stats"] = raw_stats
 
-    data["user_ai_config"] = coerce_dict_like(data.get("user_ai_config"))
-    data["ai_usage"] = _normalize_guild_user_map(data.get("ai_usage"))
     data["birthdays"] = coerce_dict_like(data.get("birthdays"))
 
     if "reminders" not in data or not isinstance(data["reminders"], list):
