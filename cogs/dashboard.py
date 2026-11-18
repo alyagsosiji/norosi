@@ -1061,6 +1061,7 @@ class OshiQuickSelectView(core.SafeView):
                 for ch_name in group_a
             ],
             row=0,
+            custom_id="norosi:OshiQuickSelectView:oshi_group_a",
         )
         sel_a.callback = self._on_select_oshi
         self.add_item(sel_a)
@@ -1078,11 +1079,13 @@ class OshiQuickSelectView(core.SafeView):
                     for ch_name in group_b
                 ],
                 row=1,
+                custom_id="norosi:OshiQuickSelectView:oshi_group_b",
             )
             sel_b.callback = self._on_select_oshi
             self.add_item(sel_b)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인의 오시 설정 창만 조작할 수 있습니다.", ephemeral=True)
             return False
@@ -1175,7 +1178,7 @@ class CrystalTransferAmountModal(core.SafeModal, title="💸 크리스탈 송금
 class CrystalTransferUserSelectView(core.SafeView):
     """크리스탈을 송금할 대상을 UserSelect 드롭다운으로 선택하는 뷰"""
 
-    def __init__(self, user: discord.abc.User):
+    def __init__(self, user: Optional[discord.abc.User] = None):
         super().__init__(timeout=180)
         self.user = user
         u_sel = discord.ui.UserSelect(
@@ -1183,14 +1186,18 @@ class CrystalTransferUserSelectView(core.SafeView):
             min_values=1,
             max_values=1,
             row=0,
+            custom_id="norosi:CrystalTransferUserSelectView:user_select",
         )
         u_sel.callback = self._on_user_picked
         self.add_item(u_sel)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.user.id:
+        await super().interaction_check(interaction)
+        if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인의 송금 창만 조작할 수 있습니다.", ephemeral=True)
             return False
+        if self.user is None:
+            self.user = interaction.user
         return True
 
     async def _on_user_picked(self, interaction: discord.Interaction):
@@ -1303,7 +1310,7 @@ class RelayStartQuickModal(core.SafeModal, title="✍️ 새 협동 릴레이 �
 class PartnerProposeUserSelectView(core.SafeView):
     """/설정 안에서 파트너를 신청할 유저를 UserSelect로 선택하는 뷰"""
 
-    def __init__(self, user: discord.abc.User, bot: commands.Bot):
+    def __init__(self, user: Optional[discord.abc.User] = None, bot: Optional[commands.Bot] = None):
         super().__init__(timeout=180)
         self.user = user
         self.bot = bot
@@ -1312,14 +1319,18 @@ class PartnerProposeUserSelectView(core.SafeView):
             min_values=1,
             max_values=1,
             row=0,
+            custom_id="norosi:PartnerProposeUserSelectView:user_select",
         )
         u_sel.callback = self._on_user_picked
         self.add_item(u_sel)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.user.id:
+        await super().interaction_check(interaction)
+        if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인의 파트너 신청 창만 조작할 수 있습니다.", ephemeral=True)
             return False
+        if self.user is None:
+            self.user = interaction.user
         return True
 
     async def _on_user_picked(self, interaction: discord.Interaction):
@@ -1337,7 +1348,8 @@ class PartnerProposeUserSelectView(core.SafeView):
         if target_obj is None:
             await core.safe_send_response(interaction, "❌ 선택한 유저 정보를 불러올 수 없습니다.", ephemeral=True)
             return
-        dday_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "partner_cmd")), None)
+        bot_ref = self.bot or interaction.client
+        dday_cog = next((c for c in bot_ref.cogs.values() if hasattr(c, "partner_cmd")), None)
         if dday_cog:
             choice_req = app_commands.Choice(name="💌 파트너 신청하기", value="request")
             await dday_cog.partner_cmd.callback(dday_cog, interaction, 동작=choice_req, 유저=target_obj)
@@ -1348,7 +1360,7 @@ class PartnerProposeUserSelectView(core.SafeView):
 class CardTradeUserSelectView(core.SafeView):
     """/설정 안에서 1:1 카드 교환 상대방을 UserSelect로 선택해 교환 장터 스튜디오를 여는 뷰"""
 
-    def __init__(self, user: discord.abc.User, bot: commands.Bot):
+    def __init__(self, user: Optional[discord.abc.User] = None, bot: Optional[commands.Bot] = None):
         super().__init__(timeout=180)
         self.user = user
         self.bot = bot
@@ -1357,14 +1369,18 @@ class CardTradeUserSelectView(core.SafeView):
             min_values=1,
             max_values=1,
             row=0,
+            custom_id="norosi:CardTradeUserSelectView:user_select",
         )
         u_sel.callback = self._on_user_picked
         self.add_item(u_sel)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.user.id:
+        await super().interaction_check(interaction)
+        if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인의 카드 교환 창만 조작할 수 있습니다.", ephemeral=True)
             return False
+        if self.user is None:
+            self.user = interaction.user
         return True
 
     async def _on_user_picked(self, interaction: discord.Interaction):
@@ -1641,6 +1657,44 @@ class MasterDashboardView(core.SafeView):
             self.guild = interaction.guild
         if not self.data:
             self.data = core.get_cached_data()
+
+    def _restore_from_message(self, interaction: discord.Interaction):
+        self._hydrate_context(interaction)
+        msg = getattr(interaction, "message", None)
+        if not msg:
+            return
+        restored = False
+        for row in getattr(msg, "components", []) or []:
+            for comp in getattr(row, "children", []):
+                cid = getattr(comp, "custom_id", "") or ""
+                if cid in ("norosi:Settings:quick_jump_select", "norosi:Settings:cat_general"):
+                    self.current_category = "home"
+                    self.current_page = 0
+                    self.sub_mode = None
+                    restored = True
+                    break
+                if cid.startswith("norosi:Settings:sub_"):
+                    rest = cid[len("norosi:Settings:sub_"):]
+                    if "_" in rest:
+                        sub_name, _idx = rest.rsplit("_", 1)
+                        self.sub_mode = sub_name
+                        restored = True
+                        break
+                if cid.startswith("norosi:Settings:act_"):
+                    rest = cid[len("norosi:Settings:act_"):]
+                    parts = rest.rsplit("_", 2)
+                    if len(parts) == 3:
+                        cat, page_s, _idx = parts
+                        if page_s.isdigit():
+                            self.current_category = cat
+                            self.current_page = int(page_s)
+                            self.sub_mode = None
+                            restored = True
+                            break
+            if restored:
+                break
+        if restored:
+            self.refresh_components()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         self._hydrate_context(interaction)
@@ -2877,11 +2931,11 @@ class MasterDashboardView(core.SafeView):
             "ol_rank": self._act_other_life_rank,
             "eco_rank": self._act_economy_rank,
             "pokedex_hub": self._act_pokedex_hub,
-            "sekai_inv": self._act_sekai_inventory,
+            "sekai_inv": self._act_sekai_inv,
             "sekai_mr": self._act_sekai_master_rank,
-            "sekai_costume": self._act_sekai_costume,
+            "sekai_costume": self._act_sekai_wardrobe,
             "sekai_live": self._act_sekai_live,
-            "music_pl": self._act_music_playlist,
+            "music_pl": self._act_playlist_studio,
             "weather": self._act_weather,
             "wordchain": self._act_word_chain,
             "roulette": self._act_roulette,
@@ -5256,6 +5310,7 @@ class MasterDashboardView(core.SafeView):
 
 # 외부 참조용 별칭
 SettingsHubView = MasterDashboardView
+core.SAFE_VIEW_REGISTRY["Settings"] = MasterDashboardView
 
 
 # ==========================================

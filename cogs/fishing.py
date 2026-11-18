@@ -187,6 +187,7 @@ class FishingLocationSelect(discord.ui.Select):
             max_values=1,
             options=self._build_opts(),
             row=0,
+            custom_id="norosi:FishingCastView:location_select",
         )
 
     def _build_opts(self) -> List[discord.SelectOption]:
@@ -245,7 +246,14 @@ class FishingBaitSelect(discord.ui.Select):
     def __init__(self, parent_view: "FishingCastView"):
         self.parent_view = parent_view
         opts = self._build_opts()
-        super().__init__(placeholder="🪱 사용할 미끼 선택...", min_values=1, max_values=1, options=opts, row=1)
+        super().__init__(
+            placeholder="🪱 사용할 미끼 선택...",
+            min_values=1,
+            max_values=1,
+            options=opts,
+            row=1,
+            custom_id="norosi:FishingCastView:bait_select",
+        )
 
     def _build_opts(self) -> List[discord.SelectOption]:
         u = self.parent_view.summary.get("user", {}) if self.parent_view.summary else {}
@@ -1076,6 +1084,7 @@ class FishingBagSelect(discord.ui.Select):
             max_values=1 if is_empty else len(opts),
             options=opts,
             row=0,
+            custom_id="norosi:FishingBagView:bag_select",
         )
         self.disabled = is_empty
 
@@ -1154,6 +1163,43 @@ class FishingBagView(core.SafeView):
         self.summary = summary or fishing_core.get_user_fishing_summary(self.guild_id, user.id, user.display_name)
         self.bag_select = FishingBagSelect(self)
         self.add_item(self.bag_select)
+        self.sync_controls()
+
+    def _restore_from_message(self, interaction: discord.Interaction):
+        msg = getattr(interaction, "message", None)
+        if not msg:
+            return
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
+        for row in getattr(msg, "components", []) or []:
+            for comp in getattr(row, "children", []):
+                cid = getattr(comp, "custom_id", "") or ""
+                lbl = getattr(comp, "label", "") or ""
+                if cid.endswith(":btn_filter_hab"):
+                    if "호수" in lbl:
+                        self.habitat_filter = "lake"
+                    elif "강" in lbl:
+                        self.habitat_filter = "river"
+                    elif "바다" in lbl:
+                        self.habitat_filter = "sea"
+                    else:
+                        self.habitat_filter = "all"
+                elif cid.endswith(":btn_filter_rar"):
+                    import re as _re
+                    m = _re.search(r"★(\d+)", lbl)
+                    self.rarity_filter = int(m.group(1)) if m else 0
+                elif cid == "norosi:FishingBagView:bag_select":
+                    self.selected_uids = [
+                        str(opt.value)
+                        for opt in (getattr(comp, "options", []) or [])
+                        if getattr(opt, "default", False) and getattr(opt, "value", None) not in (None, "NONE")
+                    ]
+        embeds = getattr(msg, "embeds", None) or []
+        if embeds and getattr(embeds[0], "description", None):
+            import re as _re
+            m = _re.search(r"페이지:\s*`?(\d+)\s*/\s*(\d+)`?", embeds[0].description)
+            if m:
+                self.page = max(0, int(m.group(1)) - 1)
         self.sync_controls()
 
     async def reload(self):
@@ -1494,6 +1540,7 @@ class FishingPokedexRaritySelect(discord.ui.Select):
             max_values=1,
             options=self._build_opts(),
             row=2,
+            custom_id="norosi:FishingPokedexView:rarity_select",
         )
 
     def _build_opts(self) -> List[discord.SelectOption]:
@@ -1541,6 +1588,7 @@ class FishingPokedexZoneSelect(discord.ui.Select):
             max_values=1,
             options=self._build_opts(),
             row=3,
+            custom_id="norosi:FishingPokedexView:zone_select",
         )
 
     def _build_opts(self) -> List[discord.SelectOption]:
@@ -1591,6 +1639,7 @@ class FishingPokedexSortSelect(discord.ui.Select):
             max_values=1,
             options=self._build_opts(),
             row=4,
+            custom_id="norosi:FishingPokedexView:sort_select",
         )
 
     def _build_opts(self) -> List[discord.SelectOption]:
@@ -1646,6 +1695,54 @@ class FishingPokedexView(core.SafeView):
         self.add_item(self.rarity_select)
         self.add_item(self.zone_select)
         self.add_item(self.sort_select)
+        self.sync_buttons()
+
+    def _restore_from_message(self, interaction: discord.Interaction):
+        msg = getattr(interaction, "message", None)
+        if not msg:
+            return
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
+        tab_by_cid = {
+            "btn_tab_lake": "lake",
+            "btn_tab_river": "river",
+            "btn_tab_sea": "sea",
+            "btn_tab_owned": "owned",
+            "btn_tab_unowned": "unowned",
+        }
+        for row in getattr(msg, "components", []) or []:
+            for comp in getattr(row, "children", []):
+                cid = getattr(comp, "custom_id", "") or ""
+                for suffix, tab_name in tab_by_cid.items():
+                    if cid.endswith(f":{suffix}") and getattr(comp, "style", None) == discord.ButtonStyle.primary:
+                        self.tab = tab_name
+                if cid == "norosi:FishingPokedexView:rarity_select":
+                    for opt in getattr(comp, "options", []) or []:
+                        if getattr(opt, "default", False) and getattr(opt, "value", None) is not None:
+                            try:
+                                self.rarity_filter = int(opt.value)
+                            except Exception:
+                                pass
+                            break
+                elif cid == "norosi:FishingPokedexView:zone_select":
+                    for opt in getattr(comp, "options", []) or []:
+                        if getattr(opt, "default", False) and getattr(opt, "value", None):
+                            self.zone_filter = str(opt.value)
+                            break
+                elif cid == "norosi:FishingPokedexView:sort_select":
+                    for opt in getattr(comp, "options", []) or []:
+                        if getattr(opt, "default", False) and getattr(opt, "value", None):
+                            self.sort_mode = str(opt.value)
+                            break
+        embeds = getattr(msg, "embeds", None) or []
+        if embeds:
+            if "전체 어종 검색" in (getattr(embeds[0], "title", "") or ""):
+                self.tab = "all"
+            if getattr(embeds[0], "description", None):
+                import re as _re
+                m = _re.search(r"페이지:\s*`?([\d,]+)\s*/\s*[\d,]+`?", embeds[0].description)
+                if m:
+                    self.page = max(0, int(m.group(1).replace(",", "")) - 1)
         self.sync_buttons()
 
     def _get_list(self) -> List[Dict[str, Any]]:
@@ -1884,7 +1981,14 @@ class FishingPokedexView(core.SafeView):
 class TankWithdrawSelect(discord.ui.Select):
     def __init__(self, parent_view: "FishingAquariumView"):
         self.parent_view = parent_view
-        super().__init__(placeholder="🐠 가방으로 꺼낼 어종 선택...", min_values=1, max_values=1, options=self._build_opts(), row=0)
+        super().__init__(
+            placeholder="🐠 가방으로 꺼낼 어종 선택...",
+            min_values=1,
+            max_values=1,
+            options=self._build_opts(),
+            row=0,
+            custom_id="norosi:FishingAquariumView:withdraw_select",
+        )
 
     def _build_opts(self) -> List[discord.SelectOption]:
         raw_tank = self.parent_view.summary["user"].get("tank", [])
@@ -2031,7 +2135,14 @@ class FishingAquariumView(core.SafeView):
 class FishingShopSelect(discord.ui.Select):
     def __init__(self, parent_view: "FishingShopView"):
         self.parent_view = parent_view
-        super().__init__(placeholder="🛒 구매/장착할 상품 선택...", min_values=1, max_values=1, options=self._build_opts(), row=0)
+        super().__init__(
+            placeholder="🛒 구매/장착할 상품 선택...",
+            min_values=1,
+            max_values=1,
+            options=self._build_opts(),
+            row=0,
+            custom_id="norosi:FishingShopView:shop_select",
+        )
 
     def _build_opts(self) -> List[discord.SelectOption]:
         cat = self.parent_view.category
@@ -2144,6 +2255,29 @@ class FishingShopView(core.SafeView):
         self.summary = summary or fishing_core.get_user_fishing_summary(self.guild_id, user.id, user.display_name)
         self.shop_select = FishingShopSelect(self)
         self.add_item(self.shop_select)
+        self.sync_controls()
+
+    def _restore_from_message(self, interaction: discord.Interaction):
+        msg = getattr(interaction, "message", None)
+        if not msg:
+            return
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
+        cat_by_cid = {
+            "btn_cat_rod": "rod",
+            "btn_cat_reel": "reel",
+            "btn_cat_net": "net",
+            "btn_cat_bait": "bait",
+            "btn_cat_tank": "tank_expand",
+            "btn_cat_bag": "bag_expand",
+        }
+        for row in getattr(msg, "components", []) or []:
+            for comp in getattr(row, "children", []):
+                cid = getattr(comp, "custom_id", "") or ""
+                for suffix, cat_name in cat_by_cid.items():
+                    if cid.endswith(f":{suffix}") and getattr(comp, "style", None) == discord.ButtonStyle.primary:
+                        self.category = cat_name
+                        break
         self.sync_controls()
 
     async def reload(self):
@@ -2298,6 +2432,7 @@ class FishingRankerSelect(discord.ui.Select):
             max_values=1,
             options=self._build_opts(),
             row=1,
+            custom_id="norosi:FishingRankingView:ranker_select",
         )
 
     def _build_opts(self) -> List[discord.SelectOption]:
@@ -2380,6 +2515,38 @@ class FishingRankingView(core.SafeView):
         self.selected_ranker_id = str(selected_ranker_id) if selected_ranker_id else None
         self.ranker_select = FishingRankerSelect(self)
         self.add_item(self.ranker_select)
+        self.sync_buttons()
+
+    def _restore_from_message(self, interaction: discord.Interaction):
+        msg = getattr(interaction, "message", None)
+        if not msg:
+            return
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
+        for row in getattr(msg, "components", []) or []:
+            for comp in getattr(row, "children", []):
+                cid = getattr(comp, "custom_id", "") or ""
+                if cid.endswith(":btn_len") and getattr(comp, "style", None) == discord.ButtonStyle.primary:
+                    self.mode = "length"
+                elif cid.endswith(":btn_wt") and getattr(comp, "style", None) == discord.ButtonStyle.primary:
+                    self.mode = "weight"
+                elif cid.endswith(":btn_dex") and getattr(comp, "style", None) == discord.ButtonStyle.primary:
+                    self.mode = "dex"
+                elif cid.endswith(":btn_hab"):
+                    lbl = getattr(comp, "label", "") or ""
+                    if "호수" in lbl:
+                        self.habitat_filter = "lake"
+                    elif "강" in lbl:
+                        self.habitat_filter = "river"
+                    elif "바다" in lbl:
+                        self.habitat_filter = "sea"
+                    else:
+                        self.habitat_filter = "all"
+                elif cid == "norosi:FishingRankingView:ranker_select":
+                    for opt in getattr(comp, "options", []) or []:
+                        if getattr(opt, "default", False) and getattr(opt, "value", None):
+                            self.selected_ranker_id = None if opt.value == "OVERVIEW" else str(opt.value)
+                            break
         self.sync_buttons()
 
     def get_leaderboard(self) -> Dict[str, Any]:

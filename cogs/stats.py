@@ -21,6 +21,35 @@ from typing import Optional, List
 import core
 
 
+class UserProfileInspectView(core.SafeView):
+    def __init__(self, author_id: int = 0):
+        super().__init__(timeout=180)
+        self.author_id = author_id
+
+    @discord.ui.select(
+        cls=discord.ui.UserSelect,
+        placeholder="🪪 다른 서버 멤버의 상세 프로필 조회하기...",
+        min_values=1,
+        max_values=1,
+        row=0,
+        custom_id="norosi:UserProfileInspectView:select_member",
+    )
+    async def select_member(self, sel_inter: discord.Interaction, select: discord.ui.UserSelect):
+        picked = select.values[0]
+        if isinstance(picked, (str, int)):
+            uid = int(picked) if str(picked).isdigit() else 0
+            picked = (sel_inter.guild.get_member(uid) if sel_inter.guild and uid else None) or (
+                sel_inter.client.get_user(uid) if uid else None
+            ) or sel_inter.user
+        elif sel_inter.guild and not isinstance(picked, discord.Member):
+            picked = sel_inter.guild.get_member(picked.id) or picked
+        stats_cog = next((c for c in sel_inter.client.cogs.values() if hasattr(c, "user_profile_info_cmd")), None)
+        if stats_cog:
+            await stats_cog.user_profile_info_cmd.callback(stats_cog, sel_inter, 유저=picked)
+        else:
+            await core.safe_send_response(sel_inter, "❌ 유저정보 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+
 def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = "daily", mode: str = "summary") -> discord.Embed:
     """디스코드 길드의 실제 데이터(실시간 멤버, 음성 채널, 출석 현황, 봇 서비스 사용량, 채널별 메시지)를 기반으로 사실 그대로 통계를 생성합니다."""
     if not guild:
@@ -1115,26 +1144,6 @@ class StatsCog(commands.Cog):
         )
 
         embed.set_footer(text=f"요청자: {interaction.user.display_name} • 하단 메뉴에서 다른 서버 멤버를 선택해 조회할 수 있습니다")
-
-        cog_ref = self
-
-        class UserProfileInspectView(core.SafeView):
-            def __init__(self, author_id: int):
-                super().__init__(timeout=180)
-                self.author_id = author_id
-
-            @discord.ui.select(
-                cls=discord.ui.UserSelect,
-                placeholder="🪪 다른 서버 멤버의 상세 프로필 조회하기...",
-                min_values=1,
-                max_values=1,
-                row=0,
-            )
-            async def select_member(self, sel_inter: discord.Interaction, select: discord.ui.UserSelect):
-                picked = select.values[0]
-                if sel_inter.guild and not isinstance(picked, discord.Member):
-                    picked = sel_inter.guild.get_member(picked.id) or picked
-                await cog_ref.user_profile_info_cmd.callback(cog_ref, sel_inter, 유저=picked)
 
         await interaction.followup.send(embed=embed, view=UserProfileInspectView(interaction.user.id))
 

@@ -346,7 +346,12 @@ class _HSRBannerSelect(discord.ui.Select):
             discord.SelectOption(label="🏺 침식된 터널 · 장신구 (유물 워프)", value="relic", description=f"픽업 세트: {r_names}"[:95], default=(current_banner == "relic")),
             discord.SelectOption(label="🌌 뭇별의 워프 (상시)", value="standard", description="상시 5성 · 300회 시 선택 1명", default=(current_banner == "standard")),
         ]
-        super().__init__(placeholder="🚄 워프 배너 전환 (캐릭터·광추·유물·상시)...", options=options, row=0)
+        super().__init__(
+            placeholder="🚄 워프 배너 전환 (캐릭터·광추·유물·상시)...",
+            options=options,
+            row=0,
+            custom_id="norosi:HSRWarpAgainView:banner_select",
+        )
 
     async def callback(self, interaction: discord.Interaction):
         view: HSRWarpAgainView = self.view
@@ -518,6 +523,7 @@ class HSRStandard300View(core.SafeView):
             options=opts,
             disabled=not eligible,
             row=0,
+            custom_id="norosi:HSRStandard300View:pick_char",
         )
         sel.callback = self._on_pick
         self.add_item(sel)
@@ -612,7 +618,12 @@ class HSRInventoryView(core.SafeView):
             discord.SelectOption(label="💙 3성 보기", value="r3", default=(self.filter_mode == "r3")),
             discord.SelectOption(label="🔒 잠금 항목만", value="locked", default=(self.filter_mode == "locked")),
         ]
-        sel_f = discord.ui.Select(placeholder="🔍 보관함 필터 선택...", options=f_opts, row=0)
+        sel_f = discord.ui.Select(
+            placeholder="🔍 보관함 필터 선택...",
+            options=f_opts,
+            row=0,
+            custom_id="norosi:HSRInventoryView:filter_select",
+        )
         sel_f.callback = self._on_filter
         self.add_item(sel_f)
 
@@ -638,17 +649,55 @@ class HSRInventoryView(core.SafeView):
                     description=f"Lv.{it.get('level', 1)} · 누적 {it.get('count', 1)}회 · 상세 일러스트/잠금/레벨업"[:95],
                 ))
             if d_opts:
-                sel_it = discord.ui.Select(placeholder="🖼️ 상세 일러스트 · 🔒잠금 · ⬆️레벨업 선택...", options=d_opts, row=1)
+                sel_it = discord.ui.Select(
+                    placeholder="🖼️ 상세 일러스트 · 🔒잠금 · ⬆️레벨업 선택...",
+                    options=d_opts,
+                    row=1,
+                    custom_id="norosi:HSRInventoryView:item_select",
+                )
                 sel_it.callback = self._on_select_item
                 self.add_item(sel_it)
 
-        b_prev = discord.ui.Button(label="◀ 이전", style=discord.ButtonStyle.secondary, disabled=(self.page <= 0), row=2)
+        b_prev = discord.ui.Button(
+            label="◀ 이전",
+            style=discord.ButtonStyle.secondary,
+            disabled=(self.page <= 0),
+            row=2,
+            custom_id="norosi:HSRInventoryView:prev",
+        )
         b_prev.callback = self._on_prev
         self.add_item(b_prev)
 
-        b_next = discord.ui.Button(label="다음 ▶", style=discord.ButtonStyle.secondary, disabled=(self.page >= max_page), row=2)
+        b_next = discord.ui.Button(
+            label="다음 ▶",
+            style=discord.ButtonStyle.secondary,
+            disabled=(self.page >= max_page),
+            row=2,
+            custom_id="norosi:HSRInventoryView:next",
+        )
         b_next.callback = self._on_next
         self.add_item(b_next)
+
+    def _restore_from_message(self, interaction: discord.Interaction):
+        msg = getattr(interaction, "message", None)
+        if not msg:
+            return
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
+        for row in getattr(msg, "components", []) or []:
+            for comp in getattr(row, "children", []):
+                cid = getattr(comp, "custom_id", "") or ""
+                if cid == "norosi:HSRInventoryView:filter_select":
+                    for opt in getattr(comp, "options", []) or []:
+                        if getattr(opt, "default", False) and getattr(opt, "value", None):
+                            self.filter_mode = str(opt.value)
+        embeds = getattr(msg, "embeds", None) or []
+        if embeds and getattr(embeds[0], "description", None):
+            import re
+            m = re.search(r"페이지:\s*`?(\d+)\s*/\s*(\d+)`?", embeds[0].description)
+            if m:
+                self.page = max(0, int(m.group(1)) - 1)
+        self._build()
 
     async def _guard(self, interaction: discord.Interaction) -> bool:
         if self.user and interaction.user.id != self.user.id:
@@ -662,6 +711,7 @@ class HSRInventoryView(core.SafeView):
     async def _on_filter(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
+        await core.safe_defer(interaction)
         self.filter_mode = interaction.data["values"][0]
         self.page = 0
         self._build()
@@ -670,6 +720,7 @@ class HSRInventoryView(core.SafeView):
     async def _on_prev(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
+        await core.safe_defer(interaction)
         self.page = max(0, self.page - 1)
         self._build()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
@@ -677,6 +728,7 @@ class HSRInventoryView(core.SafeView):
     async def _on_next(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
+        await core.safe_defer(interaction)
         self.page += 1
         self._build()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
@@ -1041,16 +1093,37 @@ class HSRShopView(core.SafeView):
         self.shop_tab = shop_tab
         self._build()
 
+    def _restore_from_message(self, interaction: discord.Interaction):
+        msg = getattr(interaction, "message", None)
+        if self.user is None:
+            self.user = interaction.user
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
+        if msg:
+            for row in getattr(msg, "components", []) or []:
+                for comp in getattr(row, "children", []):
+                    cid = getattr(comp, "custom_id", "") or ""
+                    if cid.startswith("norosi:HSRShopView:tab_") and getattr(comp, "style", None) == discord.ButtonStyle.primary:
+                        self.shop_tab = cid.split("tab_", 1)[1]
+                        break
+        self._build()
+
     def _build(self):
         self.clear_items()
         cat = hsr_core.get_hsr_shop_catalog()
 
         for lbl, t in [("🌟 별빛·티켓 교환", "starlight"), ("🧪 헤르타 상점", "herta"), ("🫧 불멸의 잔재·광추", "embers")]:
-            b = discord.ui.Button(label=lbl, style=discord.ButtonStyle.primary if self.shop_tab == t else discord.ButtonStyle.secondary, row=0)
+            b = discord.ui.Button(
+                label=lbl,
+                style=discord.ButtonStyle.primary if self.shop_tab == t else discord.ButtonStyle.secondary,
+                row=0,
+                custom_id=f"norosi:HSRShopView:tab_{t}",
+            )
 
             async def _cb(interaction: discord.Interaction, target_t=t):
                 if self.user and interaction.user.id != self.user.id:
                     return await core.safe_send_response(interaction, "❌ 본인 상점만 전환 가능합니다.", ephemeral=True)
+                await core.safe_defer(interaction)
                 self.user = self.user or interaction.user
                 self.guild_id = self.guild_id or (interaction.guild_id or 0)
                 self.shop_tab = target_t
@@ -1104,7 +1177,12 @@ class HSRShopView(core.SafeView):
                 ))
 
         if opts:
-            sel = discord.ui.Select(placeholder="🛒 교환할 상품 선택...", options=opts[:25], row=1)
+            sel = discord.ui.Select(
+                placeholder="🛒 교환할 상품 선택...",
+                options=opts[:25],
+                row=1,
+                custom_id="norosi:HSRShopView:shop_select",
+            )
             sel.callback = self._on_buy
             self.add_item(sel)
 
@@ -1193,15 +1271,26 @@ class HSRPartyView(core.SafeView):
                     min_values=1,
                     max_values=min(4, len(opts)),
                     row=0,
+                    custom_id="norosi:HSRPartyView:party_select",
                 )
                 sel.callback = self._on_pick
                 self.add_item(sel)
 
-        b_auto = discord.ui.Button(label="✨ 최강 시너지 자동 편성", style=discord.ButtonStyle.primary, row=1)
+        b_auto = discord.ui.Button(
+            label="✨ 최강 시너지 자동 편성",
+            style=discord.ButtonStyle.primary,
+            row=1,
+            custom_id="norosi:HSRPartyView:auto",
+        )
         b_auto.callback = self._on_auto
         self.add_item(b_auto)
 
-        b_clr = discord.ui.Button(label="🧹 편대 비우기", style=discord.ButtonStyle.danger, row=1)
+        b_clr = discord.ui.Button(
+            label="🧹 편대 비우기",
+            style=discord.ButtonStyle.danger,
+            row=1,
+            custom_id="norosi:HSRPartyView:clear",
+        )
         b_clr.callback = self._on_clear
         self.add_item(b_clr)
 
@@ -1217,6 +1306,7 @@ class HSRPartyView(core.SafeView):
     async def _on_pick(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
+        await core.safe_defer(interaction)
         gid = self.guild_id or interaction.guild_id or 0
         with core._DATA_LOCK:
             data = core.load_data()
@@ -1229,6 +1319,7 @@ class HSRPartyView(core.SafeView):
     async def _on_auto(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
+        await core.safe_defer(interaction)
         gid = self.guild_id or interaction.guild_id or 0
         with core._DATA_LOCK:
             data = core.load_data()
@@ -1257,6 +1348,7 @@ class HSRPartyView(core.SafeView):
     async def _on_clear(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
+        await core.safe_defer(interaction)
         gid = self.guild_id or interaction.guild_id or 0
         with core._DATA_LOCK:
             data = core.load_data()

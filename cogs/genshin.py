@@ -364,7 +364,12 @@ class _GenshinBannerSelect(discord.ui.Select):
             discord.SelectOption(label="🏺 비경 성유물 축복 (성유물 감정)", value="artifact", description=f"픽업 세트: {a_names}"[:95], default=(current_banner == "artifact")),
             discord.SelectOption(label="🌌 세상 여행 (상시 기원)", value="standard", description="상시 5성 캐릭터·무기 · 초기 4성 포함", default=(current_banner == "standard")),
         ]
-        super().__init__(placeholder="🎰 기원 배너 전환 (캐릭터·무기·성유물·상시)...", options=options, row=0)
+        super().__init__(
+            placeholder="🎰 기원 배너 전환 (캐릭터·무기·성유물·상시)...",
+            options=options,
+            row=0,
+            custom_id="norosi:GenshinPullAgainView:banner_select",
+        )
 
     async def callback(self, interaction: discord.Interaction):
         view: GenshinPullAgainView = self.view
@@ -643,7 +648,12 @@ class GenshinInventoryView(core.SafeView):
             discord.SelectOption(label="💙 3성 이하 보기", value="r3", default=(self.filter_mode == "r3")),
             discord.SelectOption(label="🔒 잠금 항목만", value="locked", default=(self.filter_mode == "locked")),
         ]
-        sel_f = discord.ui.Select(placeholder="🔍 보관함 필터 선택...", options=f_opts, row=0)
+        sel_f = discord.ui.Select(
+            placeholder="🔍 보관함 필터 선택...",
+            options=f_opts,
+            row=0,
+            custom_id="norosi:GenshinInventoryView:filter_select",
+        )
         sel_f.callback = self._on_filter
         self.add_item(sel_f)
 
@@ -669,17 +679,55 @@ class GenshinInventoryView(core.SafeView):
                     description=f"Lv.{it.get('level', 1)} · 보유 {it.get('count', 1)}회 · 클릭해 스플래시/잠금/레벨업"[:95],
                 ))
             if d_opts:
-                sel_it = discord.ui.Select(placeholder="🖼️ 상세 일러스트 · 🔒잠금 · ⬆️레벨업 선택...", options=d_opts, row=1)
+                sel_it = discord.ui.Select(
+                    placeholder="🖼️ 상세 일러스트 · 🔒잠금 · ⬆️레벨업 선택...",
+                    options=d_opts,
+                    row=1,
+                    custom_id="norosi:GenshinInventoryView:item_select",
+                )
                 sel_it.callback = self._on_select_item
                 self.add_item(sel_it)
 
-        b_prev = discord.ui.Button(label="◀ 이전", style=discord.ButtonStyle.secondary, disabled=(self.page <= 0), row=2)
+        b_prev = discord.ui.Button(
+            label="◀ 이전",
+            style=discord.ButtonStyle.secondary,
+            disabled=(self.page <= 0),
+            row=2,
+            custom_id="norosi:GenshinInventoryView:prev",
+        )
         b_prev.callback = self._on_prev
         self.add_item(b_prev)
 
-        b_next = discord.ui.Button(label="다음 ▶", style=discord.ButtonStyle.secondary, disabled=(self.page >= max_page), row=2)
+        b_next = discord.ui.Button(
+            label="다음 ▶",
+            style=discord.ButtonStyle.secondary,
+            disabled=(self.page >= max_page),
+            row=2,
+            custom_id="norosi:GenshinInventoryView:next",
+        )
         b_next.callback = self._on_next
         self.add_item(b_next)
+
+    def _restore_from_message(self, interaction: discord.Interaction):
+        msg = getattr(interaction, "message", None)
+        if not msg:
+            return
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
+        for row in getattr(msg, "components", []) or []:
+            for comp in getattr(row, "children", []):
+                cid = getattr(comp, "custom_id", "") or ""
+                if cid == "norosi:GenshinInventoryView:filter_select":
+                    for opt in getattr(comp, "options", []) or []:
+                        if getattr(opt, "default", False) and getattr(opt, "value", None):
+                            self.filter_mode = str(opt.value)
+        embeds = getattr(msg, "embeds", None) or []
+        if embeds and getattr(embeds[0], "description", None):
+            import re
+            m = re.search(r"페이지:\s*`?(\d+)\s*/\s*(\d+)`?", embeds[0].description)
+            if m:
+                self.page = max(0, int(m.group(1)) - 1)
+        self._build()
 
     async def _guard(self, interaction: discord.Interaction) -> bool:
         if self.user and interaction.user.id != self.user.id:
@@ -693,6 +741,7 @@ class GenshinInventoryView(core.SafeView):
     async def _on_filter(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
+        await core.safe_defer(interaction)
         self.filter_mode = interaction.data["values"][0]
         self.page = 0
         self._build()
@@ -701,6 +750,7 @@ class GenshinInventoryView(core.SafeView):
     async def _on_prev(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
+        await core.safe_defer(interaction)
         self.page = max(0, self.page - 1)
         self._build()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
@@ -708,6 +758,7 @@ class GenshinInventoryView(core.SafeView):
     async def _on_next(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
+        await core.safe_defer(interaction)
         self.page += 1
         self._build()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
@@ -1098,7 +1149,12 @@ class GenshinShopView(core.SafeView):
             discord.SelectOption(label="🌌 [75 스타더스트] 만남의 인연 ×1", value="dust_acquaint", description="월 5회 제한"),
             discord.SelectOption(label="📘 [40 스타더스트] 영웅의 경험 ×5", value="dust_hero_wit", description="보유 캐릭터 Lv.1~90 육성 재료"),
         ])
-        sel = discord.ui.Select(placeholder="🛒 페이몬의 상점에서 교환할 상품 선택...", options=opts[:25], row=0)
+        sel = discord.ui.Select(
+            placeholder="🛒 페이몬의 상점에서 교환할 상품 선택...",
+            options=opts[:25],
+            row=0,
+            custom_id="norosi:GenshinShopView:shop_select",
+        )
         sel.callback = self._on_buy
         self.add_item(sel)
 
@@ -1188,15 +1244,26 @@ class GenshinPartyView(core.SafeView):
                     min_values=1,
                     max_values=min(4, len(opts)),
                     row=0,
+                    custom_id="norosi:GenshinPartyView:party_select",
                 )
                 sel.callback = self._on_pick_party
                 self.add_item(sel)
 
-        b_auto = discord.ui.Button(label="✨ 최강 전투력 자동 편성", style=discord.ButtonStyle.primary, row=1)
+        b_auto = discord.ui.Button(
+            label="✨ 최강 전투력 자동 편성",
+            style=discord.ButtonStyle.primary,
+            row=1,
+            custom_id="norosi:GenshinPartyView:auto",
+        )
         b_auto.callback = self._on_auto
         self.add_item(b_auto)
 
-        b_clr = discord.ui.Button(label="🧹 파티 비우기", style=discord.ButtonStyle.danger, row=1)
+        b_clr = discord.ui.Button(
+            label="🧹 파티 비우기",
+            style=discord.ButtonStyle.danger,
+            row=1,
+            custom_id="norosi:GenshinPartyView:clear",
+        )
         b_clr.callback = self._on_clear
         self.add_item(b_clr)
 
@@ -1212,6 +1279,7 @@ class GenshinPartyView(core.SafeView):
     async def _on_pick_party(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
+        await core.safe_defer(interaction)
         picked = list(interaction.data["values"])[:4]
         with core._DATA_LOCK:
             data = core.load_data()
@@ -1224,6 +1292,7 @@ class GenshinPartyView(core.SafeView):
     async def _on_auto(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
+        await core.safe_defer(interaction)
         with core._DATA_LOCK:
             data = core.load_data()
             u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
@@ -1241,6 +1310,7 @@ class GenshinPartyView(core.SafeView):
     async def _on_clear(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
+        await core.safe_defer(interaction)
         with core._DATA_LOCK:
             data = core.load_data()
             u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)

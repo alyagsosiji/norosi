@@ -144,6 +144,7 @@ class OtherLifeOriginSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         pv = self.parent_view
+        await core.safe_defer(interaction)
         pv.selected_origin = self.values[0]
         pv.status_msg = (
             "🎲 무작위 출신을 선택했습니다."
@@ -404,6 +405,7 @@ class OtherLifeCollectionStatusSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         pv = self.parent_view
+        await core.safe_defer(interaction)
         pv.status_filter = self.values[0]
         pv.page = 0
         pv._rebuild()
@@ -445,6 +447,7 @@ class OtherLifeCollectionCareerSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         pv = self.parent_view
+        await core.safe_defer(interaction)
         pv.career_filter = self.values[0]
         pv.page = 0
         pv._rebuild()
@@ -488,6 +491,7 @@ class OtherLifeCollectionOriginSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         pv = self.parent_view
+        await core.safe_defer(interaction)
         pv.origin_filter = self.values[0]
         pv.page = 0
         pv._rebuild()
@@ -518,6 +522,40 @@ class OtherLifeCollectionView(core.SafeView):
         self.career_filter = "all"
         self.origin_filter = "all"
         self.search_query = ""
+        self._rebuild()
+
+    def _restore_from_message(self, interaction: discord.Interaction):
+        msg = getattr(interaction, "message", None)
+        if not msg:
+            return
+        for row in getattr(msg, "components", []) or []:
+            for comp in getattr(row, "children", []):
+                cid = getattr(comp, "custom_id", "") or ""
+                st = getattr(comp, "style", None)
+                if cid == "norosi:OtherLifeCollectionView:tab_summary" and st == discord.ButtonStyle.primary:
+                    self.tab = "summary"
+                elif cid == "norosi:OtherLifeCollectionView:tab_endings" and st == discord.ButtonStyle.primary:
+                    self.tab = "endings"
+                elif cid == "norosi:OtherLifeCollectionView:tab_history" and st == discord.ButtonStyle.primary:
+                    self.tab = "history"
+                elif cid == "norosi:OtherLifeCollectionView:status_select":
+                    for opt in getattr(comp, "options", []) or []:
+                        if getattr(opt, "default", False) and getattr(opt, "value", None):
+                            self.status_filter = str(opt.value)
+                elif cid == "norosi:OtherLifeCollectionView:career_select":
+                    for opt in getattr(comp, "options", []) or []:
+                        if getattr(opt, "default", False) and getattr(opt, "value", None):
+                            self.career_filter = str(opt.value)
+                elif cid == "norosi:OtherLifeCollectionView:origin_select":
+                    for opt in getattr(comp, "options", []) or []:
+                        if getattr(opt, "default", False) and getattr(opt, "value", None):
+                            self.origin_filter = str(opt.value)
+        embeds = getattr(msg, "embeds", None) or []
+        if embeds and getattr(embeds[0], "description", None):
+            import re
+            m = re.search(r"페이지\s*`?(\d+)\s*/\s*(\d+)`?", embeds[0].description)
+            if m:
+                self.page = max(0, int(m.group(1)) - 1)
         self._rebuild()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -1264,6 +1302,8 @@ class OtherLifeGameView(core.SafeView):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if not await super().interaction_check(interaction):
             return False
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
@@ -1271,7 +1311,40 @@ class OtherLifeGameView(core.SafeView):
                 ephemeral=True,
             )
             return False
+        if not self.user:
+            self.user = interaction.user
         return True
+
+    def _restore_from_message(self, interaction: discord.Interaction):
+        msg = getattr(interaction, "message", None)
+        if not msg:
+            return
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
+        is_setup = False
+        is_finished = False
+        for row in getattr(msg, "components", []) or []:
+            for comp in getattr(row, "children", []):
+                cid = getattr(comp, "custom_id", "") or ""
+                if cid in ("norosi:OtherLifeGameView:origin_select", "norosi:OtherLifeGameView:start_life"):
+                    is_setup = True
+                elif cid in ("norosi:OtherLifeGameView:quick_new_life", "norosi:OtherLifeGameView:goto_setup"):
+                    is_finished = True
+                if cid == "norosi:OtherLifeGameView:origin_select":
+                    for opt in getattr(comp, "options", []) or []:
+                        if getattr(opt, "default", False) and getattr(opt, "value", None):
+                            self.selected_origin = str(opt.value)
+                            break
+                elif cid == "norosi:OtherLifeGameView:scale_select":
+                    for opt in getattr(comp, "options", []) or []:
+                        if getattr(opt, "default", False) and getattr(opt, "value", None):
+                            self.selected_scale = str(opt.value)
+                            break
+        if is_setup:
+            self.mode = "setup"
+        elif is_finished:
+            self.mode = "play"
+        self._rebuild()
 
     def _rebuild(self):
         self.clear_items()

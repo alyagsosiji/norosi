@@ -377,7 +377,8 @@ class CommandRemoteSelect(discord.ui.Select):
             min_values=1,
             max_values=1,
             options=options,
-            row=0
+            row=0,
+            custom_id="norosi:QuickMenuHubView:command_remote_select",
         )
 
     async def callback(self, interaction: discord.Interaction):
@@ -1665,7 +1666,13 @@ class DDayDeleteSelect(discord.ui.Select):
                 break
         if not options:
             options.append(discord.SelectOption(label="삭제할 일정이 없습니다", value="NONE"))
-        super().__init__(placeholder="🗑️ 삭제할 일정을 선택하세요 (연결된 채널도 함께 삭제됩니다)...", min_values=1, max_values=1, options=options)
+        super().__init__(
+            placeholder="🗑️ 삭제할 일정을 선택하세요 (연결된 채널도 함께 삭제됩니다)...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="norosi:DDayDeleteView:dday_delete_select",
+        )
 
     async def callback(self, interaction: discord.Interaction):
         selected_name = self.values[0]

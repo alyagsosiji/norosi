@@ -2148,13 +2148,15 @@ class ProsekaRatePaginationView(core.SafeView):
 
     @discord.ui.button(label="⏪ -5", style=discord.ButtonStyle.secondary, row=0)
     async def back_5(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
         self.current_page = max(0, self.current_page - 5)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="◀ 이전", style=discord.ButtonStyle.primary, row=0)
     async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
         self.current_page = max(0, self.current_page - 1)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="📄 1 / 1", style=discord.ButtonStyle.secondary, disabled=True, row=0)
     async def page_indicator(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2162,13 +2164,15 @@ class ProsekaRatePaginationView(core.SafeView):
 
     @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.primary, row=0)
     async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
         self.current_page = min(self.max_page, self.current_page + 1)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="+5 ⏩", style=discord.ButtonStyle.secondary, row=0)
     async def forward_5(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
         self.current_page = min(self.max_page, self.current_page + 5)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.select(
         placeholder="🔍 성급 / 한정 / 유닛별 필터 선택...",
@@ -2189,9 +2193,10 @@ class ProsekaRatePaginationView(core.SafeView):
         ]
     )
     async def filter_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await core.safe_defer(interaction)
         self._apply_filter(select.values[0])
         self.current_page = 0
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.select(
         placeholder="🎰 확률표 배너 선택 (일반 / 페스티벌 / 생일)...",
@@ -2199,11 +2204,12 @@ class ProsekaRatePaginationView(core.SafeView):
         options=[discord.SelectOption(label="일반", value="normal")]
     )
     async def banner_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await core.safe_defer(interaction)
         self.banner_type = select.values[0]
         self.all_prob_cards = core.calculate_card_probabilities(self.pickup_cfg, banner_type=self.banner_type)
         self._apply_filter(self.current_filter_val)
         self.current_page = 0
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
 
 class MyInventoryView(core.SafeView):
@@ -2599,23 +2605,27 @@ class MyInventoryView(core.SafeView):
 
     @discord.ui.button(label="⏪ -5", style=discord.ButtonStyle.secondary, row=0)
     async def back_5(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
         self.current_page = max(0, self.current_page - 5)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="◀ 이전", style=discord.ButtonStyle.primary, row=0)
     async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
         self.current_page = max(0, self.current_page - 1)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.primary, row=0)
     async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
         self.current_page = min(self.max_page, self.current_page + 1)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="+5 ⏩", style=discord.ButtonStyle.secondary, row=0)
     async def forward_5(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
         self.current_page = min(self.max_page, self.current_page + 5)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="💎 중복 카드 크리스탈 변환", style=discord.ButtonStyle.success, row=0)
     async def dup_convert_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2648,9 +2658,10 @@ class MyInventoryView(core.SafeView):
         ]
     )
     async def sort_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await core.safe_defer(interaction)
         self.apply_sort(select.values[0])
         self.current_page = 0
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.select(
         placeholder="🖼️ 카드 일러스트 감상·잠금 선택...",
@@ -2694,6 +2705,7 @@ class MyInventoryView(core.SafeView):
         options=[discord.SelectOption(label="🌐 전체 유닛", value="ALL")]
     )
     async def unit_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await core.safe_defer(interaction)
         chosen_unit = select.values[0]
         self.selected_unit = chosen_unit
         if self.selected_char_id is not None and chosen_unit != "ALL":
@@ -2706,7 +2718,7 @@ class MyInventoryView(core.SafeView):
                 self.selected_char_id = None
         self.current_page = 0
         self.apply_filters_and_sort()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.select(
         placeholder="👤 캐릭터별 필터...",
@@ -2984,13 +2996,15 @@ class CardPokedexView(core.SafeView):
 
     @discord.ui.button(label="◀ 이전", style=discord.ButtonStyle.secondary, row=0)
     async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
         self.current_page = max(0, self.current_page - 1)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.secondary, row=0)
     async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
         self.current_page = min(self.max_page, self.current_page + 1)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.select(
         placeholder="🔍 유닛 / 성급 / 수집률 정렬 필터 선택...",
@@ -3012,6 +3026,7 @@ class CardPokedexView(core.SafeView):
         ]
     )
     async def filter_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await core.safe_defer(interaction)
         val = select.values[0]
         self.filter_val = val
         label_map = {
@@ -3025,7 +3040,7 @@ class CardPokedexView(core.SafeView):
         }
         self.filter_label = label_map.get(val, val.replace("U_", "유닛: "))
         self.current_page = 0
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.select(
         placeholder="🖼️ 현재 페이지 카드 일러스트 미리보기...",
@@ -3165,21 +3180,28 @@ class EventForecastSelect(discord.ui.Select):
             min_values=1,
             max_values=1,
             options=options,
-            row=0
+            row=0,
+            custom_id="norosi:EventForecastView:event_select",
         )
 
     async def callback(self, interaction: discord.Interaction):
+        view = self.view
+        if view is None:
+            await core.safe_defer(interaction)
+            return
         val = self.values[0]
         if val == "NONE":
             await core.safe_defer(interaction)
             return
         try:
-            self.view.selected_event_id = int(val)
+            selected_id = int(val)
         except Exception:
             await core.safe_defer(interaction)
             return
-        self.view.update_components()
-        await core.safe_edit_response(interaction, embed=self.view.build_embed(), view=self.view)
+        await core.safe_defer(interaction)
+        view.selected_event_id = selected_id
+        view.update_components()
+        await core.safe_edit_response(interaction, embed=view.build_embed(), view=view)
 
 
 class EventForecastView(core.SafeView):
@@ -3296,6 +3318,7 @@ class EventForecastView(core.SafeView):
         return embed
 
     async def on_prev_month(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
         if self.month == 1:
             self.year -= 1
             self.month = 12
@@ -3303,9 +3326,10 @@ class EventForecastView(core.SafeView):
             self.month -= 1
         self.selected_event_id = None
         self.update_components()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     async def on_next_month(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
         if self.month == 12:
             self.year += 1
             self.month = 1
@@ -3313,15 +3337,16 @@ class EventForecastView(core.SafeView):
             self.month += 1
         self.selected_event_id = None
         self.update_components()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     async def on_current_month(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
         now = datetime.datetime.now(core.KST)
         self.year = now.year
         self.month = now.month
         self.selected_event_id = None
         self.update_components()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     async def on_show_all_list(self, interaction: discord.Interaction):
         all_events = core.get_event_forecast_list()
@@ -4128,8 +4153,9 @@ class SekaiLiveView(core.SafeView):
 
     @discord.ui.select(placeholder="🎵 플레이할 세카이 라이브 곡을 선택하세요...", row=0)
     async def song_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await core.safe_defer(interaction)
         self.selected_song_id = select.values[0]
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🎵 세카이 라이브 시작!", style=discord.ButtonStyle.success, row=1)
     async def btn_start_live(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -4141,7 +4167,8 @@ class SekaiLiveView(core.SafeView):
 
     @discord.ui.button(label="🔄 덱/상태 새로고침", style=discord.ButtonStyle.secondary, row=1)
     async def btn_refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_defer(interaction)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
 
 # ==========================================
