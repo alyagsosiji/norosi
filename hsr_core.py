@@ -1607,6 +1607,60 @@ def _decorate_rolled_relic(base_set: dict, rank: int, rng: random.Random) -> dic
     return picked
 
 
+def compute_hsr_relic_score(rel: dict) -> tuple[float, float, str]:
+    """스타레일 유물/차원 장신구 딕셔너리에서 치명타 가치(CV), 유효옵 가치(RV), 등급(SSS~B)을 계산합니다."""
+    if not isinstance(rel, dict):
+        return 0.0, 0.0, "B"
+    if "cv" in rel and "rv" in rel and "grade" in rel:
+        try:
+            return float(rel["cv"]), float(rel["rv"]), str(rel["grade"])
+        except Exception:
+            pass
+
+    rank = int(rel.get("rank", rel.get("rarity", 5)) or 5)
+    level = int(rel.get("level", 3 if rank == 5 else 0) or 0)
+    scale = 1.0 + max(0, min(15, level)) / 3.75
+
+    subs = rel.get("sub_stats") or []
+    if not isinstance(subs, list):
+        subs = []
+
+    base_cv = 0.0
+    base_rv = 0.0
+    for s in subs:
+        s_str = str(s)
+        m = re.search(r"([0-9]+(?:\.[0-9]+)?)", s_str)
+        val = float(m.group(1)) if m else 0.0
+        if "치명타 확률" in s_str:
+            base_cv += val * 2.0
+            base_rv += 100.0
+        elif "치명타 피해" in s_str:
+            base_cv += val
+            base_rv += 100.0
+        elif "속도" in s_str or "격파 특수효과" in s_str or "%" in s_str:
+            base_rv += 90.0
+        else:
+            base_rv += 65.0
+
+    cv = round(base_cv * (scale * 0.55), 1)
+    rv = round(base_rv * (scale * 0.45), 1)
+    if rank < 5:
+        cv = round(cv * 0.75, 1)
+        rv = round(rv * 0.75, 1)
+
+    if cv >= 36.0 or rv >= 620.0:
+        grade = "SSS (종결)"
+    elif cv >= 28.0 or rv >= 510.0:
+        grade = "SS (준종결)"
+    elif cv >= 20.0 or rv >= 400.0:
+        grade = "S (우수)"
+    elif cv >= 12.0 or rv >= 280.0:
+        grade = "A (보통)"
+    else:
+        grade = "B (일반)"
+    return cv, rv, grade
+
+
 def _roll_single_hsr(
     state: dict,
     banner_key: str,

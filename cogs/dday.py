@@ -177,6 +177,10 @@ class AttendanceCalendarView(core.SafeView):
         super().__init__(timeout=600)
         self.bot_instance = bot_instance
         self.user = user
+        if not cal_info or "year" not in cal_info:
+            uid = user.id if user else 0
+            uname = getattr(user, "display_name", "유저")
+            cal_info = core.build_monthly_attendance_calendar(0, "현재 서버", uid, uname)
         self.cal_info = cal_info
         self.check_now_btn.disabled = bool(cal_info.get("checked_today", False))
         if self.check_now_btn.disabled:
@@ -193,6 +197,10 @@ class AttendanceCalendarView(core.SafeView):
         return True
 
     def build_embed(self):
+        if not self.cal_info or "year" not in self.cal_info:
+            uid = self.user.id if self.user else 0
+            uname = getattr(self.user, "display_name", "유저")
+            self.cal_info = core.build_monthly_attendance_calendar(0, "현재 서버", uid, uname)
         c = self.cal_info
         guild_stats = c.get("guild_stats", {})
         ms_lines = []
@@ -737,7 +745,8 @@ class QuickMenuHubView(core.SafeView):
         await core.safe_defer(interaction)
         now = datetime.datetime.now(core.KST)
         view = EventForecastView(interaction.user, now.year, now.month)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        embed = await asyncio.to_thread(view.build_embed)
+        await interaction.followup.send(embed=embed, view=view)
 
     @discord.ui.button(label="🎒 내캐릭터", style=discord.ButtonStyle.secondary, row=2)
     async def btn_my_chars(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1245,13 +1254,6 @@ class DDayQuickAddModal(core.SafeModal, title="📅 새 D-Day 일정 빠른 등�
         self.board_view = board_view
 
     async def on_submit(self, interaction: discord.Interaction):
-        if not _has_dday_manage_perm(interaction):
-            await core.safe_send_response(
-                interaction,
-                "❌ 서버 D-Day 일정 추가/수정은 **서버 관리자** 또는 **채널/서버 관리 권한**이 있는 멤버만 가능합니다. (개인 일정은 `/비밀디데이`를 이용해 주세요!)",
-                ephemeral=True,
-            )
-            return
         target_val = self.d_date.value.strip()
         start_val = self.d_start.value.strip() or core.get_today_str()
         try:
@@ -1280,7 +1282,8 @@ class DDayQuickAddModal(core.SafeModal, title="📅 새 D-Day 일정 빠른 등�
             "start_date": start_val,
             "emoji": emoji_val,
             "channel_id": existing.get("channel_id"),
-            "category_id": existing.get("category_id")
+            "category_id": existing.get("category_id"),
+            "guild_id": interaction.guild_id or existing.get("guild_id"),
         }
         await asyncio.to_thread(core.save_data, data)
         if hasattr(self.board_view.bot_instance, "update_all_dday_channels"):
@@ -1417,13 +1420,6 @@ class DDayListBoardView(core.SafeView):
 
     @discord.ui.button(label="➕ 새 디데이 등록", style=discord.ButtonStyle.success, row=1)
     async def quick_add_dday_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not _has_dday_manage_perm(interaction):
-            await core.safe_send_response(
-                interaction,
-                "❌ 서버 D-Day 일정 추가는 **서버 관리자** 또는 **채널/서버 관리 권한**이 있는 멤버만 가능합니다. (개인 일정은 `/비밀디데이`를 이용해 주세요!)",
-                ephemeral=True,
-            )
-            return
         await interaction.response.send_modal(DDayQuickAddModal(self))
 
     @discord.ui.button(label="🧭 빠른 메뉴 (/메뉴)", style=discord.ButtonStyle.secondary, row=1)
@@ -1740,10 +1736,28 @@ class PartnerAcceptView(core.SafeView):
         self.requester = requester
         self.target = target
 
+    def _restore_from_message(self, interaction: discord.Interaction):
+        msg = getattr(interaction, "message", None)
+        if not msg:
+            return
+        orig_inter = getattr(msg, "interaction_metadata", None) or getattr(msg, "interaction", None)
+        orig_user = getattr(orig_inter, "user", None)
+        if orig_user:
+            self.requester = orig_user
+        if msg.mentions:
+            for m in msg.mentions:
+                if not orig_user or m.id != orig_user.id:
+                    self.target = m
+                    break
+
     @discord.ui.button(label="💖 파트너 수락하기", style=discord.ButtonStyle.success)
     async def accept_partner(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.target.id:
             await core.safe_send_response(interaction, "❌ 파트너 신청을 받은 당사자만 수락할 수 있습니다.", ephemeral=True)
+            return
+
+        if self.requester.id == self.target.id:
+            await core.safe_send_response(interaction, "❌ 본인에게는 파트너 수락을 할 수 없습니다.", ephemeral=True)
             return
 
         await core.safe_defer(interaction)
@@ -1753,6 +1767,12 @@ class PartnerAcceptView(core.SafeView):
 
         p1 = core.ensure_user_profile(data, u1, self.requester.display_name)
         p2 = core.ensure_user_profile(data, u2, self.target.display_name)
+        if p1.get("partner_id") and str(p1.get("partner_id")) != u2:
+            await interaction.followup.send("❌ 신청자가 이미 다른 유저와 파트너 상태입니다.", ephemeral=True)
+            return
+        if p2.get("partner_id") and str(p2.get("partner_id")) != u1:
+            await interaction.followup.send("❌ 이미 다른 유저와 파트너 상태입니다.", ephemeral=True)
+            return
         p1["partner_id"] = u2
         p2["partner_id"] = u1
 
@@ -1798,21 +1818,15 @@ class DDayDeleteSelect(discord.ui.Select):
             repeat_icon = "🔄 " if info.get("repeat") else ""
             ch_icon = "🔊채널있음 | " if info.get("channel_id") else ""
             options.append(discord.SelectOption(
-                label=name,
-                description=f"{ch_icon}{repeat_icon}목표일: {date_str}" if date_str else "목표일 미지정"
+                label=str(name)[:100],
+                value=str(name)[:100],
+                description=(f"{ch_icon}{repeat_icon}목표일: {date_str}" if date_str else "목표일 미지정")[:100]
             ))
         if not options:
             options.append(discord.SelectOption(label="삭제할 일정이 없습니다", value="NONE"))
         super().__init__(placeholder="🗑️ 삭제할 일정을 선택하세요 (연결된 채널도 함께 삭제됩니다)...", min_values=1, max_values=1, options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        if not _has_dday_manage_perm(interaction):
-            await core.safe_send_response(
-                interaction,
-                "❌ 서버 D-Day 일정 삭제는 **서버 관리자** 또는 **채널/서버 관리 권한**이 있는 멤버만 가능합니다.",
-                ephemeral=True,
-            )
-            return
         selected_name = self.values[0]
         if selected_name == "NONE":
             await core.safe_defer(interaction, ephemeral=True)
@@ -1821,6 +1835,10 @@ class DDayDeleteSelect(discord.ui.Select):
         data = await asyncio.to_thread(core.load_data)
 
         ddays_map = core.ensure_dict_path(data, "ddays")
+        if selected_name not in ddays_map:
+            matched_key = next((k for k in ddays_map if str(k)[:100] == selected_name), None)
+            if matched_key is not None:
+                selected_name = matched_key
         if selected_name in ddays_map:
             dday_info = core.as_dict(ddays_map.get(selected_name))
             ch_id = dday_info.get("channel_id")
@@ -1953,19 +1971,12 @@ class DDayCog(commands.Cog):
         카테고리: discord.CategoryChannel = None,
         이모지: str = "🌠",
         시작일: str = None,
-        매년반복: bool = False,
+        매년반복: bool | None = False,
         채널생성: bool = True,
         플러스1: bool = False,
     ):
-        if not _has_dday_manage_perm(interaction):
-            await core.safe_send_response(
-                interaction,
-                "❌ 서버 D-Day 및 전광판 설정은 **서버 관리자** 또는 **채널/서버 관리 권한**이 있는 멤버만 가능합니다. (개인 일정은 `/비밀디데이`를 이용해 주세요!)",
-                ephemeral=True,
-            )
-            return
         try:
-            datetime.datetime.strptime(날짜, "%Y-%m-%d")
+            target_dt = datetime.datetime.strptime(날짜, "%Y-%m-%d").date()
             if 시작일:
                 datetime.datetime.strptime(시작일, "%Y-%m-%d")
         except ValueError:
@@ -1973,7 +1984,6 @@ class DDayCog(commands.Cog):
             return
 
         await core.safe_defer(interaction)
-        actual_start = 시작일 if 시작일 else core.get_today_str()
         data = await asyncio.to_thread(core.load_data)
 
         ddays_map = core.ensure_dict_path(data, "ddays")
@@ -1981,6 +1991,21 @@ class DDayCog(commands.Cog):
         existing_info = core.as_dict(ddays_map.get(이름))
         existing_ch_id = existing_info.get("channel_id")
         plus_one_val = bool(플러스1)
+        repeat_val = bool(existing_info.get("repeat", False)) if 매년반복 is None else bool(매년반복)
+
+        if 시작일:
+            actual_start = 시작일
+        elif existing_info.get("start_date"):
+            actual_start = str(existing_info["start_date"])
+        else:
+            actual_start = core.get_today_str()
+
+        try:
+            start_dt = datetime.datetime.strptime(actual_start, "%Y-%m-%d").date()
+            if start_dt > target_dt:
+                actual_start = min(core.get_today_str(), 날짜)
+        except ValueError:
+            actual_start = min(core.get_today_str(), 날짜)
 
         target_category = 카테고리
         if not target_category and settings_map.get("default_category_id") and interaction.guild:
@@ -2022,18 +2047,18 @@ class DDayCog(commands.Cog):
 
         ddays_map[이름] = {
             "date": 날짜,
-            "repeat": 매년반복,
+            "repeat": repeat_val,
             "plus_one": plus_one_val,
             "start_date": actual_start,
             "emoji": 이모지,
             "channel_id": created_channel.id if created_channel else existing_ch_id,
             "category_id": target_category.id if target_category else existing_info.get("category_id"),
-            "guild_id": interaction.guild_id
+            "guild_id": interaction.guild_id or existing_info.get("guild_id"),
         }
         await asyncio.to_thread(core.save_data, data)
 
         diff, dday_text = core.get_dday_info(날짜, plus_one=plus_one_val)
-        repeat_str = " (매년 반복 🔄)" if 매년반복 else ""
+        repeat_str = " (매년 반복 🔄)" if repeat_val else ""
         plus_one_line = ""
         if plus_one_val:
             if diff < 0:
@@ -2232,7 +2257,7 @@ class DDayCog(commands.Cog):
             카테고리=카테고리,
             이모지=이모지,
             시작일=None,
-            매년반복=False,
+            매년반복=None,
             채널생성=True,
             플러스1=플러스1,
         )
@@ -2352,13 +2377,6 @@ class DDayCog(commands.Cog):
 
     @app_commands.command(name="디데이삭제", description="드롭다운 메뉴에서 일정을 선택해 삭제합니다. (생성된 디데이 채널도 함께 삭제됩니다)")
     async def delete_dday(self, interaction: discord.Interaction):
-        if not _has_dday_manage_perm(interaction):
-            await core.safe_send_response(
-                interaction,
-                "❌ 서버 D-Day 일정 삭제는 **서버 관리자** 또는 **채널/서버 관리 권한**이 있는 멤버만 가능합니다.",
-                ephemeral=True,
-            )
-            return
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
         ddays = {k: v for k, v in core.as_dict(data.get("ddays")).items() if isinstance(v, dict)}

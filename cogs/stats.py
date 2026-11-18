@@ -359,19 +359,23 @@ class RecruitEditModal(core.SafeModal, title="✏️ 파티 모집 정보 수정
 class RecruitLobbyView(core.SafeView):
     def __init__(
         self,
-        host: discord.Member,
-        game: str,
-        capacity: int,
-        goal: str,
+        host: Optional[discord.Member] = None,
+        game: str = "프로세카",
+        capacity: int = 5,
+        goal: str = "자유 멀티",
         room_code: Optional[str] = None,
         departure_time: Optional[str] = None,
         memo: Optional[str] = None
     ):
         super().__init__(timeout=7200)
         self.host = host
-        self.game = game
-        self.capacity = max(2, min(20, capacity))
-        self.goal = goal
+        self.game = str(game if isinstance(game, str) and game else "프로세카")
+        try:
+            cap_val = int(capacity or 5)
+        except Exception:
+            cap_val = 5
+        self.capacity = max(2, min(20, cap_val))
+        self.goal = str(goal or "자유 멀티")
         self.room_code = room_code
         self.departure_time = departure_time
         self.memo = memo
@@ -379,6 +383,40 @@ class RecruitLobbyView(core.SafeView):
         self.status = "recruiting"
         self.message: Optional[discord.Message] = None
         self._lock = asyncio.Lock()
+        self._sync_buttons()
+
+    def _restore_from_message(self, interaction: discord.Interaction):
+        msg = getattr(interaction, "message", None)
+        if not msg or not msg.embeds:
+            return
+        emb = msg.embeds[0]
+        title = emb.title or ""
+        m_title = re.search(r"\[(.+?)\]", title)
+        if m_title:
+            self.game = m_title.group(1)
+        desc = emb.description or ""
+        m_cap = re.search(r"\((\d+)/(\d+)명\)", title) or re.search(r"\((\d+)/(\d+)명\)", desc)
+        if m_cap:
+            self.capacity = max(2, min(20, int(m_cap.group(2))))
+        m_goal = re.search(r"파티 목표:\*\*\s*`([^`]+)`", desc)
+        if m_goal:
+            self.goal = m_goal.group(1)
+        m_dep = re.search(r"출발 예정:\*\*\s*`([^`]+)`", desc)
+        if m_dep and m_dep.group(1) != "인원 충원 즉시 출발":
+            self.departure_time = m_dep.group(1)
+        m_room = re.search(r"룸 코드:\*\*\s*`([^`]+)`", desc)
+        if m_room:
+            self.room_code = m_room.group(1)
+        if interaction.guild:
+            uid_matches = re.findall(r"`슬롯\s*\d+`.*?<@!?(\d+)>", desc)
+            restored_members = []
+            for uid_s in uid_matches:
+                mem = interaction.guild.get_member(int(uid_s))
+                if mem and mem not in restored_members:
+                    restored_members.append(mem)
+            if restored_members:
+                self.members = restored_members
+                self.host = restored_members[0]
         self._sync_buttons()
 
     def _sync_buttons(self):

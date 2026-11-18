@@ -205,6 +205,7 @@ def collect_user_unified_stats(
     gen_items = core.as_dict(gen_user.get("items"))
     gen_5star = sum(1 for it in gen_items.values() if isinstance(it, dict) and _safe_int(it.get("rarity", it.get("rank")), 0) >= 5)
     gen_arts = [a for a in core.coerce_list_like(gen_user.get("artifacts")) if isinstance(a, dict)]
+    gen_arts.extend(it for it in gen_items.values() if isinstance(it, dict) and it.get("kind") == "artifact")
     gen_best_art = None
     best_art_tuple = (-1.0, -1.0, "-")
     for art in gen_arts:
@@ -224,6 +225,7 @@ def collect_user_unified_stats(
     hsr_items = core.as_dict(hsr_user.get("items"))
     hsr_5star = sum(1 for it in hsr_items.values() if isinstance(it, dict) and _safe_int(it.get("rarity", it.get("rank")), 0) >= 5)
     hsr_rels = [r for r in core.coerce_list_like(hsr_user.get("relics")) if isinstance(r, dict)]
+    hsr_rels.extend(it for it in hsr_items.values() if isinstance(it, dict) and it.get("kind") == "relic")
     hsr_best_rel = None
     best_rel_tuple = (-1.0, -1.0, "-")
     for rel in hsr_rels:

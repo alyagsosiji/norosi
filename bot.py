@@ -1128,7 +1128,8 @@ class NorosiBot(commands.Bot):
                 continue
 
             emoji = info.get("emoji", "🌠")
-            new_name = core.format_dday_channel_name(name, info["date"], emoji)
+            plus_one_val = bool(info.get("plus_one", False))
+            new_name = core.format_dday_channel_name(name, info["date"], emoji, plus_one=plus_one_val)
             if getattr(channel, "name", None) != new_name:
                 try:
                     await channel.edit(name=new_name)
@@ -1550,8 +1551,9 @@ class NorosiBot(commands.Bot):
             date_str = info.get("date")
             if not date_str:
                 continue
+            plus_one_val = bool(info.get("plus_one", False))
             try:
-                diff, text = core.get_dday_info(date_str)
+                diff, text = core.get_dday_info(date_str, plus_one=plus_one_val)
             except Exception:
                 continue
             display_name = f"{name} 🔄" if info.get("repeat") else name
@@ -1561,7 +1563,8 @@ class NorosiBot(commands.Bot):
                 if diff < min_diff:
                     min_diff = diff
             elif diff >= -7:
-                recent_past_lines.append(f"• ~~{display_name} ({date_str})~~ : `{text}`")
+                plus_tag = " `(+1일 계산)`" if plus_one_val else ""
+                recent_past_lines.append(f"• ~~{display_name} ({date_str})~~ : `{text}`{plus_tag}")
             else:
                 archived_count += 1
 

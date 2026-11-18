@@ -48,19 +48,18 @@ class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 등록"
         default="🌠",
         max_length=5
     )
+    d_plus_one = discord.ui.TextInput(
+        label="지나간 날짜 +1일 계산 (날짜가 지난 경우 전용)",
+        placeholder="이미 지난 날짜에 +1일 적용 시 '+1' 또는 '예' 입력 (미입력 시 미적용)",
+        required=False,
+        max_length=10
+    )
 
     def __init__(self, dashboard_view: "MasterDashboardView"):
         super().__init__()
         self.dashboard_view = dashboard_view
 
     async def on_submit(self, interaction: discord.Interaction):
-        if not dday._has_dday_manage_perm(interaction):
-            await core.safe_send_response(
-                interaction,
-                "❌ 공용 D-Day 일정 추가는 **서버 관리(Manage Guild)** 또는 **관리자(Administrator)** 권한이 있는 멤버만 사용할 수 있습니다.\n💡 개인 일정은 `/비밀디데이` 명령어를 이용해 주세요!",
-                ephemeral=True,
-            )
-            return
         target_val = self.d_date.value.strip()
         start_val = self.d_start.value.strip() or core.get_today_str()
         try:
@@ -73,6 +72,8 @@ class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 등록"
         if start_dt > target_dt:
             start_val = min(core.get_today_str(), target_val)
 
+        plus_one_val = core.parse_dday_plus_one_flag(self.d_plus_one.value)
+
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
         name_val = self.d_name.value.strip()
@@ -83,10 +84,12 @@ class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 등록"
         ddays_root[name_val] = {
             "date": target_val,
             "repeat": existing.get("repeat", False),
+            "plus_one": plus_one_val,
             "start_date": start_val,
             "emoji": emoji_val,
             "channel_id": existing.get("channel_id"),
-            "category_id": existing.get("category_id")
+            "category_id": existing.get("category_id"),
+            "guild_id": interaction.guild_id or existing.get("guild_id"),
         }
         await asyncio.to_thread(core.save_data, data)
 
@@ -96,7 +99,7 @@ class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 등록"
             except Exception:
                 pass
 
-        _, diff_str = core.get_dday_info(target_val)
+        _, diff_str = core.get_dday_info(target_val, plus_one=plus_one_val)
         await interaction.followup.send(
             f"🎉 **새 D-Day 일정이 성공적으로 등록되었습니다!**\n"
             f"• **일정:** {emoji_val} **`{name_val}`**\n"
@@ -673,7 +676,7 @@ class MasterDashboardView(core.SafeView):
             if not date_val:
                 continue
             try:
-                diff, d_txt = core.get_dday_info(date_val)
+                diff, d_txt = core.get_dday_info(date_val, plus_one=bool(d_info.get("plus_one", False)))
                 if diff >= 0:
                     upcoming.append((diff, d_name, date_val, d_txt))
             except Exception:
@@ -851,7 +854,7 @@ class MasterDashboardView(core.SafeView):
                 continue
             d_val = info.get("date")
             try:
-                _, d_txt = core.get_dday_info(d_val)
+                _, d_txt = core.get_dday_info(d_val, plus_one=bool(info.get("plus_one", False)))
                 lines.append(f"• **{name}** (`{d_val}`): **`{d_txt}`**")
             except Exception:
                 pass
@@ -1270,13 +1273,6 @@ class MasterDashboardView(core.SafeView):
     # 일정 / D-Day 관련
     async def _on_add_dday_clicked(self, interaction: discord.Interaction):
         try:
-            if not dday._has_dday_manage_perm(interaction):
-                await core.safe_send_response(
-                    interaction,
-                    "❌ 공용 D-Day 일정 추가는 **서버 관리(Manage Guild)** 또는 **관리자(Administrator)** 권한이 있는 멤버만 사용할 수 있습니다.\n💡 개인 일정은 `/비밀디데이` 명령어를 이용해 주세요!",
-                    ephemeral=True,
-                )
-                return
             await interaction.response.send_modal(DashboardDDayAddModal(self))
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ D-Day 등록 모달 열기 실패: {e}", ephemeral=True)
@@ -1388,7 +1384,8 @@ class MasterDashboardView(core.SafeView):
             await core.safe_defer(interaction)
             now = datetime.datetime.now(core.KST)
             view = dday.EventForecastView(interaction.user, now.year, now.month)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            embed = await asyncio.to_thread(view.build_embed)
+            await interaction.followup.send(embed=embed, view=view)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 미래시 조회 중 오류: {e}", ephemeral=True)
 

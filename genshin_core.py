@@ -1531,6 +1531,60 @@ def _roll_artifact_piece_and_stats(item: dict, rng: random.Random) -> dict:
     return item
 
 
+def compute_genshin_artifact_score(art: dict) -> tuple[float, float, str]:
+    """성유물 딕셔너리에서 치명타 가치(CV), 유효옵 가치(RV), 등급(SSS~B)을 계산합니다."""
+    if not isinstance(art, dict):
+        return 0.0, 0.0, "B"
+    if "cv" in art and "rv" in art and "grade" in art:
+        try:
+            return float(art["cv"]), float(art["rv"]), str(art["grade"])
+        except Exception:
+            pass
+
+    rank = int(art.get("rank", art.get("rarity", 5)) or 5)
+    level = int(art.get("level", 4 if rank == 5 else 0) or 0)
+    scale = 1.0 + max(0, min(20, level)) / 5.0
+
+    subs = art.get("sub_stats") or art.get("artifact_sub_stats") or []
+    if not isinstance(subs, list):
+        subs = []
+
+    base_cv = 0.0
+    base_rv = 0.0
+    for s in subs:
+        s_str = str(s)
+        m = re.search(r"([0-9]+(?:\.[0-9]+)?)", s_str)
+        val = float(m.group(1)) if m else 0.0
+        if "치명타 확률" in s_str:
+            base_cv += val * 2.0
+            base_rv += 100.0
+        elif "치명타 피해" in s_str:
+            base_cv += val
+            base_rv += 100.0
+        elif "%" in s_str or "원소 마스터리" in s_str or "원소 충전" in s_str:
+            base_rv += 85.0
+        else:
+            base_rv += 65.0
+
+    cv = round(base_cv * (scale * 0.55), 1)
+    rv = round(base_rv * (scale * 0.45), 1)
+    if rank < 5:
+        cv = round(cv * 0.75, 1)
+        rv = round(rv * 0.75, 1)
+
+    if cv >= 45.0 or rv >= 650.0:
+        grade = "SSS (종결)"
+    elif cv >= 38.0 or rv >= 540.0:
+        grade = "SS (준종결)"
+    elif cv >= 28.0 or rv >= 420.0:
+        grade = "S (우수)"
+    elif cv >= 18.0 or rv >= 300.0:
+        grade = "A (보통)"
+    else:
+        grade = "B (일반)"
+    return cv, rv, grade
+
+
 def _roll_single_genshin(
     state: dict,
     banner_key: str,

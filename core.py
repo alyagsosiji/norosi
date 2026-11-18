@@ -438,15 +438,31 @@ def get_now_datetime_str():
     return datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
 
 
-async def safe_defer(interaction: discord.Interaction, ephemeral: bool = False):
+async def safe_defer(interaction: discord.Interaction, ephemeral: bool = False, thinking: Optional[bool] = None):
     """
     디스코드 응답 지연(defer) 중복 호출 예외(InteractionResponded, 40060) 및 3초 타임아웃을 안전하게 방어하는 헬퍼.
+    슬래시 명령어에서 바로 열린 모달(interaction.message is None)의 경우 DEFERRED_UPDATE_MESSAGE(Type 6)가
+    400 오류를 유발하므로 자동으로 thinking=True(Type 5)로 전환합니다.
     """
     if interaction and getattr(interaction, "response", None) and not interaction.response.is_done():
+        is_modal_without_msg = (
+            getattr(interaction, "type", None) == discord.InteractionType.modal_submit
+            and getattr(interaction, "message", None) is None
+        )
+        eff_thinking = True if (thinking is None and is_modal_without_msg) else thinking
         try:
-            await interaction.response.defer(ephemeral=ephemeral)
+            if eff_thinking is not None:
+                await interaction.response.defer(ephemeral=ephemeral, thinking=eff_thinking)
+            else:
+                await interaction.response.defer(ephemeral=ephemeral)
         except (discord.InteractionResponded, discord.HTTPException) as e:
             if isinstance(e, discord.HTTPException) and getattr(e, "code", None) != 40060:
+                if eff_thinking is None and getattr(interaction, "type", None) == discord.InteractionType.modal_submit:
+                    try:
+                        await interaction.response.defer(ephemeral=ephemeral, thinking=True)
+                        return
+                    except Exception:
+                        pass
                 print(f"⚠️ [safe_defer HTTP 예외] {e}", flush=True)
         except Exception:
             pass
@@ -723,9 +739,57 @@ def reconstruct_safe_view(view_cls_or_name: type[SafeView] | str, interaction: d
             elif name in ("guild_cfg",):
                 gid_s = str(interaction.guild.id if interaction.guild else 0)
                 kwargs[name] = safe_get_dict(_data(), "server_logs", gid_s)
-            elif name in ("card_list", "items", "options", "all_prob_cards", "stats_list", "first_set", "initial_drawn"):
+            elif name in (
+                "card_list", "items", "options", "all_prob_cards", "stats_list",
+                "first_set", "initial_drawn", "liked_music", "music_list",
+                "matches", "inactive_list", "entries",
+            ):
                 kwargs[name] = []
-            elif name in ("stats", "profile", "user_cfg", "config", "cal_info", "game", "card", "pickup_cfg", "preview_info", "hall_of_fame", "req_card", "tgt_card", "req_cards", "tgt_cards"):
+            elif name == "cal_info":
+                gid = interaction.guild.id if interaction.guild else 0
+                gname = interaction.guild.name if interaction.guild else "개인 메시지(DM)"
+                kwargs[name] = build_monthly_attendance_calendar(
+                    gid, gname, orig_user.id, getattr(orig_user, "display_name", "유저")
+                )
+            elif name == "stats":
+                if view_cls.__name__ == "TitleStudioView":
+                    kwargs[name] = None
+                elif view_cls.__name__ == "CardPokedexView":
+                    kwargs[name] = get_card_pokedex_stats(
+                        interaction.guild.id if interaction.guild else 0, orig_user.id
+                    )
+                else:
+                    kwargs[name] = {}
+            elif name == "game":
+                kwargs[name] = "프로세카" if view_cls.__name__ == "RecruitLobbyView" else {}
+            elif name == "capacity":
+                kwargs[name] = 5
+            elif name == "goal":
+                kwargs[name] = "자유 멀티"
+            elif name == "studio_view":
+                import cogs.music
+                kwargs[name] = cogs.music.PlaylistStudioView(orig_user, interaction.user, _data())
+            elif name == "title_str":
+                kwargs[name] = "🎵 음악 보관함"
+            elif name == "days_threshold":
+                kwargs[name] = 30
+            elif name == "total_members":
+                kwargs[name] = getattr(interaction.guild, "member_count", 1) or 1
+            elif name == "track_info":
+                kwargs[name] = {
+                    "title": "추천 곡",
+                    "artist": "Various Artists",
+                    "url": "https://www.youtube.com",
+                    "platform": "YouTube",
+                }
+            elif name == "prefs":
+                kwargs[name] = as_dict(_data().get("music_prefs")) or DEFAULT_CONFIG["music_prefs"]
+            elif name == "playlist_data":
+                kwargs[name] = {"id": "pl_1", "name": "공유 플레이리스트", "description": "", "tracks": []}
+            elif name in (
+                "profile", "user_cfg", "config", "card", "pickup_cfg",
+                "preview_info", "hall_of_fame", "req_card", "tgt_card", "req_cards", "tgt_cards",
+            ):
                 kwargs[name] = {}
             elif name in ("year",):
                 kwargs[name] = datetime.datetime.now(KST).year
@@ -5416,7 +5480,15 @@ def execute_partner_gift(guild_id: int, sender_id: int, partner_id: int, card_id
 # ==========================================
 # 5. D-Day 계산, 은하수 게이지 및 음악 추천 보조 함수
 # ==========================================
-def get_dday_info(target_date_str):
+def parse_dday_plus_one_flag(raw_val) -> bool:
+    """모달/옵션에서 입력된 지나간 날짜 +1일 계산 플래그를 bool로 파싱합니다."""
+    if isinstance(raw_val, bool):
+        return raw_val
+    s = str(raw_val or "").strip().lower()
+    return s in ("+1", "1", "예", "네", "y", "yes", "true", "on", "적용", "o", "ㅇ")
+
+
+def get_dday_info(target_date_str: str, plus_one: bool = False):
     today = datetime.datetime.now(KST).date()
     target_date = datetime.datetime.strptime(target_date_str, "%Y-%m-%d").date()
     diff = (target_date - today).days
@@ -5425,11 +5497,12 @@ def get_dday_info(target_date_str):
     elif diff == 0:
         return 0, "D-Day"
     else:
-        return diff, f"D+{abs(diff)}"
+        elapsed = abs(diff) + (1 if plus_one else 0)
+        return diff, f"D+{elapsed}"
 
 
-def format_dday_channel_name(name: str, date_str: str, emoji: str = "🌠"):
-    _, dday_text = get_dday_info(date_str)
+def format_dday_channel_name(name: str, date_str: str, emoji: str = "🌠", plus_one: bool = False):
+    _, dday_text = get_dday_info(date_str, plus_one=plus_one)
     clean_emoji = emoji.strip() if emoji and emoji.strip() else "🌠"
     return f"{clean_emoji}ㅣ{name} / {dday_text}"
 
@@ -5617,10 +5690,13 @@ def build_dday_grass_board_summary(ddays_dict: dict):
     counts = {"dday": 0, "urgent": 0, "soon": 0, "normal": 0, "relaxed": 0, "past": 0}
 
     for name, info in sorted(ddays_dict.items(), key=lambda x: x[1].get("date", "9999-12-31")):
+        if not isinstance(info, dict):
+            continue
         date_str = info.get("date", get_today_str())
         start_str = info.get("start_date", get_today_str())
+        plus_one = bool(info.get("plus_one", False))
         try:
-            diff, dday_text = get_dday_info(date_str)
+            diff, dday_text = get_dday_info(date_str, plus_one=plus_one)
             bar_data = build_dday_galaxy_grass_bar(start_str, date_str, width=12)
         except Exception:
             continue
@@ -5644,6 +5720,7 @@ def build_dday_grass_board_summary(ddays_dict: dict):
             "start_date": start_str,
             "emoji": info.get("emoji", "🌠"),
             "repeat": bool(info.get("repeat", False)),
+            "plus_one": plus_one,
             "channel_id": info.get("channel_id"),
             "diff": diff,
             "dday_text": dday_text,

@@ -157,7 +157,7 @@ class TitleStudioView(core.SafeView):
         self.user = user
         self.guild_id = int(guild_id or 0)
         self.status_msg = ""
-        if stats is not None:
+        if stats and "title" in stats:
             self.stats: Dict[str, Any] = stats
         else:
             self.stats = economy_core.get_title_shop_state(
@@ -178,6 +178,12 @@ class TitleStudioView(core.SafeView):
         self.add_item(TitleShopSelect(self, self.stats))
 
     def build_embed(self) -> discord.Embed:
+        if not self.stats or "title" not in self.stats:
+            self.stats = economy_core.get_title_shop_state(
+                self.guild_id,
+                self.user.id if self.user else 0,
+                self.user.display_name if self.user else "유저",
+            )
         st = self.stats
         cur = st["title"]
         owned = set(st.get("owned_titles") or ["newbie"])

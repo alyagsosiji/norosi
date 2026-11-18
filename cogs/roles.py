@@ -491,6 +491,7 @@ class QuickRoleButtonModal(core.SafeModal, title="🚀 역할 버튼 패널 생�
             await core.safe_send_response(interaction, hier_reason, ephemeral=True)
             return
 
+        await core.safe_defer(interaction, ephemeral=True)
         bot_member = guild.me or await guild.fetch_member(interaction.client.user.id)
         can_assign, reason = core.check_role_assignable(bot_member, target_role)
         if not can_assign:
@@ -794,6 +795,7 @@ class AttachExistingMessageModal(core.SafeModal, title="🔗 기존 메시지에
             await core.safe_send_response(interaction, "❌ 올바른 메시지 링크 또는 ID를 입력해 주세요.", ephemeral=True)
             return
 
+        await core.safe_defer(interaction, ephemeral=True)
         channel = guild.get_channel(channel_id) or await guild.fetch_channel(channel_id)
         if not isinstance(channel, discord.TextChannel):
             await core.safe_send_response(interaction, "❌ 텍스트 채널의 메시지만 지정할 수 있습니다.", ephemeral=True)

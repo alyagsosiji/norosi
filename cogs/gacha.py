@@ -1474,14 +1474,15 @@ class CardIllustToggleView(core.SafeView):
     def build_embed(self):
         mode_text = "✨ 각성 후 (After Training)" if self.current_mode == "after_training" else "🌸 각성 전 (Normal)"
         lock_status = "🔒 잠금 보호 중 (교환·선물·중복변환 제외)" if self.card.get("locked", False) else "🔓 잠금 해제됨"
-        unit_str = f"{self.card['unit']}" + (f" ({self.card['support_unit']})" if self.card.get("support_unit") else "")
+        base_unit = self.card.get("unit", "프로세카")
+        unit_str = f"{base_unit}" + (f" ({self.card['support_unit']})" if self.card.get("support_unit") else "")
         mr = int(self.card.get("master_rank", 0))
         cur_lvl = self.card.get("level", 1)
         max_lvl = core.get_card_max_level(self.card)
         pwr = core.get_card_power(self.card)
         desc_lines = [
             f"• **소속 유닛:** `{unit_str}`",
-            f"• **속성:** {self.card.get('attr', '✨')} · **보유 수량:** `{self.card.get('count', 1)}장` (ID: `{self.card.get('id')}`)",
+            f"• **속성:** {self.card.get('attr', '✨')} · **보유 수량:** `{self.card.get('count', 1)}장` (ID: `{self.card.get('id', '-')}`)",
             f"• **성장 스탯:** `Lv.{cur_lvl}/{max_lvl}` · **✦MR.{mr}/5** · **`⚔️ {pwr:,}`**",
             f"• **일러스트 상태:** `{mode_text}`",
             f"• **보호 상태:** `{lock_status}`"
@@ -1492,7 +1493,7 @@ class CardIllustToggleView(core.SafeView):
             desc_lines.append(f"• **부속 3D 의상:** 👗 **`[{cos['name']}]`** (`{'/'.join(cos.get('parts', ['body']))}`) · *{ac_txt}*")
 
         embed = discord.Embed(
-            title=f"🖼️ [{self.card.get('limit_label', '통상')}] {self.card['rarity_label']} [{self.card['prefix']}] {self.card['char_name']}",
+            title=f"🖼️ [{self.card.get('limit_label', '통상')}] {self.card.get('rarity_label', '★4')} [{self.card.get('prefix', '카드')}] {self.card.get('char_name', '캐릭터')}",
             description="\n".join(desc_lines),
             color=discord.Color.from_rgb(255, 105, 180) if self.card.get("star_num", 1) >= 4 else discord.Color.from_rgb(0, 204, 221)
         )
