@@ -4,7 +4,7 @@
 **서버의 든든한 신호탄이 되어주는 올인원(All-in-One) 다기능 디스코드 봇**
 
 > **⚠️ 비공식 팬 프로젝트 고지:** 본 봇은 **SEGA · Colorful Palette · Crypton Future Media · COGNOSPHERE(HoYoverse) · Discord Inc.**와 무관한 비영리·비공식 오픈소스 팬 툴이며, 게임 내 캐릭터·일러스트·명칭의 모든 지식재산권은 각 원저작권자에게 귀속됩니다. (봇 내 모든 재화·가챠는 금전적 가치가 없는 100% 무료 시뮬레이션입니다.)
-
+ 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![discord.py](https://img.shields.io/badge/discord.py-2.4%2B-5865F2?logo=discord&logoColor=white)](https://github.com/Rapptz/discord.py)
