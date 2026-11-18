@@ -572,24 +572,36 @@ class MasterDashboardView(core.SafeView):
         btn_notice.callback = self._on_announcement_clicked
         self.add_item(btn_notice)
 
+        btn_temp_vc = discord.ui.Button(label="🔊 임시 음성방 (Join-to-Create)", style=discord.ButtonStyle.success, row=1)
+        btn_temp_vc.callback = self._on_temp_voice_clicked
+        self.add_item(btn_temp_vc)
+
         btn_audit = discord.ui.Button(label="🛡️ 비활성 유저 감사", style=discord.ButtonStyle.secondary, row=2)
         btn_audit.callback = self._on_inactive_audit_clicked
         self.add_item(btn_audit)
 
     def _setup_game_buttons(self):
+        btn_fish = discord.ui.Button(label="🎣 낚시 출조", style=discord.ButtonStyle.primary, row=1)
+        btn_fish.callback = self._on_fishing_cast_clicked
+        self.add_item(btn_fish)
+
+        btn_tourney = discord.ui.Button(label="🏅 주말·제철 낚시대회", style=discord.ButtonStyle.success, row=1)
+        btn_tourney.callback = self._on_fishing_tourney_clicked
+        self.add_item(btn_tourney)
+
         btn_recruit = discord.ui.Button(label="🎮 파티/팀원 모집", style=discord.ButtonStyle.primary, row=1)
         btn_recruit.callback = self._on_recruit_clicked
         self.add_item(btn_recruit)
 
-        btn_word = discord.ui.Button(label="🔤 끝말잇기 시작", style=discord.ButtonStyle.success, row=1)
+        btn_word = discord.ui.Button(label="🔤 끝말잇기", style=discord.ButtonStyle.secondary, row=1)
         btn_word.callback = self._on_word_chain_clicked
         self.add_item(btn_word)
 
-        btn_roulette = discord.ui.Button(label="🔫 러시안룰렛", style=discord.ButtonStyle.danger, row=1)
+        btn_roulette = discord.ui.Button(label="🔫 러시안룰렛", style=discord.ButtonStyle.danger, row=2)
         btn_roulette.callback = self._on_roulette_clicked
         self.add_item(btn_roulette)
 
-        btn_weather = discord.ui.Button(label="🌤️ 실시간 날씨", style=discord.ButtonStyle.secondary, row=1)
+        btn_weather = discord.ui.Button(label="🌤️ 실시간 날씨", style=discord.ButtonStyle.secondary, row=2)
         btn_weather.callback = self._on_weather_clicked
         self.add_item(btn_weather)
 
@@ -617,6 +629,9 @@ class MasterDashboardView(core.SafeView):
     # ----------------------------------------------------
     # 탭별 대시보드 임베드 빌더
     # ----------------------------------------------------
+    def build_embed(self) -> discord.Embed:
+        return self.build_current_embed()
+
     def build_current_embed(self) -> discord.Embed:
         if self.current_tab == "home":
             return self.build_home_embed()
@@ -944,7 +959,7 @@ class MasterDashboardView(core.SafeView):
         embed = discord.Embed(
             title="🎭 역할 & 공지 & 서버 관리 대시보드",
             description=(
-                "사진 스타일 맞춤 역할 버튼 제작, 이모지 반응역할 및 스마트 공지를 관리합니다.\n\n"
+                "사진 스타일 맞춤 역할 버튼 제작, 이모지 반응역할, 임시 음성방 및 스마트 공지를 관리합니다.\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"• **🛡️ 내 관리 권한:** {admin_badge}\n"
                 f"• **🤖 봇 역할 권한:** {bot_badge}\n"
@@ -953,6 +968,7 @@ class MasterDashboardView(core.SafeView):
                 "• **✨ 추천 기능:**\n"
                 "  - **`[🚀 사진 스타일 역할버튼 제작]`** : 제목/본문/버튼이름/이모지를 자유롭게 넣어 깔끔한 버튼 발행\n"
                 "  - **`[🎭 반응역할 종합 스튜디오]`** : 단계별 빌더 및 기존 공지글 바인딩\n"
+                "  - **`[🔊 임시 음성방 (Join-to-Create)]`** : 입장 시 자동 생성·전원 퇴장 시 자동 삭제되는 개인 음성방 설정 & 리모컨\n"
                 "  - **`[📢 스마트 공지 발송]`** : 공지 채널에 알림 임베드 미리보기 및 즉시 전송\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             ),
@@ -964,10 +980,11 @@ class MasterDashboardView(core.SafeView):
 
     def build_game_embed(self) -> discord.Embed:
         embed = discord.Embed(
-            title="🎲 미니게임 & 파티 모집 & 유틸 대시보드",
+            title="🎲 낚시 대회 & 미니게임 & 파티 모집 대시보드",
             description=(
-                "서버 멤버들과 함께 즐기는 미니게임 및 스마트 편의성 도구 허브입니다.\n\n"
+                "서버 멤버들과 함께 즐기는 낚시 토너먼트, 미니게임 및 스마트 편의성 도구 허브입니다.\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "• **🎣 통합 낚시 & 🏅 주말·제철 낚시대회:** 호수·강·바다 출조, 계절 한정 제철 어종(`+25%🪙`) 및 토너먼트 시상\n"
                 "• **🎮 파티/팀원 모집:** 프로세카, 롤, 발로란트 등 자유 양식 팀원 모집 및 대기열\n"
                 "• **🔤 끝말잇기:** 표준 두음법칙 자동 적용 실시간 단어 대결 (+150💎)\n"
                 "• **🔫 러시안룰렛:** 6연발 실린더 서바이벌 스릴 게임\n"
@@ -1483,7 +1500,48 @@ class MasterDashboardView(core.SafeView):
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 비활성 유저 감사 모달 열기 실패: {e}", ephemeral=True)
 
+    async def _on_temp_voice_clicked(self, interaction: discord.Interaction):
+        try:
+            comm_cog = self._find_cog_with_attr("temp_voice_slash_cmd")
+            if comm_cog:
+                await comm_cog.temp_voice_slash_cmd.callback(comm_cog, interaction, 메뉴=None)
+            else:
+                await core.safe_send_response(interaction, "🔊 임시 음성방 설정 및 리모컨은 `/임시음성방` 명령어로 열 수 있습니다.", ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 임시 음성방 패널 열기 실패: {e}", ephemeral=True)
+
     # 게임 관련
+    async def _on_fishing_cast_clicked(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            import fishing_core
+            from cogs import fishing
+            guild_id = interaction.guild_id or 0
+            summary = await asyncio.to_thread(
+                fishing_core.update_user_fishing_prefs,
+                guild_id,
+                interaction.user.id,
+                interaction.user.display_name,
+            )
+            view = fishing.FishingCastView(interaction.user, guild_id=guild_id, summary=summary)
+            msg = await interaction.followup.send(embed=view.build_dashboard_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 낚시 출조 창 열기 실패: {e}", ephemeral=True)
+
+    async def _on_fishing_tourney_clicked(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            import fishing_core
+            from cogs import fishing
+            guild_id = interaction.guild_id or 0
+            status = await asyncio.to_thread(fishing_core.get_fishing_tournament_status, guild_id)
+            view = fishing.FishingTournamentView(interaction.user, guild_id=guild_id, status=status, tab="live")
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 낚시 대회 전광판 열기 실패: {e}", ephemeral=True)
+
     async def _on_recruit_clicked(self, interaction: discord.Interaction):
         try:
             if not interaction.guild:

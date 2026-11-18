@@ -550,6 +550,25 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "example": "/낚시 환경",
         "source": "cogs/fishing.py",
     },
+    {
+        "category": "fishing",
+        "cat_label": "🎣 통합 낚시 (호수·강·바다)",
+        "name": "/낚시 대회",
+        "desc": "주말 낚시 대회 & 계절 한정 어종(+25%🪙·1.5배 점수) 토너먼트 실시간 순위표 조회 및 개최·정산",
+        "params": "동작: [현황/개최/정산(선택)] 종목: [최장어/총중량/제철포인트(선택)] 시간: [1~72시간(선택)]",
+        "example": "/낚시 대회",
+        "source": "cogs/fishing.py",
+    },
+    {
+        "category": "fishing",
+        "cat_label": "🎣 통합 낚시 (호수·강·바다)",
+        "name": "/낚시대회",
+        "desc": "주말·커스텀 낚시 토너먼트 전광판과 이번 계절 한정 제철 어종 보너스 정보를 바로 확인 (`!낚시대회` 지원)",
+        "params": "동작: [현황/개최/정산(선택)] 종목: [최장어/총중량/제철포인트(선택)] 시간: [1~72시간(선택)]",
+        "example": "/낚시대회",
+        "source": "cogs/fishing.py",
+    },
+
 
     # 3. 📊 서버/유저 통계 & 상태 (3종)
     {
@@ -1014,16 +1033,25 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "category": "admin",
         "cat_label": "⚙️ 봇 관리 & 서버 편의",
         "name": "/이모지업스케일",
-        "desc": "[서버 관리자 전용] 커스텀 이모지(1~3개) 전송 시 원본 삭제 후 디코 스티커 크기(160px · 투명 여백 없이 딱 맞게)로 업스케일·웹훅 재전송 ON/OFF (기본값: OFF · :x: 반응 시 삭제)",
+        "desc": "[서버 관리자 전용] 커스텀 이모지(1~3개) 전송 시 emote-cdn-rust(160x160 Lanczos3 WebP · 24h 캐시 · CDN 엔드포인트) 방식으로 업스케일·웹훅 재전송 ON/OFF",
         "params": "동작: [켜기(ON)/끄기(OFF)/상태확인(선택)]",
         "example": "/이모지업스케일 동작:🟢 켜기 (ON)",
         "source": "cogs/emoji_upscale.py",
     },
     {
         "category": "admin",
+        "cat_label": "⚙️ 봇 관리 & 서버 편의",
+        "name": "/임시음성방",
+        "desc": "입장 시 개인 음성방이 자동 생성되고 전원 퇴장 시 삭제되는 '임시 음성방(Join-to-Create)' 생성기 설정 및 방장 리모컨(이름/정원/잠금/숨김/방장인계)",
+        "params": "메뉴: [리모컨호출/관리자설정(선택)]",
+        "example": "/임시음성방",
+        "source": "cogs/community.py",
+    },
+    {
+        "category": "admin",
         "cat_label": "⚙️ 봇 관리 & 안내",
         "name": "/도움말",
-        "desc": "전체 79개 슬래시 명령어(/원신·/스타레일 포함 99종 기능)의 카테고리별 상세 가이드 및 대화형 페이지별 열람",
+        "desc": "전체 슬래시 명령어 및 기능의 카테고리별 상세 가이드 및 대화형 페이지별 열람",
         "params": "category: [카테고리(선택)] search: [검색어(선택)]",
         "example": "/도움말 category:genshin search:기원",
         "source": "cogs/help.py",
@@ -1034,9 +1062,9 @@ CATEGORY_META = [
     ("cards", "🎮 출석 & 프로세카 카드/가챠 (21종 · 5페이지)", "출석체크, 배너별 프로세카 뽑기, 마스터랭크, 세카이라이브, 3D 의상·어나더컬러 등"),
     ("genshin", "🌠 원신 기원 & 도감 & 상점 (11종 · 3페이지)", "/원신 기원(90/80천장·포착된 광휘), 운명의 궤도, 페이몬의 상점, 4인 원소 공명 파티 등"),
     ("hsr", "🚄 스타레일 워프 & 아카이브 & 상점 (11종 · 3페이지)", "/스타레일 워프(광추 75/25·300회 선택), 별빛/헤르타 상점, 4인 편대 시너지 등"),
-    ("fishing", "🎣 통합 낚시 — 호수·강·바다 13,444종 (10종 · 2페이지)", "/낚시 출조(세부 수역·cm/kg·날씨), /낚시랭킹, 도감 필터, 개인 수족관, 장비 상점 등"),
+    ("fishing", "🎣 통합 낚시 — 호수·강·바다 13,444종 (12종 · 3페이지)", "/낚시 출조(세부 수역·cm/kg·날씨), /낚시대회(주말·제철 토너먼트), /낚시랭킹, 도감, 수족관, 상점 등"),
     ("dday", "📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", "멤버 생일 전광판, 공용/비밀 D-Day, 파트너, 하드코어스터디, 뽀모도로 집중모드 등"),
-    ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", "올인원 /대시보드, /메뉴, /깃허브연동, /터미널로그채널, 반응역할, 공지발송 등"),
+    ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (18종 · 4페이지)", "올인원 /대시보드, /메뉴, /임시음성방, /이모지업스케일, /깃허브연동, 반응역할, 공지발송 등"),
     ("games", "🎲 미니게임 & 파티 모집 (5종 · 1페이지)", "파티원 모집, 끝말잇기(두음법칙), 러시안룰렛, 초정밀 실시간 날씨, 스마트 알림예약"),
     ("stats", "📊 서버/유저 통계 & 건의 (4종 · 1페이지)", "멤버 상세 유저정보, 실시간 서버통계 보드, 호스트 봇상태, 익명/공개 건의"),
     ("music", "🎵 음악 & 플레이리스트 (13종 · 3페이지)", "나만의 음악 플레이리스트 제작·공유(유튜브/스포티파이/사클), 음성 순차재생, 배속(0.5x~2.0x), 헤드셋제어, 오디오테스트 등"),
@@ -1044,18 +1072,19 @@ CATEGORY_META = [
 ]
 
 CATEGORY_DROPDOWN_OPTIONS = [
-    ("all", "🌟 전체 명령어 한눈에 보기 (109종 요약판)", "10대 카테고리 요약 보드 (다음 버튼으로 상세 가이드 열람)", "🌐"),
+    ("all", "🌟 전체 명령어 한눈에 보기 (요약판)", "10대 카테고리 요약 보드 (다음 버튼으로 상세 가이드 열람)", "🌐"),
     ("cards", "🎮 출석 & 프로세카 가챠 (21종 · 5페이지)", "/프로세카뽑기, /마스터랭크, /라이브, /의상, /마이세카이 등", "🎮"),
     ("genshin", "🌠 원신 기원·도감·상점 (11종 · 3페이지)", "/원신 기원, /원신 운명의궤도, /원신 상점, /원신 파티편성 등", "🌠"),
     ("hsr", "🚄 스타레일 워프·상점·편대 (11종 · 3페이지)", "/스타레일 워프, /스타레일 상시300선택, /스타레일 상점, /스타레일 파티편성 등", "🚄"),
-    ("fishing", "🎣 통합 낚시 (10종 · 호수·강·바다 13,444종)", "/낚시 출조, /낚시랭킹, /낚시 도감, /낚시 수족관, /낚시 상점 등", "🎣"),
+    ("fishing", "🎣 통합 낚시 (12종 · 호수·강·바다 13,444종)", "/낚시 출조, /낚시대회, /낚시랭킹, /낚시 도감, /낚시 수족관, /낚시 상점 등", "🎣"),
     ("dday", "📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", "/디데이추가, /하드코어스터디, /생일등록, /파트너, /집중모드 등", "📅"),
-    ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", "/대시보드, /메뉴, /깃허브연동, /터미널로그채널, /반응역할 등", "⚙️"),
+    ("admin", "⚙️ 봇 관리 & 마스터 대시보드 (18종 · 4페이지)", "/대시보드, /메뉴, /임시음성방, /이모지업스케일, /깃허브연동, /반응역할 등", "⚙️"),
     ("games", "🎲 미니게임 & 파티 모집 (5종 · 1페이지)", "/모집, /끝말잇기, /러시안룰렛, /날씨, /알림예약", "🎲"),
     ("stats", "📊 서버/유저 통계 & 건의 (4종 · 1페이지)", "/서버통계, /유저정보, /건의, /봇상태", "📊"),
     ("music", "🎵 음악 & 플레이리스트 (13종 · 3페이지)", "/플레이리스트, /플리재생, /배속, /헤드셋, /플리곡추가 등", "🎵"),
     ("ai", "💬 AI 세카이 대화 (2종 · 1페이지)", "/인공지능대화, /인공지능캐릭터설정", "💬"),
 ]
+
 
 
 def build_help_embed(category: str = "all", search_kw: str = "", page: int = 0) -> discord.Embed:
@@ -1311,17 +1340,21 @@ class HelpCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="도움말", description="norosi bot help - 전체 슬래시 명령어(108종 기능) 한눈에 보기 및 카테고리별 상세 가이드")
+    @app_commands.command(name="도움말", description="norosi bot help - 전체 슬래시 명령어(133종 기능) 한눈에 보기 및 카테고리별 상세 가이드")
     @app_commands.describe(
-        category="안내받을 카테고리 (all/cards/genshin/hsr/fishing/dday/admin/games/stats/music/ai)",
-        search="검색할 명령어 이름 또는 키워드 (예: 낚시, 원신, 스타레일, 프로세카뽑기, 운명의궤도, 플레이리스트)"
+        category="안내받을 카테고리 (all/cards/genshin/hsr/fishing/economy/life/other_life/tickets/dday/admin/games/stats/music/ai)",
+        search="검색할 명령어 이름 또는 키워드 (예: 낚시대회, 임시음성방, 이모지업스케일, 원신, 스타레일, 플레이리스트)"
     )
     @app_commands.choices(category=[
-        app_commands.Choice(name="🌟 전체 명령어 한눈에 보기 (108종 요약판)", value="all"),
+        app_commands.Choice(name="🌟 전체 명령어 한눈에 보기 (133종 요약판)", value="all"),
         app_commands.Choice(name="🎮 출석 & 프로세카 가챠 (21종 · 5페이지)", value="cards"),
         app_commands.Choice(name="🌠 원신 기원 & 도감 & 상점 (11종 · 3페이지)", value="genshin"),
         app_commands.Choice(name="🚄 스타레일 워프 & 아카이브 & 상점 (11종 · 3페이지)", value="hsr"),
-        app_commands.Choice(name="🎣 통합 낚시 (10종 · 호수·강·바다 13,444종)", value="fishing"),
+        app_commands.Choice(name="🎣 통합 낚시 & 대회 (11종 · 호수·강·바다 36,700종)", value="fishing"),
+        app_commands.Choice(name="💳 통합 경제 & 프로필카드 & 칭호 (4종 · 1페이지)", value="economy"),
+        app_commands.Choice(name="🌾 농장 & 공동농장 & 펫 & 요리 (5종 · 1페이지)", value="life"),
+        app_commands.Choice(name="👶 타인의 삶 — 인생 시뮬레이션 (3종 · 1페이지)", value="other_life"),
+        app_commands.Choice(name="🎫 1:1 티켓 & 임시음성방 & 커뮤니티 방어 (12종 · 3페이지)", value="tickets"),
         app_commands.Choice(name="📅 D-Day & 생일 & 라이프 (15종 · 3페이지)", value="dday"),
         app_commands.Choice(name="⚙️ 봇 관리 & 마스터 대시보드 (17종 · 4페이지)", value="admin"),
         app_commands.Choice(name="🎲 미니게임 & 파티 모집 (5종 · 1페이지)", value="games"),
@@ -1343,11 +1376,12 @@ class HelpCog(commands.Cog):
 
     @commands.command(name="도움말", aliases=["help", "도움", "명령어"])
     async def prefix_help(self, ctx: commands.Context, *, 검색: Optional[str] = ""):
-        """채팅창에 !도움말 또는 !help 입력 시 즉시 99종 기능 올인원 가이드 및 카테고리 대시보드 호출"""
+        """채팅창에 !도움말 또는 !help 입력 시 즉시 전체 기능 올인원 가이드 및 카테고리 대시보드 호출"""
         embed = build_help_embed(category="all", search_kw=검색 or "", page=0)
         view = HelpCategoryView(bot_instance=self.bot, category="all", search_kw=검색 or "", author=ctx.author)
         await ctx.send(embed=embed, view=view)
 
 
 async def setup(bot: commands.Bot):
+    bot.remove_command("help")
     await bot.add_cog(HelpCog(bot))

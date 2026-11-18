@@ -65,6 +65,10 @@ if [ ! -f "$APP_DIR/.env" ]; then
         cp "$APP_DIR/deploy/.env.example" "$APP_DIR/.env"
         echo "⚠️  새로운 .env 파일이 생성되었습니다! (경로: $APP_DIR/.env)"
         echo "👉 나중에 'nano $APP_DIR/.env' 명령어로 디스코드 봇 토큰을 꼭 입력해주세요."
+    elif [ -f "$APP_DIR/deploy/.env.example.txt" ]; then
+        cp "$APP_DIR/deploy/.env.example.txt" "$APP_DIR/.env"
+        echo "⚠️  새로운 .env 파일이 생성되었습니다! (경로: $APP_DIR/.env)"
+        echo "👉 나중에 'nano $APP_DIR/.env' 명령어로 디스코드 봇 토큰을 꼭 입력해주세요."
     fi
 else
     echo "✅ 기존 .env 파일이 확인되었습니다."

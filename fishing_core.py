@@ -1386,13 +1386,17 @@ def finalize_fish_catch(
             # 황금/특대 변이 판정 (희귀 이벤트)
             variant = "golden" if random.random() < 0.025 else "normal"
 
-            # 예상 판매 골드 산정
+            # 예상 판매 골드 산정 (+ 계절 제철 어종 1.25배 보너스)
+            cur_season = get_current_season_meta()
+            is_seasonal = is_seasonal_bonus_species(sp, cur_season["id"])
             size_factor = 0.80 + (ratio * 0.70)
             gold_val = int(sp["base_gold"] * size_factor * (1.0 + rod["gold_bonus"] + life_gold_bonus))
             if is_trophy:
                 gold_val = int(gold_val * 1.40)
             if variant == "golden":
                 gold_val = int(gold_val * 2.00)
+            if is_seasonal:
+                gold_val = int(gold_val * 1.25)
             gold_val = max(10, gold_val)
 
             uid_hex = uuid.uuid4().hex[:8]
@@ -1410,6 +1414,7 @@ def finalize_fish_catch(
                 "weight_kg": weight_kg,
                 "gold": gold_val,
                 "is_trophy": is_trophy,
+                "is_seasonal": is_seasonal,
                 "variant": variant,
                 "locked": sp["rarity"] >= 4 or is_trophy,  # 전설/신화/월척 자동 보호
                 "caught_at": caught_at,
@@ -1579,6 +1584,11 @@ def finalize_fish_catch(
         if leveled_up:
             u["gold"] += new_lvl * 50
 
+        # 진행 중인 주말/커스텀 낚시 대회 자동 기록 반영
+        tournament_update = _record_tournament_catch_unlocked(
+            data, guild_id, user_id, user_name, habitat, catches
+        )
+
         core.save_data(data)
 
         # 대표 어종 선정 (성급 > 신기록 > 월척 > 황금 > 첫도감 > 골드 > 길이)
@@ -1613,6 +1623,7 @@ def finalize_fish_catch(
             "new_server_wt_record": primary["new_server_wt_record"],
             "any_first_catch": any(c["is_first_catch"] for c in catches),
             "any_server_record": any(c["new_server_len_record"] or c["new_server_wt_record"] for c in catches),
+            "any_seasonal_bonus": any(c["fish"].get("is_seasonal") for c in catches),
             "crystal_bonus": total_crystal_bonus,
             "bonus_reasons": all_bonus_reasons,
             "gain_exp": total_gain_exp,
@@ -1624,6 +1635,7 @@ def finalize_fish_catch(
             "user_crystals": _safe_int(prof.get("crystals"), 0),
             "remaining_bait": _safe_int(u["baits"].get(use_bait_id), 0) if use_bait_id != "dough" else -1,
             "life_buffs": life_buffs,
+            "tournament_update": tournament_update,
         }
 
 
@@ -2480,3 +2492,554 @@ def build_catch_card_bytes(catch_res: Dict[str, Any], user_name: str) -> Optiona
     except Exception as e:
         print(f"⚠️ [fishing_core] 포획 카드 PNG 렌더링 예외: {e}", flush=True)
         return None
+
+
+# ==========================================
+# 주말 낚시 대회 & 계절(제철) 한정 어종 토너먼트 엔진 (#8)
+# ==========================================
+SEASONS_META: Dict[str, Dict[str, Any]] = {
+    "spring": {
+        "id": "spring",
+        "name": "봄 (Spring)",
+        "emoji": "🌸",
+        "months": (3, 4, 5),
+        "color": 0xF472B6,
+        "desc": "따스한 봄바람과 함께 산란기 혼인색이 물든 계류·기수역 어종과 봄 도다리·참돔이 활발합니다.",
+        "species_ids": {
+            "lake_bitterling", "lake_rose_bitterling", "lake_crucian", "lake_rainbow_trout",
+            "river_sweetfish", "river_shiri", "river_cherry_salmon", "river_river_puffer",
+            "river_masou_salmon", "sea_halfbeak", "sea_whiting", "sea_surfperch",
+        },
+        "keywords": ("도다리", "참돔", "볼락", "숭어", "붕어", "송어", "산천어", "황복", "은어", "학꽁치"),
+    },
+    "summer": {
+        "id": "summer",
+        "name": "여름 (Summer)",
+        "emoji": "☀️",
+        "months": (6, 7, 8),
+        "color": 0x38BDF8,
+        "desc": "수온이 오르며 배스·가물치·민물장어·농어·돌돔·부시리·다랑어 등 폭발적인 입질의 여름 대물이 날뜁니다.",
+        "species_ids": {
+            "lake_largemouth_bass", "lake_smallmouth_bass", "lake_snakehead", "lake_catfish",
+            "lake_peacock_bass", "lake_arapaima", "river_eel", "river_mandarin_fish",
+            "river_spotted_seabass", "river_giant_mottled_eel", "river_goliath_tigerfish",
+            "sea_korean_rockfish", "sea_mackerel",
+        },
+        "keywords": ("배스", "가물치", "장어", "메기", "농어", "돌돔", "벤자리", "부시리", "다랑어", "새치", "상어"),
+    },
+    "autumn": {
+        "id": "autumn",
+        "name": "가을 (Autumn)",
+        "emoji": "🍁",
+        "months": (9, 10, 11),
+        "color": 0xF59E0B,
+        "desc": "가을 전어·주꾸미·삼치·감성돔·연어 소상철! 월동을 앞두고 살이 통통하게 오른 대물 시즌입니다.",
+        "species_ids": {
+            "lake_carp", "lake_koi", "lake_skygazer", "lake_northern_pike",
+            "river_chum_salmon", "river_king_salmon", "river_atlantic_salmon", "river_golden_mandarin",
+            "sea_horse_mackerel", "sea_saury", "sea_webfoot_octopus", "sea_spanish_mackerel",
+            "sea_yellow_croaker",
+        },
+        "keywords": ("전어", "주꾸미", "갑오징어", "삼치", "감성돔", "갈치", "연어", "고등어", "꽁치", "잉어"),
+    },
+    "winter": {
+        "id": "winter",
+        "name": "겨울 (Winter)",
+        "emoji": "❄️",
+        "months": (12, 1, 2),
+        "color": 0x60A5FA,
+        "desc": "얼음 호수의 빙어·공어·레이크트라우트와 겨울 바다의 꽃 대방어·대구·우럭·감성돔이 제철을 맞습니다.",
+        "species_ids": {
+            "lake_smelt", "lake_pond_smelt", "lake_lake_trout", "lake_walleye",
+            "lake_baikal_omul", "lake_siberian_sturgeon", "river_lenok", "river_kumgang_minnow",
+            "sea_rockfish_inermis", "sea_fat_greenling", "sea_herring", "sea_yellowfin_goby",
+        },
+        "keywords": ("빙어", "공어", "방어", "대구", "명태", "열목어", "우럭", "노래미", "청어", "철갑상어", "심해"),
+    },
+}
+
+TOURNAMENT_MODES: Dict[str, Dict[str, Any]] = {
+    "max_cm": {
+        "id": "max_cm",
+        "name": "최장어 대물전 (Max Length)",
+        "short": "📏 최장어(cm)",
+        "emoji": "📏",
+        "unit": "cm",
+        "desc": "대회 기간 중 가장 길이가 긴 단일 대물(cm)을 낚은 출조사가 우승합니다! (제철 어종은 체장 환산 +15% 보너스)",
+    },
+    "total_kg": {
+        "id": "total_kg",
+        "name": "만선 합산 중량전 (Total Weight)",
+        "short": "⚖️ 합산 중량(kg)",
+        "emoji": "⚖️",
+        "unit": "kg",
+        "desc": "대회 기간 중 포획한 모든 물고기의 누적 무게(kg) 합산이 가장 높은 출조사가 우승합니다!",
+    },
+    "seasonal_pts": {
+        "id": "seasonal_pts",
+        "name": "계절 제철 포인트전 (Seasonal Trophy)",
+        "short": "🌸 제철 포인트(pt)",
+        "emoji": "🌸",
+        "unit": "pt",
+        "desc": "어종 성급·체장·월척 점수를 합산하며, 현재 계절의 제철 보너스 어종 포획 시 점수가 1.5배로 적용됩니다!",
+    },
+}
+
+TOURNAMENT_PRIZES: List[Dict[str, Any]] = [
+    {"rank": 1, "label": "🥇 1위 (챔피언)", "gold": 15000, "crystals": 500, "trophy": 1},
+    {"rank": 2, "label": "🥈 2위 (준우승)", "gold": 8000, "crystals": 300, "trophy": 0},
+    {"rank": 3, "label": "🥉 3위 (입상)", "gold": 4000, "crystals": 150, "trophy": 0},
+]
+TOURNAMENT_PARTICIPATION_PRIZE = {"gold": 1000, "crystals": 30}
+
+
+def get_current_season_meta(now_dt: Optional[datetime.datetime] = None) -> Dict[str, Any]:
+    dt = now_dt or datetime.datetime.now(core.KST)
+    m = dt.month
+    for s_id, meta in SEASONS_META.items():
+        if m in meta["months"]:
+            return meta
+    return SEASONS_META["spring"]
+
+
+def is_seasonal_bonus_species(sp: Dict[str, Any], season_id: Optional[str] = None) -> bool:
+    if not isinstance(sp, dict):
+        return False
+    s_meta = SEASONS_META.get(season_id or "") or get_current_season_meta()
+    fid = str(sp.get("id") or "")
+    if fid in s_meta["species_ids"]:
+        return True
+    name_str = str(sp.get("name") or "")
+    return any(kw in name_str for kw in s_meta["keywords"])
+
+
+def get_seasonal_featured_species(season_id: Optional[str] = None, habitat_filter: str = "all", limit: int = 18) -> List[Dict[str, Any]]:
+    s_meta = SEASONS_META.get(season_id or "") or get_current_season_meta()
+    s_id = s_meta["id"]
+    matched: List[Dict[str, Any]] = []
+    seen = set()
+    for fid in s_meta["species_ids"]:
+        sp = FISH_BY_ID.get(fid)
+        if sp and (habitat_filter == "all" or sp.get("habitat") == habitat_filter):
+            matched.append(sp)
+            seen.add(fid)
+    for sp in _FALLBACK_ORIGINAL_140:
+        fid = sp["id"]
+        if fid in seen:
+            continue
+        if habitat_filter != "all" and sp.get("habitat") != habitat_filter:
+            continue
+        if is_seasonal_bonus_species(sp, s_id):
+            matched.append(sp)
+            seen.add(fid)
+    matched.sort(key=lambda x: (-int(x.get("rarity", 1)), -float(x.get("max_cm", 0))))
+    return matched[:limit]
+
+
+def compute_tournament_catch_points(fish: Dict[str, Any], sp: Dict[str, Any], season_id: Optional[str] = None) -> Tuple[int, bool]:
+    """단일 물고기 포획의 계절 토너먼트 포인트 및 제철 어종 여부 계산."""
+    rarity = max(1, _safe_int(sp.get("rarity") or fish.get("rarity"), 1))
+    base_pts = {1: 25, 2: 55, 3: 130, 4: 320, 5: 800}.get(rarity, 25)
+    length_cm = max(0.1, _safe_float(fish.get("length_cm"), 10.0))
+    max_cm = max(1.0, _safe_float(sp.get("max_cm"), length_cm))
+    size_ratio = min(1.2, length_cm / max_cm)
+    pts = int(round(base_pts * (0.75 + size_ratio * 0.55)))
+    if fish.get("is_trophy"):
+        pts = int(round(pts * 1.35))
+    if fish.get("variant") == "golden":
+        pts = int(round(pts * 1.60))
+    seasonal = is_seasonal_bonus_species(sp, season_id)
+    if seasonal:
+        pts = int(round(pts * 1.50))
+    return max(10, pts), seasonal
+
+
+def _ensure_guild_tournament_root(data: Dict[str, Any], guild_id: int | str) -> Dict[str, Any]:
+    g_key = str(guild_id or 0)
+    root = core.ensure_dict_path(data, "fishing_tournaments", g_key)
+    if not isinstance(root.get("history"), list):
+        root["history"] = []
+    return root
+
+
+def _build_auto_weekend_tournament(now_dt: datetime.datetime, guild_id: int | str) -> Optional[Dict[str, Any]]:
+    """토요일(5)·일요일(6) KST에는 주말 자동 낚시 대회를 생성합니다."""
+    if now_dt.weekday() not in (5, 6):
+        return None
+    sat_date = (now_dt - datetime.timedelta(days=(now_dt.weekday() - 5))).date()
+    sun_date = sat_date + datetime.timedelta(days=1)
+    start_dt = datetime.datetime.combine(sat_date, datetime.time(0, 0, 0), tzinfo=core.KST)
+    end_dt = datetime.datetime.combine(sun_date, datetime.time(23, 59, 59), tzinfo=core.KST)
+    season = get_current_season_meta(now_dt)
+    # 주차별로 3가지 대회 모드를 자동 순환
+    iso_week = sat_date.isocalendar()[1]
+    mode_order = ["seasonal_pts", "max_cm", "total_kg"]
+    mode_id = mode_order[iso_week % len(mode_order)]
+    m_meta = TOURNAMENT_MODES[mode_id]
+    return {
+        "id": f"weekend_{sat_date.isoformat()}",
+        "title": f"{season['emoji']} 주말 정규 낚시 토너먼트 ({m_meta['short']})",
+        "guild_id": int(guild_id or 0),
+        "mode": mode_id,
+        "habitat": "all",
+        "season_id": season["id"],
+        "is_auto_weekend": True,
+        "host_id": 0,
+        "host_name": "🤖 주말 자동 개최",
+        "started_at": start_dt.isoformat(),
+        "ends_at": end_dt.isoformat(),
+        "settled": False,
+        "participants": {},
+    }
+
+
+def _rank_tournament_participants(tourney: Dict[str, Any]) -> List[Dict[str, Any]]:
+    mode = str(tourney.get("mode") or "seasonal_pts")
+    p_map = core.as_dict(tourney.get("participants"))
+    rows: List[Dict[str, Any]] = []
+    for uid_s, p in p_map.items():
+        if not isinstance(p, dict):
+            continue
+        score_cm = _safe_float(p.get("score_cm") or p.get("max_cm"), 0.0)
+        raw_cm = _safe_float(p.get("max_cm"), 0.0)
+        total_kg = _safe_float(p.get("total_kg"), 0.0)
+        seasonal_pts = _safe_int(p.get("seasonal_pts"), 0)
+        catch_cnt = _safe_int(p.get("catch_count"), 0)
+        if catch_cnt <= 0:
+            continue
+        if mode == "max_cm":
+            primary_score = score_cm
+        elif mode == "total_kg":
+            primary_score = total_kg
+        else:
+            primary_score = float(seasonal_pts)
+        rows.append({
+            "user_id": str(uid_s),
+            "user_name": str(p.get("user_name") or f"낚시꾼({uid_s[:4]})"),
+            "primary_score": primary_score,
+            "score_cm": round(score_cm, 1),
+            "max_cm": round(raw_cm, 1),
+            "max_kg": round(_safe_float(p.get("max_kg"), 0.0), 3),
+            "total_kg": round(total_kg, 2),
+            "seasonal_pts": seasonal_pts,
+            "catch_count": catch_cnt,
+            "seasonal_catches": _safe_int(p.get("seasonal_catches"), 0),
+            "best_fish_name": str(p.get("best_fish_name") or "물고기"),
+            "best_fish_emoji": str(p.get("best_fish_emoji") or "🐟"),
+            "best_fish_rarity": _safe_int(p.get("best_fish_rarity"), 1),
+            "best_is_seasonal": bool(p.get("best_is_seasonal", False)),
+            "updated_at": str(p.get("updated_at") or ""),
+        })
+    rows.sort(key=lambda r: (-r["primary_score"], -r["max_cm"], -r["catch_count"]))
+    for idx, r in enumerate(rows, 1):
+        r["rank"] = idx
+    return rows
+
+
+def _settle_tournament_unlocked(data: Dict[str, Any], guild_id: int | str, tourney: Dict[str, Any]) -> Dict[str, Any]:
+    """락 내부에서 만료/종료된 대회 보상을 참가자들에게 지급하고 히스토리에 기록합니다."""
+    ranked = _rank_tournament_participants(tourney)
+    now_iso = datetime.datetime.now(core.KST).isoformat()
+    awarded: List[Dict[str, Any]] = []
+    for row in ranked:
+        uid = row["user_id"]
+        uname = row["user_name"]
+        u_fish = ensure_fishing_user(data, guild_id, uid, uname)
+        prof = core.ensure_user_profile(data, uid, uname)
+        rank = row["rank"]
+        prize = next((p for p in TOURNAMENT_PRIZES if p["rank"] == rank), None)
+        if prize:
+            g_gain = int(prize["gold"])
+            c_gain = int(prize["crystals"])
+            t_gain = int(prize["trophy"])
+            badge = prize["label"]
+        else:
+            g_gain = int(TOURNAMENT_PARTICIPATION_PRIZE["gold"])
+            c_gain = int(TOURNAMENT_PARTICIPATION_PRIZE["crystals"])
+            t_gain = 0
+            badge = f"🎖️ {rank}위 (완주 보상)"
+        u_fish["gold"] = _safe_int(u_fish.get("gold"), 0) + g_gain
+        u_fish["total_gold_earned"] = _safe_int(u_fish.get("total_gold_earned"), 0) + g_gain
+        if t_gain > 0:
+            u_fish["tournament_wins"] = _safe_int(u_fish.get("tournament_wins"), 0) + t_gain
+        prof["crystals"] = _safe_int(prof.get("crystals"), 0) + c_gain
+        awarded.append({
+            **row,
+            "badge": badge,
+            "reward_gold": g_gain,
+            "reward_crystals": c_gain,
+            "reward_trophy": t_gain,
+        })
+
+    tourney["settled"] = True
+    tourney["settled_at"] = now_iso
+    tourney["final_rankings"] = awarded[:15]
+    root = _ensure_guild_tournament_root(data, guild_id)
+    hist = list(root.get("history") or [])
+    hist.insert(0, copy.deepcopy(tourney))
+    root["history"] = hist[:20]
+    root["active"] = None
+    return tourney
+
+
+def _record_tournament_catch_unlocked(
+    data: Dict[str, Any],
+    guild_id: int | str,
+    user_id: int | str,
+    user_name: str,
+    habitat: str,
+    catches: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """finalize_fish_catch 내부(이미 _FISHING_LOCK 보유 중)에서 호출되어 대회 기록 및 제철 보너스를 반영합니다."""
+    now_dt = datetime.datetime.now(core.KST)
+    root = _ensure_guild_tournament_root(data, guild_id)
+    active = root.get("active")
+
+    # 기존 대회가 만료되었으면 자동 정산
+    if isinstance(active, dict) and not active.get("settled"):
+        try:
+            ends_dt = datetime.datetime.fromisoformat(str(active.get("ends_at")))
+            if ends_dt.tzinfo is None:
+                ends_dt = ends_dt.replace(tzinfo=core.KST)
+            if now_dt > ends_dt:
+                _settle_tournament_unlocked(data, guild_id, active)
+                active = None
+        except Exception:
+            pass
+
+    # 주말이고 활성 대회가 없으면 주말 자동 대회 활성화
+    if not isinstance(active, dict) or active.get("settled"):
+        auto_wk = _build_auto_weekend_tournament(now_dt, guild_id)
+        if auto_wk:
+            hist_ids = {str(h.get("id")) for h in (root.get("history") or []) if isinstance(h, dict)}
+            if auto_wk["id"] not in hist_ids:
+                root["active"] = auto_wk
+                active = auto_wk
+
+    if not isinstance(active, dict) or active.get("settled"):
+        return None
+
+    req_hab = str(active.get("habitat") or "all")
+    if req_hab != "all" and req_hab != habitat:
+        return None
+
+    season_id = str(active.get("season_id") or get_current_season_meta(now_dt)["id"])
+    prev_ranks = _rank_tournament_participants(active)
+    prev_leader_id = prev_ranks[0]["user_id"] if prev_ranks else None
+
+    p_map = active.setdefault("participants", {})
+    uid_s = str(user_id)
+    entry = p_map.get(uid_s)
+    if not isinstance(entry, dict):
+        entry = {
+            "user_id": uid_s,
+            "user_name": user_name,
+            "max_cm": 0.0,
+            "score_cm": 0.0,
+            "max_kg": 0.0,
+            "total_kg": 0.0,
+            "seasonal_pts": 0,
+            "catch_count": 0,
+            "seasonal_catches": 0,
+            "best_fish_name": "",
+            "best_fish_emoji": "🐟",
+            "best_fish_rarity": 1,
+            "best_is_seasonal": False,
+            "updated_at": "",
+        }
+        p_map[uid_s] = entry
+    entry["user_name"] = user_name or entry.get("user_name") or "낚시꾼"
+
+    gained_pts_total = 0
+    gained_kg_total = 0.0
+    seasonal_hit_names: List[str] = []
+    improved_best = False
+
+    for c in catches:
+        f = c["fish"]
+        sp = c["species"]
+        cm_val = _safe_float(f.get("length_cm"), 0.0)
+        kg_val = _safe_float(f.get("weight_kg"), 0.0)
+        pts, is_seasonal = compute_tournament_catch_points(f, sp, season_id)
+        c["is_seasonal_bonus"] = is_seasonal
+        c["tournament_pts"] = pts
+        if is_seasonal and f["name"] not in seasonal_hit_names:
+            seasonal_hit_names.append(f["name"])
+
+        eff_cm = round(cm_val * (1.15 if is_seasonal else 1.0), 1)
+        entry["catch_count"] = _safe_int(entry.get("catch_count"), 0) + 1
+        entry["total_kg"] = round(_safe_float(entry.get("total_kg"), 0.0) + kg_val, 3)
+        entry["seasonal_pts"] = _safe_int(entry.get("seasonal_pts"), 0) + pts
+        if is_seasonal:
+            entry["seasonal_catches"] = _safe_int(entry.get("seasonal_catches"), 0) + 1
+
+        if eff_cm > _safe_float(entry.get("score_cm"), 0.0):
+            entry["score_cm"] = eff_cm
+            entry["max_cm"] = cm_val
+            entry["max_kg"] = kg_val
+            entry["best_fish_name"] = f["name"]
+            entry["best_fish_emoji"] = f["emoji"]
+            entry["best_fish_rarity"] = sp["rarity"]
+            entry["best_is_seasonal"] = is_seasonal
+            improved_best = True
+        elif kg_val > _safe_float(entry.get("max_kg"), 0.0):
+            entry["max_kg"] = kg_val
+
+        gained_pts_total += pts
+        gained_kg_total += kg_val
+
+    entry["updated_at"] = now_dt.strftime("%H:%M:%S")
+    new_ranks = _rank_tournament_participants(active)
+    my_rank_row = next((r for r in new_ranks if r["user_id"] == uid_s), None)
+    my_rank = my_rank_row["rank"] if my_rank_row else 1
+    became_leader = (my_rank == 1) and (prev_leader_id != uid_s or improved_best)
+
+    return {
+        "tournament_id": active.get("id"),
+        "title": active.get("title"),
+        "mode": active.get("mode", "seasonal_pts"),
+        "rank": my_rank,
+        "total_participants": len(new_ranks),
+        "became_leader": became_leader,
+        "gained_pts": gained_pts_total,
+        "gained_kg": round(gained_kg_total, 2),
+        "seasonal_hit_names": seasonal_hit_names,
+        "entry": copy.deepcopy(my_rank_row or entry),
+    }
+
+
+def get_fishing_tournament_status(guild_id: int | str) -> Dict[str, Any]:
+    """현재 서버의 낚시 대회 현황(자동 만료 정산 및 주말 대회 자동 오픈 포함)을 반환합니다."""
+    with _FISHING_LOCK:
+        data = core.load_data()
+        now_dt = datetime.datetime.now(core.KST)
+        root = _ensure_guild_tournament_root(data, guild_id)
+        active = root.get("active")
+        dirty = False
+        just_settled = None
+
+        if isinstance(active, dict) and not active.get("settled"):
+            try:
+                ends_dt = datetime.datetime.fromisoformat(str(active.get("ends_at")))
+                if ends_dt.tzinfo is None:
+                    ends_dt = ends_dt.replace(tzinfo=core.KST)
+                if now_dt > ends_dt:
+                    just_settled = _settle_tournament_unlocked(data, guild_id, active)
+                    active = None
+                    dirty = True
+            except Exception:
+                pass
+
+        if not isinstance(active, dict) or active.get("settled"):
+            auto_wk = _build_auto_weekend_tournament(now_dt, guild_id)
+            if auto_wk:
+                hist_ids = {str(h.get("id")) for h in (root.get("history") or []) if isinstance(h, dict)}
+                if auto_wk["id"] not in hist_ids:
+                    root["active"] = auto_wk
+                    active = auto_wk
+                    dirty = True
+
+        if dirty:
+            core.save_data(data)
+
+        season = get_current_season_meta(now_dt)
+        rankings = _rank_tournament_participants(active) if isinstance(active, dict) else []
+        remain_str = ""
+        if isinstance(active, dict):
+            try:
+                ends_dt = datetime.datetime.fromisoformat(str(active.get("ends_at")))
+                if ends_dt.tzinfo is None:
+                    ends_dt = ends_dt.replace(tzinfo=core.KST)
+                rem_sec = max(0, int((ends_dt - now_dt).total_seconds()))
+                hrs, rem = divmod(rem_sec, 3600)
+                mins, secs = divmod(rem, 60)
+                remain_str = f"{hrs}시간 {mins}분" if hrs > 0 else f"{mins}분 {secs}초"
+            except Exception:
+                remain_str = "진행 중"
+
+        return {
+            "active": copy.deepcopy(active) if isinstance(active, dict) else None,
+            "rankings": rankings,
+            "remain_str": remain_str,
+            "season": season,
+            "featured_species": get_seasonal_featured_species(season["id"], limit=12),
+            "history": copy.deepcopy((root.get("history") or [])[:5]),
+            "just_settled": copy.deepcopy(just_settled) if isinstance(just_settled, dict) else None,
+        }
+
+
+def start_fishing_tournament(
+    guild_id: int | str,
+    host_id: int | str,
+    host_name: str,
+    mode: str = "seasonal_pts",
+    habitat: str = "all",
+    duration_min: int = 60,
+    custom_title: str = "",
+) -> Tuple[bool, str, Dict[str, Any]]:
+    """서버에 새로운 낚시 대회를 개최합니다."""
+    with _FISHING_LOCK:
+        data = core.load_data()
+        now_dt = datetime.datetime.now(core.KST)
+        root = _ensure_guild_tournament_root(data, guild_id)
+        active = root.get("active")
+        if isinstance(active, dict) and not active.get("settled"):
+            try:
+                ends_dt = datetime.datetime.fromisoformat(str(active.get("ends_at")))
+                if ends_dt.tzinfo is None:
+                    ends_dt = ends_dt.replace(tzinfo=core.KST)
+                if now_dt > ends_dt:
+                    _settle_tournament_unlocked(data, guild_id, active)
+                    active = None
+            except Exception:
+                pass
+
+        if isinstance(active, dict) and not active.get("settled") and not active.get("is_auto_weekend"):
+            return False, f"⚠️ 이미 진행 중인 **`{active.get('title', '낚시 대회')}`**가 있습니다! 먼저 종료하거나 정산해 주세요.", active
+
+        # 주말 자동 대회가 진행 중이었는데 커스텀 대회를 여는 경우 기존 주말 대회 참가 기록 보존 정산
+        if isinstance(active, dict) and active.get("is_auto_weekend") and active.get("participants"):
+            _settle_tournament_unlocked(data, guild_id, active)
+
+        use_mode = mode if mode in TOURNAMENT_MODES else "seasonal_pts"
+        use_hab = habitat if habitat in ("all", "lake", "river", "sea") else "all"
+        dur = max(10, min(1440, int(duration_min or 60)))
+        season = get_current_season_meta(now_dt)
+        m_meta = TOURNAMENT_MODES[use_mode]
+        hab_lbl = HABITATS[use_hab]["name"] if use_hab in HABITATS else "전 수역"
+        title = (custom_title or "").strip()[:80] or f"🏆 {season['emoji']} [{hab_lbl}] {m_meta['name']}"
+        end_dt = now_dt + datetime.timedelta(minutes=dur)
+
+        new_tourney = {
+            "id": f"tourney_{int(now_dt.timestamp())}",
+            "title": title,
+            "guild_id": int(guild_id or 0),
+            "mode": use_mode,
+            "habitat": use_hab,
+            "season_id": season["id"],
+            "is_auto_weekend": False,
+            "host_id": int(host_id or 0),
+            "host_name": str(host_name or "개최자")[:40],
+            "duration_min": dur,
+            "started_at": now_dt.isoformat(),
+            "ends_at": end_dt.isoformat(),
+            "settled": False,
+            "participants": {},
+        }
+        root["active"] = new_tourney
+        core.save_data(data)
+        return True, f"🎉 **`{title}`** 대회가 시작되었습니다! (`{dur}분` 진행 · 종료: `{end_dt.strftime('%H:%M')} KST`)", copy.deepcopy(new_tourney)
+
+
+def finish_fishing_tournament(guild_id: int | str) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+    """진행 중인 낚시 대회를 즉시 종료하고 순위별 보상을 정산합니다."""
+    with _FISHING_LOCK:
+        data = core.load_data()
+        root = _ensure_guild_tournament_root(data, guild_id)
+        active = root.get("active")
+        if not isinstance(active, dict) or active.get("settled"):
+            return False, "ℹ️ 현재 진행 중인 낚시 대회가 없습니다.", None
+        settled = _settle_tournament_unlocked(data, guild_id, active)
+        core.save_data(data)
+        return True, f"🏅 **`{settled.get('title', '낚시 대회')}`**가 종료되어 참가자 전원에게 시상 보상이 지급되었습니다!", copy.deepcopy(settled)
+

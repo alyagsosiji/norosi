@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ==============================================================================
-# norosi 디스코드 봇 - 슬래시 명령어 전체(17대 Cogs · 83개 루트 / 129종 기능) 강제 재등록 유틸리티 (force_resync.py)
+# norosi 디스코드 봇 - 슬래시 명령어 전체(18대 Cogs · 86개 루트 / 132종 기능) 강제 재등록 유틸리티 (force_resync.py)
 # ==============================================================================
 import os
 import sys
@@ -93,7 +93,7 @@ class ForceSyncBot(commands.Bot):
         intents.members = True
         intents.voice_states = True
         intents.guilds = True
-        super().__init__(command_prefix="!", intents=intents)
+        super().__init__(command_prefix="!", intents=intents, help_command=None)
 
     async def is_bot_owner_user(self, user: discord.abc.User) -> bool:
         return await self.is_owner(user)

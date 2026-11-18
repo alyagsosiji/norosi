@@ -355,12 +355,25 @@ class NorosiBot(commands.Bot):
             print(f"⚠️ [handle_github_webhook 예외] {e}", flush=True)
             return web.json_response({"error": "Internal webhook handler error"}, status=500)
 
+    async def handle_emote_emoji(self, request: web.Request) -> web.Response:
+        from cogs.emoji_upscale import handle_emote_cdn_http_request
+        return await handle_emote_cdn_http_request(request, content_type="emoji")
+
+    async def handle_emote_sticker(self, request: web.Request) -> web.Response:
+        from cogs.emoji_upscale import handle_emote_cdn_http_request
+        return await handle_emote_cdn_http_request(request, content_type="sticker")
+
     async def start_web_server(self):
         if self._web_started:
             return
         try:
             app = web.Application()
             app.router.add_get("/", self.handle_health_check)
+            app.router.add_get("/healthz", lambda _req: web.Response(text="ok"))
+            app.router.add_get("/emoji/{id}", self.handle_emote_emoji)
+            app.router.add_get("/e/{id}", self.handle_emote_emoji)
+            app.router.add_get("/sticker/{id}", self.handle_emote_sticker)
+            app.router.add_get("/s/{id}", self.handle_emote_sticker)
             app.router.add_post("/api/github/webhook", self.handle_github_webhook)
             app.router.add_post("/github/webhook", self.handle_github_webhook)
             app.router.add_post("/webhook/github", self.handle_github_webhook)
@@ -372,7 +385,7 @@ class NorosiBot(commands.Bot):
             await site.start()
             self._web_runner = runner
             self._web_started = True
-            print(f"✅ norosi 헬스체크 및 GitHub 웹훅 서버 가동 완료 (포트: {core.PORT})", flush=True)
+            print(f"✅ norosi 헬스체크 · Emote CDN · GitHub 웹훅 서버 가동 완료 (포트: {core.PORT})", flush=True)
         except Exception as e:
             print(f"ℹ️ 웹 서버 시작 건너뜀 (포트 {core.PORT} 점유 중이거나 불필요 환경): {e}", flush=True)
 

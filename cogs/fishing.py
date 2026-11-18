@@ -518,6 +518,8 @@ class FishingCastView(core.SafeView):
             tags.append("👑 **대물 월척!**")
         if fish.get("variant") == "golden" or any(c.get("fish", {}).get("variant") == "golden" for c in catches):
             tags.append("✨ **황금 변이(가치 2배)!**")
+        if res.get("any_seasonal_bonus") or fish.get("is_seasonal"):
+            tags.append("🌸 **제철 어종(+25%🪙)!**")
         if res.get("any_first_catch") or res.get("is_first_catch"):
             tags.append("🆕 **도감 첫 등록!**")
         if res.get("perfect_hook"):
@@ -543,6 +545,8 @@ class FishingCastView(core.SafeView):
                     b_icons += "👑"
                 if cf.get("variant") == "golden":
                     b_icons += "✨"
+                if cf.get("is_seasonal"):
+                    b_icons += "🌸"
                 if c.get("is_first_catch"):
                     b_icons += "🆕"
                 b_suffix = f" {b_icons}" if b_icons else ""
@@ -574,6 +578,15 @@ class FishingCastView(core.SafeView):
             if len(res["bonus_reasons"]) > 5:
                 reasons_txt += f" 외 {len(res['bonus_reasons']) - 5}건"
             desc += f"\n\n💎 **크리스탈 보너스:** `+{res['crystal_bonus']:,}💎` ({reasons_txt})"
+        t_upd = res.get("tournament_update")
+        if isinstance(t_upd, dict):
+            leader_tag = " 🔥 **(현재 단독 1위 등극!)**" if t_upd.get("became_leader") else ""
+            s_hits = t_upd.get("seasonal_hit_names") or []
+            s_note = f" · 🌸 제철 보너스1.5배(`{', '.join(s_hits[:2])}`)" if s_hits else ""
+            desc += (
+                f"\n🏅 **[{t_upd.get('title', '낚시 대회')}]** 현재 **`{t_upd.get('rank', 1)}위 / {t_upd.get('total_participants', 1)}명`**"
+                f" (`+{t_upd.get('gained_pts', 0):,}pt` · `+{t_upd.get('gained_kg', 0):.2f}kg`{s_note}){leader_tag}"
+            )
         life_buffs = res.get("life_buffs") or {}
         if life_buffs.get("summary_lines"):
             desc += (
@@ -2527,6 +2540,14 @@ class FishingRankingView(core.SafeView):
         self.sync_buttons()
         await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
 
+    @discord.ui.button(label="🏅 낚시대회", style=discord.ButtonStyle.success, row=0)
+    async def btn_open_tourney(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction, ephemeral=True)
+        status = await asyncio.to_thread(fishing_core.get_fishing_tournament_status, self.guild_id)
+        view = FishingTournamentView(self.user, self.guild_id, status=status)
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
+        view.message = msg
+
 
 # ==========================================
 # 7. 일일 낚시 의뢰 View
@@ -2602,9 +2623,337 @@ class FishingQuestView(core.SafeView):
 
 
 # ==========================================
+# 8. 주말 낚시 대회 & 계절 한정 어종 토너먼트 View (#8)
+# ==========================================
+class FishingTournamentStartModal(core.SafeModal, title="🏆 커스텀 낚시 대회 개최 설정"):
+    mode_input = discord.ui.TextInput(
+        label="대회 종목 (계절 / 최장어 / 중량)",
+        placeholder="계절 (또는 최장어, 중량 입력)",
+        default="계절",
+        required=True,
+        max_length=20,
+    )
+    habitat_input = discord.ui.TextInput(
+        label="대상 수역 (전체 / 호수 / 강 / 바다)",
+        placeholder="전체 (또는 호수, 강, 바다 입력)",
+        default="전체",
+        required=True,
+        max_length=20,
+    )
+    duration_input = discord.ui.TextInput(
+        label="진행 시간 (분 단위, 10~1440분)",
+        placeholder="예: 60 (1시간)",
+        default="60",
+        required=True,
+        max_length=6,
+    )
+    title_input = discord.ui.TextInput(
+        label="대회 이름 (비워두면 자동 생성)",
+        placeholder="예: 주말 밤 대물 낚시 토너먼트!",
+        required=False,
+        max_length=60,
+    )
+
+    def __init__(self, parent_view: Optional["FishingTournamentView"] = None, guild_id: int = 0):
+        super().__init__()
+        self.parent_view = parent_view
+        self.guild_id = int(guild_id or (parent_view.guild_id if parent_view else 0))
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        gid = self.guild_id or interaction.guild_id or 0
+        m_raw = (self.mode_input.value or "").strip().lower()
+        if any(k in m_raw for k in ("최장", "길이", "cm", "max")):
+            mode_val = "max_cm"
+        elif any(k in m_raw for k in ("중량", "무게", "kg", "total")):
+            mode_val = "total_kg"
+        else:
+            mode_val = "seasonal_pts"
+
+        h_raw = (self.habitat_input.value or "").strip().lower()
+        hab_map = {"호수": "lake", "lake": "lake", "강": "river", "river": "river", "바다": "sea", "sea": "sea"}
+        hab_val = hab_map.get(h_raw, "all")
+
+        try:
+            dur_val = max(10, min(1440, int((self.duration_input.value or "60").strip())))
+        except ValueError:
+            dur_val = 60
+
+        ok, msg, _ = await asyncio.to_thread(
+            fishing_core.start_fishing_tournament,
+            gid,
+            interaction.user.id,
+            interaction.user.display_name,
+            mode=mode_val,
+            habitat=hab_val,
+            duration_min=dur_val,
+            custom_title=(self.title_input.value or "").strip(),
+        )
+        if self.parent_view is not None:
+            await self.parent_view.reload()
+            await _safe_update_message_or_interaction(
+                interaction,
+                interaction.message or self.parent_view.message,
+                embed=self.parent_view.build_embed(),
+                view=self.parent_view,
+            )
+        await interaction.followup.send(msg, ephemeral=not ok)
+
+
+class FishingTournamentView(core.SafeView):
+    """주말 자동 낚시 대회 & 커스텀 토너먼트 & 계절 제철 어종 보드"""
+
+    def __init__(
+        self,
+        user: Optional[discord.abc.User] = None,
+        guild_id: int = 0,
+        status: Optional[Dict[str, Any]] = None,
+        tab: str = "live",
+    ):
+        super().__init__(timeout=None)
+        self.user = user
+        self.guild_id = int(guild_id or 0)
+        self.tab = tab
+        self.status = status or fishing_core.get_fishing_tournament_status(self.guild_id)
+        self.sync_controls()
+
+    async def reload(self):
+        self.status = await asyncio.to_thread(fishing_core.get_fishing_tournament_status, self.guild_id)
+        self.sync_controls()
+
+    def sync_controls(self):
+        active = self.status.get("active") if isinstance(self.status, dict) else None
+        has_active = isinstance(active, dict) and not active.get("settled")
+        self.btn_tab_live.style = discord.ButtonStyle.primary if self.tab == "live" else discord.ButtonStyle.secondary
+        self.btn_tab_season.style = discord.ButtonStyle.primary if self.tab == "season" else discord.ButtonStyle.secondary
+        self.btn_tab_history.style = discord.ButtonStyle.primary if self.tab == "history" else discord.ButtonStyle.secondary
+        self.btn_settle.disabled = not has_active
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        if not self.guild_id and interaction.guild_id:
+            self.guild_id = interaction.guild_id
+        if not self.user:
+            self.user = interaction.user
+        return True
+
+    def build_embed(self) -> discord.Embed:
+        season = self.status.get("season") or fishing_core.get_current_season_meta()
+        active = self.status.get("active")
+        rankings = self.status.get("rankings") or []
+        featured = self.status.get("featured_species") or []
+        history = self.status.get("history") or []
+
+        if self.tab == "season":
+            sp_lines = []
+            for sp in featured[:15]:
+                hab = fishing_core.HABITATS.get(sp["habitat"], fishing_core.HABITATS["lake"])
+                rm = fishing_core.RARITY_META.get(sp["rarity"], fishing_core.RARITY_META[1])
+                sp_lines.append(
+                    f"• {hab['emoji']} {rm['stars']} {sp['emoji']} **{sp['name']}** (`{sp['sub_zone']}`) — "
+                    f"`{sp['min_cm']:.0f}~{sp['max_cm']:.0f}cm` · 기본 `{sp['base_gold']:,}🪙` *(제철 +25%🪙 / 대회 1.5x)*"
+                )
+            body = "\n".join(sp_lines) if sp_lines else "• 계절 어종 데이터 로드 중"
+            embed = discord.Embed(
+                title=f"{season['emoji']} 현재 계절: {season['name']} 제철 보너스 어종 도감",
+                description=(
+                    f"> *{season['desc']}*\n\n"
+                    "✨ **계절(제철) 어종 특별 혜택**\n"
+                    "• 상시 포획 시 **판매 가치 `+25%🪙`** 자동 보너스!\n"
+                    "• 낚시 대회 진행 중 포획 시 **계절 포인트 `1.5배` · 최장어 환산 `+15%`** 적용!\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"{body}"
+                )[:4096],
+                color=season["color"],
+                timestamp=datetime.datetime.now(core.KST),
+            )
+            embed.set_footer(text="계절은 KST 월(봄 3~5월 / 여름 6~8월 / 가을 9~11월 / 겨울 12~2월)에 따라 자동 전환됩니다.")
+            return embed
+
+        if self.tab == "history":
+            if not history:
+                hist_txt = "> *(아직 종료된 대회 기록이 없습니다. 첫 대회를 개최하거나 주말 자동 대회를 완주해 보세요!)*"
+            else:
+                h_blocks = []
+                for idx, h in enumerate(history[:5], 1):
+                    m_meta = fishing_core.TOURNAMENT_MODES.get(h.get("mode", "seasonal_pts"), fishing_core.TOURNAMENT_MODES["seasonal_pts"])
+                    finals = h.get("final_rankings") or []
+                    top_str = (
+                        " · ".join(f"{r['badge'].split()[0]} **{r['user_name']}**(`{r['primary_score']:,.1f}{m_meta['unit']}`)" for r in finals[:3])
+                        if finals
+                        else "참가자 없음"
+                    )
+                    settled_at = str(h.get("settled_at") or "")[:16].replace("T", " ")
+                    h_blocks.append(
+                        f"**`#{idx}` {h.get('title', '낚시 대회')}** (`{settled_at} KST` 마감)\n"
+                        f"└ 수상자: {top_str}"
+                    )
+                hist_txt = "\n\n".join(h_blocks)
+
+            embed = discord.Embed(
+                title="🏛️ 역대 낚시 토너먼트 명예의 전당 (최근 5회)",
+                description=(
+                    "🏆 **대회 순위별 시상 보상**\n"
+                    "• 🥇 **1위 (챔피언):** `15,000🪙` + `500💎` + 우승 트로피 `+1`\n"
+                    "• 🥈 **2위 (준우승):** `8,000🪙` + `300💎`\n"
+                    "• 🥉 **3위 (입상):** `4,000🪙` + `150💎`\n"
+                    "• 🎖️ **참가 완주상 (4위~):** `1,000🪙` + `30💎`\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"{hist_txt}"
+                )[:4096],
+                color=0xF59E0B,
+                timestamp=datetime.datetime.now(core.KST),
+            )
+            return embed
+
+        # 기본 탭: 실시간 대회 현황 (live)
+        if not isinstance(active, dict) or active.get("settled"):
+            feat_preview = ", ".join(f"{s['emoji']}{s['name']}" for s in featured[:6])
+            embed = discord.Embed(
+                title=f"🏆 낚시 토너먼트 본부 ({season['emoji']} {season['name']} 시즌)",
+                description=(
+                    "현재 진행 중인 대회가 없습니다!\n"
+                    "• **🗓️ 주말 정규 토너먼트:** 매주 **토요일 00:00 ~ 일요일 23:59 (KST)** 자동 오픈!\n"
+                    "• **🏁 깜짝 번개 대회:** 아래 **`[🏁 새 대회 개최]`** 버튼으로 지금 바로 30분~2시간 대회를 열 수 있습니다.\n"
+                    f"• **{season['emoji']} 이번 계절 제철 어종 (+25%🪙 / 대회 1.5x):** {feat_preview}\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "🎁 **시상 보상:** 🥇 `15,000🪙 + 500💎` · 🥈 `8,000🪙 + 300💎` · 🥉 `4,000🪙 + 150💎` · 참가상 `1,000🪙 + 30💎`"
+                )[:4096],
+                color=season["color"],
+                timestamp=datetime.datetime.now(core.KST),
+            )
+            embed.set_footer(text="💡 [🏁 새 대회 개최] 버튼을 눌러 친구들과 실시간 대물 대결을 시작해 보세요!")
+            return embed
+
+        m_meta = fishing_core.TOURNAMENT_MODES.get(active.get("mode", "seasonal_pts"), fishing_core.TOURNAMENT_MODES["seasonal_pts"])
+        hab_id = active.get("habitat", "all")
+        hab_lbl = fishing_core.HABITATS[hab_id]["label"] if hab_id in fishing_core.HABITATS else "🌍 전체 수역 (호수·강·바다)"
+        rem_str = self.status.get("remain_str") or "진행 중"
+
+        rank_lines = []
+        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+        for r in rankings[:10]:
+            rk = r["rank"]
+            medal = medals.get(rk, f"`#{rk:2d}`")
+            if active.get("mode") == "max_cm":
+                score_txt = f"**`{r['score_cm']:.1f}cm`** (실측 `{r['max_cm']:.1f}cm`)"
+            elif active.get("mode") == "total_kg":
+                score_txt = f"**`{r['total_kg']:,.2f}kg`** (`{r['catch_count']}마리`)"
+            else:
+                score_txt = f"**`{r['seasonal_pts']:,}pt`** (`{r['catch_count']}마리` · 제철 `{r['seasonal_catches']}회`)"
+            s_mark = "🌸" if r.get("best_is_seasonal") else ""
+            rank_lines.append(
+                f"{medal} **{r['user_name']}** — {score_txt}  |  대표어: {r['best_fish_emoji']}{s_mark} `★{r['best_fish_rarity']} {r['best_fish_name']} ({r['max_cm']:.1f}cm)`"
+            )
+
+        board_txt = "\n".join(rank_lines) if rank_lines else "> *(아직 첫 물고기를 낚은 참가자가 없습니다! 지금 `/낚시 출조` 또는 아래 `[🎣 바로 출조하기]`로 첫 1위를 차지하세요!)*"
+        feat_names = ", ".join(f"{s['emoji']}{s['name']}" for s in featured[:6])
+
+        embed = discord.Embed(
+            title=f"🏆 {active.get('title', '실시간 낚시 토너먼트')}",
+            description=(
+                f"• **종목:** {m_meta['emoji']} **`{m_meta['name']}`**  ·  **주최:** `{active.get('host_name', '시스템')}`\n"
+                f"• **대상 수역:** {hab_lbl}  ·  **남은 시간:** ⏳ **`{rem_str}`**\n"
+                f"> *{m_meta['desc']}*\n"
+                f"• **{season['emoji']} {season['name']} 제철 보너스 어종:** {feat_names}\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "📊 **실시간 리더보드 (TOP 10)**\n"
+                f"{board_txt}"
+            )[:4096],
+            color=0x10B981,
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.set_footer(text="낚시터에서 물고기를 잡으면 대회 기록이 자동으로 집계됩니다! (🥇1위 15,000🪙+500💎)")
+        return embed
+
+    @discord.ui.button(label="📊 실시간 순위", style=discord.ButtonStyle.primary, row=0)
+    async def btn_tab_live(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.tab = "live"
+        await self.reload()
+        await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🌸 제철 어종 도감", style=discord.ButtonStyle.secondary, row=0)
+    async def btn_tab_season(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.tab = "season"
+        await self.reload()
+        await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🏛️ 명예의 전당", style=discord.ButtonStyle.secondary, row=0)
+    async def btn_tab_history(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.tab = "history"
+        await self.reload()
+        await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=0)
+    async def btn_refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        await self.reload()
+        await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🎣 바로 출조하기", style=discord.ButtonStyle.success, row=1)
+    async def btn_go_fish(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        active = self.status.get("active") if isinstance(self.status, dict) else None
+        req_hab = active.get("habitat") if isinstance(active, dict) and active.get("habitat") in fishing_core.HABITATS else None
+        summary = await asyncio.to_thread(
+            fishing_core.update_user_fishing_prefs,
+            self.guild_id,
+            interaction.user.id,
+            interaction.user.display_name,
+            habitat=req_hab,
+        )
+        cast_view = FishingCastView(interaction.user, guild_id=self.guild_id, summary=summary)
+        msg = await interaction.followup.send(embed=cast_view.build_dashboard_embed(), view=cast_view, wait=True)
+        cast_view.message = msg
+
+    @discord.ui.button(label="🏁 새 대회 개최", style=discord.ButtonStyle.primary, row=1)
+    async def btn_start_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(FishingTournamentStartModal(self, guild_id=self.guild_id))
+
+    @discord.ui.button(label="🏅 대회 종료 및 시상", style=discord.ButtonStyle.danger, row=1)
+    async def btn_settle(self, interaction: discord.Interaction, button: discord.ui.Button):
+        active = self.status.get("active") if isinstance(self.status, dict) else None
+        if not isinstance(active, dict) or active.get("settled"):
+            await core.safe_send_response(interaction, "ℹ️ 현재 진행 중인 대회가 없습니다.", ephemeral=True)
+            return
+        is_admin = False
+        if isinstance(interaction.user, discord.Member):
+            perms = interaction.user.guild_permissions
+            is_admin = bool(perms.administrator or perms.manage_guild)
+        host_id = int(active.get("host_id") or 0)
+        if not is_admin and host_id != 0 and interaction.user.id != host_id:
+            await core.safe_send_response(
+                interaction,
+                "🚨 대회 수동 마감은 **대회 개최자** 또는 **서버 관리자**만 실행할 수 있습니다. (시간 만료 시에는 자동 정산됩니다!)",
+                ephemeral=True,
+            )
+            return
+
+        await core.safe_defer(interaction)
+        ok, msg, settled = await asyncio.to_thread(fishing_core.finish_fishing_tournament, self.guild_id)
+        await self.reload()
+        self.tab = "history" if ok else self.tab
+        self.sync_controls()
+        await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
+        if ok and isinstance(settled, dict):
+            finals = settled.get("final_rankings") or []
+            podium = "\n".join(
+                f"• {r['badge']} **{r['user_name']}** — `+{r['reward_gold']:,}🪙` · `+{r['reward_crystals']:,}💎`"
+                for r in finals[:5]
+            ) or "• 참가 기록 없음"
+            await interaction.followup.send(f"{msg}\n{podium}")
+        else:
+            await interaction.followup.send(msg, ephemeral=True)
+
+
+# ==========================================
 # /낚시 GroupCog
 # ==========================================
-class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 · 🌊 강 · ⚓ 바다 통합 낚시 · 수족관 · 도감 · 상점 · 최대어 랭킹"):
+class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 · 🌊 강 · ⚓ 바다 통합 낚시 · 수족관 · 도감 · 상점 · 최대어 랭킹 · 대회"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         super().__init__()
@@ -2852,6 +3201,26 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         view.message = msg
 
+    @app_commands.command(name="대회", description="🏅 주말 자동 낚시 토너먼트 · 커스텀 번개 대회 개최 · 계절 제철 어종 보너스 및 순위 확인")
+    @app_commands.describe(탭="초기 조회할 대회 탭")
+    @app_commands.choices(탭=[
+        app_commands.Choice(name="📊 실시간 대회 리더보드", value="live"),
+        app_commands.Choice(name="🌸 계절 제철 보너스 어종 도감", value="season"),
+        app_commands.Choice(name="🏛️ 역대 대회 명예의 전당", value="history"),
+    ])
+    async def fishing_tournament_cmd(
+        self,
+        interaction: discord.Interaction,
+        탭: Optional[app_commands.Choice[str]] = None,
+    ):
+        await core.safe_defer(interaction)
+        guild_id = interaction.guild_id or 0
+        tab_val = 탭.value if 탭 else "live"
+        status = await asyncio.to_thread(fishing_core.get_fishing_tournament_status, guild_id)
+        view = FishingTournamentView(interaction.user, guild_id=guild_id, status=status, tab=tab_val)
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        view.message = msg
+
     @app_commands.command(name="퀘스트", description="📜 매일 KST 00:00 갱신되는 일일 낚시 의뢰 3종 확인 및 골드+💎 크리스탈 보상 수령")
     async def fishing_quest_cmd(self, interaction: discord.Interaction):
         await core.safe_defer(interaction, ephemeral=True)
@@ -2886,10 +3255,11 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
         by_h = stats["by_habitat"]
         bag_cap = fishing_core.get_bag_capacity(u)
         bag_len = len(u.get("bag", []) if isinstance(u.get("bag"), list) else [])
+        wins = int(u.get("tournament_wins", 0) or 0)
         embed = discord.Embed(
             title=f"🎣 {target.display_name}님의 낚시꾼 라이선스 (Lv.{u['level']})",
             description=(
-                f"• **EXP:** `{summary['rem_exp']} / {summary['need_exp']}`  ·  **누적 포획:** `{u['total_catches']:,}마리` (👑 월척 `{u['total_trophy']:,}회`)\n"
+                f"• **EXP:** `{summary['rem_exp']} / {summary['need_exp']}`  ·  **누적 포획:** `{u['total_catches']:,}마리` (👑 월척 `{u['total_trophy']:,}회` · 🏆 대회 우승 `{wins}회`)\n"
                 f"• **🪙 보유 낚시 골드:** **`{u['gold']:,}🪙`** (누적 수익 `{u['total_gold_earned']:,}🪙`)  ·  **💎 크리스탈:** **`{summary['crystals']:,}💎`**\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"• **낚싯대:** {rod['emoji']} `{rod['name']}`\n"
@@ -2910,6 +3280,9 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
     async def fishing_env_cmd(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
         env = fishing_core.get_current_fishing_env()
+        season = fishing_core.get_current_season_meta()
+        feat_sp = fishing_core.get_seasonal_featured_species(season["id"], limit=6)
+        feat_txt = ", ".join(f"{s['emoji']}{s['name']}" for s in feat_sp)
 
         rec_lines = []
         for hab_id in ("lake", "river", "sea"):
@@ -2932,6 +3305,7 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
             title=f"{env['weather_emoji']} 실시간 낚시 기상 & 조황 예보 (KST)",
             description=(
                 f"• **현재 시각/시간대:** `{env['now'].strftime('%Y-%m-%d %H:%M')} KST` — **{env['time_label']}**\n"
+                f"• **현재 계절 (제철 보너스):** {season['emoji']} **`{season['name']}`** ({feat_txt} `+25%🪙`)\n"
                 f"• **물때/피딩타임:** `{env['feeding_label']}`\n"
                 f"• **현재 날씨:** {env['weather_emoji']} **`{env['weather_name']}`** (다음 날씨 변동까지 `{env['remain_str']}`)\n"
                 f"> *{env['weather_desc']}*\n"
@@ -2962,10 +3336,63 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
 
 
 class FishingStandaloneCog(commands.Cog):
-    """!낚시랭킹 · !대물랭킹 접두사 단축 명령어 Cog (/낚시 랭킹과 슬래시 중복 방지)"""
+    """/낚시랭킹 · /낚시대회 슬래시 및 !낚시랭킹 · !낚시대회 접두사 단축 명령어 Cog"""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+    @app_commands.command(name="낚시랭킹", description="🏆 서버 내 물고기 최대 크기(cm)·무게(kg)·도감 순위 보드 및 랭커 상세 정보 조회")
+    @app_commands.describe(
+        기준="정렬 기준 (최대 길이 / 최대 무게 / 도감)",
+        장소="수역 필터 (전체 / 호수 / 강 / 바다)",
+    )
+    @app_commands.choices(
+        기준=[
+            app_commands.Choice(name="📏 최대 길이 (cm)", value="length"),
+            app_commands.Choice(name="⚖️ 최대 무게 (kg)", value="weight"),
+            app_commands.Choice(name="📖 도감 수집왕", value="dex"),
+        ],
+        장소=[
+            app_commands.Choice(name="🌏 전체 수역", value="all"),
+            app_commands.Choice(name="🏞️ 호수 (Lake)", value="lake"),
+            app_commands.Choice(name="🛶 강 (River)", value="river"),
+            app_commands.Choice(name="🌊 바다 (Sea)", value="sea"),
+        ],
+    )
+    async def slash_fishing_ranking_standalone(
+        self,
+        interaction: discord.Interaction,
+        기준: Optional[app_commands.Choice[str]] = None,
+        장소: Optional[app_commands.Choice[str]] = None,
+    ):
+        await core.safe_defer(interaction)
+        guild_id = interaction.guild_id or 0
+        mode_val = 기준.value if 기준 else "length"
+        hab_val = 장소.value if 장소 else "all"
+        view = FishingRankingView(interaction.user, guild_id=guild_id, mode=mode_val, habitat_filter=hab_val)
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        view.message = msg
+
+    @app_commands.command(name="낚시대회", description="🏅 주말 자동 낚시 토너먼트 · 커스텀 번개 대회 개최 · 계절 제철 어종 보너스 및 순위 확인")
+    @app_commands.describe(탭="초기 조회할 대회 탭")
+    @app_commands.choices(탭=[
+        app_commands.Choice(name="📊 실시간 대회 리더보드", value="live"),
+        app_commands.Choice(name="🌸 계절 제철 보너스 어종 도감", value="season"),
+        app_commands.Choice(name="🏛️ 역대 대회 명예의 전당", value="history"),
+    ])
+    async def slash_fishing_tournament(
+        self,
+        interaction: discord.Interaction,
+        탭: Optional[app_commands.Choice[str]] = None,
+    ):
+        await core.safe_defer(interaction)
+        guild_id = interaction.guild_id or 0
+        tab_val = 탭.value if 탭 else "live"
+        status = await asyncio.to_thread(fishing_core.get_fishing_tournament_status, guild_id)
+        view = FishingTournamentView(interaction.user, guild_id=guild_id, status=status, tab=tab_val)
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        view.message = msg
+
 
     @commands.command(name="낚시랭킹", aliases=["fishingrank", "대물랭킹"])
     async def prefix_fishing_ranking(self, ctx: commands.Context, 장소: Optional[str] = None):
@@ -2974,6 +3401,15 @@ class FishingStandaloneCog(commands.Cog):
         hab_val = hab_map.get((장소 or "").strip().lower(), "all")
         guild_id = ctx.guild.id if ctx.guild else 0
         view = FishingRankingView(ctx.author, guild_id=guild_id, mode="length", habitat_filter=hab_val)
+        msg = await ctx.send(embed=view.build_embed(), view=view)
+        view.message = msg
+
+    @commands.command(name="낚시대회", aliases=["fishingtourney", "낚시토너먼트"])
+    async def prefix_fishing_tournament(self, ctx: commands.Context):
+        """채팅창에 !낚시대회 입력 시 실시간 낚시 토너먼트 현황 보드를 출력합니다"""
+        guild_id = ctx.guild.id if ctx.guild else 0
+        status = await asyncio.to_thread(fishing_core.get_fishing_tournament_status, guild_id)
+        view = FishingTournamentView(ctx.author, guild_id=guild_id, status=status, tab="live")
         msg = await ctx.send(embed=view.build_embed(), view=view)
         view.message = msg
 

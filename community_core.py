@@ -599,3 +599,149 @@ def format_relay_full_story(story: dict) -> str:
     if len(joined) > 3600:
         joined = joined[:3580] + "\n... *(이하 생략)*"
     return joined
+
+
+# ==========================================
+# 5. 🔊 임시 음성방 자동 생성기 — Join to Create (#11)
+# ==========================================
+DEFAULT_TEMP_VOICE_TEMPLATE = "🔊 {user}님의 음성방"
+
+
+def format_temp_voice_room_name(template: str, user_name: str, index: int = 1) -> str:
+    tpl = (template or DEFAULT_TEMP_VOICE_TEMPLATE).strip()
+    if "{user}" not in tpl and "{name}" not in tpl:
+        tpl = f"{tpl} · {{user}}"
+    safe_user = (user_name or "멤버").strip()[:32]
+    rendered = (
+        tpl.replace("{user}", safe_user)
+        .replace("{name}", safe_user)
+        .replace("{num}", str(max(1, int(index or 1))))
+    )
+    return rendered.strip()[:95] or f"🔊 {safe_user}님의 음성방"
+
+
+def get_temp_voice_config(data: dict, guild_id: int) -> dict:
+    root = core.as_dict(data.get("temp_voice_configs"))
+    raw = core.as_dict(root.get(str(guild_id)))
+    raw_rooms = core.as_dict(raw.get("active_rooms"))
+    active_rooms: dict[str, dict] = {}
+    for ch_id_s, r_info in raw_rooms.items():
+        if str(ch_id_s).isdigit() and isinstance(r_info, dict):
+            active_rooms[str(ch_id_s)] = {
+                "channel_id": int(ch_id_s),
+                "owner_id": int(r_info.get("owner_id", 0) or 0),
+                "owner_name": str(r_info.get("owner_name") or "방장")[:64],
+                "room_name": str(r_info.get("room_name") or "")[:95],
+                "user_limit": max(0, min(99, int(r_info.get("user_limit", 0) or 0))),
+                "locked": bool(r_info.get("locked", False)),
+                "hidden": bool(r_info.get("hidden", False)),
+                "panel_message_id": int(r_info["panel_message_id"]) if str(r_info.get("panel_message_id", "")).isdigit() else None,
+                "created_at": str(r_info.get("created_at") or ""),
+            }
+    gen_ch = raw.get("generator_channel_id")
+    cat_id = raw.get("category_id")
+    return {
+        "enabled": bool(raw.get("enabled", False)),
+        "generator_channel_id": int(gen_ch) if str(gen_ch or "").isdigit() else None,
+        "category_id": int(cat_id) if str(cat_id or "").isdigit() else None,
+        "name_template": (str(raw.get("name_template") or DEFAULT_TEMP_VOICE_TEMPLATE).strip()[:80] or DEFAULT_TEMP_VOICE_TEMPLATE),
+        "default_limit": max(0, min(99, int(raw.get("default_limit", 0) or 0))),
+        "active_rooms": active_rooms,
+        "updated_at": raw.get("updated_at"),
+    }
+
+
+def save_temp_voice_config(data: dict, guild_id: int, cfg: dict) -> dict:
+    root = core.ensure_dict_path(data, "temp_voice_configs")
+    cur = get_temp_voice_config(data, guild_id)
+    merged_rooms = cfg.get("active_rooms") if isinstance(cfg.get("active_rooms"), dict) else cur["active_rooms"]
+    clean_rooms: dict[str, dict] = {}
+    for ch_id_s, r_info in merged_rooms.items():
+        if str(ch_id_s).isdigit() and isinstance(r_info, dict):
+            clean_rooms[str(ch_id_s)] = {
+                "channel_id": int(ch_id_s),
+                "owner_id": int(r_info.get("owner_id", 0) or 0),
+                "owner_name": str(r_info.get("owner_name") or "방장")[:64],
+                "room_name": str(r_info.get("room_name") or "")[:95],
+                "user_limit": max(0, min(99, int(r_info.get("user_limit", 0) or 0))),
+                "locked": bool(r_info.get("locked", False)),
+                "hidden": bool(r_info.get("hidden", False)),
+                "panel_message_id": int(r_info["panel_message_id"]) if str(r_info.get("panel_message_id", "")).isdigit() else None,
+                "created_at": str(r_info.get("created_at") or datetime.datetime.now(core.KST).isoformat()),
+            }
+    gen_ch = cfg.get("generator_channel_id")
+    cat_id = cfg.get("category_id")
+    entry = {
+        "enabled": bool(cfg.get("enabled", False)),
+        "generator_channel_id": int(gen_ch) if str(gen_ch or "").isdigit() else None,
+        "category_id": int(cat_id) if str(cat_id or "").isdigit() else None,
+        "name_template": (str(cfg.get("name_template") or DEFAULT_TEMP_VOICE_TEMPLATE).strip()[:80] or DEFAULT_TEMP_VOICE_TEMPLATE),
+        "default_limit": max(0, min(99, int(cfg.get("default_limit", 0) or 0))),
+        "active_rooms": clean_rooms,
+        "updated_at": datetime.datetime.now(core.KST).isoformat(),
+    }
+    root[str(guild_id)] = entry
+    return entry
+
+
+def register_temp_voice_room(
+    data: dict,
+    guild_id: int,
+    channel_id: int,
+    owner_id: int,
+    owner_name: str,
+    *,
+    room_name: str = "",
+    user_limit: int = 0,
+    panel_message_id: Optional[int] = None,
+) -> dict:
+    cfg = get_temp_voice_config(data, guild_id)
+    now_iso = datetime.datetime.now(core.KST).isoformat()
+    room_entry = {
+        "channel_id": int(channel_id),
+        "owner_id": int(owner_id),
+        "owner_name": str(owner_name or "방장")[:64],
+        "room_name": str(room_name or "")[:95],
+        "user_limit": max(0, min(99, int(user_limit or 0))),
+        "locked": False,
+        "hidden": False,
+        "panel_message_id": int(panel_message_id) if panel_message_id else None,
+        "created_at": now_iso,
+    }
+    cfg["active_rooms"][str(channel_id)] = room_entry
+    save_temp_voice_config(data, guild_id, cfg)
+    return room_entry
+
+
+def get_temp_voice_room(data: dict, guild_id: int, channel_id: int) -> Optional[dict]:
+    cfg = get_temp_voice_config(data, guild_id)
+    room = cfg["active_rooms"].get(str(channel_id))
+    return room if isinstance(room, dict) else None
+
+
+def update_temp_voice_room(data: dict, guild_id: int, channel_id: int, **kwargs) -> Optional[dict]:
+    cfg = get_temp_voice_config(data, guild_id)
+    ch_key = str(channel_id)
+    room = cfg["active_rooms"].get(ch_key)
+    if not isinstance(room, dict):
+        return None
+    for k, v in kwargs.items():
+        if k in ("owner_id", "user_limit"):
+            room[k] = int(v or 0)
+        elif k in ("locked", "hidden"):
+            room[k] = bool(v)
+        elif k in ("owner_name", "room_name"):
+            room[k] = str(v or "")[:95]
+        elif k == "panel_message_id":
+            room[k] = int(v) if v else None
+    cfg["active_rooms"][ch_key] = room
+    save_temp_voice_config(data, guild_id, cfg)
+    return room
+
+
+def remove_temp_voice_room(data: dict, guild_id: int, channel_id: int) -> Optional[dict]:
+    cfg = get_temp_voice_config(data, guild_id)
+    removed = cfg["active_rooms"].pop(str(channel_id), None)
+    save_temp_voice_config(data, guild_id, cfg)
+    return removed if isinstance(removed, dict) else None
+
