@@ -225,29 +225,34 @@ jobs:
             pkill -9 -f "[p]ython.*bot\.py" 2>/dev/null || true
 
             # 2. 24/7 자동 재시작 백그라운드 데몬 스크립트 생성 및 실행
-            cat << 'DAEMON_EOF' > "$TARGET_DIR/.norosi_keepalive.sh"
-#!/usr/bin/env bash
-cd "$(dirname "$0")"
-WORK_DIR="$(pwd)"
-echo $$ > "$WORK_DIR/.norosi_supervisor.pid"
-if [ -x "$WORK_DIR/.venv/bin/python3" ]; then
-  PY_BIN="$WORK_DIR/.venv/bin/python3"
-elif [ -x "$WORK_DIR/venv/bin/python3" ]; then
-  PY_BIN="$WORK_DIR/venv/bin/python3"
-else
-  PY_BIN="python3"
-fi
-while true; do
-  "$PY_BIN" -u "$WORK_DIR/bot.py" >> "$WORK_DIR/bot.log" 2>&1 &
-  BOT_PID=$!
-  echo $BOT_PID > "$WORK_DIR/.norosi.pid"
-  wait $BOT_PID
-  EXIT_CODE=$?
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] ⚠️ bot.py 종료됨 (코드: $EXIT_CODE) - 5초 후 자동 재시작..." >> "$WORK_DIR/bot.log"
-  sleep 5
-done
-DAEMON_EOF
-            chmod +x "$TARGET_DIR/.norosi_keepalive.sh"
+            python3 - "$TARGET_DIR/.norosi_keepalive.sh" << 'PY_EOF'
+          import pathlib, sys
+          script_path = pathlib.Path(sys.argv[1])
+          script_content = """#!/usr/bin/env bash
+          cd "$(dirname "$0")"
+          WORK_DIR="$(pwd)"
+          echo $$ > "$WORK_DIR/.norosi_supervisor.pid"
+          if [ -x "$WORK_DIR/.venv/bin/python3" ]; then
+            PY_BIN="$WORK_DIR/.venv/bin/python3"
+          elif [ -x "$WORK_DIR/venv/bin/python3" ]; then
+            PY_BIN="$WORK_DIR/venv/bin/python3"
+          else
+            PY_BIN="python3"
+          fi
+          while true; do
+            "$PY_BIN" -u "$WORK_DIR/bot.py" >> "$WORK_DIR/bot.log" 2>&1 &
+            BOT_PID=$!
+            echo $BOT_PID > "$WORK_DIR/.norosi.pid"
+            wait $BOT_PID
+            EXIT_CODE=$?
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ⚠️ bot.py 종료됨 (코드: $EXIT_CODE) - 5초 후 자동 재시작..." >> "$WORK_DIR/bot.log"
+            sleep 5
+          done
+          """
+          lines = [line[10:] if line.startswith("          ") else line for line in script_content.splitlines()]
+          script_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          script_path.chmod(0o755)
+          PY_EOF
             : > "$TARGET_DIR/bot.log"
             setsid nohup bash -c "exec -a norosi_keepalive '$TARGET_DIR/.norosi_keepalive.sh'" </dev/null >/dev/null 2>&1 &
             sleep 3
