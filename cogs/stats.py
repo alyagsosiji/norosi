@@ -274,21 +274,21 @@ class ServerStatsDashboardView(core.SafeView):
         self.toggle_mode_btn.label = "📊 요약 보기" if self.mode == "detailed" else "📜 상세 리포트"
         self.toggle_time_btn.label = "📅 주간 통계" if self.timeframe == "daily" else "📅 일간 통계"
 
-    @discord.ui.button(label="📜 상세 리포트", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="📜 상세 리포트", style=discord.ButtonStyle.primary, row=0)
     async def toggle_mode_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.mode = "summary" if self.mode == "detailed" else "detailed"
         self._update_button_styles()
         embed = build_server_stats_embed(self.guild, self.data, self.timeframe, self.mode)
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="📅 주간 통계", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="📅 주간 통계", style=discord.ButtonStyle.secondary, row=0)
     async def toggle_time_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.timeframe = "weekly" if self.timeframe == "daily" else "daily"
         self._update_button_styles()
         embed = build_server_stats_embed(self.guild, self.data, self.timeframe, self.mode)
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="🔄 데이터 새로고침", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="🔄 데이터 새로고침", style=discord.ButtonStyle.success, row=0)
     async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.data = await asyncio.to_thread(core.load_data)
@@ -1568,7 +1568,7 @@ class WeatherRefreshView(core.SafeView):
         embed.set_footer(text="기상청(KMA) & ECMWF 글로벌 통합 기상 모델 실시간 연동 • 하단 버튼으로 최신 관측치 새로고침")
         return embed
 
-    @discord.ui.button(label="🔄 실시간 날씨 새로고침", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="🔄 날씨 새로고침", style=discord.ButtonStyle.primary, row=0)
     async def refresh_weather_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         new_w, err = await asyncio.to_thread(core.fetch_accurate_weather_sync, self.query or "서울")
@@ -1576,7 +1576,7 @@ class WeatherRefreshView(core.SafeView):
             self.w = new_w
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="🌏 다른 지역 날씨 검색", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="🌏 다른 지역 검색", style=discord.ButtonStyle.secondary, row=0)
     async def search_region_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(WeatherRegionSearchModal(self))
 
@@ -1749,7 +1749,7 @@ class WordChainGameView(core.SafeView):
             self.status_notice = f"✅ `{clean_w}` 통과! 이제 {self.turn_user.mention}님이 이어갈 차례입니다!"
             await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="✏️ 단어 입력하기", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="✏️ 단어 입력", style=discord.ButtonStyle.primary, row=0)
     async def input_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.finished:
             await core.safe_send_response(interaction, content="ℹ️ 이미 종료된 게임입니다.", ephemeral=True)
@@ -1759,7 +1759,7 @@ class WordChainGameView(core.SafeView):
             return
         await interaction.response.send_modal(WordChainInputModal(self))
 
-    @discord.ui.button(label="🏳️ 기권하기", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="🏳️ 기권", style=discord.ButtonStyle.danger, row=0)
     async def surrender_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.finished:
             return
@@ -1790,7 +1790,7 @@ class WordChainGameView(core.SafeView):
 
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="⚙️ 상대유저·시작단어 설정", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="⚙️ 맞춤 설정", style=discord.ButtonStyle.secondary, row=0)
     async def custom_setup_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(WordChainCustomSetupModal(self))
 
@@ -1914,7 +1914,7 @@ class RussianRouletteView(core.SafeView):
         embed.set_footer(text=f"개설자: {self.host_user.display_name} • [방아쇠 당기기]로 스릴을 즐기거나 [생존 스톱]으로 상금을 챙기세요!")
         return embed
 
-    @discord.ui.button(label="🔫 방아쇠 당기기 (격발)", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="🔫 방아쇠 당기기", style=discord.ButtonStyle.danger, row=0)
     async def pull_trigger_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.finished:
             await core.safe_send_response(interaction, content="ℹ️ 이미 종료된 게임입니다.", ephemeral=True)
@@ -1976,7 +1976,7 @@ class RussianRouletteView(core.SafeView):
                 )
             await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="💰 생존 스톱 & 상금 수령", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="💰 스톱 & 상금", style=discord.ButtonStyle.success, row=0)
     async def cashout_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.finished:
             return
@@ -2009,7 +2009,7 @@ class RussianRouletteView(core.SafeView):
         )
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="🔄 실린더 다시 돌리기 (1회)", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="🔄 실린더 돌리기", style=discord.ButtonStyle.secondary, row=1)
     async def spin_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.finished:
             return
@@ -2026,7 +2026,7 @@ class RussianRouletteView(core.SafeView):
         self.last_log = f"🔄 {interaction.user.mention}님이 리볼버 실린더를 힘껏 돌려 약실 위치를 다시 섞었습니다! (생존 콤보가 초기화되었습니다)"
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="⚙️ 실탄수·베팅(💎) 맞춤개설", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="⚙️ 맞춤 개설", style=discord.ButtonStyle.secondary, row=1)
     async def custom_roulette_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(RouletteCustomSetupModal())
 
@@ -2297,7 +2297,7 @@ class SuggestionTypeSelectView(core.SafeView):
         embed.set_footer(text="버튼을 누르면 건의 작성 모달 창이 열립니다.")
         return embed
 
-    @discord.ui.button(label="🔒 익명으로 건의 작성", style=discord.ButtonStyle.secondary, emoji="🔒")
+    @discord.ui.button(label="익명 건의 작성", style=discord.ButtonStyle.secondary, emoji="🔒", row=0)
     async def anon_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(
             SuggestionSubmitModal(
@@ -2308,7 +2308,7 @@ class SuggestionTypeSelectView(core.SafeView):
             )
         )
 
-    @discord.ui.button(label="📢 계정 공개로 건의 작성", style=discord.ButtonStyle.primary, emoji="📢")
+    @discord.ui.button(label="공개 건의 작성", style=discord.ButtonStyle.primary, emoji="📢", row=0)
     async def public_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(
             SuggestionSubmitModal(

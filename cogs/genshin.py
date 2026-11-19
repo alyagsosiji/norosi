@@ -1549,7 +1549,7 @@ class GenshinGuildResetConfirmView(core.SafeView):
         self.guild_id = guild_id
         self.caller = caller
 
-    @discord.ui.button(label="⚠️ 예, 이 서버 원신 데이터 초기화", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="⚠️ 예, 이 서버 원신 데이터 초기화", style=discord.ButtonStyle.danger, row=0)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.guild:
             return await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
@@ -1565,7 +1565,7 @@ class GenshinGuildResetConfirmView(core.SafeView):
         core.save_data(data)
         await core.safe_edit_response(interaction, content="🧹 이 서버의 모든 원신 기원 데이터가 깔끔하게 초기화되었습니다.", embed=None, view=None)
 
-    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary, row=0)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.caller and interaction.user.id != self.caller.id:
             return await core.safe_send_response(interaction, "❌ 요청한 관리자만 취소할 수 있습니다.", ephemeral=True)

@@ -804,7 +804,7 @@ class LifeDashboardView(core.SafeView):
         msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
         v.message = msg
 
-    @discord.ui.button(label="🤝 서버 공동농장", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🤝 공동 농장", style=discord.ButtonStyle.primary, row=0)
     async def btn_gfarm(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         gid = interaction.guild.id if interaction.guild else self.guild_id
@@ -825,7 +825,7 @@ class LifeDashboardView(core.SafeView):
         msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
         v.message = msg
 
-    @discord.ui.button(label="🍳 생선 요리 & 버프", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🍳 요리 & 버프", style=discord.ButtonStyle.secondary, row=1)
     async def btn_cook(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         ov = await asyncio.to_thread(
@@ -835,7 +835,7 @@ class LifeDashboardView(core.SafeView):
         msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
         v.message = msg
 
-    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=1)
     async def btn_refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         target = self.user or interaction.user

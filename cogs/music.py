@@ -63,12 +63,13 @@ class MusicRecommendView(core.SafeView):
         self.track_info = dict(track_info)
 
         self.add_item(discord.ui.Button(
-            label=f"{track_info['platform']}에서 바로 듣기",
+            label=f"🎧 {track_info['platform']} 듣기",
             url=track_info["url"],
-            style=discord.ButtonStyle.link
+            style=discord.ButtonStyle.link,
+            row=0,
         ))
 
-    @discord.ui.button(label="🔄 다른 곡 추천받기", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="🔄 다른 곡 추천", style=discord.ButtonStyle.secondary, row=0)
     async def shuffle_music(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         latest_prefs = (await asyncio.to_thread(core.load_data)).get("music_prefs", self.prefs)
@@ -79,7 +80,7 @@ class MusicRecommendView(core.SafeView):
         embed, view = self.bot_instance.build_music_embed_and_view(track_info, latest_prefs, is_morning=self.is_morning)
         await interaction.edit_original_response(embed=embed, view=view)
 
-    @discord.ui.button(label="❤️ 보관함에 담기", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="❤️ 보관함 담기", style=discord.ButtonStyle.danger, row=0)
     async def like_music(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
@@ -113,7 +114,7 @@ class MusicRecommendView(core.SafeView):
             ephemeral=True
         )
 
-    @discord.ui.button(label="💿 내 플리에 추가", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="💿 플리 추가", style=discord.ButtonStyle.success, row=1)
     async def add_to_playlist_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
@@ -147,7 +148,7 @@ class MusicRecommendView(core.SafeView):
             ephemeral=True
         )
 
-    @discord.ui.button(label="📚 내 음악보관함 열기", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="📚 내 보관함", style=discord.ButtonStyle.primary, row=1)
     async def open_my_library(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
@@ -1701,8 +1702,8 @@ class VoicePlayerControlView(core.SafeView):
         embed.set_footer(text=f"플리: {self.player.playlist_owner_name} • 💡 소리가 안 들릴 땐 봇 우클릭 > [사용자 음량 100%] 확인 • [v2.8-Live]")
         return embed
 
-    # Row 0: 핵심 재생 컨트롤 (이전곡 / 일시정지·재생 / 다음곡 / 반복모드 / 정지·퇴장)
-    @discord.ui.button(label="⏮️ 이전 곡", style=discord.ButtonStyle.secondary, row=0)
+    # Row 0: 핵심 재생 컨트롤 (이전 / 일시정지 / 다음 / 반복 / 퇴장)
+    @discord.ui.button(label="⏮️ 이전", style=discord.ButtonStyle.secondary, row=0)
     async def prev_track_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         new_idx = (self.player.current_index - 1) % max(1, len(self.player.tracks))
@@ -1721,7 +1722,7 @@ class VoicePlayerControlView(core.SafeView):
         except Exception:
             pass
 
-    @discord.ui.button(label="⏭️ 다음 곡", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="⏭️ 다음", style=discord.ButtonStyle.secondary, row=0)
     async def next_track_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         new_idx = (self.player.current_index + 1) % max(1, len(self.player.tracks))
@@ -1731,7 +1732,7 @@ class VoicePlayerControlView(core.SafeView):
         except Exception:
             pass
 
-    @discord.ui.button(label="🔁 전체 순환", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="🔁 순환", style=discord.ButtonStyle.success, row=0)
     async def loop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         order = ["all", "one", "off"]
         cur = self.player.loop_mode
@@ -1741,7 +1742,7 @@ class VoicePlayerControlView(core.SafeView):
         except Exception:
             pass
 
-    @discord.ui.button(label="⏹️ 정지/퇴장", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="⏹️ 퇴장", style=discord.ButtonStyle.danger, row=0)
     async def stop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         await self.player.stop_and_disconnect()
@@ -1750,7 +1751,7 @@ class VoicePlayerControlView(core.SafeView):
         except Exception:
             pass
 
-    # Row 1: 편의성 설정 (볼륨 조절 / 대기열 셔플 / 취침 예약 타이머 / 현재 곡 내 플리에 스크랩)
+    # Row 1: 편의성 설정 (볼륨 / 셔플 / 취침 / 플리담기)
     @discord.ui.button(label="🔉 -15%", style=discord.ButtonStyle.secondary, row=1)
     async def vol_down_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.player.adjust_volume(-0.15)
@@ -1761,7 +1762,7 @@ class VoicePlayerControlView(core.SafeView):
         self.player.adjust_volume(+0.15)
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="🔀 순번 셔플", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="🔀 셔플", style=discord.ButtonStyle.secondary, row=1)
     async def shuffle_queue_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if len(self.player.tracks) > 1:
             cur_track = self.player.current_track
@@ -1771,7 +1772,7 @@ class VoicePlayerControlView(core.SafeView):
             self.player.current_index = 0
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="🌙 취침타이머", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="🌙 취침", style=discord.ButtonStyle.secondary, row=1)
     async def sleep_timer_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         # 클릭 시 0분(해제) -> 15분 -> 30분 -> 60분 순환
         now_ts = time.time()
@@ -1787,7 +1788,7 @@ class VoicePlayerControlView(core.SafeView):
         self.player.set_sleep_timer(next_min)
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="💿 이 곡 내 플리에 담기", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="💿 플리담기", style=discord.ButtonStyle.success, row=1)
     async def grab_current_track_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         cur_t = self.player.current_track
         if not cur_t:
@@ -2517,7 +2518,7 @@ class PlaylistClearConfirmView(core.SafeView):
         self.studio_view = studio_view
         self.parent_message = parent_message
 
-    @discord.ui.button(label="💣 네, 전부 비울게요", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="💣 네, 전부 비울게요", style=discord.ButtonStyle.danger, row=0)
     async def confirm_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
         data, _prof, _pls, target_pl = await _load_owner_target_playlist(self.studio_view)
@@ -2528,7 +2529,7 @@ class PlaylistClearConfirmView(core.SafeView):
         await _commit_and_refresh_studio(self.studio_view, data, self.parent_message)
         await interaction.edit_original_response(content=f"🧹 **`{target_pl['name']}`**의 수록곡 **{cnt}곡**을 모두 비웠습니다.", view=None)
 
-    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary, row=0)
     async def cancel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(content="↩️ 전체 비우기를 취소했습니다.", view=None)
 
@@ -2552,19 +2553,19 @@ class PlaylistConvenienceView(core.SafeView):
         await _commit_and_refresh_studio(self.studio_view, data, self.parent_message)
 
     # Row 0: 추가 · 이동 · 삭제
-    @discord.ui.button(label="🔢 순번 변경", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🔢 순번변경", style=discord.ButtonStyle.primary, row=0)
     async def reorder_modal_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(PlaylistReorderModal(self.studio_view, parent_message=self.parent_message))
 
-    @discord.ui.button(label="📋 여러 곡 추가", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="📋 여러곡", style=discord.ButtonStyle.success, row=0)
     async def bulk_add_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(PlaylistBulkAddModal(self.studio_view, parent_message=self.parent_message))
 
-    @discord.ui.button(label="🔗 플리 링크로 추가", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="🔗 링크추가", style=discord.ButtonStyle.success, row=0)
     async def bulk_import_url_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(PlaylistImportUrlModal(self.studio_view, parent_message=self.parent_message, default_mode="2"))
 
-    @discord.ui.button(label="🗑️ 곡 골라서 삭제", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="🗑️ 선택삭제", style=discord.ButtonStyle.danger, row=0)
     async def pick_delete_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.studio_view.get_current_playlist().get("tracks"):
             await core.safe_send_response(interaction, "📭 삭제할 곡이 없습니다.", ephemeral=True)
@@ -2572,7 +2573,7 @@ class PlaylistConvenienceView(core.SafeView):
         del_view = PlaylistTrackDeleteView(self.studio_view, parent_message=self.parent_message)
         await core.safe_send_response(interaction, del_view.build_content(), view=del_view, ephemeral=True)
 
-    @discord.ui.button(label="🔢 번호로 삭제", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="🔢 번호삭제", style=discord.ButtonStyle.danger, row=0)
     async def number_delete_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(PlaylistDeleteByNumberModal(self.studio_view, parent_message=self.parent_message))
 
@@ -2635,7 +2636,7 @@ class PlaylistConvenienceView(core.SafeView):
     async def search_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(PlaylistSearchModal(self.studio_view, parent_message=self.parent_message))
 
-    @discord.ui.button(label="🧹 중복 곡 정리", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="🧹 중복정리", style=discord.ButtonStyle.secondary, row=2)
     async def dedupe_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
         data, _prof, _pls, target_pl = await _load_owner_target_playlist(self.studio_view)
@@ -2659,7 +2660,7 @@ class PlaylistConvenienceView(core.SafeView):
             view=self
         )
 
-    @discord.ui.button(label="📄 플리 복제", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="📄 복제", style=discord.ButtonStyle.secondary, row=2)
     async def duplicate_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
         data, _prof, pls, target_pl = await _load_owner_target_playlist(self.studio_view)
@@ -2688,7 +2689,7 @@ class PlaylistConvenienceView(core.SafeView):
             view=self
         )
 
-    @discord.ui.button(label="📃 목록 내보내기", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="📃 내보내기", style=discord.ButtonStyle.secondary, row=2)
     async def export_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         import io
         cur_pl = self.studio_view.get_current_playlist()
@@ -2708,7 +2709,7 @@ class PlaylistConvenienceView(core.SafeView):
             ephemeral=True
         )
 
-    @discord.ui.button(label="💣 전체 비우기", style=discord.ButtonStyle.danger, row=2)
+    @discord.ui.button(label="💣 비우기", style=discord.ButtonStyle.danger, row=2)
     async def clear_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         cur_pl = self.studio_view.get_current_playlist()
         cnt = len(cur_pl.get("tracks", []))
@@ -2791,7 +2792,7 @@ class PlaylistTrackDetailView(core.SafeView):
         embed.set_footer(text=f"수록일: {self.track.get('added_at', '-')[:10]} • [🔊 이 곡부터 음성채널 재생] 또는 순번 이동(⬆️/⬇️) 가능!")
         return embed
 
-    @discord.ui.button(label="🔊 이 순번부터 음성채널 재생", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="🔊 여기서 재생", style=discord.ButtonStyle.success, row=1)
     async def play_from_here_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
             await core.safe_send_response(interaction, "❌ 음성채널 자동재생은 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
@@ -2851,7 +2852,7 @@ class PlaylistTrackDetailView(core.SafeView):
 
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="⏫ 1번(맨 위)으로", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="⏫ 맨 위로", style=discord.ButtonStyle.secondary, row=1)
     async def move_top_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._shift_track(interaction, "top")
 
@@ -3105,14 +3106,14 @@ class SharedPlaylistView(core.SafeView):
         self.current_page = min(self.max_page, self.current_page + 1)
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="🌐 듣기 플랫폼: YouTube", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🌐 YouTube", style=discord.ButtonStyle.primary, row=0)
     async def platform_view_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         order = ["YouTube", "Spotify", "SoundCloud"]
         cur_idx = order.index(self.display_platform) if self.display_platform in order else 0
         self.display_platform = order[(cur_idx + 1) % len(order)]
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="🔀 랜덤 1곡 추천", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🔀 랜덤선곡", style=discord.ButtonStyle.secondary, row=0)
     async def shuffle_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         tracks = self.playlist.get("tracks", [])
         if not tracks:
@@ -3147,7 +3148,7 @@ class SharedPlaylistView(core.SafeView):
         detail_view = PlaylistTrackDetailView(chosen, self.owner.id, self.playlist.get("id", "pl_default"))
         await core.safe_send_response(interaction, embed=detail_view.build_embed(), view=detail_view, ephemeral=True)
 
-    @discord.ui.button(label="🔊 음성채널 자동재생", style=discord.ButtonStyle.success, row=2)
+    @discord.ui.button(label="🔊 음성재생", style=discord.ButtonStyle.success, row=2)
     async def voice_play_shared_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await start_voice_playlist_from_interaction(interaction, self.owner, self.playlist, start_index=0)
 
@@ -3175,7 +3176,7 @@ class SharedPlaylistView(core.SafeView):
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
         await interaction.followup.send(action_msg, ephemeral=True)
 
-    @discord.ui.button(label="📥 내 플리로 스크랩", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="📥 스크랩", style=discord.ButtonStyle.secondary, row=2)
     async def clone_pl_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id == self.owner.id:
             await core.safe_send_response(interaction, "ℹ️ 본인이 만든 플레이리스트입니다! `/설정` (`💿 플레이리스트 스튜디오`)에서 관리할 수 있습니다.", ephemeral=True)
@@ -3212,7 +3213,7 @@ class SharedPlaylistView(core.SafeView):
             ephemeral=True
         )
 
-    @discord.ui.button(label="🛠️ 나도 플리 만들기", style=discord.ButtonStyle.primary, row=2)
+    @discord.ui.button(label="🛠️ 플리 만들기", style=discord.ButtonStyle.primary, row=2)
     async def open_my_studio_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
@@ -3509,7 +3510,7 @@ class PlaylistStudioView(core.SafeView):
         )
         await core.safe_send_response(interaction, embed=detail_view.build_embed(), view=detail_view, ephemeral=True)
 
-    @discord.ui.button(label="➕ 곡 추가", style=discord.ButtonStyle.primary, row=3)
+    @discord.ui.button(label="➕ 곡추가", style=discord.ButtonStyle.primary, row=3)
     async def add_track_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.owner.id:
             await core.safe_send_response(interaction, "❌ 플레이리스트 소유자 본인만 곡을 추가할 수 있습니다.", ephemeral=True)
@@ -3517,7 +3518,7 @@ class PlaylistStudioView(core.SafeView):
         self.message = interaction.message
         await interaction.response.send_modal(PlaylistAddTrackModal(self, parent_message=interaction.message))
 
-    @discord.ui.button(label="❤️ 보관함 곡 담기", style=discord.ButtonStyle.secondary, row=3)
+    @discord.ui.button(label="❤️ 보관함", style=discord.ButtonStyle.secondary, row=3)
     async def import_liked_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.owner.id:
             await core.safe_send_response(interaction, "❌ 플레이리스트 소유자 본인만 이용할 수 있습니다.", ephemeral=True)
@@ -3543,7 +3544,7 @@ class PlaylistStudioView(core.SafeView):
             ephemeral=True
         )
 
-    @discord.ui.button(label="📁 새 플리", style=discord.ButtonStyle.secondary, row=3)
+    @discord.ui.button(label="📁 새플리", style=discord.ButtonStyle.secondary, row=3)
     async def create_pl_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.owner.id:
             await core.safe_send_response(interaction, "❌ 본인만 새 플레이리스트를 만들 수 있습니다.", ephemeral=True)
@@ -3551,7 +3552,7 @@ class PlaylistStudioView(core.SafeView):
         self.message = interaction.message
         await interaction.response.send_modal(PlaylistCreateEditModal(self, is_edit=False, parent_message=interaction.message))
 
-    @discord.ui.button(label="✏️ 플리 수정", style=discord.ButtonStyle.secondary, row=3)
+    @discord.ui.button(label="✏️ 수정", style=discord.ButtonStyle.secondary, row=3)
     async def edit_pl_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.owner.id:
             await core.safe_send_response(interaction, "❌ 플레이리스트 소유자 본인만 수정할 수 있습니다.", ephemeral=True)
@@ -3559,7 +3560,7 @@ class PlaylistStudioView(core.SafeView):
         self.message = interaction.message
         await interaction.response.send_modal(PlaylistCreateEditModal(self, is_edit=True, parent_message=interaction.message))
 
-    @discord.ui.button(label="🗑️ 플리 삭제", style=discord.ButtonStyle.danger, row=3)
+    @discord.ui.button(label="🗑️ 삭제", style=discord.ButtonStyle.danger, row=3)
     async def delete_pl_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.owner.id:
             await core.safe_send_response(interaction, "❌ 플레이리스트 소유자 본인만 삭제할 수 있습니다.", ephemeral=True)
@@ -3588,12 +3589,12 @@ class PlaylistStudioView(core.SafeView):
         await interaction.followup.send(f"🗑️ **`{deleted_name}`** 플레이리스트를 정리했습니다.", ephemeral=True)
 
     # Row 4: 음성채널 순차 자동재생 & 채널 공유 & 순번/편의기능 & 음성리모컨
-    @discord.ui.button(label="🔊 음성채널 순차 자동재생", style=discord.ButtonStyle.success, row=4)
+    @discord.ui.button(label="🔊 음성재생", style=discord.ButtonStyle.success, row=4)
     async def voice_autoplay_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         cur_pl = self.get_current_playlist()
         await start_voice_playlist_from_interaction(interaction, self.owner, cur_pl, start_index=0)
 
-    @discord.ui.button(label="📢 채널에 공유하기", style=discord.ButtonStyle.primary, row=4)
+    @discord.ui.button(label="📢 공유", style=discord.ButtonStyle.primary, row=4)
     async def share_pl_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
@@ -3630,7 +3631,7 @@ class PlaylistStudioView(core.SafeView):
         else:
             await interaction.followup.send(embed=shared_embed, view=shared_view, wait=True)
 
-    @discord.ui.button(label="🔗 플리 링크 가져오기", style=discord.ButtonStyle.secondary, row=4)
+    @discord.ui.button(label="🔗 링크추가", style=discord.ButtonStyle.secondary, row=4)
     async def import_url_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.owner.id:
             await core.safe_send_response(interaction, "❌ 플레이리스트 소유자 본인만 이용할 수 있습니다.", ephemeral=True)
@@ -3638,7 +3639,7 @@ class PlaylistStudioView(core.SafeView):
         self.message = interaction.message
         await interaction.response.send_modal(PlaylistImportUrlModal(self, parent_message=interaction.message))
 
-    @discord.ui.button(label="⚙️ 순번·편의기능", style=discord.ButtonStyle.secondary, row=4)
+    @discord.ui.button(label="⚙️ 편의기능", style=discord.ButtonStyle.secondary, row=4)
     async def convenience_tools_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.owner.id:
             await core.safe_send_response(interaction, "❌ 플레이리스트 소유자 본인만 순번 및 일괄 편집 도구를 사용할 수 있습니다.", ephemeral=True)
@@ -3655,7 +3656,7 @@ class PlaylistStudioView(core.SafeView):
             ephemeral=True
         )
 
-    @discord.ui.button(label="🗑️ 곡 삭제", style=discord.ButtonStyle.danger, row=4)
+    @discord.ui.button(label="🗑️ 곡삭제", style=discord.ButtonStyle.danger, row=4)
     async def delete_tracks_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.owner.id:
             await core.safe_send_response(interaction, "❌ 플레이리스트 소유자 본인만 곡을 삭제할 수 있습니다.", ephemeral=True)

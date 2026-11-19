@@ -253,7 +253,7 @@ class AttendanceCalendarView(core.SafeView):
             interaction.user.display_name
         )
         self.check_now_btn.disabled = True
-        self.check_now_btn.label = "✅ 오늘 출석 완료됨"
+        self.check_now_btn.label = "✅ 출석 완료"
         try:
             await interaction.message.edit(embed=self.build_embed(), view=self)
         except Exception:
@@ -263,7 +263,7 @@ class AttendanceCalendarView(core.SafeView):
         else:
             await interaction.followup.send(embed=embed, view=view, wait=True)
 
-    @discord.ui.button(label="🏆 서버 출석랭킹", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🏆 출석랭킹", style=discord.ButtonStyle.secondary, row=0)
     async def rank_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
@@ -271,7 +271,7 @@ class AttendanceCalendarView(core.SafeView):
         view = AttendanceRankingView(interaction, data, initial_scope=init_scope, initial_sort="total")
         await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
-    @discord.ui.button(label="📖 전체 카드도감", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="📖 카드도감", style=discord.ButtonStyle.success, row=1)
     async def pokedex_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         guild_id = interaction.guild_id or 0
@@ -279,7 +279,7 @@ class AttendanceCalendarView(core.SafeView):
         view = CardPokedexView(interaction.user, stats, guild_id=guild_id)
         await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
-    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=1)
     async def refresh_cal_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         guild_id = interaction.guild_id or 0
@@ -292,7 +292,7 @@ class AttendanceCalendarView(core.SafeView):
             self.user.display_name,
         )
         self.check_now_btn.disabled = bool(self.cal_info.get("checked_today", False))
-        self.check_now_btn.label = "✅ 오늘 출석 완료됨" if self.check_now_btn.disabled else "📅 오늘 출석체크 하기"
+        self.check_now_btn.label = "✅ 출석 완료" if self.check_now_btn.disabled else "📅 오늘 출석체크"
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
 
@@ -303,7 +303,7 @@ class AttendanceQuickActionView(core.SafeView):
         self.bot_instance = bot_instance
         self.user = user
 
-    @discord.ui.button(label="🗓️ 출석 캘린더 & 개근보상", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🗓️ 출석 캘린더", style=discord.ButtonStyle.primary, row=0)
     async def open_calendar(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         guild_id = interaction.guild_id or 0
@@ -318,7 +318,7 @@ class AttendanceQuickActionView(core.SafeView):
         view = AttendanceCalendarView(self.bot_instance, interaction.user, cal_info)
         await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
-    @discord.ui.button(label="🏆 서버 출석랭킹", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🏆 출석랭킹", style=discord.ButtonStyle.secondary, row=0)
     async def open_guild_rank(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
@@ -326,7 +326,7 @@ class AttendanceQuickActionView(core.SafeView):
         view = AttendanceRankingView(interaction, data, initial_scope=init_scope, initial_sort="total")
         await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
-    @discord.ui.button(label="🌱 오늘목표 잔디", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="🌱 오늘목표", style=discord.ButtonStyle.success, row=0)
     async def open_todo_grass(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
@@ -336,7 +336,7 @@ class AttendanceQuickActionView(core.SafeView):
         view = TodoTrackerView(interaction.user, profile)
         await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
-    @discord.ui.button(label="📖 전체 카드도감", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="📖 카드도감", style=discord.ButtonStyle.secondary, row=1)
     async def open_pokedex(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         guild_id = interaction.guild_id or 0
@@ -344,7 +344,7 @@ class AttendanceQuickActionView(core.SafeView):
         view = CardPokedexView(interaction.user, stats, guild_id=guild_id)
         await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
-    @discord.ui.button(label="⚙️ 통합 설정 (/설정)", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="⚙️ /설정", style=discord.ButtonStyle.secondary, row=1)
     async def open_quick_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
@@ -767,14 +767,14 @@ class TodoTrackerView(core.SafeView):
         self.update_select_options()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="➕ 새 목표 추가", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="➕ 목표추가", style=discord.ButtonStyle.primary, row=1)
     async def add_task_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인의 목표 보드만 조작할 수 있습니다.", ephemeral=True)
             return
         await interaction.response.send_modal(TodoAddModal(self))
 
-    @discord.ui.button(label="🧹 완료된 목표 비우기", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="🧹 완료비우기", style=discord.ButtonStyle.secondary, row=1)
     async def clear_done_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인의 목표 보드만 조작할 수 있습니다.", ephemeral=True)
@@ -794,7 +794,7 @@ class TodoTrackerView(core.SafeView):
         self.update_select_options()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="✅ 전체 완료", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="✅ 전체완료", style=discord.ButtonStyle.success, row=1)
     async def complete_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인의 목표 보드만 조작할 수 있습니다.", ephemeral=True)
@@ -986,7 +986,7 @@ class AttendanceRankingView(core.SafeView):
 
         return embed
 
-    @discord.ui.button(label="🏠 현재 서버 랭킹", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🏠 이 서버", style=discord.ButtonStyle.primary, row=0)
     async def guild_scope_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.data = core.get_cached_data()
         self.scope = "guild"
@@ -994,7 +994,7 @@ class AttendanceRankingView(core.SafeView):
         self.refresh_entries()
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="🌍 전체 서버 랭킹", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🌍 전체서버", style=discord.ButtonStyle.secondary, row=0)
     async def global_scope_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.data = core.get_cached_data()
         self.scope = "global"
@@ -1002,7 +1002,7 @@ class AttendanceRankingView(core.SafeView):
         self.refresh_entries()
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="📅 누적 출석순", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="📅 누적순", style=discord.ButtonStyle.success, row=0)
     async def sort_total_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.data = core.get_cached_data()
         self.sort_by = "total"
@@ -1010,7 +1010,7 @@ class AttendanceRankingView(core.SafeView):
         self.refresh_entries()
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="🔥 연속 출석순", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🔥 연속순", style=discord.ButtonStyle.secondary, row=0)
     async def sort_streak_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.data = core.get_cached_data()
         self.sort_by = "streak"
@@ -1231,7 +1231,7 @@ class DDayListBoardView(core.SafeView):
         self.sort_diff_btn.style = discord.ButtonStyle.primary if self.sort_mode == "diff" else discord.ButtonStyle.secondary
         self.sort_pct_btn.style = discord.ButtonStyle.primary if self.sort_mode == "percent" else discord.ButtonStyle.secondary
 
-    @discord.ui.button(label="📅 남은기간 임박순", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="📅 임박순", style=discord.ButtonStyle.primary, row=0)
     async def sort_diff_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.data = await asyncio.to_thread(core.load_data)
@@ -1239,7 +1239,7 @@ class DDayListBoardView(core.SafeView):
         self._sync_sort_styles()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="📊 진행률 높은순", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="📊 진행률순", style=discord.ButtonStyle.secondary, row=0)
     async def sort_pct_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.data = await asyncio.to_thread(core.load_data)
@@ -1247,12 +1247,12 @@ class DDayListBoardView(core.SafeView):
         self._sync_sort_styles()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="🔥 7일 이내 임박만 보기", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="🔥 7일이내", style=discord.ButtonStyle.danger, row=0)
     async def toggle_urgent_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.data = await asyncio.to_thread(core.load_data)
         self.filter_mode = "all" if self.filter_mode == "urgent" else "urgent"
-        button.label = "🌈 전체 일정 보기" if self.filter_mode == "urgent" else "🔥 7일 이내 임박만 보기"
+        button.label = "🌈 전체보기" if self.filter_mode == "urgent" else "🔥 7일이내"
         self._sync_sort_styles()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
@@ -1263,11 +1263,11 @@ class DDayListBoardView(core.SafeView):
         self._sync_sort_styles()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="➕ 새 디데이 등록", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="➕ 디데이 등록", style=discord.ButtonStyle.success, row=1)
     async def quick_add_dday_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(DDayQuickAddModal(self))
 
-    @discord.ui.button(label="🗑️ 디데이 삭제 (관리자)", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="🗑️ 삭제(관리자)", style=discord.ButtonStyle.danger, row=1)
     async def delete_dday_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.guild and isinstance(interaction.user, discord.Member) and not interaction.user.guild_permissions.administrator:
             await core.safe_send_response(interaction, "❌ 디데이 일정 삭제는 **서버 관리자**만 실행할 수 있습니다.", ephemeral=True)
@@ -1281,7 +1281,7 @@ class DDayListBoardView(core.SafeView):
         del_view = DDayDeleteView(ddays, self.bot_instance)
         await interaction.followup.send("🗑️ 삭제할 D-Day 일정을 아래 메뉴에서 선택하세요 (연결된 전광판 채널도 함께 정리됩니다):", view=del_view, ephemeral=True, wait=True)
 
-    @discord.ui.button(label="⚙️ 통합 설정 (/설정)", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="⚙️ /설정", style=discord.ButtonStyle.secondary, row=1)
     async def open_menu_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
@@ -1650,7 +1650,7 @@ class PartnerAcceptView(core.SafeView):
                     self.target = m
                     break
 
-    @discord.ui.button(label="💖 파트너 수락하기", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="💖 파트너 수락하기", style=discord.ButtonStyle.success, row=0)
     async def accept_partner(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.requester or not self.target:
             self._restore_from_message(interaction)
@@ -1707,7 +1707,7 @@ class PartnerAcceptView(core.SafeView):
         )
         await interaction.edit_original_response(content=None, embed=embed, view=None)
 
-    @discord.ui.button(label="거절", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="거절", style=discord.ButtonStyle.secondary, row=0)
     async def decline_partner(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.requester or not self.target:
             self._restore_from_message(interaction)
@@ -1819,7 +1819,7 @@ class ResetConfirmView(core.SafeView):
         super().__init__(timeout=60)
         self.bot_instance = bot_instance
 
-    @discord.ui.button(label="⚠️ 모든 데이터 및 디데이 채널 초기화 실행", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="⚠️ 모든 데이터 및 디데이 채널 초기화 실행", style=discord.ButtonStyle.danger, row=0)
     async def confirm_reset(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.administrator:
             await core.safe_send_response(interaction, "❌ 서버 관리자만 실행할 수 있습니다.", ephemeral=True)
@@ -1881,7 +1881,7 @@ class ResetConfirmView(core.SafeView):
         )
         await interaction.edit_original_response(content=None, embed=embed, view=None)
 
-    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary, row=0)
     async def cancel_reset(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(
             title="✅ 초기화 취소됨",
@@ -3277,11 +3277,11 @@ class BirthdayBoardView(core.SafeView):
         embed.set_footer(text="하단 [🎂 내 생일 등록/수정] 버튼으로 1초 만에 생일을 등록할 수 있습니다.")
         return embed
 
-    @discord.ui.button(label="🎂 내 생일 등록/수정", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="🎂 내 생일 등록/수정", style=discord.ButtonStyle.primary, row=0)
     async def register_bday_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(BirthdayRegisterModal(self))
 
-    @discord.ui.button(label="🗑️ 내 생일 삭제", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="🗑️ 내 생일 삭제", style=discord.ButtonStyle.danger, row=0)
     async def delete_bday_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)

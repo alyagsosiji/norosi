@@ -1548,7 +1548,7 @@ class SekaiDeckManageView(core.SafeView):
         )
         await interaction.edit_original_response(embed=embed, view=self)
 
-    @discord.ui.button(label="✏️ 카드 ID·이름으로 5인 직접 편성", style=discord.ButtonStyle.primary, emoji="✏️", row=0)
+    @discord.ui.button(label="5인 직접 편성", style=discord.ButtonStyle.primary, emoji="✏️", row=0)
     async def manual_deck_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(SekaiDeckCustomModal(self.bot))
 
@@ -2744,11 +2744,11 @@ class MasterDashboardView(core.SafeView):
             btn_pers.callback = self._make_cat_enter_cb("personal")
             self.add_item(btn_pers)
 
-            # Row 1: 원클릭 자주 쓰는 핵심 단축 버튼 5개 (랭킹 버튼 전면 배치!)
+            # Row 1: 원클릭 자주 쓰는 핵심 단축 버튼 5개 (모바일·PC 전 비율 균일 폭)
             quick_items = [
-                ("즉시 출석체크", "📅", discord.ButtonStyle.success, self._act_attendance, "q_att"),
-                ("통합 프로필카드", "🪪", discord.ButtonStyle.primary, self._act_profile_card_png, "q_prof"),
-                ("프로세카 10연차", "🌈", discord.ButtonStyle.secondary, self._act_sekai_pull_10, "q_p10"),
+                ("출석체크", "📅", discord.ButtonStyle.success, self._act_attendance, "q_att"),
+                ("프로필카드", "🪪", discord.ButtonStyle.primary, self._act_profile_card_png, "q_prof"),
+                ("프세카10연", "🌈", discord.ButtonStyle.secondary, self._act_sekai_pull_10, "q_p10"),
                 ("낚시 출조", "🎣", discord.ButtonStyle.secondary, self._act_fishing_cast, "q_fish"),
                 ("통합 랭킹", "🏆", discord.ButtonStyle.primary, self._act_ranking_hub, "q_rank"),
             ]
@@ -2794,7 +2794,7 @@ class MasterDashboardView(core.SafeView):
             # Row 3: 통합 페이지네이션 시작 바 + 도움말 + 새로고침
             flat_total = len(self._get_flat_pages())
             prev_btn = discord.ui.Button(
-                label="◀ 이전",
+                label="◀",
                 style=discord.ButtonStyle.secondary,
                 row=3,
                 custom_id="norosi:Settings:nav_prev",
@@ -2803,7 +2803,7 @@ class MasterDashboardView(core.SafeView):
             self.add_item(prev_btn)
 
             ind_btn = discord.ui.Button(
-                label=f"🏠 홈 (통합 {flat_total}p)",
+                label=f"🏠 홈 {flat_total}p",
                 style=discord.ButtonStyle.secondary,
                 disabled=True,
                 row=3,
@@ -2812,7 +2812,7 @@ class MasterDashboardView(core.SafeView):
             self.add_item(ind_btn)
 
             next_btn = discord.ui.Button(
-                label="다음 ▶",
+                label="▶",
                 style=discord.ButtonStyle.secondary,
                 row=3,
                 custom_id="norosi:Settings:nav_next",
@@ -2883,7 +2883,7 @@ class MasterDashboardView(core.SafeView):
             c_pages_cnt = len(self._pages_cache.get(cat_key, []))
             is_cur = (cat_key == self.current_category)
             c_btn = discord.ui.Button(
-                label=f"{c_meta['label'].split(' ', 1)[-1]} ({c_pages_cnt}p)",
+                label=f"{c_meta['label'].split(' ', 1)[-1]} {c_pages_cnt}p",
                 emoji=c_meta["emoji"],
                 style=discord.ButtonStyle.primary if is_cur else discord.ButtonStyle.secondary,
                 row=2,
@@ -2892,9 +2892,9 @@ class MasterDashboardView(core.SafeView):
             c_btn.callback = self._make_cat_enter_cb(cat_key)
             self.add_item(c_btn)
 
-        # Row 3: [⬅️ 뒤로가기] + 통합 페이지네이션 [◀ 이전] [📄 현재/전체 (통합 N/14)] [다음 ▶] + [🔄 새로고침]
+        # Row 3: [⬅️ 뒤로] + 통합 페이지네이션 [◀] [📄 N/M · G/T] [▶] + [🔄 새로고침]
         back_btn = discord.ui.Button(
-            label="뒤로가기",
+            label="뒤로",
             emoji="⬅️",
             style=discord.ButtonStyle.danger,
             row=3,
@@ -2904,7 +2904,7 @@ class MasterDashboardView(core.SafeView):
         self.add_item(back_btn)
 
         prev_btn = discord.ui.Button(
-            label="◀ 이전",
+            label="◀",
             style=discord.ButtonStyle.secondary,
             row=3,
             custom_id="norosi:Settings:nav_prev",
@@ -2914,7 +2914,7 @@ class MasterDashboardView(core.SafeView):
 
         global_cur, global_tot = self._get_global_page_info(self.current_category, self.current_page)
         ind_btn = discord.ui.Button(
-            label=f"📄 {self.current_page + 1}/{len(cat_pages)} (통합 {global_cur}/{global_tot})",
+            label=f"📄 {self.current_page + 1}/{len(cat_pages)} ({global_cur}/{global_tot})",
             style=discord.ButtonStyle.secondary,
             disabled=True,
             row=3,
@@ -2923,7 +2923,7 @@ class MasterDashboardView(core.SafeView):
         self.add_item(ind_btn)
 
         next_btn = discord.ui.Button(
-            label="다음 ▶",
+            label="▶",
             style=discord.ButtonStyle.secondary,
             row=3,
             custom_id="norosi:Settings:nav_next",

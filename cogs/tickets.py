@@ -857,7 +857,7 @@ class TicketConfigRoleView(core.SafeView):
         embed = _build_ticket_config_embed(cfg, guild)
         await core.safe_edit_response(interaction, content="🔓 담당자 역할 지정을 해제했습니다. (서버 관리자만 접수 가능)", embed=embed, view=self)
 
-    @discord.ui.button(label="📁 생성 방식 전환 (채널 ⇄ 스레드)", style=discord.ButtonStyle.primary, row=4)
+    @discord.ui.button(label="📁 방식 (채널⇄스레드)", style=discord.ButtonStyle.primary, row=4)
     async def btn_toggle_mode(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild = interaction.guild
         gid = self.guild_id or (guild.id if guild else 0)
@@ -872,7 +872,7 @@ class TicketConfigRoleView(core.SafeView):
         mode_kr = "🧵 비공개 스레드 (Thread)" if next_mode == "thread" else "📁 비공개 텍스트 채널"
         await core.safe_edit_response(interaction, content=f"✅ 티켓 생성 방식을 **{mode_kr}** 로 전환했습니다!", embed=embed, view=self)
 
-    @discord.ui.button(label="🔢 최대 오픈 수 변경 (1~5개)", style=discord.ButtonStyle.secondary, row=4)
+    @discord.ui.button(label="🔢 최대 오픈 수", style=discord.ButtonStyle.secondary, row=4)
     async def btn_cycle_max_tickets(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild = interaction.guild
         gid = self.guild_id or (guild.id if guild else 0)

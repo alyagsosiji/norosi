@@ -110,7 +110,7 @@ class DailyRoutineHubView(core.SafeView):
         embed.set_footer(text="🎁 [가능 보상 일괄 수령]으로 낚시 의뢰·농장·공동농장·완주 보너스를 한 번에 처리하세요!")
         return embed
 
-    @discord.ui.button(label="🎁 가능 보상 일괄 수령", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="🎁 일괄 수령", style=discord.ButtonStyle.success, row=0)
     async def btn_bulk_claim(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         ok, logs = await asyncio.to_thread(
@@ -149,25 +149,12 @@ class DailyRoutineHubView(core.SafeView):
         msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
         v.message = msg
 
-    @discord.ui.button(label="🎣 낚시 의뢰", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🎣 낚시 의뢰", style=discord.ButtonStyle.secondary, row=1)
     async def btn_quest(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         from cogs import fishing
         summary = await asyncio.to_thread(fishing_core.get_user_fishing_summary, self.guild_id, interaction.user.id, interaction.user.display_name)
         v = fishing.FishingQuestView(interaction.user, self.guild_id, summary=summary)
-        await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
-
-    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=0)
-    async def btn_refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction)
-        self.status_msg = "🔄 일일 루틴 현황을 최신으로 갱신했습니다."
-        await self.reload()
-        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
-
-    @discord.ui.button(label="💱 골드⇄크리스탈 환전", style=discord.ButtonStyle.primary, row=1)
-    async def btn_exchange(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await core.safe_defer(interaction)
-        v = CurrencyExchangeView(interaction.user, self.guild_id)
         await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
 
     @discord.ui.button(label="🎯 주간 미션", style=discord.ButtonStyle.primary, row=1)
@@ -176,7 +163,13 @@ class DailyRoutineHubView(core.SafeView):
         v = WeeklyMissionView(interaction.user, self.guild_id)
         await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
 
-    @discord.ui.button(label="💑 파트너 농장 물주기", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="💱 환전소", style=discord.ButtonStyle.primary, row=1)
+    async def btn_exchange(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        v = CurrencyExchangeView(interaction.user, self.guild_id)
+        await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+
+    @discord.ui.button(label="💑 파트너 물주기", style=discord.ButtonStyle.secondary, row=2)
     async def btn_partner_water(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         ok, msg = await asyncio.to_thread(
@@ -187,11 +180,18 @@ class DailyRoutineHubView(core.SafeView):
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
         await interaction.followup.send(msg, ephemeral=not ok)
 
-    @discord.ui.button(label="🏆 내 쇼케이스", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="🏆 쇼케이스", style=discord.ButtonStyle.secondary, row=2)
     async def btn_showcase(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         v = ShowcaseView(interaction.user, self.guild_id)
         await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=2)
+    async def btn_refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.status_msg = "🔄 일일 루틴 현황을 최신으로 갱신했습니다."
+        await self.reload()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
 
 # ==========================================
@@ -462,25 +462,25 @@ class ShowcaseView(core.SafeView):
         self.tab = "summary"
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="🎤 프로세카 덱", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🎤 프세카 덱", style=discord.ButtonStyle.secondary, row=0)
     async def btn_sekai(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.tab = "sekai"
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="🌠 원신·스타레일", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🌠 원신·스타", style=discord.ButtonStyle.secondary, row=0)
     async def btn_hoyoverse(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.tab = "hoyoverse"
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="🐠 수족관·인생", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🐠 수족관·인생", style=discord.ButtonStyle.secondary, row=1)
     async def btn_life(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.tab = "life"
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=1)
     async def btn_refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         await self.reload()

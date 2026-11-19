@@ -396,7 +396,7 @@ class DuplicateConvertConfirmView(core.SafeView):
         embed.set_footer(text="아래 [💎 중복 카드 일괄 변환 확정] 버튼을 누르면 즉시 크리스탈이 지급됩니다.")
         return embed
 
-    @discord.ui.button(label="💎 중복 카드 일괄 변환 확정", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="💎 중복 카드 일괄 변환 확정", style=discord.ButtonStyle.success, row=0)
     async def convert_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인만 변환을 실행할 수 있습니다.", ephemeral=True)
@@ -463,7 +463,7 @@ class DuplicateConvertConfirmView(core.SafeView):
         )
         await interaction.edit_original_response(embed=done_embed, view=None)
 
-    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary, row=0)
     async def cancel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인만 취소할 수 있습니다.", ephemeral=True)
@@ -572,15 +572,15 @@ class GachaPullAgainView(core.SafeView):
             skip_anim=self.skip_anim,
         )
 
-    @discord.ui.button(label="🎵 1회 더 뽑기", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🎵 1회 뽑기", style=discord.ButtonStyle.primary, row=0)
     async def pull_one_more(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._handle_repull(interaction, 1)
 
-    @discord.ui.button(label="🌈 10회 더 뽑기", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="🌈 10회 뽑기", style=discord.ButtonStyle.success, row=0)
     async def pull_ten_more(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._handle_repull(interaction, 10)
 
-    @discord.ui.button(label="✨ 연출 스킵: OFF", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="✨ 스킵: OFF", style=discord.ButtonStyle.secondary, row=0)
     async def toggle_skip_anim(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 가챠를 실행한 본인만 연출 설정을 바꿀 수 있습니다.", ephemeral=True)
@@ -593,13 +593,13 @@ class GachaPullAgainView(core.SafeView):
         state_txt = "**ON (결과 즉시 표시)**" if self.skip_anim else "**OFF (무지개 승격 & 대사 연출 보기)**"
         await core.safe_send_response(interaction, f"⚙️ 뽑기 연출 스킵 설정이 {state_txt}(으)로 변경되었습니다.", ephemeral=True)
 
-    @discord.ui.button(label="⚔️ 세카이 라이브", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="⚔️ 라이브", style=discord.ButtonStyle.primary, row=0)
     async def open_sekai_live(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         view = SekaiLiveView(interaction.user, guild_id=interaction.guild_id or 0)
         await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
-    @discord.ui.button(label="🎒 내 보관함", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="🎒 보관함", style=discord.ButtonStyle.secondary, row=1)
     async def open_inventory(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
@@ -609,7 +609,7 @@ class GachaPullAgainView(core.SafeView):
         view = MyInventoryView(interaction.user, list(user_cards_dict.values()), items_per_page=10, guild_id=interaction.guild_id or 0)
         await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
-    @discord.ui.button(label="💎 중복 변환", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="💎 중복변환", style=discord.ButtonStyle.secondary, row=1)
     async def open_duplicate_converter(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
         guild_id = interaction.guild_id or 0
@@ -617,7 +617,7 @@ class GachaPullAgainView(core.SafeView):
         view = DuplicateConvertConfirmView(guild_id, interaction.user, preview)
         await core.safe_send_response(interaction, embed=view.build_preview_embed(), view=view, ephemeral=True)
 
-    @discord.ui.button(label="📖 카드 도감", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="📖 도감", style=discord.ButtonStyle.secondary, row=1)
     async def open_pokedex(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         guild_id = interaction.guild_id or 0
@@ -631,7 +631,7 @@ class GachaPullAgainView(core.SafeView):
         view = CharacterCostumeWardrobeView(interaction.user, guild_id=interaction.guild_id or 0)
         await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
-    @discord.ui.button(label="🏆 마스터 랭크", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="🏆 MR돌파", style=discord.ButtonStyle.secondary, row=1)
     async def open_master_rank(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         view = MasterRankView(interaction.user, guild_id=interaction.guild_id or 0)
@@ -802,7 +802,7 @@ class RerollSimulatorView(core.SafeView):
             else:
                 await interaction.edit_original_response(embed=embed, attachments=[], view=self)
 
-    @discord.ui.button(label="🎯 픽업/★4 뜰 때까지 돌리기 (최대 50회)", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="🎯 ★4/픽업까지 돌리기 (50회)", style=discord.ButtonStyle.success, row=0)
     async def auto_reroll_until_hit(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 연습 시뮬레이션을 시작한 본인만 조작할 수 있습니다.", ephemeral=True)
@@ -990,7 +990,7 @@ class DestinyRerollView(core.SafeView):
         else:
             await interaction.edit_original_response(embed=embed, attachments=[], view=self)
 
-    @discord.ui.button(label="🔁 다시 뽑기 (남은 2/2회)", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🔁 다시 뽑기 (2/2)", style=discord.ButtonStyle.primary, row=0)
     async def reroll_set(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.user or interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 운명 다시 뽑기를 시작한 본인만 조작할 수 있습니다.", ephemeral=True)
@@ -1015,7 +1015,7 @@ class DestinyRerollView(core.SafeView):
             self.current_idx = len(self.sets) - 1
             await self._render_current(interaction)
 
-    @discord.ui.button(label="◀️ 이전 세트", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="◀ 이전 세트", style=discord.ButtonStyle.secondary, row=0)
     async def prev_set(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.user or interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인만 세트를 전환할 수 있습니다.", ephemeral=True)
@@ -1031,7 +1031,7 @@ class DestinyRerollView(core.SafeView):
             self.current_idx -= 1
             await self._render_current(interaction)
 
-    @discord.ui.button(label="▶️ 다음 세트", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="다음 세트 ▶", style=discord.ButtonStyle.secondary, row=0)
     async def next_set(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.user or interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인만 세트를 전환할 수 있습니다.", ephemeral=True)
@@ -1047,7 +1047,7 @@ class DestinyRerollView(core.SafeView):
             self.current_idx += 1
             await self._render_current(interaction)
 
-    @discord.ui.button(label="✅ 1세트 확정 수령!", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="✅ 1세트 확정 수령!", style=discord.ButtonStyle.success, row=1)
     async def confirm_set(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.user or interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인만 세트를 확정 수령할 수 있습니다.", ephemeral=True)
@@ -1240,7 +1240,7 @@ class CardTradeAcceptView(core.SafeView):
         self.req_card = req_card or {}
         self.tgt_card = tgt_card or {}
 
-    @discord.ui.button(label="🤝 교환 수락하기", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="🤝 교환 수락", style=discord.ButtonStyle.success, row=0)
     async def accept_trade(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.target or not self.requester or not self.req_card or not self.tgt_card or self.requester.id == self.target.id:
             await core.safe_send_response(interaction, "⚠️ 교환 요청 정보가 만료되었습니다. `/설정` (`👤 개인` ➔ `🤝 1:1 카드 교환/선물`)에서 다시 신청해 주세요.", ephemeral=True)
@@ -1286,7 +1286,7 @@ class CardTradeAcceptView(core.SafeView):
         embed.set_thumbnail(url=core.get_proseka_card_image_url(received_c, "auto"))
         await interaction.edit_original_response(content=None, embed=embed, view=None)
 
-    @discord.ui.button(label="🖼️ 제공 카드 일러스트", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🖼️ 제공 카드", style=discord.ButtonStyle.secondary, row=1)
     async def preview_req_card(self, interaction: discord.Interaction, button: discord.ui.Button):
         c = self.req_card
         if not c or "id" not in c:
@@ -1301,7 +1301,7 @@ class CardTradeAcceptView(core.SafeView):
         p_embed.set_image(url=core.get_proseka_card_image_url(c, "auto"))
         await core.safe_send_response(interaction, embed=p_embed, ephemeral=True)
 
-    @discord.ui.button(label="🖼️ 대상 카드 일러스트", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🖼️ 대상 카드", style=discord.ButtonStyle.secondary, row=1)
     async def preview_tgt_card(self, interaction: discord.Interaction, button: discord.ui.Button):
         c = self.tgt_card
         if not c or "id" not in c:
@@ -1634,15 +1634,15 @@ class CardIllustToggleView(core.SafeView):
             embed.set_image(url=core.get_proseka_card_image_url(self.card, self.current_mode))
             await interaction.edit_original_response(embed=embed, attachments=[], view=self)
 
-    @discord.ui.button(label="🌸 각성 전 (Normal)", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🌸 각성 전", style=discord.ButtonStyle.secondary, row=0)
     async def normal_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.switch_mode(interaction, "normal")
 
-    @discord.ui.button(label="✨ 각성 후 (After Training)", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="✨ 각성 후", style=discord.ButtonStyle.primary, row=0)
     async def awakened_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.switch_mode(interaction, "after_training")
 
-    @discord.ui.button(label="🔓 카드 잠금하기", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="🔓 카드 잠금", style=discord.ButtonStyle.success, row=1)
     async def lock_toggle_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.owner_id and interaction.user.id != self.owner_id:
             await core.safe_send_response(interaction, "❌ 카드 소유자 본인만 잠금 상태를 변경할 수 있습니다.", ephemeral=True)
@@ -1692,7 +1692,7 @@ class CardIllustToggleView(core.SafeView):
             embed.set_image(url=core.get_proseka_card_image_url(self.card, self.current_mode))
             await interaction.edit_original_response(embed=embed, attachments=[], view=self)
 
-    @discord.ui.button(label="🏆 마스터 랭크 돌파", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🏆 마스터 랭크", style=discord.ButtonStyle.primary, row=1)
     async def master_rank_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.owner_id and interaction.user.id != self.owner_id:
             await core.safe_send_response(interaction, "❌ 카드 소유자 본인만 마스터 랭크를 돌파할 수 있습니다.", ephemeral=True)
@@ -2740,7 +2740,7 @@ class MyInventoryView(core.SafeView):
         self.current_page = min(self.max_page, self.current_page + 5)
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="💎 중복 카드 크리스탈 변환", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="💎 중복변환", style=discord.ButtonStyle.success, row=0)
     async def dup_convert_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인의 보관함에서만 중복 카드를 변환할 수 있습니다.", ephemeral=True)
@@ -3089,7 +3089,7 @@ class CardPokedexView(core.SafeView):
         embed.set_footer(text="상단 버튼으로 [캐릭터별 수집률 %] / [🔒 미획득 카드] / [✨ 보유 카드] 탭을 자유롭게 전환하세요!")
         return embed
 
-    @discord.ui.button(label="📊 캐릭터별 수집률(%)", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="📊 수집률", style=discord.ButtonStyle.primary, row=0)
     async def tab_char_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.stats = await asyncio.to_thread(core.get_card_pokedex_stats, self.guild_id, self.user.id)
@@ -3100,7 +3100,7 @@ class CardPokedexView(core.SafeView):
         self.current_page = 0
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="🔒 미획득 카드", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🔒 미획득", style=discord.ButtonStyle.secondary, row=0)
     async def tab_unowned_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.stats = await asyncio.to_thread(core.get_card_pokedex_stats, self.guild_id, self.user.id)
@@ -3111,7 +3111,7 @@ class CardPokedexView(core.SafeView):
         self.current_page = 0
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="✨ 보유 카드", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="✨ 보유", style=discord.ButtonStyle.secondary, row=0)
     async def tab_owned_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.stats = await asyncio.to_thread(core.get_card_pokedex_stats, self.guild_id, self.user.id)
@@ -3217,7 +3217,7 @@ class GuildGachaResetConfirmView(core.SafeView):
         super().__init__(timeout=60)
         self.guild = guild
 
-    @discord.ui.button(label="⚠️ 이 서버 캐릭터 데이터 초기화 실행", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="⚠️ 이 서버 캐릭터 데이터 초기화 실행", style=discord.ButtonStyle.danger, row=0)
     async def confirm_guild_reset(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.administrator:
             await core.safe_send_response(interaction, "❌ 서버 관리자만 실행할 수 있습니다.", ephemeral=True)
@@ -3250,7 +3250,7 @@ class GuildGachaResetConfirmView(core.SafeView):
         )
         await interaction.edit_original_response(content=None, embed=embed, view=None)
 
-    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary, row=0)
     async def cancel_guild_reset(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(title="✅ 초기화 취소됨", description="서버 캐릭터 데이터가 안전하게 유지됩니다.", color=discord.Color.blue())
         await interaction.response.edit_message(content=None, embed=embed, view=None)
@@ -3261,7 +3261,7 @@ class AllGachaResetConfirmView(core.SafeView):
         super().__init__(timeout=60)
         self.bot_instance = bot_instance
 
-    @discord.ui.button(label="🚨 전체 서버 캐릭터 데이터 초기화 실행", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="🚨 전체 서버 캐릭터 데이터 초기화 실행", style=discord.ButtonStyle.danger, row=0)
     async def confirm_all_reset(self, interaction: discord.Interaction, button: discord.ui.Button):
         bot_ref = self.bot_instance or interaction.client
         if not bot_ref or not await bot_ref.is_bot_owner_user(interaction.user):
@@ -3282,7 +3282,7 @@ class AllGachaResetConfirmView(core.SafeView):
         )
         await interaction.edit_original_response(content=None, embed=embed, view=None)
 
-    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary, row=0)
     async def cancel_all_reset(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(title="✅ 초기화 취소됨", description="전체 캐릭터 데이터가 안전하게 유지됩니다.", color=discord.Color.blue())
         await interaction.response.edit_message(content=None, embed=embed, view=None)
@@ -3525,13 +3525,13 @@ class EventInfoView(core.SafeView):
         self.bot_instance = bot_instance
         self.user = user
 
-    @discord.ui.button(label="📅 한섭 이벤트 미래시 달력 보기", style=discord.ButtonStyle.primary, emoji="📅")
+    @discord.ui.button(label="📅 한섭 이벤트 미래시 달력 보기", style=discord.ButtonStyle.primary, emoji="📅", row=0)
     async def open_forecast(self, interaction: discord.Interaction, button: discord.ui.Button):
         now = datetime.datetime.now(core.KST)
         view = EventForecastView(interaction.user, now.year, now.month)
         await core.safe_send_response(interaction, embed=view.build_embed(), view=view, ephemeral=True)
 
-    @discord.ui.button(label="🎯 이벤트 픽업 맞추기 (봇주 전용)", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="🎯 이벤트 픽업 맞추기 (봇주 전용)", style=discord.ButtonStyle.success, row=0)
     async def sync_event_pickup(self, interaction: discord.Interaction, button: discord.ui.Button):
         bot_ref = self.bot_instance or interaction.client
         if not bot_ref or not hasattr(bot_ref, "is_bot_owner_user") or not await bot_ref.is_bot_owner_user(interaction.user):

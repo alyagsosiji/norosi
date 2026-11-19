@@ -838,7 +838,7 @@ class FishingCastView(core.SafeView):
             if sess.cast_seq == my_seq and sess.phase == "waiting_bite":
                 sess.wait_task = asyncio.create_task(_wait_and_bite())
 
-    @discord.ui.button(label="🎣 당기기 (입질 시 활성)", style=discord.ButtonStyle.secondary, disabled=True, row=2)
+    @discord.ui.button(label="🎣 당기기", style=discord.ButtonStyle.secondary, disabled=True, row=2)
     async def btn_pull(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         target_msg = interaction.message or self.message
@@ -900,7 +900,7 @@ class FishingCastView(core.SafeView):
         )
         await self._present_catch_result(interaction, target_msg, res)
 
-    @discord.ui.button(label="🛑 찌 회수", style=discord.ButtonStyle.danger, disabled=True, row=2)
+    @discord.ui.button(label="🛑 회수", style=discord.ButtonStyle.danger, disabled=True, row=2)
     async def btn_retract(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         sess = _get_or_create_cast_session(self.guild_id, self.user.id)
@@ -919,7 +919,7 @@ class FishingCastView(core.SafeView):
             clear_attachments=True,
         )
 
-    @discord.ui.button(label="⏩ 자동채집: OFF", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="⏩ 자동: OFF", style=discord.ButtonStyle.secondary, row=2)
     async def btn_auto_toggle(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         cur_auto = bool(self.summary["user"].get("auto_mode", False))
@@ -1373,7 +1373,7 @@ class FishingBagView(core.SafeView):
         self.sync_controls()
         await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="☑️ 페이지 전체선택", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="☑️ 전체선택", style=discord.ButtonStyle.secondary, row=2)
     async def btn_select_page(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         sel_set = set(self.selected_uids)
@@ -1385,14 +1385,14 @@ class FishingBagView(core.SafeView):
         self.sync_controls()
         await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="↩️ 선택 해제", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="↩️ 해제", style=discord.ButtonStyle.secondary, row=2)
     async def btn_clear_sel(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.selected_uids = []
         self.sync_controls()
         await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="🔒 선택 잠금", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="🔒 잠금", style=discord.ButtonStyle.secondary, row=2)
     async def btn_lock_sel(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         if not self.selected_uids:
@@ -1406,7 +1406,7 @@ class FishingBagView(core.SafeView):
         await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
         await interaction.followup.send(msg, ephemeral=True)
 
-    @discord.ui.button(label="🔓 선택 잠금해제", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="🔓 잠금해제", style=discord.ButtonStyle.secondary, row=2)
     async def btn_unlock_sel(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         if not self.selected_uids:
@@ -2117,7 +2117,7 @@ class FishingAquariumView(core.SafeView):
             timestamp=datetime.datetime.now(core.KST),
         )
 
-    @discord.ui.button(label="🪙 수족관 수익 수확", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="🪙 수익 수확", style=discord.ButtonStyle.success, row=1)
     async def btn_harvest(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         ok, msg, _ = await asyncio.to_thread(fishing_core.harvest_tank_gold, self.guild_id, self.target_user.id)
@@ -2126,7 +2126,7 @@ class FishingAquariumView(core.SafeView):
         await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
         await interaction.followup.send(msg, ephemeral=True)
 
-    @discord.ui.button(label="🏗️ 수족관 +2칸 확장", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="🏗️ +2칸 확장", style=discord.ButtonStyle.primary, row=1)
     async def btn_expand(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         ok, msg = await asyncio.to_thread(fishing_core.purchase_shop_item, self.guild_id, self.target_user.id, "tank_expand", "expand")
@@ -2135,7 +2135,7 @@ class FishingAquariumView(core.SafeView):
         await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
         await interaction.followup.send(msg, ephemeral=True)
 
-    @discord.ui.button(label="👜 가방 열기", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="👜 가방", style=discord.ButtonStyle.secondary, row=1)
     async def btn_open_bag(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         gid = self.guild_id or (interaction.guild_id or 0)
@@ -2692,7 +2692,7 @@ class FishingRankingView(core.SafeView):
         embed.set_footer(text="아래 드롭다운에서 특정 낚시 랭커를 선택하면 장착 장비·보유 신기록을 자세히 확인할 수 있습니다.")
         return embed
 
-    @discord.ui.button(label="📏 최대 길이(cm)", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="📏 길이순", style=discord.ButtonStyle.primary, row=0)
     async def btn_len(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.selected_ranker_id = None
@@ -2700,7 +2700,7 @@ class FishingRankingView(core.SafeView):
         self.sync_buttons()
         await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="⚖️ 최대 무게(kg)", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="⚖️ 무게순", style=discord.ButtonStyle.secondary, row=0)
     async def btn_wt(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.selected_ranker_id = None
@@ -2708,7 +2708,7 @@ class FishingRankingView(core.SafeView):
         self.sync_buttons()
         await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="📖 도감 수집왕", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="📖 도감왕", style=discord.ButtonStyle.secondary, row=0)
     async def btn_dex(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.selected_ranker_id = None
@@ -2716,7 +2716,7 @@ class FishingRankingView(core.SafeView):
         self.sync_buttons()
         await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="📍 전체장소", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="📍 전체", style=discord.ButtonStyle.secondary, row=0)
     async def btn_hab(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         order = ["all", "lake", "river", "sea"]
@@ -2724,7 +2724,7 @@ class FishingRankingView(core.SafeView):
         self.sync_buttons()
         await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="🏅 낚시대회", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="🏅 대회", style=discord.ButtonStyle.success, row=0)
     async def btn_open_tourney(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
         status = await asyncio.to_thread(fishing_core.get_fishing_tournament_status, self.guild_id)

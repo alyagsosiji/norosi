@@ -315,6 +315,7 @@ class LinkCleanupView(core.SafeView):
         style=discord.ButtonStyle.secondary,
         emoji="🗑️",
         custom_id="link_preview:delete",
+        row=0,
     )
     async def delete_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         allowed = _is_guild_admin(interaction.user, perm_attr="manage_messages")
@@ -476,6 +477,7 @@ class RaidAlertControlView(core.SafeView):
         style=discord.ButtonStyle.success,
         emoji="🔓",
         custom_id="raid_defense:unlock",
+        row=0,
     )
     async def unlock_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.guild or not _is_guild_admin(interaction.user, need_admin=True):
@@ -533,6 +535,7 @@ class RaidAlertControlView(core.SafeView):
         style=discord.ButtonStyle.secondary,
         emoji="📋",
         custom_id="raid_defense:logs",
+        row=0,
     )
     async def view_logs_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.guild or not _is_guild_admin(interaction.user, need_admin=True):
@@ -929,6 +932,7 @@ class RelayNovelView(core.SafeView):
         style=discord.ButtonStyle.primary,
         emoji="✍️",
         custom_id="relay_novel:write",
+        row=0,
     )
     async def write_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.guild or not interaction.channel:
@@ -956,6 +960,7 @@ class RelayNovelView(core.SafeView):
         style=discord.ButtonStyle.secondary,
         emoji="📖",
         custom_id="relay_novel:preview",
+        row=0,
     )
     async def preview_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.guild or not interaction.channel:
@@ -990,6 +995,7 @@ class RelayNovelView(core.SafeView):
         style=discord.ButtonStyle.success,
         emoji="🏁",
         custom_id="relay_novel:finish",
+        row=0,
     )
     async def finish_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.guild or not interaction.channel:
@@ -1660,7 +1666,7 @@ class TempVoiceSetupView(core.SafeView):
         )
         return embed
 
-    @discord.ui.button(label="생성기 채널 자동 만들기 (➕ 방 만들기)", style=discord.ButtonStyle.success, emoji="➕", row=0)
+    @discord.ui.button(label="생성기 채널 만들기", style=discord.ButtonStyle.success, emoji="➕", row=0)
     async def auto_create_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.guild:
             await core.safe_send_response(interaction, "❌ 서버에서만 사용할 수 있습니다.", ephemeral=True)
