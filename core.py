@@ -716,7 +716,17 @@ class SafeView(discord.ui.View):
 
     async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item):
         print(f"⚠️ [UI View 버튼 오류] {item}: {error}", flush=True)
-        msg = f"⚠️ 버튼 처리 중 오류가 발생했습니다: `{error}`"
+        if isinstance(error, discord.Forbidden):
+            msg = "❌ 봇에 이 채널/역할을 제어할 권한이 부족합니다. 서버 권한 설정을 확인해 주세요."
+        elif isinstance(error, discord.NotFound):
+            msg = "⌛ 메시지 또는 요청이 만료되었습니다. `/설정`이나 해당 명령어로 패널을 새로 열어주세요."
+        elif isinstance(error, discord.HTTPException):
+            if getattr(error, "status", None) == 429:
+                msg = "⏳ 디스코드 요청 제한(Rate Limit)이 잠시 발생했습니다. 2~3초 뒤 다시 눌러주세요."
+            else:
+                msg = "⚠️ 디스코드 서버와 통신 중 일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
+        else:
+            msg = f"⚠️ 버튼 처리 중 오류가 발생했습니다: `{str(error)[:160]}`"
         try:
             await safe_send_response(interaction, msg, ephemeral=True)
         except Exception:

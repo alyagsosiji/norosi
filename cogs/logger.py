@@ -1955,7 +1955,7 @@ class AnnouncementEditModal(core.SafeModal):
         self.parent_view.banner_url = banner_val
         self.parent_view._refresh_components()
 
-        await interaction.response.edit_message(
+        await core.safe_edit_response(interaction, 
             content=self.parent_view.build_preview_content(),
             embed=self.parent_view.build_embed(),
             view=self.parent_view
@@ -2189,7 +2189,7 @@ class AnnouncementPreviewView(core.SafeView):
         idx = order.index(self.mention_mode) if self.mention_mode in order else 0
         self.mention_mode = order[(idx + 1) % len(order)]
         self._refresh_components()
-        await interaction.response.edit_message(
+        await core.safe_edit_response(interaction, 
             content=self.build_preview_content(),
             embed=self.build_embed(),
             view=self
@@ -2206,7 +2206,7 @@ class AnnouncementPreviewView(core.SafeView):
             self.badge_key = tpl["badge"]
             self.color_key = tpl["color"]
         self._refresh_components()
-        await interaction.response.edit_message(
+        await core.safe_edit_response(interaction, 
             content=self.build_preview_content(),
             embed=self.build_embed(),
             view=self
@@ -2217,7 +2217,7 @@ class AnnouncementPreviewView(core.SafeView):
             return
         self.color_key = interaction.data["values"][0]
         self._refresh_components()
-        await interaction.response.edit_message(
+        await core.safe_edit_response(interaction, 
             content=self.build_preview_content(),
             embed=self.build_embed(),
             view=self
@@ -2231,7 +2231,7 @@ class AnnouncementPreviewView(core.SafeView):
         if ch and isinstance(ch, discord.TextChannel):
             self.target_channel = ch
         self._refresh_components()
-        await interaction.response.edit_message(
+        await core.safe_edit_response(interaction, 
             content=self.build_preview_content(),
             embed=self.build_embed(),
             view=self
@@ -2242,7 +2242,7 @@ class AnnouncementPreviewView(core.SafeView):
             return
         for item in self.children:
             item.disabled = True
-        await interaction.response.edit_message(content="🛑 공지 발송이 취소되었습니다.", embed=None, view=self)
+        await core.safe_edit_response(interaction, content="🛑 공지 발송이 취소되었습니다.", embed=None, view=self)
 
 
 # ==========================================
@@ -2283,7 +2283,7 @@ class InactiveUserListView(core.SafeView):
             return
         self.page = max(0, min(target_page, self.max_page))
         self._update_buttons()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     def build_embed(self) -> discord.Embed:
         now_kst = datetime.datetime.now(core.KST)
@@ -2340,7 +2340,7 @@ class InactiveUserListView(core.SafeView):
         if self.page > 0:
             self.page -= 1
             self._update_buttons()
-            await interaction.response.edit_message(embed=self.build_embed(), view=self)
+            await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="📄 1 / 1", style=discord.ButtonStyle.secondary, disabled=True, row=0)
     async def page_indicator_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2354,7 +2354,7 @@ class InactiveUserListView(core.SafeView):
         if self.page < self.max_page:
             self.page += 1
             self._update_buttons()
-            await interaction.response.edit_message(embed=self.build_embed(), view=self)
+            await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="명단 TXT 다운로드", style=discord.ButtonStyle.primary, emoji="💾", row=0)
     async def download_btn(self, interaction: discord.Interaction, button: discord.ui.Button):

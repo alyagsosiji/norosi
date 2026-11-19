@@ -197,7 +197,7 @@ class MusicLibraryPaginationView(core.SafeView):
 
     async def _on_page_num_selected(self, interaction: discord.Interaction, target_page: int):
         self.current_page = max(0, min(target_page, self.max_page))
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     def build_embed(self):
         self.update_buttons()
@@ -226,22 +226,22 @@ class MusicLibraryPaginationView(core.SafeView):
     @discord.ui.button(label="⏪ -5", style=discord.ButtonStyle.secondary, row=0)
     async def back_5(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_page = max(0, self.current_page - 5)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="◀ 이전", style=discord.ButtonStyle.primary, row=0)
     async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_page = max(0, self.current_page - 1)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.primary, row=0)
     async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_page = min(self.max_page, self.current_page + 1)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="+5 ⏩", style=discord.ButtonStyle.secondary, row=0)
     async def forward_5(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_page = min(self.max_page, self.current_page + 5)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🔀 보관함 셔플 뽑기", style=discord.ButtonStyle.success, row=0)
     async def shuffle_my_library(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1738,7 +1738,7 @@ class VoicePlayerControlView(core.SafeView):
         cur = self.player.loop_mode
         self.player.loop_mode = order[(order.index(cur) + 1) % len(order)] if cur in order else "all"
         try:
-            await interaction.response.edit_message(embed=self.build_embed(), view=self)
+            await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
         except Exception:
             pass
 
@@ -1755,12 +1755,12 @@ class VoicePlayerControlView(core.SafeView):
     @discord.ui.button(label="🔉 -15%", style=discord.ButtonStyle.secondary, row=1)
     async def vol_down_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.player.adjust_volume(-0.15)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🔊 +15%", style=discord.ButtonStyle.secondary, row=1)
     async def vol_up_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.player.adjust_volume(+0.15)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🔀 셔플", style=discord.ButtonStyle.secondary, row=1)
     async def shuffle_queue_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1770,7 +1770,7 @@ class VoicePlayerControlView(core.SafeView):
             random.shuffle(rest)
             self.player.tracks = ([cur_track] if cur_track else []) + rest
             self.player.current_index = 0
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🌙 취침", style=discord.ButtonStyle.secondary, row=1)
     async def sleep_timer_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1786,7 +1786,7 @@ class VoicePlayerControlView(core.SafeView):
         else:
             next_min = 0
         self.player.set_sleep_timer(next_min)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="💿 플리담기", style=discord.ButtonStyle.success, row=1)
     async def grab_current_track_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2587,7 +2587,7 @@ class PlaylistTrackDeleteView(core.SafeView):
 
     async def _refresh(self, interaction: discord.Interaction):
         self._rebuild()
-        await interaction.response.edit_message(content=self.build_content(), view=self)
+        await core.safe_edit_response(interaction, content=self.build_content(), view=self)
 
     @discord.ui.select(placeholder="🗑️ 삭제할 곡 선택...", min_values=0, max_values=1, row=0,
                        options=[discord.SelectOption(label="불러오는 중", value="NONE")])
@@ -2808,7 +2808,7 @@ class PlaylistClearConfirmView(core.SafeView):
 
     @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary, row=0)
     async def cancel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content="↩️ 전체 비우기를 취소했습니다.", view=None)
+        await core.safe_edit_response(interaction, content="↩️ 전체 비우기를 취소했습니다.", view=None)
 
 
 class PlaylistConvenienceView(core.SafeView):
@@ -3372,7 +3372,7 @@ class SharedPlaylistView(core.SafeView):
     @discord.ui.button(label="◀ 이전", style=discord.ButtonStyle.secondary, row=0)
     async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_page = max(0, self.current_page - 1)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="📄 1 / 1", style=discord.ButtonStyle.secondary, disabled=True, row=0)
     async def page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -3381,14 +3381,14 @@ class SharedPlaylistView(core.SafeView):
     @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.secondary, row=0)
     async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_page = min(self.max_page, self.current_page + 1)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🌐 YouTube", style=discord.ButtonStyle.primary, row=0)
     async def platform_view_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         order = ["YouTube", "Spotify", "SoundCloud"]
         cur_idx = order.index(self.display_platform) if self.display_platform in order else 0
         self.display_platform = order[(cur_idx + 1) % len(order)]
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🔀 랜덤선곡", style=discord.ButtonStyle.secondary, row=0)
     async def shuffle_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -3688,7 +3688,7 @@ class PlaylistStudioView(core.SafeView):
     @discord.ui.button(label="◀ 이전", style=discord.ButtonStyle.secondary, row=0)
     async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_page = max(0, self.current_page - 1)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="📄 1 / 1", style=discord.ButtonStyle.secondary, disabled=True, row=0)
     async def page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -3697,7 +3697,7 @@ class PlaylistStudioView(core.SafeView):
     @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.secondary, row=0)
     async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_page = min(self.max_page, self.current_page + 1)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="플랫폼: YouTube", emoji="📺", style=discord.ButtonStyle.primary, row=0)
     async def platform_cycle_btn(self, interaction: discord.Interaction, button: discord.ui.Button):

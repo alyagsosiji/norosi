@@ -279,14 +279,14 @@ class ServerStatsDashboardView(core.SafeView):
         self.mode = "summary" if self.mode == "detailed" else "detailed"
         self._update_button_styles()
         embed = build_server_stats_embed(self.guild, self.data, self.timeframe, self.mode)
-        await interaction.response.edit_message(embed=embed, view=self)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
 
     @discord.ui.button(label="📅 주간 통계", style=discord.ButtonStyle.secondary, row=0)
     async def toggle_time_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.timeframe = "weekly" if self.timeframe == "daily" else "daily"
         self._update_button_styles()
         embed = build_server_stats_embed(self.guild, self.data, self.timeframe, self.mode)
-        await interaction.response.edit_message(embed=embed, view=self)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
 
     @discord.ui.button(label="🔄 데이터 새로고침", style=discord.ButtonStyle.success, row=0)
     async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -382,7 +382,7 @@ class RecruitEditModal(core.SafeModal, title="✏️ 파티 모집 정보 수정
         if lv.status not in ("departed", "cancelled"):
             lv.status = "ready" if len(lv.members) >= lv.capacity else "recruiting"
         lv._sync_buttons()
-        await interaction.response.edit_message(embed=lv.build_embed(), view=lv)
+        await core.safe_edit_response(interaction, embed=lv.build_embed(), view=lv)
 
 
 class RecruitLobbyView(core.SafeView):
@@ -645,7 +645,7 @@ class RecruitLobbyView(core.SafeView):
 
             self._sync_buttons()
             embed = self.build_embed()
-            await interaction.response.edit_message(embed=embed, view=self)
+            await core.safe_edit_response(interaction, embed=embed, view=self)
 
     @discord.ui.button(label="✏️ 모집 수정", style=discord.ButtonStyle.secondary, row=1)
     async def edit_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -675,7 +675,7 @@ class RecruitLobbyView(core.SafeView):
             self._sync_buttons()
 
             embed = self.build_embed()
-            await interaction.response.edit_message(embed=embed, view=self)
+            await core.safe_edit_response(interaction, embed=embed, view=self)
 
 
 # ==========================================

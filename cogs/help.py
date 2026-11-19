@@ -1599,7 +1599,7 @@ class HelpCategorySelect(discord.ui.Select):
             self.parent_view.page,
             self.parent_view.perm_filter,
         )
-        await interaction.response.edit_message(embed=embed, view=self.parent_view)
+        await core.safe_edit_response(interaction, embed=embed, view=self.parent_view)
 
 
 class HelpCategoryView(core.SafeView):
@@ -1691,7 +1691,7 @@ class HelpCategoryView(core.SafeView):
         self.page = target_page
         self.update_buttons()
         embed = build_help_embed(self.category, self.search_kw, self.page, self.perm_filter)
-        await interaction.response.edit_message(embed=embed, view=self)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
 
     # Row 1: 권한 등급별 원클릭 필터 (일반 이용자 / 서버 관리자 / 봇 주인 명확 구분)
     @discord.ui.button(label="👥 전체", style=discord.ButtonStyle.primary, row=1)
@@ -1700,7 +1700,7 @@ class HelpCategoryView(core.SafeView):
         self.page = 0 if self.category != "all" else 1
         self.update_buttons()
         embed = build_help_embed(self.category, self.search_kw, self.page, self.perm_filter)
-        await interaction.response.edit_message(embed=embed, view=self)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
 
     @discord.ui.button(label="👤 일반", style=discord.ButtonStyle.secondary, row=1)
     async def perm_user_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1708,7 +1708,7 @@ class HelpCategoryView(core.SafeView):
         self.page = 0
         self.update_buttons()
         embed = build_help_embed(self.category, self.search_kw, self.page, self.perm_filter)
-        await interaction.response.edit_message(embed=embed, view=self)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
 
     @discord.ui.button(label="🛡️ 관리자", style=discord.ButtonStyle.secondary, row=1)
     async def perm_admin_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1716,7 +1716,7 @@ class HelpCategoryView(core.SafeView):
         self.page = 0
         self.update_buttons()
         embed = build_help_embed(self.category, self.search_kw, self.page, self.perm_filter)
-        await interaction.response.edit_message(embed=embed, view=self)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
 
     @discord.ui.button(label="👑 봇주인", style=discord.ButtonStyle.secondary, row=1)
     async def perm_owner_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1724,7 +1724,7 @@ class HelpCategoryView(core.SafeView):
         self.page = 0
         self.update_buttons()
         embed = build_help_embed(self.category, self.search_kw, self.page, self.perm_filter)
-        await interaction.response.edit_message(embed=embed, view=self)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
 
     # Row 2: 페이지네이션 & 통합 설정(/설정) 바로가기
     @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary, row=2)
@@ -1732,7 +1732,7 @@ class HelpCategoryView(core.SafeView):
         self.page = max(0, self.page - 1)
         self.update_buttons()
         embed = build_help_embed(self.category, self.search_kw, self.page, self.perm_filter)
-        await interaction.response.edit_message(embed=embed, view=self)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
 
     @discord.ui.button(label="📄 1/1", style=discord.ButtonStyle.secondary, disabled=True, row=2)
     async def page_indicator_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1744,7 +1744,7 @@ class HelpCategoryView(core.SafeView):
         self.page = min(max_p, self.page + 1)
         self.update_buttons()
         embed = build_help_embed(self.category, self.search_kw, self.page, self.perm_filter)
-        await interaction.response.edit_message(embed=embed, view=self)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
 
     @discord.ui.button(label="🏠 요약", style=discord.ButtonStyle.primary, row=2)
     async def home_summary_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1755,7 +1755,7 @@ class HelpCategoryView(core.SafeView):
         self.category_select.refresh_options()
         self.update_buttons()
         embed = build_help_embed("all", "", 0, "all")
-        await interaction.response.edit_message(embed=embed, view=self)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
 
     @discord.ui.button(label="⚙️ /설정", style=discord.ButtonStyle.success, row=2)
     async def open_quick_menu_btn(self, interaction: discord.Interaction, button: discord.ui.Button):

@@ -1345,7 +1345,7 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         """이미 처리 중이거나 처리된 메시지 ID면 False를 반환합니다."""
         if msg_id in self._processed_msgs:
             return False
-        self._processed_msgs[msg_id] = datetime.datetime.now().timestamp()
+        self._processed_msgs[msg_id] = time.time()
         while len(self._processed_msgs) > 1000:
             self._processed_msgs.popitem(last=False)
         return True

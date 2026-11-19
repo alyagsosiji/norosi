@@ -468,7 +468,7 @@ class DuplicateConvertConfirmView(core.SafeView):
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인만 취소할 수 있습니다.", ephemeral=True)
             return
-        await interaction.response.edit_message(
+        await core.safe_edit_response(interaction, 
             embed=discord.Embed(title="✅ 중복 카드 변환이 취소되었습니다.", color=discord.Color.blue()),
             view=None
         )
@@ -589,7 +589,7 @@ class GachaPullAgainView(core.SafeView):
             self.user = interaction.user
         self.skip_anim = not self.skip_anim
         self._refresh_components()
-        await interaction.response.edit_message(view=self)
+        await core.safe_edit_response(interaction, view=self)
         state_txt = "**ON (결과 즉시 표시)**" if self.skip_anim else "**OFF (무지개 승격 & 대사 연출 보기)**"
         await core.safe_send_response(interaction, f"⚙️ 뽑기 연출 스킵 설정이 {state_txt}(으)로 변경되었습니다.", ephemeral=True)
 
@@ -1189,13 +1189,13 @@ class GachaRankingView(core.SafeView):
     async def tab_overall(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_tab = "overall"
         self._refresh_buttons()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="👑 명예의 전당 & 비틱 로그", style=discord.ButtonStyle.secondary, row=0)
     async def tab_hof(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_tab = "hof"
         self._refresh_buttons()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=0)
     async def btn_refresh_rank(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1326,7 +1326,7 @@ class CardTradeAcceptView(core.SafeView):
             description="카드 교환이 취소되어 크리스탈과 카드가 차감되지 않았습니다.",
             color=discord.Color.dark_grey()
         )
-        await interaction.response.edit_message(content=None, embed=embed, view=None)
+        await core.safe_edit_response(interaction, content=None, embed=embed, view=None)
 
 
 class InteractiveCardTradeStudioView(core.SafeView):
@@ -3253,7 +3253,7 @@ class GuildGachaResetConfirmView(core.SafeView):
     @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary, row=0)
     async def cancel_guild_reset(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(title="✅ 초기화 취소됨", description="서버 캐릭터 데이터가 안전하게 유지됩니다.", color=discord.Color.blue())
-        await interaction.response.edit_message(content=None, embed=embed, view=None)
+        await core.safe_edit_response(interaction, content=None, embed=embed, view=None)
 
 
 class AllGachaResetConfirmView(core.SafeView):
@@ -3285,7 +3285,7 @@ class AllGachaResetConfirmView(core.SafeView):
     @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary, row=0)
     async def cancel_all_reset(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(title="✅ 초기화 취소됨", description="전체 캐릭터 데이터가 안전하게 유지됩니다.", color=discord.Color.blue())
-        await interaction.response.edit_message(content=None, embed=embed, view=None)
+        await core.safe_edit_response(interaction, content=None, embed=embed, view=None)
 
 
 # ==========================================
@@ -5295,10 +5295,10 @@ class GachaCog(commands.Cog):
 
             if 배너 is not None:
                 with core._DATA_LOCK:
-                    d_sync = core.load_data()
+                    d_sync = await asyncio.to_thread(core.load_data)
                     gp_sync = core.ensure_dict_path(d_sync, "gacha_pickup")
                     gp_sync["banner_type"] = 배너.value
-                    core.save_data(d_sync)
+                    await asyncio.to_thread(core.save_data, d_sync)
                     pickup_obj["banner_type"] = 배너.value
 
             b_cfg = core.BANNER_CONFIGS.get(core.get_active_proseka_banner(pickup_obj), core.BANNER_CONFIGS["normal"])

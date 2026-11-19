@@ -931,7 +931,7 @@ class AttendanceRankingView(core.SafeView):
 
     async def _on_page_num_selected(self, interaction: discord.Interaction, target_page: int):
         self.current_page = target_page
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     def build_embed(self):
         self.update_buttons()
@@ -992,7 +992,7 @@ class AttendanceRankingView(core.SafeView):
         self.scope = "guild"
         self.current_page = 0
         self.refresh_entries()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🌍 전체서버", style=discord.ButtonStyle.secondary, row=0)
     async def global_scope_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1000,7 +1000,7 @@ class AttendanceRankingView(core.SafeView):
         self.scope = "global"
         self.current_page = 0
         self.refresh_entries()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="📅 누적순", style=discord.ButtonStyle.success, row=0)
     async def sort_total_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1008,7 +1008,7 @@ class AttendanceRankingView(core.SafeView):
         self.sort_by = "total"
         self.current_page = 0
         self.refresh_entries()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🔥 연속순", style=discord.ButtonStyle.secondary, row=0)
     async def sort_streak_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1016,12 +1016,12 @@ class AttendanceRankingView(core.SafeView):
         self.sort_by = "streak"
         self.current_page = 0
         self.refresh_entries()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="◀ 이전", style=discord.ButtonStyle.secondary, row=1)
     async def prev_page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_page = max(0, self.current_page - 1)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="📄 1 / 1", style=discord.ButtonStyle.secondary, disabled=True, row=1)
     async def page_indicator_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1030,7 +1030,7 @@ class AttendanceRankingView(core.SafeView):
     @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.secondary, row=1)
     async def next_page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_page = min(self.max_page, self.current_page + 1)
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
 
 def _has_dday_manage_perm(interaction: discord.Interaction) -> bool:
@@ -1500,6 +1500,21 @@ class PartnerHubView(core.SafeView):
         self.data = data
         self.update_components()
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        allowed_ids = {self.user.id} if self.user else set()
+        if self.partner_id.isdigit():
+            allowed_ids.add(int(self.partner_id))
+        if allowed_ids and interaction.user.id not in allowed_ids:
+            await core.safe_send_response(
+                interaction,
+                "❌ 파트너 본인들만 이 허브를 조작할 수 있습니다.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
     def update_components(self):
         pair_key = core.get_partner_pair_key(self.user.id, self.partner_id)
         p_ddays = {k: v for k, v in core.safe_get_dict(self.data, "partners", pair_key, "ddays").items() if isinstance(v, dict)}
@@ -1720,7 +1735,7 @@ class PartnerAcceptView(core.SafeView):
             description="파트너 연결이 취소되었습니다.",
             color=discord.Color.dark_grey()
         )
-        await interaction.response.edit_message(content=None, embed=embed, view=None)
+        await core.safe_edit_response(interaction, content=None, embed=embed, view=None)
 
 
 class DDayDeleteSelect(discord.ui.Select):
@@ -1888,7 +1903,7 @@ class ResetConfirmView(core.SafeView):
             description="데이터 초기화가 취소되어 기존 데이터가 안전하게 유지됩니다.",
             color=discord.Color.blue()
         )
-        await interaction.response.edit_message(content=None, embed=embed, view=None)
+        await core.safe_edit_response(interaction, content=None, embed=embed, view=None)
 
 
 # ==========================================
@@ -3369,6 +3384,18 @@ class ReminderHubView(core.SafeView):
         self.guild_id = guild_id
         self.data = data
         self.update_select()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        if self.user and interaction.user.id != self.user.id:
+            await core.safe_send_response(
+                interaction,
+                "❌ 본인의 개인 알림 허브만 조작할 수 있습니다.",
+                ephemeral=True,
+            )
+            return False
+        return True
 
     def _get_user_reminders(self) -> list[dict]:
         all_rems = self.data.get("reminders", [])

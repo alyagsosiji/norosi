@@ -167,6 +167,18 @@ class TitleStudioView(core.SafeView):
             )
         self._rebuild()
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        if self.user and interaction.user.id != self.user.id:
+            await core.safe_send_response(
+                interaction,
+                "❌ 본인이 연 칭호·배지 스튜디오만 조작할 수 있습니다.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
     async def refresh(self):
         uid = self.user.id if self.user else 0
         uname = self.user.display_name if self.user else "유저"

@@ -1621,6 +1621,18 @@ class HomeShortcutEditView(core.SafeView):
         )
         self._rebuild_items()
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        if self.user and interaction.user.id != self.user.id:
+            await core.safe_send_response(
+                interaction,
+                "❌ 본인이 연 즐겨찾기 편집창만 조작할 수 있습니다. `!즐겨찾기` 또는 `/설정`에서 직접 열어주세요.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
     def _rebuild_items(self):
         self.clear_items()
         opts = [

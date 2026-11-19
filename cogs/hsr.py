@@ -863,7 +863,7 @@ class HSRItemDetailView(core.SafeView):
 
     async def build_embed_and_file(self) -> tuple[discord.Embed, discord.File | None]:
         hsr_core.load_hsr_kr_db()
-        data = core.load_data()
+        data = await asyncio.to_thread(core.load_data)
         u_data = hsr_core.ensure_hsr_user(data, self.guild_id, self.user.id if self.user else 0)
         raw_owned = core.as_dict(u_data.get("items")).get(self.item_key)
         owned = raw_owned if isinstance(raw_owned, dict) else None
@@ -1328,10 +1328,10 @@ class HSRPartyView(core.SafeView):
         await core.safe_defer(interaction)
         gid = self.guild_id or interaction.guild_id or 0
         with core._DATA_LOCK:
-            data = core.load_data()
+            data = await asyncio.to_thread(core.load_data)
             u_data = hsr_core.ensure_hsr_user(data, gid, interaction.user.id)
             u_data["party"] = list(interaction.data["values"])[:4]
-            core.save_data(data)
+            await asyncio.to_thread(core.save_data, data)
         self._build()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
@@ -1341,7 +1341,7 @@ class HSRPartyView(core.SafeView):
         await core.safe_defer(interaction)
         gid = self.guild_id or interaction.guild_id or 0
         with core._DATA_LOCK:
-            data = core.load_data()
+            data = await asyncio.to_thread(core.load_data)
             u_data = hsr_core.ensure_hsr_user(data, gid, interaction.user.id)
             chars = [
                 {**v, "item_key": str(v.get("item_key") or k)}
@@ -1360,7 +1360,7 @@ class HSRPartyView(core.SafeView):
                 if c["item_key"] not in chosen:
                     chosen.append(c["item_key"])
             u_data["party"] = chosen[:4]
-            core.save_data(data)
+            await asyncio.to_thread(core.save_data, data)
         self._build()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
@@ -1370,10 +1370,10 @@ class HSRPartyView(core.SafeView):
         await core.safe_defer(interaction)
         gid = self.guild_id or interaction.guild_id or 0
         with core._DATA_LOCK:
-            data = core.load_data()
+            data = await asyncio.to_thread(core.load_data)
             u_data = hsr_core.ensure_hsr_user(data, gid, interaction.user.id)
             u_data["party"] = []
-            core.save_data(data)
+            await asyncio.to_thread(core.save_data, data)
         self._build()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
@@ -1615,11 +1615,11 @@ class HSRGuildResetConfirmView(core.SafeView):
             return await core.safe_send_response(interaction, "❌ 서버 관리자만 초기화할 수 있습니다.", ephemeral=True)
         if self.caller and interaction.user.id != self.caller.id:
             return await core.safe_send_response(interaction, "❌ 요청한 관리자만 확정할 수 있습니다.", ephemeral=True)
-        data = core.load_data()
+        data = await asyncio.to_thread(core.load_data)
         g_key = str(self.guild_id or interaction.guild_id or 0)
         core.ensure_dict_path(data, "hsr_users").pop(g_key, None)
         core.ensure_dict_path(data, "hsr_hall_of_fame").pop(g_key, None)
-        core.save_data(data)
+        await asyncio.to_thread(core.save_data, data)
         await core.safe_edit_response(interaction, content="🧹 이 서버의 모든 스타레일 워프 데이터가 깔끔하게 초기화되었습니다.", embed=None, view=None)
 
     @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary, row=0)
@@ -1790,11 +1790,11 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
             for k in chosen:
                 if k not in dedup:
                     dedup.append(k)
-            data = core.load_data()
+            data = await asyncio.to_thread(core.load_data)
             u_data = hsr_core.ensure_hsr_user(data, interaction.guild_id or 0, interaction.user.id)
             u_items = core.as_dict(u_data.get("items"))
             u_data["party"] = [k for k in dedup if isinstance(u_items.get(k), dict) and u_items[k].get("kind") == "char"][:4]
-            core.save_data(data)
+            await asyncio.to_thread(core.save_data, data)
         v = HSRPartyView(interaction.guild_id or 0, interaction.user)
         await core.safe_send_response(interaction, embed=v.build_embed(), view=v)
 
@@ -1811,7 +1811,7 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
         if (대표캐릭터 or 상태문구 is not None) and target.id != interaction.user.id:
             return await core.safe_send_response(interaction, "❌ 대표 캐릭터와 상태 문구는 본인 프로필에서만 수정 가능합니다.", ephemeral=True)
 
-        data = core.load_data()
+        data = await asyncio.to_thread(core.load_data)
         u_data = hsr_core.ensure_hsr_user(data, interaction.guild_id or 0, target.id)
         if target.id == interaction.user.id:
             changed = False
@@ -1823,7 +1823,7 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
                 u_data["profile_note"] = 상태문구.strip()[:80]
                 changed = True
             if changed:
-                core.save_data(data)
+                await asyncio.to_thread(core.save_data, data)
 
         items = core.as_dict(u_data.get("items"))
         chars = [v for v in items.values() if isinstance(v, dict) and v.get("kind") == "char"]
@@ -1919,7 +1919,7 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
             by_c = {c["id"]: c for c in chars}
             by_l = {l["id"]: l for l in lcs}
             by_r = {r["id"]: r for r in hsr_core.HSR_RELICS}
-            data = core.load_data()
+            data = await asyncio.to_thread(core.load_data)
             if 프리셋 in ("reset", "time_rotation"):
                 cfg = copy.deepcopy(core.DEFAULT_CONFIG["hsr_pickup"])
                 cfg["mode"] = "time_rotation"
@@ -1961,7 +1961,7 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
                 cfg["mode"] = "preset"
             cfg["updated_at"] = datetime.datetime.now(core.KST).isoformat()
             data["hsr_pickup"] = cfg
-            core.save_data(data)
+            await asyncio.to_thread(core.save_data, data)
             eff = hsr_core.resolve_effective_hsr_pickup(cfg)
             msg = "✅ **스타레일 커스텀 워프 픽업이 적용되었습니다!**"
 

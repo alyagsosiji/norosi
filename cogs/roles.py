@@ -391,7 +391,7 @@ class AddRoleMappingModal(core.SafeModal, title="➕ 역할 및 버튼/이모지
         })
 
         try:
-            await interaction.response.edit_message(
+            await core.safe_edit_response(interaction, 
                 embed=self.builder_view.build_builder_embed(),
                 view=self.builder_view
             )
@@ -635,7 +635,7 @@ class ReactionRoleBuilderView(core.SafeView):
         else:
             self.target_channel = interaction.guild.get_channel(ch.id) if interaction.guild else None
 
-        await interaction.response.edit_message(embed=self.build_builder_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_builder_embed(), view=self)
 
     @discord.ui.button(label="➕ 역할-이모지 추가", style=discord.ButtonStyle.primary, row=1)
     async def add_role_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -650,7 +650,7 @@ class ReactionRoleBuilderView(core.SafeView):
             await core.safe_send_response(interaction, "ℹ️ 삭제할 매핑이 없습니다.", ephemeral=True)
             return
         removed = self.roles_list.pop()
-        await interaction.response.edit_message(
+        await core.safe_edit_response(interaction, 
             embed=self.build_builder_embed(),
             view=self
         )
@@ -962,7 +962,7 @@ class ReactionRoleListView(core.SafeView):
     async def _on_page_num_selected(self, interaction: discord.Interaction, target_page: int):
         self.page = max(0, min(target_page, self.max_page))
         self._update_components()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     def build_embed(self) -> discord.Embed:
         embed = discord.Embed(
@@ -1027,7 +1027,7 @@ class ReactionRoleListView(core.SafeView):
     async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.page = max(0, self.page - 1)
         self._update_components()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="📄 1 / 1", style=discord.ButtonStyle.secondary, disabled=True, row=1)
     async def page_indicator(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1037,7 +1037,7 @@ class ReactionRoleListView(core.SafeView):
     async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.page = min(self.max_page, self.page + 1)
         self._update_components()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
 
 class ReactionRoleStudioView(core.SafeView):
@@ -1134,7 +1134,7 @@ class ReactionRoleStudioView(core.SafeView):
 
     @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, emoji="🔄", row=1)
     async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(embed=self.build_dashboard_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_dashboard_embed(), view=self)
 
 
 # ==========================================
