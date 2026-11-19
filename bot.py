@@ -523,6 +523,7 @@ class NorosiBot(commands.Bot):
             "cogs.stats",
             "cogs.roles",
             "cogs.emoji_upscale",
+            "cogs.routine",
             "cogs.help",
             "cogs.dashboard",
         ]

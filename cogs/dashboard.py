@@ -27,6 +27,7 @@ import life_core
 import other_life_core
 import ticket_core
 import community_core
+import routine_core
 
 from cogs import (
     gacha,
@@ -44,6 +45,7 @@ from cogs import (
     logger,
     stats,
     emoji_upscale,
+    routine,
     help as help_cog,
 )
 
@@ -2594,6 +2596,60 @@ class MasterDashboardView(core.SafeView):
                         },
                     ],
                 },
+                {
+                    "page_title": "☀️ 일일 루틴 · 주간 미션 · 환전소 · 쇼케이스 · 즉석 대전",
+                    "perm": PERM_USER,
+                    "items": [
+                        {
+                            "label": "오늘의 일일 루틴",
+                            "emoji": "☀️",
+                            "style": discord.ButtonStyle.success,
+                            "perm": PERM_USER,
+                            "desc": "출석·낚시 의뢰·농장·공동농장·운명뽑기·목표 한눈에 확인 및 가능 보상 일괄 수령",
+                            "cb": self._act_daily_routine,
+                        },
+                        {
+                            "label": "통합 주간 미션",
+                            "emoji": "🎯",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "주간 출석·낚시·농장·도감 미션 달성률 확인 및 올클리어 보상 수령",
+                            "cb": self._act_weekly_missions,
+                        },
+                        {
+                            "label": "골드⇄크리스탈 환전",
+                            "emoji": "💱",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "낚시 골드(500🪙➔100💎) · 크리스탈(100💎➔450🪙) 일일 한도 안전 환전소",
+                            "cb": self._act_currency_exchange,
+                        },
+                        {
+                            "label": "내 수집품 쇼케이스",
+                            "emoji": "🏆",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "프로세카 5인 덱 · 원신/스타레일 파티 · 수족관 대물 · 타인의 삶 통합 자랑 카드",
+                            "cb": self._act_showcase,
+                        },
+                        {
+                            "label": "파트너 농장 물주기",
+                            "emoji": "💑",
+                            "style": discord.ButtonStyle.secondary,
+                            "perm": PERM_USER,
+                            "desc": "파트너의 개인 농장에 대신 물을 주고 양쪽 모두 우정 보너스(+50💎·+100🪙) 획득",
+                            "cb": self._act_partner_farm_water,
+                        },
+                        {
+                            "label": "즉석 미니 대전",
+                            "emoji": "🎲",
+                            "style": discord.ButtonStyle.success,
+                            "perm": PERM_USER,
+                            "desc": "채널 멤버들과 바로 붙는 하이로우 주사위 대결(무료/50💎) & 72종 초성 퀴즈",
+                            "cb": self._act_mini_battle_hub,
+                        },
+                    ],
+                },
             ],
         }
 
@@ -3199,6 +3255,7 @@ class MasterDashboardView(core.SafeView):
                     ("펫 입양 & 돌보기 (6종)", "🐾", discord.ButtonStyle.secondary, self._sub_life_pet),
                     ("생선 요리 & 요리도감", "🍳", discord.ButtonStyle.secondary, self._sub_life_cook),
                     ("내 활성 통합 버프 확인", "✨", discord.ButtonStyle.secondary, self._sub_life_buffs),
+                    ("오늘의 일일 루틴 허브", "☀️", discord.ButtonStyle.success, self._act_daily_routine),
                 ],
             },
             "sekai_deck": {
@@ -3259,11 +3316,12 @@ class MasterDashboardView(core.SafeView):
             },
             "bday_partner": {
                 "title": "🎂 내 생일 등록 & 💑 파트너 스튜디오",
-                "desc": "내 생일을 등록해 당일 자정 축하와 +500💎 보너스를 받고, 파트너 신청/해제 및 공동 D-Day·공유 음악을 관리합니다.",
+                "desc": "내 생일을 등록해 당일 자정 축하와 +500💎 보너스를 받고, 파트너 신청/해제 및 공동 D-Day·공유 음악·농장 물주기를 관리합니다.",
                 "perm": PERM_USER,
                 "buttons": [
                     ("생일 전광판 & 내 생일 등록", "🎂", discord.ButtonStyle.success, self._act_birthday_board),
                     ("내 파트너 스튜디오 열기", "💑", discord.ButtonStyle.primary, self._act_partner_studio),
+                    ("파트너 농장 대신 물주기", "💧", discord.ButtonStyle.success, self._act_partner_farm_water),
                     ("파트너(짝꿍) 신청하기", "💌", discord.ButtonStyle.primary, self._sub_partner_propose),
                     ("파트너 관계 해제하기", "💔", discord.ButtonStyle.danger, self._sub_partner_break),
                     ("나만의 비밀 D-Day 보드", "🔒", discord.ButtonStyle.secondary, self._act_secret_dday),
@@ -3386,7 +3444,7 @@ class MasterDashboardView(core.SafeView):
             f"> 🎮 **컬렉션:** 프로세카 `{sekai_cards}종` · 원신 `{gi_items}종` · 스타레일 `{hsr_items}종`\n"
             f"> 📅 **출석 상태:** {att_badge}",
             "━━━━━━━━━━━━━━━━━━━━━━",
-            "### 🗂️ 4대 통합 카테고리 *(총 14페이지 · 84종 기능)*",
+            "### 🗂️ 4대 통합 카테고리 *(총 15페이지 · 90종 기능)*",
             (
                 "1️⃣ **`[🌐 일반]`** *(3p · `👤일반`)*\n"
                 "└ 출석·달력·랭킹 · D-Day·생일 · 미래시 · 음악·플리 · 서버통계 · 파티모집 · 날씨 · 릴레이소설\n\n"
@@ -3395,8 +3453,8 @@ class MasterDashboardView(core.SafeView):
                 "└ `👑봇주인` 3대 게임 픽업 · VM 터미널 · **GitHub 배포알림** · **봇 진단** · DB 백업/동기화\n\n"
                 "3️⃣ **`[🎮 미니게임]`** *(4p · `👤일반`)*\n"
                 "└ 프로세카 · 원신 · 스타레일 · 낚시·수족관 · 농장·펫 · 타인의삶 · 끝말잇기 · 룰렛\n\n"
-                "4️⃣ **`[👤 개인]`** *(3p · `👤일반`)*\n"
-                "└ PNG 프로필카드 · 오시·칭호·송금 · 4대 게임 보관함/덱 · 오늘목표 · 집중모드 · 파트너"
+                "4️⃣ **`[👤 개인]`** *(4p · `👤일반`)*\n"
+                "└ PNG 프로필카드 · 4대 게임 보관함/덱 · 오늘목표·파트너 · **일일루틴·주간미션·환전소·쇼케이스·미니대전**"
             ),
             "━━━━━━━━━━━━━━━━━━━━━━",
         ]
@@ -3467,12 +3525,14 @@ class MasterDashboardView(core.SafeView):
         if page == 1:
             deck_cnt = len(profile.get("deck", []))
             return f"🎒 **내 보관함 요약:** 프로세카 5인 덱 `{deck_cnt}/5장` 편성 중  ·  원신/스타레일/낚시 보관함 원클릭 관리"
-        todo = core.ensure_user_todo_today(profile)
-        tasks_list = [t for t in (todo.get("tasks") or []) if isinstance(t, dict)]
-        done_cnt = sum(1 for t in tasks_list if t.get("done"))
-        partner_id = profile.get("partner_id")
-        p_txt = f"<@{partner_id}>" if partner_id else "미등록"
-        return f"🌱 **오늘 목표:** `{done_cnt}/{len(tasks_list)}` 완료  ·  💑 **파트너:** {p_txt}"
+        if page == 2:
+            todo = core.ensure_user_todo_today(profile)
+            tasks_list = [t for t in (todo.get("tasks") or []) if isinstance(t, dict)]
+            done_cnt = sum(1 for t in tasks_list if t.get("done"))
+            partner_id = profile.get("partner_id")
+            p_txt = f"<@{partner_id}>" if partner_id else "미등록"
+            return f"🌱 **오늘 목표:** `{done_cnt}/{len(tasks_list)}` 완료  ·  💑 **파트너:** {p_txt}"
+        return "☀️ **일일 루틴 & 소셜:** 숙제 일괄 수령 · 주간 미션 · 🪙⇄💎 환전소 · 수집품 쇼케이스 · 주사위/초성 퀴즈"
 
     def _build_category_page_embed(self, category: str, page: int) -> discord.Embed:
         cat_meta = CATEGORY_INFO.get(category, CATEGORY_INFO["general"])
@@ -5310,6 +5370,67 @@ class MasterDashboardView(core.SafeView):
         else:
             await core.safe_send_response(interaction, "❌ 낚시 모듈을 찾을 수 없습니다.", ephemeral=True)
 
+    # ----------------------------------------------------
+    # ☀️ 일일 루틴 · 주간 미션 · 환전소 · 쇼케이스 · 파트너 농장 · 즉석 미니 대전
+    # ----------------------------------------------------
+    async def _act_daily_routine(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            gid = interaction.guild_id or 0
+            st = await asyncio.to_thread(
+                routine_core.get_daily_routine_status, gid, interaction.user.id, interaction.user.display_name
+            )
+            view = routine.DailyRoutineHubView(self.bot or interaction.client, interaction.user, gid, status=st)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 일일 루틴 허브 로드 오류: {e}", ephemeral=True)
+
+    async def _act_weekly_missions(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            gid = interaction.guild_id or 0
+            view = routine.WeeklyMissionView(interaction.user, gid)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 주간 미션 보드 로드 오류: {e}", ephemeral=True)
+
+    async def _act_currency_exchange(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            gid = interaction.guild_id or 0
+            view = routine.CurrencyExchangeView(interaction.user, gid)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 환전소 로드 오류: {e}", ephemeral=True)
+
+    async def _act_showcase(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            gid = interaction.guild_id or 0
+            view = routine.ShowcaseView(interaction.user, gid)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 수집품 쇼케이스 로드 오류: {e}", ephemeral=True)
+
+    async def _act_partner_farm_water(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            gid = interaction.guild_id or 0
+            ok, msg = await asyncio.to_thread(
+                routine_core.water_partner_farm, gid, interaction.user.id, interaction.user.display_name
+            )
+            await interaction.followup.send(msg, ephemeral=not ok)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 파트너 농장 물주기 오류: {e}", ephemeral=True)
+
+    async def _act_mini_battle_hub(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            view = routine.MiniBattleHubView(interaction.user)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 즉석 미니 대전 로드 오류: {e}", ephemeral=True)
+
 
 # 외부 참조용 별칭
 SettingsHubView = MasterDashboardView
@@ -5336,7 +5457,7 @@ class Dashboard(commands.Cog, name="설정"):
             app_commands.Choice(name="🌐 [일반] 출석·일정·음악·날씨·통계·모집 (3페이지)", value="general"),
             app_commands.Choice(name="⚙️ [고급] 서버 관리자 & 봇 주인 전용 설정 (4페이지)", value="advanced"),
             app_commands.Choice(name="🎮 [미니게임] 프로세카·원신·스타레일·낚시·농장·게임 (4페이지)", value="minigame"),
-            app_commands.Choice(name="👤 [개인] 내 프로필·보관함·목표·집중·파트너 (3페이지)", value="personal"),
+            app_commands.Choice(name="👤 [개인] 프로필·보관함·목표·루틴·환전·대전 (4페이지)", value="personal"),
             app_commands.Choice(name="🏆 [랭킹] 전 분야 서버 통합 랭킹 보드 바로가기 (8종)", value="ranking"),
             app_commands.Choice(name="📖 [도감] 5대 게임 통합 도감 & 배너 확률표 바로가기", value="pokedex"),
         ]
