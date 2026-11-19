@@ -1225,6 +1225,8 @@ class LoggerCog(commands.Cog):
     async def on_message_delete(self, message: discord.Message):
         if not message.guild or message.author.bot:
             return
+        if core.consume_suppressed_delete_log(message.id):
+            return
         data = core.get_cached_data_ro()
         ch = self._get_log_channel(message.guild, data, category_key="messages")
         if not ch:

@@ -617,6 +617,29 @@ async def safe_edit_response(
     return None
 
 
+_SUPPRESSED_DELETE_LOG_MSG_IDS: dict[int, float] = {}
+
+
+def mark_suppressed_delete_log(message_id: int, ttl_sec: float = 30.0) -> None:
+    """이모지 업스케일 등 봇 내부 치환으로 삭제되는 메시지의 서버 삭제 로그를 1회 억제합니다."""
+    if not message_id:
+        return
+    now = time.monotonic()
+    if len(_SUPPRESSED_DELETE_LOG_MSG_IDS) > 512:
+        expired = [mid for mid, exp in _SUPPRESSED_DELETE_LOG_MSG_IDS.items() if exp <= now]
+        for mid in expired:
+            _SUPPRESSED_DELETE_LOG_MSG_IDS.pop(mid, None)
+    _SUPPRESSED_DELETE_LOG_MSG_IDS[int(message_id)] = now + ttl_sec
+
+
+def consume_suppressed_delete_log(message_id: int) -> bool:
+    """삭제 로그 억제 대상 메시지 ID인지 확인하고 1회 소비합니다."""
+    if not message_id:
+        return False
+    exp = _SUPPRESSED_DELETE_LOG_MSG_IDS.pop(int(message_id), None)
+    return exp is not None and exp >= time.monotonic()
+
+
 SAFE_VIEW_REGISTRY: dict[str, type["SafeView"]] = {}
 
 

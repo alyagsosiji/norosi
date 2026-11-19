@@ -1475,10 +1475,12 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         if not webhook:
             return
 
-        # 3. 원본 메시지 삭제
+        # 3. 원본 메시지 삭제 (이모지 업스케일 치환 삭제에 한해 서버 삭제 로그 억제)
+        core.mark_suppressed_delete_log(message.id)
         try:
             await message.delete()
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            core.consume_suppressed_delete_log(message.id)
             return
 
         # 4. 보낸 사람 프로필 사진 & 닉네임으로 웹훅 전송
