@@ -3151,13 +3151,59 @@ def get_event_forecast_list():
     if _FORECAST_CACHE and (now - _FORECAST_CACHE_TIME < 1800):
         return _FORECAST_CACHE
 
-    events = BUILTIN_FORECAST_EVENTS
+    events = list(BUILTIN_FORECAST_EVENTS)
     try:
         cfg_jp = SERVER_DB_URLS["jp"]
         jp_events = fetch_json_with_fallback(cfg_jp["events"])
         if jp_events and isinstance(jp_events, list) and len(jp_events) > 50:
-            # JP 최신 이벤트 목록에서 빌트인 데이터의 상세 정보와 매핑
-            pass
+            existing_ids = {int(e["id"]) for e in events if "id" in e}
+            max_builtin_id = max(existing_ids) if existing_ids else 0
+
+            def _shift_plus_one_year(dt_kst: datetime.datetime) -> str:
+                try:
+                    return dt_kst.replace(year=dt_kst.year + 1).strftime("%Y-%m-%d")
+                except ValueError:
+                    # 2월 29일 -> 다음 해 2월 28일로 안전 보정
+                    return dt_kst.replace(year=dt_kst.year + 1, day=28).strftime("%Y-%m-%d")
+
+            appended = []
+            for raw_ev in jp_events:
+                if not isinstance(raw_ev, dict):
+                    continue
+                ev_id = raw_ev.get("id")
+                start_ms = raw_ev.get("startAt")
+                end_ms = raw_ev.get("aggregateAt") or raw_ev.get("closedAt")
+                if not isinstance(ev_id, int) or ev_id <= max_builtin_id or ev_id in existing_ids:
+                    continue
+                if not isinstance(start_ms, (int, float)) or not isinstance(end_ms, (int, float)):
+                    continue
+                dt_s = datetime.datetime.fromtimestamp(start_ms / 1000.0, tz=KST)
+                dt_e = datetime.datetime.fromtimestamp(end_ms / 1000.0, tz=KST)
+                ev_name = str(raw_ev.get("name") or f"이벤트 #{ev_id}").strip()
+                # 월말(28~31일) 시작 이벤트는 통상 한정/페스 가챠 주기
+                is_end_of_month = dt_s.day >= 28
+                is_fes_month = is_end_of_month and dt_s.month in (3, 6, 9, 12)
+                appended.append({
+                    "id": ev_id,
+                    "name": ev_name,
+                    "jp_name": ev_name,
+                    "assetbundleName": str(raw_ev.get("assetbundleName") or ""),
+                    "eventType": str(raw_ev.get("eventType") or "marathon"),
+                    "jp_start": dt_s.strftime("%Y-%m-%d"),
+                    "jp_end": dt_e.strftime("%Y-%m-%d"),
+                    "kr_estimated_start": _shift_plus_one_year(dt_s),
+                    "kr_estimated_end": _shift_plus_one_year(dt_e),
+                    "attribute": "🌟 미정",
+                    "unit": "전 유닛 / 확인 중",
+                    "featured_cards": [],
+                    "gacha_name": f"{ev_name} 픽업 가챠",
+                    "theme_song": "업데이트 예정",
+                    "is_limited": is_end_of_month,
+                    "is_fes": is_fes_month,
+                })
+            if appended:
+                appended.sort(key=lambda x: x["id"])
+                events.extend(appended)
     except Exception:
         pass
 

@@ -33,6 +33,7 @@ fi
 if [ -f "requirements.txt" ]; then
     pip install -r requirements.txt --quiet
 fi
+pip install -U yt-dlp --quiet || true
 
 echo "🔄 [3/4] norosi 봇 재시작..."
 if [ -d /run/systemd/system ] && sudo -n systemctl restart norosi 2>/dev/null; then

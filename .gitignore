@@ -17,3 +17,8 @@ ddays_data.json
 proseka_kr_cache.json
 genshin_kr_cache.json
 hsr_kr_cache.json
+.ruff_cache/
+.norosi.pid
+.norosi_supervisor.pid
+.norosi_keepalive.sh
+

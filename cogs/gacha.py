@@ -3354,7 +3354,7 @@ class EventForecastView(core.SafeView):
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
-                f"❌ 이 미래시 달력은 **{self.user.display_name}**님이 조회한 창입니다. `/미래시` 명령어로 직접 조회해 보세요!",
+                f"❌ 이 미래시 달력은 **{self.user.display_name}**님이 조회한 창입니다. `/설정`에서 직접 조회해 보세요!",
                 ephemeral=True
             )
             return False

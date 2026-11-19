@@ -55,6 +55,7 @@ else
 fi
 pip install --upgrade pip
 pip install -r requirements.txt
+pip install -U yt-dlp --quiet || true
 
 # ------------------------------------------------------------------------------
 # 4. .env 환경설정 파일 확인
