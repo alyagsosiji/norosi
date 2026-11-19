@@ -301,6 +301,10 @@ def redact_secrets(text: str) -> str:
         out = out.replace(TOKEN, "***REDACTED_TOKEN***")
     if SPOTIPY_CLIENT_SECRET and len(SPOTIPY_CLIENT_SECRET) >= 6:
         out = out.replace(SPOTIPY_CLIENT_SECRET, "***REDACTED***")
+    for env_name in ("GITHUB_WEBHOOK_SECRET", "SIGNING_KEY", "EMOTE_CDN_SIGNING_KEY"):
+        sec_val = (os.getenv(env_name) or "").strip()
+        if sec_val and len(sec_val) >= 6:
+            out = out.replace(sec_val, "***REDACTED***")
     out = _SECRET_REDACT_PATTERNS[0].sub(r"\1***REDACTED***", out)
     out = _SECRET_REDACT_PATTERNS[1].sub(r"\1***REDACTED***", out)
     for pat in _SECRET_REDACT_PATTERNS[2:]:
@@ -4081,6 +4085,10 @@ def _save_local_file_safely(data: dict):
         tmp_file = f"{DATA_FILE}.tmp"
         with open(tmp_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+        try:
+            os.chmod(tmp_file, 0o600)
+        except OSError:
+            pass
         os.replace(tmp_file, DATA_FILE)
     except Exception as e:
         print(f"⚠️ 로컬 데이터 파일 저장 오류: {e}", flush=True)
@@ -4388,6 +4396,10 @@ def _persist_worker():
             tmp_file = f"{DATA_FILE}.tmp"
             with open(tmp_file, "w", encoding="utf-8") as f:
                 f.write(raw_json)
+            try:
+                os.chmod(tmp_file, 0o600)
+            except OSError:
+                pass
             os.replace(tmp_file, DATA_FILE)
         except Exception as e:
             print(f"⚠️ 로컬 데이터 파일 저장 오류: {e}", flush=True)
@@ -6584,6 +6596,8 @@ def is_playlist_url(url: str, allow_watch_with_list: bool = True) -> tuple[bool,
     if m_url:
         raw = m_url.group(0)
     if not (raw.startswith("http://") or raw.startswith("https://")):
+        return False, ""
+    if not is_allowed_music_url(raw):
         return False, ""
 
     low = raw.lower()

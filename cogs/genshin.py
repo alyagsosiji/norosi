@@ -1300,11 +1300,15 @@ class GenshinPartyView(core.SafeView):
             return
         await core.safe_defer(interaction)
         picked = list(interaction.data["values"])[:4]
-        with core._DATA_LOCK:
-            data = await asyncio.to_thread(core.load_data)
-            u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
-            u_data["party"] = picked
-            await asyncio.to_thread(core.save_data, data)
+
+        def _save_picked():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
+                u_data["party"] = picked
+                core.save_data(data)
+
+        await asyncio.to_thread(_save_picked)
         self._build()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
@@ -1312,17 +1316,21 @@ class GenshinPartyView(core.SafeView):
         if not await self._guard(interaction):
             return
         await core.safe_defer(interaction)
-        with core._DATA_LOCK:
-            data = await asyncio.to_thread(core.load_data)
-            u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
-            chars = [
-                {**v, "item_key": str(v.get("item_key") or k)}
-                for k, v in core.as_dict(u_data.get("items")).items()
-                if isinstance(v, dict) and v.get("kind") == "char"
-            ]
-            chars.sort(key=lambda c: -genshin_core.compute_genshin_char_power(c))
-            u_data["party"] = [c["item_key"] for c in chars[:4]]
-            await asyncio.to_thread(core.save_data, data)
+
+        def _save_auto():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
+                chars = [
+                    {**v, "item_key": str(v.get("item_key") or k)}
+                    for k, v in core.as_dict(u_data.get("items")).items()
+                    if isinstance(v, dict) and v.get("kind") == "char"
+                ]
+                chars.sort(key=lambda c: -genshin_core.compute_genshin_char_power(c))
+                u_data["party"] = [c["item_key"] for c in chars[:4]]
+                core.save_data(data)
+
+        await asyncio.to_thread(_save_auto)
         self._build()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
@@ -1330,11 +1338,15 @@ class GenshinPartyView(core.SafeView):
         if not await self._guard(interaction):
             return
         await core.safe_defer(interaction)
-        with core._DATA_LOCK:
-            data = await asyncio.to_thread(core.load_data)
-            u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
-            u_data["party"] = []
-            await asyncio.to_thread(core.save_data, data)
+
+        def _save_clear():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                u_data = genshin_core.ensure_genshin_user(data, self.guild_id, interaction.user.id)
+                u_data["party"] = []
+                core.save_data(data)
+
+        await asyncio.to_thread(_save_clear)
         self._build()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 

@@ -5294,12 +5294,14 @@ class GachaCog(commands.Cog):
                 return
 
             if 배너 is not None:
-                with core._DATA_LOCK:
-                    d_sync = await asyncio.to_thread(core.load_data)
-                    gp_sync = core.ensure_dict_path(d_sync, "gacha_pickup")
-                    gp_sync["banner_type"] = 배너.value
-                    await asyncio.to_thread(core.save_data, d_sync)
-                    pickup_obj["banner_type"] = 배너.value
+                def _apply_banner_type():
+                    with core._DATA_LOCK:
+                        d_sync = core.load_data()
+                        gp_sync = core.ensure_dict_path(d_sync, "gacha_pickup")
+                        gp_sync["banner_type"] = 배너.value
+                        core.save_data(d_sync)
+                await asyncio.to_thread(_apply_banner_type)
+                pickup_obj["banner_type"] = 배너.value
 
             b_cfg = core.BANNER_CONFIGS.get(core.get_active_proseka_banner(pickup_obj), core.BANNER_CONFIGS["normal"])
             labels = pickup_obj.get("pickup_card_labels") or []

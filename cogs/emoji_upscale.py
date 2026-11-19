@@ -806,6 +806,33 @@ async def handle_emote_index_http_request(_request: web.Request) -> web.Response
     return web.Response(text=EMOTE_CDN_INDEX_HTML, content_type="text/html", charset="utf-8")
 
 
+MAX_CDN_DOWNLOAD_BYTES = 8 * 1024 * 1024  # 8MB
+_CDN_SHARED_SESSION: Optional[aiohttp.ClientSession] = None
+_CDN_SEMAPHORES: dict[int, asyncio.Semaphore] = {}
+
+
+def _get_cdn_semaphore() -> asyncio.Semaphore:
+    loop_id = id(asyncio.get_running_loop())
+    sem = _CDN_SEMAPHORES.get(loop_id)
+    if sem is None:
+        sem = asyncio.Semaphore(8)
+        _CDN_SEMAPHORES[loop_id] = sem
+    return sem
+
+
+async def _get_cdn_shared_session() -> aiohttp.ClientSession:
+    global _CDN_SHARED_SESSION
+    if _CDN_SHARED_SESSION is None or _CDN_SHARED_SESSION.closed:
+        timeout = aiohttp.ClientTimeout(total=10)
+        connector = aiohttp.TCPConnector(limit=32, limit_per_host=16, keepalive_timeout=30.0)
+        _CDN_SHARED_SESSION = aiohttp.ClientSession(
+            timeout=timeout,
+            connector=connector,
+            headers={"User-Agent": USER_AGENT},
+        )
+    return _CDN_SHARED_SESSION
+
+
 async def fetch_and_resize_cdn_item(
     session: aiohttp.ClientSession,
     item_id: str,
@@ -843,10 +870,12 @@ async def fetch_and_resize_cdn_item(
     headers = {"User-Agent": USER_AGENT}
     for src_url in src_urls:
         try:
-            async with session.get(src_url, headers=headers) as resp:
+            async with session.get(src_url, headers=headers, allow_redirects=False) as resp:
                 if 200 <= resp.status < 300:
-                    raw = await resp.read()
-                    if raw and len(raw) >= 12:
+                    if resp.content_length and resp.content_length > MAX_CDN_DOWNLOAD_BYTES:
+                        continue
+                    raw = await resp.content.read(MAX_CDN_DOWNLOAD_BYTES + 1)
+                    if raw and 12 <= len(raw) <= MAX_CDN_DOWNLOAD_BYTES:
                         body = raw
                         actual_src = src_url
                         break
@@ -900,8 +929,8 @@ async def handle_emote_cdn_http_request(request: web.Request, content_type: str 
         if not verify_signature(clean_id, ex_param, hm_param, signing_key):
             return web.Response(status=401, text="Unauthorized")
 
-    timeout = aiohttp.ClientTimeout(total=10)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    async with _get_cdn_semaphore():
+        session = await _get_cdn_shared_session()
         res = await fetch_and_resize_cdn_item(session, clean_id, content_type=content_type)
 
     if res is None:
@@ -1018,15 +1047,32 @@ class EmoteCdnConfigModal(core.SafeModal, title="🌐 Emote CDN 서버 & 서명 
         self.cdn_url_input.default = get_emote_cdn_base_url()
 
     async def on_submit(self, interaction: discord.Interaction):
-        raw_url = (self.cdn_url_input.value or "").strip().rstrip("/")
-        raw_key = (self.signing_key_input.value or "").strip()
-        if raw_url and not raw_url.startswith(("http://", "https://")):
+        bot_ref = self.parent_view.bot or interaction.client
+        if not bot_ref or not hasattr(bot_ref, "is_bot_owner_user") or not await bot_ref.is_bot_owner_user(interaction.user):
             await core.safe_send_response(
                 interaction,
-                "❌ CDN 서버 주소는 `https://` 또는 `http://`로 시작해야 합니다. (예: `https://cdn.kamibot.app`)",
+                "🚨 **권한 부족:** 전역 Emote CDN 서버 주소 및 서명 키 변경은 **👑 봇 주인(소유자) 전용**입니다.",
                 ephemeral=True,
             )
             return
+
+        raw_url = (self.cdn_url_input.value or "").strip().rstrip("/")
+        raw_key = (self.signing_key_input.value or "").strip()
+        if raw_url:
+            if not raw_url.startswith("https://"):
+                await core.safe_send_response(
+                    interaction,
+                    "❌ 보안상 CDN 서버 주소는 `https://`로 시작해야 합니다. (예: `https://cdn.kamibot.app`)",
+                    ephemeral=True,
+                )
+                return
+            if not await asyncio.to_thread(core.is_safe_external_url, raw_url):
+                await core.safe_send_response(
+                    interaction,
+                    "❌ 내부 네트워크(루프백·사설망·링크로컬) 또는 안전하지 않은 주소는 CDN 서버로 설정할 수 없습니다.",
+                    ephemeral=True,
+                )
+                return
 
         await core.safe_defer(interaction, ephemeral=True)
 
@@ -1106,8 +1152,16 @@ class EmojiUpscaleConfigView(core.SafeView):
         emb = build_emoji_upscale_embed(interaction.guild, interaction.channel, False)
         await core.safe_edit_response(interaction, embed=emb, view=self)
 
-    @discord.ui.button(label="🌐 CDN 서버 주소 설정", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🌐 CDN 서버 주소 설정 (봇주 전용)", style=discord.ButtonStyle.secondary, row=0)
     async def btn_cdn_config(self, interaction: discord.Interaction, button: discord.ui.Button):
+        bot_ref = self.bot or interaction.client
+        if not bot_ref or not hasattr(bot_ref, "is_bot_owner_user") or not await bot_ref.is_bot_owner_user(interaction.user):
+            await core.safe_send_response(
+                interaction,
+                "🚨 **권한 부족:** 전역 Emote CDN 서버 주소 및 서명 키 설정은 **👑 봇 주인(소유자) 전용**입니다.",
+                ephemeral=True,
+            )
+            return
         await interaction.response.send_modal(EmoteCdnConfigModal(self))
 
 
@@ -1158,10 +1212,12 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
 
         for url in urls:
             try:
-                async with session.get(url) as resp:
+                async with session.get(url, allow_redirects=False) as resp:
                     if 200 <= resp.status < 300:
-                        raw = await resp.read()
-                        if raw and len(raw) >= 12:
+                        if resp.content_length and resp.content_length > MAX_CDN_DOWNLOAD_BYTES:
+                            continue
+                        raw = await resp.content.read(MAX_CDN_DOWNLOAD_BYTES + 1)
+                        if raw and 12 <= len(raw) <= MAX_CDN_DOWNLOAD_BYTES:
                             return raw
             except Exception:
                 continue
@@ -1169,12 +1225,16 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
 
     async def _verify_url_returns_webp(self, url: str) -> bool:
         """해당 URL이 실제로 HTTP 200 OK 및 유효한 이미지(WebP/PNG/GIF)를 반환하는지 검증합니다."""
+        if not await asyncio.to_thread(core.is_safe_external_url, url):
+            return False
         session = await self._get_session()
         try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5), allow_redirects=False) as resp:
                 if 200 <= resp.status < 300:
-                    raw = await resp.read()
-                    if raw and len(raw) >= 12 and detect_image_format(raw) != DetectedFormat.UNKNOWN:
+                    if resp.content_length and resp.content_length > MAX_CDN_DOWNLOAD_BYTES:
+                        return False
+                    raw = await resp.content.read(MAX_CDN_DOWNLOAD_BYTES + 1)
+                    if raw and 12 <= len(raw) <= MAX_CDN_DOWNLOAD_BYTES and detect_image_format(raw) != DetectedFormat.UNKNOWN:
                         return True
                 return False
         except Exception:

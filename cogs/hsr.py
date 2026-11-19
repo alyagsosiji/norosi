@@ -1327,11 +1327,16 @@ class HSRPartyView(core.SafeView):
             return
         await core.safe_defer(interaction)
         gid = self.guild_id or interaction.guild_id or 0
-        with core._DATA_LOCK:
-            data = await asyncio.to_thread(core.load_data)
-            u_data = hsr_core.ensure_hsr_user(data, gid, interaction.user.id)
-            u_data["party"] = list(interaction.data["values"])[:4]
-            await asyncio.to_thread(core.save_data, data)
+        picked = list(interaction.data["values"])[:4]
+
+        def _save_picked():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                u_data = hsr_core.ensure_hsr_user(data, gid, interaction.user.id)
+                u_data["party"] = picked
+                core.save_data(data)
+
+        await asyncio.to_thread(_save_picked)
         self._build()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
@@ -1340,27 +1345,31 @@ class HSRPartyView(core.SafeView):
             return
         await core.safe_defer(interaction)
         gid = self.guild_id or interaction.guild_id or 0
-        with core._DATA_LOCK:
-            data = await asyncio.to_thread(core.load_data)
-            u_data = hsr_core.ensure_hsr_user(data, gid, interaction.user.id)
-            chars = [
-                {**v, "item_key": str(v.get("item_key") or k)}
-                for k, v in core.as_dict(u_data.get("items")).items()
-                if isinstance(v, dict) and v.get("kind") == "char"
-            ]
-            chars.sort(key=lambda c: -hsr_core.compute_hsr_char_power(c))
-            chosen = []
-            for tag in ("dps", "sup", "sus"):
-                cand = next((c for c in chars if (c.get("role_tag") == tag) and c["item_key"] not in chosen), None)
-                if cand:
-                    chosen.append(cand["item_key"])
-            for c in chars:
-                if len(chosen) >= 4:
-                    break
-                if c["item_key"] not in chosen:
-                    chosen.append(c["item_key"])
-            u_data["party"] = chosen[:4]
-            await asyncio.to_thread(core.save_data, data)
+
+        def _save_auto():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                u_data = hsr_core.ensure_hsr_user(data, gid, interaction.user.id)
+                chars = [
+                    {**v, "item_key": str(v.get("item_key") or k)}
+                    for k, v in core.as_dict(u_data.get("items")).items()
+                    if isinstance(v, dict) and v.get("kind") == "char"
+                ]
+                chars.sort(key=lambda c: -hsr_core.compute_hsr_char_power(c))
+                chosen = []
+                for tag in ("dps", "sup", "sus"):
+                    cand = next((c for c in chars if (c.get("role_tag") == tag) and c["item_key"] not in chosen), None)
+                    if cand:
+                        chosen.append(cand["item_key"])
+                for c in chars:
+                    if len(chosen) >= 4:
+                        break
+                    if c["item_key"] not in chosen:
+                        chosen.append(c["item_key"])
+                u_data["party"] = chosen[:4]
+                core.save_data(data)
+
+        await asyncio.to_thread(_save_auto)
         self._build()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
@@ -1369,11 +1378,15 @@ class HSRPartyView(core.SafeView):
             return
         await core.safe_defer(interaction)
         gid = self.guild_id or interaction.guild_id or 0
-        with core._DATA_LOCK:
-            data = await asyncio.to_thread(core.load_data)
-            u_data = hsr_core.ensure_hsr_user(data, gid, interaction.user.id)
-            u_data["party"] = []
-            await asyncio.to_thread(core.save_data, data)
+
+        def _save_clear():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                u_data = hsr_core.ensure_hsr_user(data, gid, interaction.user.id)
+                u_data["party"] = []
+                core.save_data(data)
+
+        await asyncio.to_thread(_save_clear)
         self._build()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 

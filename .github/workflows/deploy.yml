@@ -34,6 +34,7 @@ jobs:
           GCP_USER: ${{ secrets.SSH_USER || secrets.GCP_USER || 'kami' }}
           GCP_SSH_KEY: ${{ secrets.GCP_SSH_KEY || secrets.SSH_PRIVATE_KEY || secrets.SSH_KEY }}
           DISCORD_TOKEN_SECRET: ${{ secrets.DISCORD_TOKEN }}
+          SSH_KNOWN_HOSTS_SECRET: ${{ secrets.SSH_KNOWN_HOSTS }}
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
@@ -116,10 +117,19 @@ jobs:
             fi
           fi
 
+          # 선택적 SSH 호스트 키 고정 (GitHub Secrets에 SSH_KNOWN_HOSTS가 등록된 경우 StrictHostKeyChecking=yes)
+          SSH_HOST_CHECK="accept-new"
+          if [ -n "${SSH_KNOWN_HOSTS_SECRET}" ]; then
+            printf "%s\n" "${SSH_KNOWN_HOSTS_SECRET}" > ~/.ssh/known_hosts
+            chmod 600 ~/.ssh/known_hosts
+            SSH_HOST_CHECK="yes"
+            echo "🔒 SSH_KNOWN_HOSTS 적용됨 (StrictHostKeyChecking=yes)"
+          fi
+
           for ENTRY in "${CANDIDATES[@]}"; do
             IFS='|' read -r C_USER C_HOST C_PORT <<< "$ENTRY"
             echo "🔍 SSH 연결 테스트: ${C_USER}@${C_HOST} (Port ${C_PORT}) ..."
-            if ssh -p "${C_PORT}" -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=10 -i ~/.ssh/gcp_deploy_key "${C_USER}@${C_HOST}" "true" 2>/dev/null; then
+            if ssh -p "${C_PORT}" -o "StrictHostKeyChecking=${SSH_HOST_CHECK}" -o BatchMode=yes -o ConnectTimeout=10 -i ~/.ssh/gcp_deploy_key "${C_USER}@${C_HOST}" "true" 2>/dev/null; then
               ACTIVE_USER="${C_USER}"
               ACTIVE_HOST="${C_HOST}"
               ACTIVE_PORT="${C_PORT}"
@@ -130,17 +140,18 @@ jobs:
           done
 
           # GitHub Secrets에 DISCORD_TOKEN이 등록된 경우 서버의 .env에 자동 동기화용 base64 페이로드
+          # (명령행 인자 argv 대신 stdin 첫 줄로 전달하여 원격 ps/proc 노출 차단)
           TOKEN_B64=""
           if [ -n "${DISCORD_TOKEN_SECRET}" ]; then
             TOKEN_B64=$(printf "%s" "${DISCORD_TOKEN_SECRET}" | base64 -w 0 2>/dev/null || printf "%s" "${DISCORD_TOKEN_SECRET}" | base64)
           fi
 
-          ssh -p "${ACTIVE_PORT}" -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15 -i ~/.ssh/gcp_deploy_key \
-            "${ACTIVE_USER}@${ACTIVE_HOST}" \
-            "bash -s -- '${TOKEN_B64}' '${ACTIVE_USER}'" << 'REMOTE_SCRIPT'
+          {
+            printf "%s\n" "${TOKEN_B64}"
+            cat << 'REMOTE_SCRIPT'
           set -e
-          TOKEN_B64="$1"
-          ACTIVE_USER="$2"
+          read -r TOKEN_B64
+          ACTIVE_USER="$1"
 
           echo "=========================================="
           echo "🚀 [1/4] norosi 디렉토리 이동 및 최신 코드 반영..."
@@ -287,6 +298,9 @@ jobs:
             tail -n 70 "$TARGET_DIR/bot.log" 2>/dev/null || true
           fi
           REMOTE_SCRIPT
+          } | ssh -p "${ACTIVE_PORT}" -o "StrictHostKeyChecking=${SSH_HOST_CHECK}" -o BatchMode=yes -o ConnectTimeout=15 -i ~/.ssh/gcp_deploy_key \
+            "${ACTIVE_USER}@${ACTIVE_HOST}" \
+            "bash -s -- '${ACTIVE_USER}'"
           SSH_EXIT_CODE=$?
           set -e
 

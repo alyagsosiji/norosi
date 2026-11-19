@@ -122,7 +122,12 @@ class NorosiBot(commands.Bot):
         intents.emojis_and_stickers = True
         intents.guilds = True
         intents.reactions = True
-        super().__init__(command_prefix="!", intents=intents, help_command=None)
+        super().__init__(
+            command_prefix="!",
+            intents=intents,
+            help_command=None,
+            allowed_mentions=discord.AllowedMentions(everyone=False),
+        )
         self.start_time = datetime.datetime.now(core.KST)
         self._commands_synced = False
         self._web_started = False
@@ -185,13 +190,13 @@ class NorosiBot(commands.Bot):
         try:
             raw_body = await request.read()
             webhook_secret = (os.getenv("GITHUB_WEBHOOK_SECRET") or "").strip()
-            sig_verified = False
-            if webhook_secret:
-                sig_header = request.headers.get("X-Hub-Signature-256", "")
-                expected_sig = "sha256=" + hmac.new(webhook_secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
-                if not sig_header or not hmac.compare_digest(sig_header, expected_sig):
-                    return web.json_response({"error": "Invalid signature"}, status=401)
-                sig_verified = True
+            if not webhook_secret:
+                return web.json_response({"error": "Webhook secret is not configured"}, status=503)
+            sig_header = request.headers.get("X-Hub-Signature-256", "")
+            expected_sig = "sha256=" + hmac.new(webhook_secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+            if not sig_header or not hmac.compare_digest(sig_header, expected_sig):
+                return web.json_response({"error": "Invalid signature"}, status=401)
+            sig_verified = True
 
             event = request.headers.get("X-GitHub-Event", "push")
             try:
@@ -342,7 +347,11 @@ class NorosiBot(commands.Bot):
                     if ch:
                         role_mention = f"<@&{role_id}>" if role_id else None
                         try:
-                            await ch.send(content=role_mention, embed=embed)
+                            await ch.send(
+                                content=role_mention,
+                                embed=embed,
+                                allowed_mentions=discord.AllowedMentions(roles=True, everyone=False, users=False),
+                            )
                         except Exception as send_err:
                             print(f"⚠️ [GitHub 웹훅 메시지 전송 예외] 채널 {cid}: {send_err}", flush=True)
 
