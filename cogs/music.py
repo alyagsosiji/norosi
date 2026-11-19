@@ -3109,6 +3109,16 @@ class SharedPlaylistView(core.SafeView):
             await core.safe_defer(interaction)
             return
         chosen = next((t for t in self.playlist.get("tracks", []) if str(t.get("id")) == val), None)
+        if not chosen and self.owner:
+            d = core.get_cached_data_ro()
+            owner_prof = core.safe_get_dict(d, "user_profiles", str(self.owner.id))
+            for pl in owner_prof.get("playlists", []) if isinstance(owner_prof.get("playlists"), list) else []:
+                if isinstance(pl, dict):
+                    hit = next((t for t in pl.get("tracks", []) if isinstance(t, dict) and str(t.get("id")) == val), None)
+                    if hit:
+                        self.playlist = pl
+                        chosen = hit
+                        break
         if not chosen:
             await core.safe_send_response(interaction, "❌ 선택한 곡 정보를 찾을 수 없습니다.", ephemeral=True)
             return
@@ -3457,6 +3467,14 @@ class PlaylistStudioView(core.SafeView):
             return
         cur_pl = self.get_current_playlist()
         chosen = next((t for t in cur_pl.get("tracks", []) if str(t.get("id")) == val), None)
+        if not chosen:
+            for pl in self.get_playlists():
+                hit = next((t for t in pl.get("tracks", []) if isinstance(t, dict) and str(t.get("id")) == val), None)
+                if hit:
+                    cur_pl = pl
+                    self.current_pl_id = pl["id"]
+                    chosen = hit
+                    break
         if not chosen:
             await core.safe_send_response(interaction, "❌ 선택한 곡을 찾을 수 없습니다.", ephemeral=True)
             return

@@ -790,6 +790,11 @@ def reconstruct_safe_view(view_cls_or_name: type[SafeView] | str, interaction: d
             elif name in ("guild_cfg",):
                 gid_s = str(interaction.guild.id if interaction.guild else 0)
                 kwargs[name] = safe_get_dict(_data(), "server_logs", gid_s)
+            elif name == "card_list" and view_cls.__name__ == "MyInventoryView":
+                gid_s = str(interaction.guild.id if interaction.guild else 0)
+                uid_s = str(getattr(orig_user, "id", 0))
+                u_cards = safe_get_dict(_data(), "gacha_users", gid_s, uid_s, "cards")
+                kwargs[name] = [c for c in u_cards.values() if isinstance(c, dict)]
             elif name in (
                 "card_list", "items", "options", "all_prob_cards", "stats_list",
                 "first_set", "initial_drawn", "liked_music", "music_list",

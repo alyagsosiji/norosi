@@ -2732,6 +2732,19 @@ class MyInventoryView(core.SafeView):
             return
         selected_card = next((c for c in self.cards if str(c.get("id")) == cid_val), None)
         if not selected_card:
+            selected_card = next((c for c in self.all_cards if str(c.get("id")) == cid_val), None)
+        if not selected_card:
+            gid_s = str(self.guild_id or (interaction.guild_id or 0))
+            uid_s = str(self.user.id if self.user else interaction.user.id)
+            u_cards = core.safe_get_dict(core.get_cached_data_ro(), "gacha_users", gid_s, uid_s, "cards")
+            cand = u_cards.get(cid_val)
+            if isinstance(cand, dict):
+                selected_card = cand
+            else:
+                selected_card = next((c for c in u_cards.values() if isinstance(c, dict) and str(c.get("id")) == cid_val), None)
+        if not selected_card:
+            selected_card = core.get_proseka_card_by_id(cid_val)
+        if not selected_card:
             await core.safe_send_response(interaction, "❌ 선택한 카드 정보를 찾을 수 없습니다.", ephemeral=True)
             return
 
@@ -3112,7 +3125,12 @@ class CardPokedexView(core.SafeView):
             await core.safe_send_response(interaction, "ℹ️ 현재 페이지에서 미리볼 카드를 선택해주세요.", ephemeral=True)
             return
         pool = self.get_filtered_items()
-        target_card = next((c for c in pool if str(c.get("id")) == cid_val), None)
+        target_card = next((c for c in pool if isinstance(c, dict) and str(c.get("id")) == cid_val), None)
+        if not target_card:
+            all_stat_cards = list(self.stats.get("owned_cards", [])) + list(self.stats.get("unowned_cards", []))
+            target_card = next((c for c in all_stat_cards if isinstance(c, dict) and str(c.get("id")) == cid_val), None)
+        if not target_card:
+            target_card = core.get_proseka_card_by_id(cid_val)
         if not target_card:
             await core.safe_send_response(interaction, "❌ 선택한 카드를 찾을 수 없습니다.", ephemeral=True)
             return
@@ -3546,7 +3564,7 @@ class MasterRankView(core.SafeView):
             embeds = getattr(msg, "embeds", None) or []
             if embeds and embeds[0].description:
                 import re
-                m = re.search(r"\(ID:\s*`?(\d+)`?\)", embeds[0].description)
+                m = re.search(r"\(ID:\s*`?([^`\)\s]+)`?\)", embeds[0].description)
                 if m:
                     restored_cid = m.group(1)
 
@@ -3578,6 +3596,8 @@ class MasterRankView(core.SafeView):
             return False
         if not self.user:
             self.user = interaction.user
+            self._restore_from_message(interaction)
+        if not self.selected_card_id:
             self._restore_from_message(interaction)
             if not self.selected_card_id:
                 self._refresh(core.get_cached_data_ro(), sync_page_to_selected=True)
@@ -3946,8 +3966,8 @@ class MasterRankView(core.SafeView):
     async def unit_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         await core.safe_defer(interaction)
         chosen_unit = select.values[0]
-        self.selected_unit = chosen_unit
         data = await asyncio.to_thread(core.load_data)
+        self.selected_unit = chosen_unit
         if self.selected_char_id is not None:
             if chosen_unit in core.UNIT_ORDER:
                 char_unit = core.CHARACTER_MAP.get(self.selected_char_id, {}).get("unit")
@@ -3975,6 +3995,7 @@ class MasterRankView(core.SafeView):
     async def char_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         await core.safe_defer(interaction)
         chosen = select.values[0]
+        data = await asyncio.to_thread(core.load_data)
         try:
             self.selected_char_id = None if chosen == "ALL" else int(chosen)
         except Exception:
@@ -3982,7 +4003,6 @@ class MasterRankView(core.SafeView):
         self.card_page = 0
         self.selected_card_id = None
         self.status_notice = ""
-        data = await asyncio.to_thread(core.load_data)
         await self._commit_ui_update(interaction, data=data, sync_page_to_selected=False)
 
     @discord.ui.select(
@@ -4001,16 +4021,25 @@ class MasterRankView(core.SafeView):
         data = await asyncio.to_thread(core.load_data)
         await self._commit_ui_update(interaction, data=data, sync_page_to_selected=True)
 
+    async def _ensure_selected_card_id(self, interaction: discord.Interaction) -> str | None:
+        if not self.selected_card_id:
+            self._restore_from_message(interaction)
+        if not self.selected_card_id:
+            data = await asyncio.to_thread(core.load_data)
+            self._refresh(data, sync_page_to_selected=True)
+        return self.selected_card_id
+
     @discord.ui.button(label="🃏 중복 카드로 돌파 (0💎)", style=discord.ButtonStyle.success, row=3)
     async def btn_upgrade_dup(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
-        if not self.selected_card_id:
+        target_card_id = await self._ensure_selected_card_id(interaction)
+        if not target_card_id:
             await core.safe_send_response(interaction, "❌ 선택된 카드가 없습니다. 위 목록에서 카드를 먼저 선택해 주세요.", ephemeral=True)
             return
         gid = self.guild_id or (interaction.guild_id or 0)
         target_uid = self.user.id if self.user else interaction.user.id
         ok, msg, info = await asyncio.to_thread(
-            core.upgrade_card_master_rank, gid, target_uid, self.selected_card_id, True
+            core.upgrade_card_master_rank, gid, target_uid, target_card_id, True
         )
         if not ok:
             await core.safe_send_response(interaction, f"❌ {msg}", ephemeral=True)
@@ -4027,13 +4056,14 @@ class MasterRankView(core.SafeView):
     @discord.ui.button(label="💎 크리스탈로 돌파", style=discord.ButtonStyle.primary, row=3)
     async def btn_upgrade_crystal(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
-        if not self.selected_card_id:
+        target_card_id = await self._ensure_selected_card_id(interaction)
+        if not target_card_id:
             await core.safe_send_response(interaction, "❌ 선택된 카드가 없습니다. 위 목록에서 카드를 먼저 선택해 주세요.", ephemeral=True)
             return
         gid = self.guild_id or (interaction.guild_id or 0)
         target_uid = self.user.id if self.user else interaction.user.id
         ok, msg, info = await asyncio.to_thread(
-            core.upgrade_card_master_rank, gid, target_uid, self.selected_card_id, False
+            core.upgrade_card_master_rank, gid, target_uid, target_card_id, False
         )
         if not ok:
             await core.safe_send_response(interaction, f"❌ {msg}", ephemeral=True)
