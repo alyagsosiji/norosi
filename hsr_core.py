@@ -20,7 +20,7 @@ import re
 import threading
 import time
 from collections import OrderedDict
-from typing import Optional
+from typing import Any, Optional
 
 try:
     from PIL import Image, ImageDraw

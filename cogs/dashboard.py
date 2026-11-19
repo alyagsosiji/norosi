@@ -5082,7 +5082,7 @@ class MasterDashboardView(core.SafeView):
     async def _sub_dday_setup_board(self, interaction: discord.Interaction):
         if not await self.check_admin_permission(interaction, action_name="상단 상태 전광판 채널 생성", require_channels_perm=True):
             return
-        await interaction.response.send_modal(DDayAddModal(self.bot or interaction.client))
+        await interaction.response.send_modal(DashboardDDayAddModal(self))
 
     async def _sub_dday_set_default_cat(self, interaction: discord.Interaction):
         if not await self.check_admin_permission(interaction, action_name="D-Day 기본 카테고리 지정", require_channels_perm=True):

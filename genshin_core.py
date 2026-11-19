@@ -11,7 +11,7 @@ import asyncio
 import datetime
 import threading
 from collections import OrderedDict
-from typing import Optional
+from typing import Any, Optional
 
 try:
     from PIL import Image, ImageDraw, ImageFilter
