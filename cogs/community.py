@@ -2055,7 +2055,7 @@ class CommunityCog(commands.Cog):
         data = await asyncio.to_thread(core.load_data)
         cfg = community_core.get_link_preview_config(data, interaction.guild.id)
         view = LinkPreviewConfigView(interaction.user.id, interaction.guild, cfg)
-        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
 
     @link_group.command(name="채널제외", description="[관리자] 특정 채널에서 자동 링크 변환/정리 기능을 제외하거나 다시 포함합니다.")
     @app_commands.describe(채널="제외/포함할 텍스트 채널 (미입력 시 현재 채널)")
@@ -2107,7 +2107,7 @@ class CommunityCog(commands.Cog):
         data = await asyncio.to_thread(core.load_data)
         cfg = community_core.get_raid_defense_config(data, interaction.guild.id)
         view = RaidDefenseConfigView(interaction.user.id, interaction.guild, cfg)
-        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
 
     @raid_group.command(name="발동", description="[관리자] 수동으로 즉시 서버 비상 방어(잠금) 모드를 발동합니다.")
     @app_commands.describe(사유="비상모드 발동 사유 (선택)")
@@ -2156,6 +2156,7 @@ class CommunityCog(commands.Cog):
             embed=self._build_raid_alert_embed(interaction.guild, cfg, invites_paused, recent_count=0),
             view=RaidAlertControlView(),
             ephemeral=True,
+            wait=True,
         )
 
     @raid_group.command(name="해제", description="[관리자] 발동 중인 서버 비상 방어 모드를 해제합니다.")
@@ -2221,7 +2222,7 @@ class CommunityCog(commands.Cog):
                 for b in reversed(logs[-5:])
             )
             embed.add_field(name="🛡️ 최근 방어 조치 (최대 5건)", value=recent_txt, inline=False)
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
 
     # ------------------------------------------
     # #48 한 줄씩 이어 쓰는 릴레이 소설 커맨드
@@ -2286,7 +2287,7 @@ class CommunityCog(commands.Cog):
             await interaction.followup.send(f"⚠️ {msg}", ephemeral=True)
             return
 
-        sent = await interaction.followup.send(embed=_build_relay_active_embed(story), view=RelayNovelView())
+        sent = await interaction.followup.send(embed=_build_relay_active_embed(story), view=RelayNovelView(), wait=True)
         if sent:
             def _set_msg_id():
                 with core._DATA_LOCK:
@@ -2314,7 +2315,7 @@ class CommunityCog(commands.Cog):
                 ephemeral=True,
             )
             return
-        sent = await interaction.followup.send(embed=_build_relay_active_embed(story), view=RelayNovelView())
+        sent = await interaction.followup.send(embed=_build_relay_active_embed(story), view=RelayNovelView(), wait=True)
         if sent:
             def _update_msg_id():
                 with core._DATA_LOCK:
@@ -2338,7 +2339,7 @@ class CommunityCog(commands.Cog):
             await interaction.followup.send("📭 아직 완결된 릴레이 소설이 없습니다. `/설정` (`✍️ 한 줄 릴레이 소설`)에서 첫 작품을 만들어 보세요!", ephemeral=True)
             return
         view = RelayArchiveView(completed)
-        await interaction.followup.send(embed=_build_relay_completed_embed(completed[0]), view=view)
+        await interaction.followup.send(embed=_build_relay_completed_embed(completed[0]), view=view, wait=True)
 
     @relay_group.command(name="중단", description="[개설자/관리자] 현재 채널에서 진행 중인 릴레이 소설을 취소하고 중단합니다.")
     async def relay_cancel_cmd(self, interaction: discord.Interaction):
@@ -2717,6 +2718,7 @@ class CommunityCog(commands.Cog):
             await interaction.followup.send(
                 embed=_build_temp_voice_panel_embed(vc, room),
                 view=TempVoiceControlView(vc.id),
+                wait=True,
             )
             return
 
@@ -2733,7 +2735,7 @@ class CommunityCog(commands.Cog):
 
         await core.safe_defer(interaction, ephemeral=True)
         setup_view = TempVoiceSetupView(interaction.user.id, interaction.guild, cfg)
-        await interaction.followup.send(embed=setup_view.build_embed(), view=setup_view, ephemeral=True)
+        await interaction.followup.send(embed=setup_view.build_embed(), view=setup_view, ephemeral=True, wait=True)
 
     @commands.command(name="임시음성방", aliases=["음성방", "보이스방", "음성채널생성"])
     async def temp_voice_prefix_cmd(self, ctx: commands.Context):

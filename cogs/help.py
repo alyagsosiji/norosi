@@ -1696,7 +1696,7 @@ class HelpCog(commands.Cog):
             author=interaction.user,
             perm_filter="all",
         )
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
 
     @commands.command(name="도움말", aliases=["help", "도움", "명령어", "가이드"])
     async def prefix_help(self, ctx: commands.Context, *, 검색: Optional[str] = ""):

@@ -1659,7 +1659,7 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
 
         view = EmojiUpscaleConfigView(bot=self.bot, guild_id=interaction.guild.id)
         emb = build_emoji_upscale_embed(interaction.guild, interaction.channel, enabled)
-        await interaction.followup.send(embed=emb, view=view, ephemeral=True)
+        await interaction.followup.send(embed=emb, view=view, ephemeral=True, wait=True)
 
     @commands.command(name="이모지업스케일", aliases=["emojiupscale", "이모지확대"])
     @commands.guild_only()

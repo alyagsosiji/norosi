@@ -737,10 +737,22 @@ class NorosiBot(commands.Bot):
 
             views = getattr(vs, "_views", None)
             if isinstance(views, dict):
-                if msg_id is not None and key in views.get(msg_id, {}):
-                    return True
-                if key in views.get(None, {}):
-                    return True
+                if msg_id is not None:
+                    msg_bucket = views.get(msg_id)
+                    if isinstance(msg_bucket, dict) and key in msg_bucket:
+                        item = msg_bucket.get(key)
+                        item_view = getattr(item, "view", None)
+                        if item_view is not None and not item_view.is_finished():
+                            return True
+                        # 종료되었거나 유실된 뷰 엔트리는 즉시 정리하여 폴백 복구 허용
+                        msg_bucket.pop(key, None)
+                none_bucket = views.get(None)
+                if isinstance(none_bucket, dict) and key in none_bucket:
+                    item = none_bucket.get(key)
+                    item_view = getattr(item, "view", None)
+                    if item_view is not None and not item_view.is_finished():
+                        return True
+                    none_bucket.pop(key, None)
         except Exception:
             pass
         return False
@@ -880,8 +892,11 @@ class NorosiBot(commands.Bot):
                                         f"⚠️ 버튼 처리 중 오류가 발생했습니다: `{cb_err}`",
                                         ephemeral=True,
                                     )
-                                if msg:
-                                    self.attach_view_to_message(view, message_id=msg.id)
+                                if msg and not view.is_finished():
+                                    vs = getattr(getattr(self, "_connection", None), "_view_store", None)
+                                    synced = getattr(vs, "_synced_message_views", {}).get(msg.id) if vs else None
+                                    if synced is None or synced is view or synced.is_finished():
+                                        self.attach_view_to_message(view, message_id=msg.id)
                                 return
                     except Exception as e:
                         print(f"⚠️ [norosi 뷰 복구 예외] {view_name}.{item_name}: {e}", flush=True)

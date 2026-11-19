@@ -337,14 +337,14 @@ async def send_genshin_pull_result(
 
     try:
         if files:
-            await interaction.followup.send(embeds=embeds, files=files, view=view)
+            await interaction.followup.send(embeds=embeds, files=files, view=view, wait=True)
         else:
-            await interaction.followup.send(embeds=embeds, view=view)
+            await interaction.followup.send(embeds=embeds, view=view, wait=True)
     except discord.HTTPException:
         main_embed.set_image(url=None)
         for sp_e, sp_it in splash_pairs:
             sp_e.set_image(url=genshin_core.get_genshin_primary_image_url(sp_it, True))
-        await interaction.followup.send(embeds=embeds, view=view)
+        await interaction.followup.send(embeds=embeds, view=view, wait=True)
 
 
 # ==========================================
@@ -771,9 +771,9 @@ class GenshinInventoryView(core.SafeView):
         v = GenshinItemDetailView(self.guild_id, interaction.user, ikey)
         emb, f = await v.build_embed_and_file()
         if f:
-            await interaction.followup.send(embed=emb, file=f, view=v, ephemeral=True)
+            await interaction.followup.send(embed=emb, file=f, view=v, ephemeral=True, wait=True)
         else:
-            await interaction.followup.send(embed=emb, view=v, ephemeral=True)
+            await interaction.followup.send(embed=emb, view=v, ephemeral=True, wait=True)
 
     def build_embed(self) -> discord.Embed:
         u_data, items = self._get_filtered_items()

@@ -495,23 +495,35 @@ async def safe_send_response(interaction: discord.Interaction, embed=None, conte
         kwargs["view"] = view
     kwargs["ephemeral"] = ephemeral
 
+    followup_kwargs = dict(kwargs)
+    if view is not None:
+        followup_kwargs["wait"] = True
+
+    def _bind_view_msg(sent):
+        if view is not None and sent is not None and hasattr(view, "message") and getattr(view, "message", None) is None:
+            if isinstance(sent, discord.Message):
+                view.message = sent
+            elif getattr(sent, "resource", None) is not None and isinstance(sent.resource, discord.Message):
+                view.message = sent.resource
+        return sent
+
     try:
         if interaction and getattr(interaction, "response", None) and interaction.response.is_done():
-            return await interaction.followup.send(**kwargs)
+            return _bind_view_msg(await interaction.followup.send(**followup_kwargs))
         elif interaction and getattr(interaction, "response", None):
-            return await interaction.response.send_message(**kwargs)
+            return _bind_view_msg(await interaction.response.send_message(**kwargs))
     except (discord.InteractionResponded, discord.HTTPException) as e:
         if isinstance(e, discord.HTTPException) and getattr(e, "code", None) != 40060:
             print(f"⚠️ [safe_send_response HTTP 예외] {e}", flush=True)
             return None
         try:
-            return await interaction.followup.send(**kwargs)
+            return _bind_view_msg(await interaction.followup.send(**followup_kwargs))
         except Exception:
             pass
     except Exception as e:
         if "40060" in str(e) or "already been acknowledged" in str(e):
             try:
-                return await interaction.followup.send(**kwargs)
+                return _bind_view_msg(await interaction.followup.send(**followup_kwargs))
             except Exception:
                 pass
         else:
@@ -542,6 +554,18 @@ async def safe_edit_response(
 
     msg = getattr(interaction, "message", None) if interaction else None
     is_eph_msg = bool(getattr(getattr(msg, "flags", None), "ephemeral", False))
+
+    # 동일 메시지에 다른 View 인스턴스로 교체하는 경우, 이전 View의 타임아웃 remove_view가
+    # 새 View의 동일 custom_id 엔트리를 덮어쓰거나 삭제하지 않도록 사전에 안전 정리합니다.
+    if view is not None and msg is not None and interaction is not None:
+        try:
+            vs = getattr(getattr(interaction, "_state", None), "_view_store", None)
+            if vs is not None:
+                old_view = getattr(vs, "_synced_message_views", {}).get(msg.id)
+                if old_view is not None and old_view is not view and not old_view.is_finished():
+                    old_view.stop()
+        except Exception:
+            pass
 
     async def _fallback_msg_edit():
         if msg is not None and not is_eph_msg:

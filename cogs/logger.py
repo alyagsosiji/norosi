@@ -788,7 +788,7 @@ class LoggerCog(commands.Cog):
 
         await core.asyncio.to_thread(core.save_data, data)
         hub_view = ServerLogHubView(interaction.guild, guild_cfg)
-        await interaction.followup.send(embed=hub_view.build_embed(), view=hub_view, ephemeral=True)
+        await interaction.followup.send(embed=hub_view.build_embed(), view=hub_view, ephemeral=True, wait=True)
 
     @app_commands.command(name="메시지삭제", description="[서버 관리자 전용] 채널 메시지를 조건별(유저, 봇, 미디어, 키워드)로 선택하여 일괄 삭제합니다.")
     @app_commands.describe(
@@ -945,7 +945,7 @@ class LoggerCog(commands.Cog):
             content=preview_view.build_preview_content(),
             embed=preview_view.build_embed(),
             view=preview_view,
-            ephemeral=True
+            ephemeral=True, wait=True
         )
 
     # ==========================================
@@ -1043,7 +1043,7 @@ class LoggerCog(commands.Cog):
             total_members=total_members
         )
         embed = view.build_embed()
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
 
     async def _execute_github_webhook(
         self,

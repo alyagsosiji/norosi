@@ -258,15 +258,15 @@ async def send_gacha_pull_result(
 
         try:
             if file_specs:
-                await interaction.followup.send(embed=embed, files=_build_files(file_specs), view=view)
+                await interaction.followup.send(embed=embed, files=_build_files(file_specs), view=view, wait=True)
             else:
-                await interaction.followup.send(embed=embed, view=view)
+                await interaction.followup.send(embed=embed, view=view, wait=True)
         except discord.HTTPException:
             if want_single_img:
                 embed.set_image(url=core.get_proseka_card_image_url(drawn[0], "auto"))
             else:
                 embed.set_image(url=None)
-            await interaction.followup.send(embed=embed, view=view)
+            await interaction.followup.send(embed=embed, view=view, wait=True)
         return
 
     embeds = [embed]
@@ -326,14 +326,14 @@ async def send_gacha_pull_result(
 
     try:
         if file_specs:
-            await interaction.followup.send(embeds=embeds, files=_build_files(file_specs), view=view)
+            await interaction.followup.send(embeds=embeds, files=_build_files(file_specs), view=view, wait=True)
         else:
-            await interaction.followup.send(embeds=embeds, view=view)
+            await interaction.followup.send(embeds=embeds, view=view, wait=True)
     except discord.HTTPException:
         embed.set_image(url=None)
         for c_emb, c in card_embed_pairs:
             c_emb.set_image(url=core.get_proseka_card_image_url(c, "auto"))
-        await interaction.followup.send(embeds=embeds, view=view)
+        await interaction.followup.send(embeds=embeds, view=view, wait=True)
 
 
 class DuplicateConvertConfirmView(core.SafeView):
@@ -597,7 +597,7 @@ class GachaPullAgainView(core.SafeView):
     async def open_sekai_live(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         view = SekaiLiveView(interaction.user, guild_id=interaction.guild_id or 0)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @discord.ui.button(label="🎒 내 보관함", style=discord.ButtonStyle.secondary, row=1)
     async def open_inventory(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -607,7 +607,7 @@ class GachaPullAgainView(core.SafeView):
         u_key = str(interaction.user.id)
         user_cards_dict = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
         view = MyInventoryView(interaction.user, list(user_cards_dict.values()), items_per_page=10, guild_id=interaction.guild_id or 0)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @discord.ui.button(label="💎 중복 변환", style=discord.ButtonStyle.secondary, row=1)
     async def open_duplicate_converter(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -623,19 +623,19 @@ class GachaPullAgainView(core.SafeView):
         guild_id = interaction.guild_id or 0
         stats = await asyncio.to_thread(core.get_card_pokedex_stats, guild_id, interaction.user.id)
         view = CardPokedexView(interaction.user, stats, guild_id=guild_id)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @discord.ui.button(label="👗 의상실", style=discord.ButtonStyle.secondary, row=1)
     async def open_wardrobe(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         view = CharacterCostumeWardrobeView(interaction.user, guild_id=interaction.guild_id or 0)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @discord.ui.button(label="🏆 마스터 랭크", style=discord.ButtonStyle.secondary, row=1)
     async def open_master_rank(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         view = MasterRankView(interaction.user, guild_id=interaction.guild_id or 0)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @discord.ui.select(
         placeholder="🔒 [봇주 전용] 재뽑기 배너 변경 (일반 / 컬러풀 페스티벌 / 생일)...",
@@ -1661,7 +1661,7 @@ class CardIllustToggleView(core.SafeView):
         gid = self.guild_id or (interaction.guild_id or 0)
         cid_str = str(self.card.get("id")) if self.card and self.card.get("id") is not None else None
         mr_view = MasterRankView(interaction.user, guild_id=gid, initial_card_id=cid_str)
-        await interaction.followup.send(embed=mr_view.build_embed(), view=mr_view)
+        await interaction.followup.send(embed=mr_view.build_embed(), view=mr_view, wait=True)
 
 
 class CharacterCostumeWardrobeView(core.SafeView):
@@ -2751,10 +2751,10 @@ class MyInventoryView(core.SafeView):
         if img_bytes and filename:
             file = discord.File(io.BytesIO(img_bytes), filename=filename)
             embed.set_image(url=f"attachment://{filename}")
-            await interaction.followup.send(embed=embed, file=file, view=toggle_view)
+            await interaction.followup.send(embed=embed, file=file, view=toggle_view, wait=True)
         else:
             embed.set_image(url=core.get_proseka_card_image_url(selected_card, init_mode))
-            await interaction.followup.send(embed=embed, view=toggle_view)
+            await interaction.followup.send(embed=embed, view=toggle_view, wait=True)
 
     @discord.ui.select(
         placeholder="🏷️ 유닛별 필터...",
@@ -4062,7 +4062,7 @@ class MasterRankView(core.SafeView):
         resolved_cid = MyInventoryView._resolve_card_char_id(card) if isinstance(card, dict) else None
         init_cid = resolved_cid if (resolved_cid in core.CHARACTER_MAP) else 1
         view = CharacterCostumeWardrobeView(u_obj, guild_id=gid, initial_char_id=init_cid)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @discord.ui.button(label="◀ 카드 목록", style=discord.ButtonStyle.secondary, row=4)
     async def prev_list_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -4368,10 +4368,10 @@ class GachaCog(commands.Cog):
             embed = sim_view.build_sim_embed(grid_fn if grid_bytes else None)
             if grid_bytes and grid_fn:
                 await interaction.followup.send(
-                    embed=embed, file=discord.File(io.BytesIO(grid_bytes), filename=grid_fn), view=sim_view
+                    embed=embed, file=discord.File(io.BytesIO(grid_bytes), filename=grid_fn), view=sim_view, wait=True
                 )
             else:
-                await interaction.followup.send(embed=embed, view=sim_view)
+                await interaction.followup.send(embed=embed, view=sim_view, wait=True)
             return
 
         if mode_val == "birthday_free":
@@ -4434,10 +4434,10 @@ class GachaCog(commands.Cog):
             embed = destiny_view.build_destiny_embed(grid_fn if grid_bytes else None)
             if grid_bytes and grid_fn:
                 await interaction.followup.send(
-                    embed=embed, file=discord.File(io.BytesIO(grid_bytes), filename=grid_fn), view=destiny_view
+                    embed=embed, file=discord.File(io.BytesIO(grid_bytes), filename=grid_fn), view=destiny_view, wait=True
                 )
             else:
-                await interaction.followup.send(embed=embed, view=destiny_view)
+                await interaction.followup.send(embed=embed, view=destiny_view, wait=True)
             return
 
         can_pull, rem = check_and_update_gacha_cooldown(interaction.user.id, skip_anim=skip_anim)
@@ -4507,7 +4507,7 @@ class GachaCog(commands.Cog):
         prob_cards = core.calculate_card_probabilities(pickup_cfg, banner_type=banner_key)
 
         view = ProsekaRatePaginationView(prob_cards, pickup_cfg, items_per_page=5, banner_type=banner_key)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @app_commands.command(name="내캐릭터", description="내가 뽑은 프로세카 캐릭터를 캐릭터별·유닛별로 확인하고 일러스트, 잠금(🔒), 중복 변환을 관리합니다.")
     @app_commands.describe(
@@ -4561,7 +4561,7 @@ class GachaCog(commands.Cog):
             guild_id=interaction.guild_id or 0,
             initial_char_id=initial_char_id,
         )
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @app_commands.command(name="카드도감", description="캐릭터별 수집률(%)과 아직 획득하지 못한 미보유 카드를 별도 탭으로 확인하는 전체 카드 도감을 엽니다.")
     @app_commands.describe(
@@ -4586,7 +4586,7 @@ class GachaCog(commands.Cog):
 
         stats = await asyncio.to_thread(core.get_card_pokedex_stats, guild_id, target_user.id)
         view = CardPokedexView(target_user, stats, guild_id=guild_id, initial_tab=tab_key)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @app_commands.command(name="카드교환", description="크리스탈 100개를 사용하여 다른 유저와 보유 카드를 1:1로 교환합니다 (미입력 시 교환 장터 스튜디오 실행).")
     @app_commands.autocomplete(
@@ -4637,7 +4637,7 @@ class GachaCog(commands.Cog):
                 studio_view.selected_my_cid = 내카드
             if 상대카드 and 상대카드 in tgt_cards and not tgt_cards[상대카드].get("locked", False):
                 studio_view.selected_tgt_cid = 상대카드
-            await interaction.followup.send(embed=studio_view.build_embed(), view=studio_view, ephemeral=True)
+            await interaction.followup.send(embed=studio_view.build_embed(), view=studio_view, ephemeral=True, wait=True)
             return
 
         await core.safe_defer(interaction)
@@ -4693,7 +4693,7 @@ class GachaCog(commands.Cog):
         )
         embed.set_thumbnail(url=core.get_proseka_card_image_url(my_c, "auto"))
         view = CardTradeAcceptView(interaction.guild_id or 0, interaction.user, 상대유저, my_c, tgt_c)
-        await interaction.followup.send(content=상대유저.mention, embed=embed, view=view)
+        await interaction.followup.send(content=상대유저.mention, embed=embed, view=view, wait=True)
 
     @app_commands.command(name="카드선물", description="크리스탈 50개를 사용하여 나의 파트너(짝꿍)에게 보유 카드를 선물합니다.")
     @app_commands.autocomplete(내카드=core.owned_card_autocomplete)
@@ -4814,9 +4814,9 @@ class GachaCog(commands.Cog):
         if info.get("banner_bytes") and info.get("banner_filename"):
             file = discord.File(io.BytesIO(info["banner_bytes"]), filename=info["banner_filename"])
             embed.set_image(url=f"attachment://{info['banner_filename']}")
-            await interaction.followup.send(embed=embed, file=file, view=action_view)
+            await interaction.followup.send(embed=embed, file=file, view=action_view, wait=True)
         else:
-            await interaction.followup.send(embed=embed, view=action_view)
+            await interaction.followup.send(embed=embed, view=action_view, wait=True)
 
     @app_commands.command(name="미래시", description="프로세카 한국 서버의 다가오는 이벤트 미래시 일정을 월별 달력과 상세 타임라인 카드로 확인합니다.")
     @app_commands.describe(
@@ -5146,7 +5146,7 @@ class GachaCog(commands.Cog):
 
         guild_name = interaction.guild.name if interaction.guild else "서버"
         view = GachaRankingView(interaction.user, guild_name, total_db_cards, stats_list, hall_of_fame)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @app_commands.command(name="픽업설정", description="[봇주인 전용] 현재 한섭 이벤트에 맞춰 픽업을 자동 연동하거나 유닛/캐릭터/배너/한정 여부를 직접 설정합니다.")
     @app_commands.autocomplete(캐릭터=core.proseka_char_autocomplete)
@@ -5487,7 +5487,7 @@ class GachaCog(commands.Cog):
         target_user = 유저 or interaction.user
         data = await asyncio.to_thread(core.load_data)
         view = MySekaiHubView(interaction.user, target_user, interaction.guild_id or 0, data)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @app_commands.command(name="의상", description="캐릭터별 3D 의상을 착용하거나 뽑은 카드의 의상을 300 크리스탈로 제작하여 다른 캐릭터에게 입힙니다.")
     @app_commands.describe(캐릭터="(선택) 의상실을 열 캐릭터를 선택합니다.")
@@ -5501,7 +5501,7 @@ class GachaCog(commands.Cog):
                 initial_cid = matched_cid
 
         view = CharacterCostumeWardrobeView(interaction.user, guild_id=interaction.guild_id or 0, initial_char_id=initial_cid)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @app_commands.command(name="마스터랭크", description="보유 카드의 마스터 랭크(0~5)를 한계 돌파하여 종합력을 올리고 MR.2에서 어나더 컬러·한정 헤어를 해금합니다.")
     @app_commands.describe(카드선택="(선택) 바로 선택할 보유 카드를 지정합니다.")
@@ -5516,7 +5516,7 @@ class GachaCog(commands.Cog):
             u_cards = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
             initial_cid, _ = self._find_user_card_by_query(u_cards, 카드선택)
         view = MasterRankView(interaction.user, guild_id=interaction.guild_id or 0, initial_card_id=initial_cid)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @app_commands.command(name="라이브", description="편성한 5인 유닛 덱과 3D 의상 시너지로 세카이 라이브를 플레이하고 7일 스탬프 랠리 보상(💎)을 받습니다.")
     @app_commands.describe(곡="(선택) 플레이할 세카이 라이브 곡을 선택합니다.")
@@ -5528,7 +5528,7 @@ class GachaCog(commands.Cog):
         await core.safe_defer(interaction)
         song_id = 곡.value if 곡 else None
         view = SekaiLiveView(interaction.user, guild_id=interaction.guild_id or 0, initial_song_id=song_id)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
 
 class MySekaiGreetingModal(core.SafeModal, title="🪧 마이세카이 방 한줄 소개글 변경"):

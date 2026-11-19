@@ -258,6 +258,7 @@ class EconomyLeaderboardView(core.SafeView):
 
     @discord.ui.button(label="🏦 통합 순자산순", style=discord.ButtonStyle.primary, row=0)
     async def btn_net(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
         self.guild_id = self.guild_id or (interaction.guild_id or 0)
         self.mode = "net_worth"
         self.lb = await asyncio.to_thread(economy_core.get_economy_leaderboard, self.guild_id)
@@ -265,6 +266,7 @@ class EconomyLeaderboardView(core.SafeView):
 
     @discord.ui.button(label="💎 크리스탈순", style=discord.ButtonStyle.secondary, row=0)
     async def btn_cry(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
         self.guild_id = self.guild_id or (interaction.guild_id or 0)
         self.mode = "crystal"
         self.lb = await asyncio.to_thread(economy_core.get_economy_leaderboard, self.guild_id)
@@ -272,6 +274,7 @@ class EconomyLeaderboardView(core.SafeView):
 
     @discord.ui.button(label="🪙 낚시골드순", style=discord.ButtonStyle.secondary, row=0)
     async def btn_gold(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
         self.guild_id = self.guild_id or (interaction.guild_id or 0)
         self.mode = "gold"
         self.lb = await asyncio.to_thread(economy_core.get_economy_leaderboard, self.guild_id)

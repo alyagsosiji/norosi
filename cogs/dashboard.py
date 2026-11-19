@@ -3570,9 +3570,9 @@ class MasterDashboardView(core.SafeView):
             except Exception:
                 pass
             if file:
-                await interaction.followup.send(embed=embed, file=file, view=view)
+                await interaction.followup.send(embed=embed, file=file, view=view, wait=True)
             else:
-                await interaction.followup.send(embed=embed, view=view)
+                await interaction.followup.send(embed=embed, view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 출석체크 처리 중 오류: {e}", ephemeral=True)
 
@@ -3589,7 +3589,7 @@ class MasterDashboardView(core.SafeView):
                 interaction.user.display_name,
             )
             view = dday.AttendanceCalendarView(self.bot or interaction.client, interaction.user, cal_info)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 출석 달력 로드 중 오류: {e}", ephemeral=True)
 
@@ -3599,7 +3599,7 @@ class MasterDashboardView(core.SafeView):
             data = await asyncio.to_thread(core.load_data)
             init_scope = "guild" if interaction.guild else "global"
             view = dday.AttendanceRankingView(interaction, data, initial_scope=init_scope, initial_sort="total")
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 출석 랭킹 조회 중 오류: {e}", ephemeral=True)
 
@@ -3608,7 +3608,7 @@ class MasterDashboardView(core.SafeView):
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
             view = dday.DDayListBoardView(self.bot or interaction.client, interaction.user, data)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ D-Day 전광판 조회 중 오류: {e}", ephemeral=True)
 
@@ -3617,7 +3617,7 @@ class MasterDashboardView(core.SafeView):
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
             view = dday.BirthdayBoardView(interaction.user, interaction.guild, data)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 생일 전광판 조회 중 오류: {e}", ephemeral=True)
 
@@ -3630,7 +3630,7 @@ class MasterDashboardView(core.SafeView):
             now = datetime.datetime.now(core.KST)
             view = dday.EventForecastView(interaction.user, now.year, now.month)
             embed = await asyncio.to_thread(view.build_embed)
-            await interaction.followup.send(embed=embed, view=view)
+            await interaction.followup.send(embed=embed, view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 미래시 조회 중 오류: {e}", ephemeral=True)
 
@@ -3673,7 +3673,7 @@ class MasterDashboardView(core.SafeView):
                     g_lines.append(f"• **{g_name}** (종료: `{g_end_dt}`)")
                 embed.add_field(name=f"🎰 진행 중인 가챠 배너 ({len(gachas)}개)", value="\n".join(g_lines), inline=False)
             view = gacha.EventInfoView(self.bot or interaction.client, interaction.user)
-            await interaction.followup.send(embed=embed, view=view)
+            await interaction.followup.send(embed=embed, view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 실시간 이벤트 조회 오류: {e}", ephemeral=True)
 
@@ -3682,7 +3682,7 @@ class MasterDashboardView(core.SafeView):
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
             view = music.PlaylistStudioView(interaction.user, interaction.user, data)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 플레이리스트 스튜디오 오류: {e}", ephemeral=True)
 
@@ -3697,7 +3697,7 @@ class MasterDashboardView(core.SafeView):
                 return
             bot_ref = self.bot or interaction.client
             embed, view = bot_ref.build_music_embed_and_view(track_info, prefs, is_morning=False)
-            await interaction.followup.send(embed=embed, view=view)
+            await interaction.followup.send(embed=embed, view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 음악 추천 중 오류: {e}", ephemeral=True)
 
@@ -3763,7 +3763,7 @@ class MasterDashboardView(core.SafeView):
             data = await asyncio.to_thread(core.load_data)
             embed = stats.build_server_stats_embed(interaction.guild, data)
             view = stats.ServerStatsDashboardView(interaction.guild, data, user=interaction.user)
-            await interaction.followup.send(embed=embed, view=view)
+            await interaction.followup.send(embed=embed, view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 서버 통계 생성 중 오류: {e}", ephemeral=True)
 
@@ -3784,7 +3784,7 @@ class MasterDashboardView(core.SafeView):
                 await interaction.followup.send(f"❌ **날씨 조회 실패:** {err}", ephemeral=True)
                 return
             view = stats.WeatherRefreshView("서울", w_info, user=interaction.user)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 날씨 조회 중 오류: {e}", ephemeral=True)
 
@@ -3862,7 +3862,7 @@ class MasterDashboardView(core.SafeView):
                 return
             entries = list(guild_rr.items())
             view = roles.ReactionRoleListView(interaction.guild.id, entries)
-            await interaction.followup.send(embed=view.build_embed(interaction.guild), view=view, ephemeral=True)
+            await interaction.followup.send(embed=view.build_embed(interaction.guild), view=view, ephemeral=True, wait=True)
 
     async def _act_admin_announce(self, interaction: discord.Interaction):
         if not await self.check_admin_permission(interaction, action_name="스마트 공지 발송"):
@@ -3884,6 +3884,7 @@ class MasterDashboardView(core.SafeView):
             embed=preview_view.build_embed(),
             view=preview_view,
             ephemeral=True,
+            wait=True,
         )
 
     async def _act_admin_ticket_hub(self, interaction: discord.Interaction):
@@ -3934,7 +3935,7 @@ class MasterDashboardView(core.SafeView):
         data = await asyncio.to_thread(core.load_data)
         cfg = community_core.get_temp_voice_config(data, interaction.guild.id)
         setup_view = community.TempVoiceSetupView(interaction.user.id, interaction.guild, cfg)
-        await interaction.followup.send(embed=setup_view.build_embed(), view=setup_view, ephemeral=True)
+        await interaction.followup.send(embed=setup_view.build_embed(), view=setup_view, ephemeral=True, wait=True)
 
     async def _act_admin_sticky_hub(self, interaction: discord.Interaction):
         if not await self.check_admin_permission(interaction, action_name="자동 고정메시지 관리", require_messages_perm=True):
@@ -3977,7 +3978,7 @@ class MasterDashboardView(core.SafeView):
         data = await asyncio.to_thread(core.load_data)
         cfg = community_core.get_link_preview_config(data, interaction.guild.id)
         view = community.LinkPreviewConfigView(interaction.user.id, interaction.guild, cfg)
-        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
 
     async def _act_admin_raid_def(self, interaction: discord.Interaction):
         if not await self.check_admin_permission(interaction, action_name="레이드 비상방어 설정", require_strict_admin=True):
@@ -3986,7 +3987,7 @@ class MasterDashboardView(core.SafeView):
         data = await asyncio.to_thread(core.load_data)
         cfg = community_core.get_raid_defense_config(data, interaction.guild.id)
         view = community.RaidDefenseConfigView(interaction.user.id, interaction.guild, cfg)
-        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
 
     async def _act_admin_emoji_upscale(self, interaction: discord.Interaction):
         if not await self.check_admin_permission(interaction, action_name="이모지 업스케일 설정"):
@@ -3995,7 +3996,7 @@ class MasterDashboardView(core.SafeView):
         enabled = core.is_emoji_upscale_enabled(interaction.guild.id)
         view = emoji_upscale.EmojiUpscaleConfigView(bot=self.bot or interaction.client, guild_id=interaction.guild.id)
         emb = emoji_upscale.build_emoji_upscale_embed(interaction.guild, interaction.channel, enabled)
-        await interaction.followup.send(embed=emb, view=view, ephemeral=True)
+        await interaction.followup.send(embed=emb, view=view, ephemeral=True, wait=True)
 
     async def _act_admin_audit_log(self, interaction: discord.Interaction):
         if not await self.check_admin_permission(interaction, action_name="실시간 감사로그 설정"):
@@ -4008,7 +4009,7 @@ class MasterDashboardView(core.SafeView):
             logs_dict[g_key] = {"channel_id": None, "enabled": False, "events": {}}
         guild_cfg = logs_dict[g_key]
         hub_view = logger.ServerLogHubView(interaction.guild, guild_cfg)
-        await interaction.followup.send(embed=hub_view.build_embed(), view=hub_view, ephemeral=True)
+        await interaction.followup.send(embed=hub_view.build_embed(), view=hub_view, ephemeral=True, wait=True)
 
     async def _act_admin_purge(self, interaction: discord.Interaction):
         if not await self.check_admin_permission(interaction, action_name="채널 메시지 청소", require_messages_perm=True):
@@ -4091,7 +4092,7 @@ class MasterDashboardView(core.SafeView):
         data = await asyncio.to_thread(core.load_data)
         schedules = data.get("custom_music_schedules") if isinstance(data.get("custom_music_schedules"), list) else []
         view = music.MusicScheduleHubView(schedules, interaction.channel, guild=interaction.guild)
-        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
 
     async def _act_admin_github_webhook(self, interaction: discord.Interaction):
         if not await self.check_bot_owner_permission(interaction, action_name="GitHub 연동 및 배포알림"):
@@ -4377,7 +4378,7 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction)
             view = gacha.SekaiLiveView(interaction.user, guild_id=interaction.guild_id or 0)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 세카이 라이브 열기 오류: {e}", ephemeral=True)
 
@@ -4385,7 +4386,7 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction)
             view = gacha.MasterRankView(interaction.user, guild_id=interaction.guild_id or 0)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 마스터 랭크 창 열기 오류: {e}", ephemeral=True)
 
@@ -4393,7 +4394,7 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction)
             view = gacha.CharacterCostumeWardrobeView(interaction.user, guild_id=interaction.guild_id or 0)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 3D 의상실 열기 오류: {e}", ephemeral=True)
 
@@ -4402,7 +4403,7 @@ class MasterDashboardView(core.SafeView):
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
             view = gacha.MySekaiHubView(interaction.user, interaction.user, interaction.guild_id or 0, data)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 마이세카이 미니룸 열기 오류: {e}", ephemeral=True)
 
@@ -4585,7 +4586,7 @@ class MasterDashboardView(core.SafeView):
             await core.safe_defer(interaction)
             first_word = random.choice(["세카이", "음악", "별자리", "피아노", "출석", "콘서트", "하늘", "무지개", "기차", "바다"])
             view = stats.WordChainGameView(interaction.user, None, first_word)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 끝말잇기 시작 오류: {e}", ephemeral=True)
 
@@ -4593,7 +4594,7 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction)
             view = stats.RussianRouletteView(interaction.user, bullets=1, bet_crystals=0)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 러시안룰렛 시작 오류: {e}", ephemeral=True)
 
@@ -4609,7 +4610,7 @@ class MasterDashboardView(core.SafeView):
             guild_id = interaction.guild_id or 0
             stats_data = await asyncio.to_thread(core.get_card_pokedex_stats, guild_id, interaction.user.id)
             view = gacha.CardPokedexView(interaction.user, stats_data, guild_id=guild_id, initial_tab="char_rates")
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 프로세카 카드도감 로드 오류: {e}", ephemeral=True)
 
@@ -4763,7 +4764,7 @@ class MasterDashboardView(core.SafeView):
                 items_per_page=10,
                 guild_id=interaction.guild_id or 0,
             )
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 프로세카 보관함 로드 오류: {e}", ephemeral=True)
 
@@ -4821,7 +4822,7 @@ class MasterDashboardView(core.SafeView):
                 timestamp=datetime.datetime.now(core.KST),
             )
             deck_view = SekaiDeckManageView(interaction.user, self.bot or interaction.client)
-            await interaction.followup.send(embed=embed, view=deck_view, ephemeral=True)
+            await interaction.followup.send(embed=embed, view=deck_view, ephemeral=True, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 덱 현황 조회 오류: {e}", ephemeral=True)
 
@@ -4910,7 +4911,7 @@ class MasterDashboardView(core.SafeView):
             core.ensure_user_todo_today(profile)
             await asyncio.to_thread(core.save_data, data)
             view = dday.TodoTrackerView(interaction.user, profile)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 오늘 목표 보드 로드 오류: {e}", ephemeral=True)
 
@@ -4978,7 +4979,7 @@ class MasterDashboardView(core.SafeView):
             await core.safe_defer(interaction, ephemeral=True)
             data = await asyncio.to_thread(core.load_data)
             view = dday.ReminderHubView(interaction.user, interaction.channel_id, interaction.guild_id, data)
-            await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+            await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 알림 예약 허브 로드 오류: {e}", ephemeral=True)
 
@@ -4988,7 +4989,7 @@ class MasterDashboardView(core.SafeView):
             data = await asyncio.to_thread(core.load_data)
             prof = core.ensure_user_profile(data, interaction.user.id, interaction.user.display_name)
             view = dday.SecretDDayHubView(interaction.user, core.as_dict(prof.get("secret_ddays")))
-            await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+            await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 비밀 D-Day 보드 로드 오류: {e}", ephemeral=True)
 
@@ -5012,7 +5013,7 @@ class MasterDashboardView(core.SafeView):
                 return
             await core.safe_defer(interaction, ephemeral=True)
             view = dday.PartnerHubView(interaction.user, partner_id, data)
-            await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+            await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 파트너 스튜디오 조회 오류: {e}", ephemeral=True)
 

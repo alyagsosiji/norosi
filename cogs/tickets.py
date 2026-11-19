@@ -685,7 +685,7 @@ class TicketControlView(core.SafeView):
             await interaction.followup.send(msg, ephemeral=True)
             return
         if close_embed and txt_file:
-            await interaction.followup.send(embed=close_embed, file=txt_file, view=self)
+            await interaction.followup.send(embed=close_embed, file=txt_file, view=self, wait=True)
         else:
             await interaction.followup.send(msg)
 
@@ -958,7 +958,7 @@ class TicketGroupCog(commands.GroupCog, name="티켓", description="🎫 1:1 비
         cfg = await asyncio.to_thread(ticket_core.update_ticket_config, interaction.guild.id, **updates)
         embed = _build_ticket_config_embed(cfg, interaction.guild)
         view = TicketConfigRoleView(guild_id=interaction.guild.id, author_id=interaction.user.id)
-        await interaction.followup.send(content=warn_msg, embed=embed, view=view, ephemeral=True)
+        await interaction.followup.send(content=warn_msg, embed=embed, view=view, ephemeral=True, wait=True)
 
     @app_commands.command(name="패널생성", description="[관리자] 1:1 문의 티켓 열기 영구 버튼 패널을 지정 채널에 생성합니다.")
     @app_commands.describe(
@@ -1020,7 +1020,7 @@ class TicketGroupCog(commands.GroupCog, name="티켓", description="🎫 1:1 비
             return
         ctrl = TicketControlView()
         if close_embed and txt_file:
-            await interaction.followup.send(embed=close_embed, file=txt_file, view=ctrl)
+            await interaction.followup.send(embed=close_embed, file=txt_file, view=ctrl, wait=True)
         else:
             await interaction.followup.send(msg)
 

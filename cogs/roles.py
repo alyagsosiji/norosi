@@ -1087,6 +1087,7 @@ class ReactionRoleStudioView(core.SafeView):
 
     @discord.ui.button(label="📋 등록 목록 & 관리", style=discord.ButtonStyle.secondary, emoji="📋", row=1)
     async def list_panels_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
         guild_rr = core.get_guild_reaction_roles(data, self.guild.id)
         entries = list(guild_rr.items())

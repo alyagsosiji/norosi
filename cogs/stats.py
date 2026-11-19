@@ -884,7 +884,7 @@ class StatsCog(commands.Cog):
 
         embed = build_server_stats_embed(interaction.guild, data, tf, mode)
         view = ServerStatsDashboardView(interaction.guild, data, tf, mode, user=interaction.user)
-        await interaction.followup.send(embed=embed, view=view)
+        await interaction.followup.send(embed=embed, view=view, wait=True)
 
     @app_commands.command(name="봇상태", description="[봇 주인 전용] norosi 봇의 호스트 시스템 리소스(RAM, CPU, 디스크, 핑, 업타임) 상태를 확인합니다.")
     @app_commands.default_permissions(administrator=True)
@@ -1147,7 +1147,7 @@ class StatsCog(commands.Cog):
 
         embed.set_footer(text=f"요청자: {interaction.user.display_name} • 하단 메뉴에서 다른 서버 멤버를 선택해 조회할 수 있습니다")
 
-        await interaction.followup.send(embed=embed, view=UserProfileInspectView(interaction.user.id))
+        await interaction.followup.send(embed=embed, view=UserProfileInspectView(interaction.user.id), wait=True)
 
     # ==========================================
     # 카테고리 4 - 2: /날씨 (초정밀 실시간 기상 & 미세먼지 & 시간별 강수 예보)
@@ -1166,7 +1166,7 @@ class StatsCog(commands.Cog):
             return
 
         view = WeatherRefreshView(지역, w_info, user=interaction.user)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     # ==========================================
     # 카테고리 1 - 2: /끝말잇기 (실시간 끝말잇기 배틀 — 두음법칙 완벽 적용)
@@ -1197,7 +1197,7 @@ class StatsCog(commands.Cog):
             first_word = random.choice(["세카이", "음악", "별자리", "피아노", "출석", "콘서트", "하늘", "무지개", "기차", "바다"])
 
         view = WordChainGameView(interaction.user, 상대유저, first_word)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     # ==========================================
     # 카테고리 1 - 3: /러시안룰렛 (스릴 만점 6연발 리볼버 생존 게임)
@@ -1230,7 +1230,7 @@ class StatsCog(commands.Cog):
             await asyncio.to_thread(core.save_data, data)
 
         view = RussianRouletteView(interaction.user, bullets=실탄수, bet_crystals=참가비)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     # ==========================================
     # 카테고리 1 - 1: /건의 (익명/계정공개 선택 + 미디어 첨부 + 약관 안내)

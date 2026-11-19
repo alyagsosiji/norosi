@@ -259,9 +259,9 @@ class AttendanceCalendarView(core.SafeView):
         except Exception:
             pass
         if file:
-            await interaction.followup.send(embed=embed, file=file, view=view)
+            await interaction.followup.send(embed=embed, file=file, view=view, wait=True)
         else:
-            await interaction.followup.send(embed=embed, view=view)
+            await interaction.followup.send(embed=embed, view=view, wait=True)
 
     @discord.ui.button(label="🏆 서버 출석랭킹", style=discord.ButtonStyle.secondary, row=0)
     async def rank_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -269,7 +269,7 @@ class AttendanceCalendarView(core.SafeView):
         data = await asyncio.to_thread(core.load_data)
         init_scope = "guild" if interaction.guild else "global"
         view = AttendanceRankingView(interaction, data, initial_scope=init_scope, initial_sort="total")
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @discord.ui.button(label="📖 전체 카드도감", style=discord.ButtonStyle.success, row=0)
     async def pokedex_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -277,7 +277,7 @@ class AttendanceCalendarView(core.SafeView):
         guild_id = interaction.guild_id or 0
         stats = await asyncio.to_thread(core.get_card_pokedex_stats, guild_id, interaction.user.id)
         view = CardPokedexView(interaction.user, stats, guild_id=guild_id)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
 
 class AttendanceQuickActionView(core.SafeView):
@@ -300,7 +300,7 @@ class AttendanceQuickActionView(core.SafeView):
             interaction.user.display_name
         )
         view = AttendanceCalendarView(self.bot_instance, interaction.user, cal_info)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @discord.ui.button(label="🏆 서버 출석랭킹", style=discord.ButtonStyle.secondary, row=0)
     async def open_guild_rank(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -308,7 +308,7 @@ class AttendanceQuickActionView(core.SafeView):
         data = await asyncio.to_thread(core.load_data)
         init_scope = "guild" if interaction.guild else "global"
         view = AttendanceRankingView(interaction, data, initial_scope=init_scope, initial_sort="total")
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @discord.ui.button(label="🌱 오늘목표 잔디", style=discord.ButtonStyle.success, row=0)
     async def open_todo_grass(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -318,7 +318,7 @@ class AttendanceQuickActionView(core.SafeView):
         core.ensure_user_todo_today(profile)
         await asyncio.to_thread(core.save_data, data)
         view = TodoTrackerView(interaction.user, profile)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @discord.ui.button(label="📖 전체 카드도감", style=discord.ButtonStyle.secondary, row=0)
     async def open_pokedex(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -326,7 +326,7 @@ class AttendanceQuickActionView(core.SafeView):
         guild_id = interaction.guild_id or 0
         stats = await asyncio.to_thread(core.get_card_pokedex_stats, guild_id, interaction.user.id)
         view = CardPokedexView(interaction.user, stats, guild_id=guild_id)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @discord.ui.button(label="⚙️ 통합 설정 (/설정)", style=discord.ButtonStyle.secondary, row=0)
     async def open_quick_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -394,9 +394,9 @@ class CommandRemoteSelect(discord.ui.Select):
             await core.safe_defer(interaction)
             embed, file, view = await execute_and_build_attendance_response(interaction, self.bot_instance)
             if file:
-                await interaction.followup.send(embed=embed, file=file, view=view)
+                await interaction.followup.send(embed=embed, file=file, view=view, wait=True)
             else:
-                await interaction.followup.send(embed=embed, view=view)
+                await interaction.followup.send(embed=embed, view=view, wait=True)
         elif val == "att_calendar":
             await core.safe_defer(interaction)
             guild_id = interaction.guild_id or 0
@@ -409,13 +409,13 @@ class CommandRemoteSelect(discord.ui.Select):
                 interaction.user.display_name
             )
             view = AttendanceCalendarView(self.bot_instance, interaction.user, cal_info)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         elif val == "att_rank":
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
             init_scope = "guild" if interaction.guild else "global"
             view = AttendanceRankingView(interaction, data, initial_scope=init_scope, initial_sort="total")
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         elif val == "todo":
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
@@ -423,13 +423,13 @@ class CommandRemoteSelect(discord.ui.Select):
             core.ensure_user_todo_today(profile)
             await asyncio.to_thread(core.save_data, data)
             view = TodoTrackerView(interaction.user, profile)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         elif val == "forecast":
             await core.safe_defer(interaction)
             now = datetime.datetime.now(core.KST)
             view = EventForecastView(interaction.user, now.year, now.month)
             embed = await asyncio.to_thread(view.build_embed)
-            await interaction.followup.send(embed=embed, view=view)
+            await interaction.followup.send(embed=embed, view=view, wait=True)
         elif val in ("genshin_10", "genshin_wish"):
             import cogs.genshin as genshin_mod
             pv = genshin_mod.GenshinPullAgainView(interaction.user, banner_key="char1", skip_anim=False, practice=False, last_count=10)
@@ -470,7 +470,7 @@ class CommandRemoteSelect(discord.ui.Select):
                     g_lines.append(f"• **{g_name}** (종료: `{g_end_dt}`)")
                 embed.add_field(name=f"🎰 현재 진행 중인 가챠 배너 ({len(gachas)}개)", value="\n".join(g_lines), inline=False)
             action_view = EventInfoView(self.bot_instance, interaction.user)
-            await interaction.followup.send(embed=embed, view=action_view)
+            await interaction.followup.send(embed=embed, view=action_view, wait=True)
         elif val in ("pull_1", "pull_10"):
             count = 1 if val == "pull_1" else 10
             repull_view = GachaPullAgainView(interaction.user)
@@ -494,13 +494,13 @@ class CommandRemoteSelect(discord.ui.Select):
             u_key = str(interaction.user.id)
             user_cards_dict = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
             view = MyInventoryView(interaction.user, list(user_cards_dict.values()), items_per_page=10, guild_id=interaction.guild_id or 0)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         elif val == "pokedex":
             await core.safe_defer(interaction)
             guild_id = interaction.guild_id or 0
             stats = await asyncio.to_thread(core.get_card_pokedex_stats, guild_id, interaction.user.id)
             view = CardPokedexView(interaction.user, stats, guild_id=guild_id)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         elif val == "dup_convert":
             guild_id = interaction.guild_id or 0
             preview = await asyncio.to_thread(core.preview_duplicate_cards, guild_id, interaction.user.id)
@@ -509,15 +509,15 @@ class CommandRemoteSelect(discord.ui.Select):
         elif val == "wardrobe":
             await core.safe_defer(interaction)
             view = CharacterCostumeWardrobeView(interaction.user, guild_id=interaction.guild_id or 0)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         elif val == "master_rank":
             await core.safe_defer(interaction)
             view = MasterRankView(interaction.user, guild_id=interaction.guild_id or 0)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         elif val == "sekai_live":
             await core.safe_defer(interaction)
             view = SekaiLiveView(interaction.user, guild_id=interaction.guild_id or 0)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         elif val == "profile":
             gacha_cog = self.bot_instance.get_cog("GachaCog")
             if gacha_cog:
@@ -539,7 +539,7 @@ class CommandRemoteSelect(discord.ui.Select):
                 await interaction.followup.send(f"❌ **음악 추천 실패:** {error}", ephemeral=True)
                 return
             embed, view = self.bot_instance.build_music_embed_and_view(track_info, prefs, is_morning=False)
-            await interaction.followup.send(embed=embed, view=view)
+            await interaction.followup.send(embed=embed, view=view, wait=True)
         elif val == "music_vault":
             music_cog = self.bot_instance.get_cog("MusicCog")
             if music_cog:
@@ -548,7 +548,7 @@ class CommandRemoteSelect(discord.ui.Select):
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
             studio = PlaylistStudioView(interaction.user, interaction.user, data)
-            await interaction.followup.send(embed=studio.build_embed(), view=studio)
+            await interaction.followup.send(embed=studio.build_embed(), view=studio, wait=True)
         elif val == "dday_list":
             dday_cog = self.bot_instance.get_cog("DDayCog")
             if dday_cog:
@@ -561,12 +561,12 @@ class CommandRemoteSelect(discord.ui.Select):
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
             view = BirthdayBoardView(interaction.user, interaction.guild, data)
-            await interaction.followup.send(embed=view.build_embed(), view=view)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         elif val == "reminder":
             await core.safe_defer(interaction, ephemeral=True)
             data = await asyncio.to_thread(core.load_data)
             view = ReminderHubView(interaction.user, interaction.channel_id, interaction.guild_id, data)
-            await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+            await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
         elif val == "weather":
             stats_cog = self.bot_instance.get_cog("StatsCog")
             if stats_cog:
@@ -593,7 +593,7 @@ class CommandRemoteSelect(discord.ui.Select):
             u_key = str(interaction.user.id)
             prof = core.ensure_user_profile(data, u_key, interaction.user.display_name)
             view = SecretDDayHubView(interaction.user, core.as_dict(prof.get("secret_ddays")))
-            await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+            await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
         elif val == "partner":
             dday_cog = self.bot_instance.get_cog("DDayCog")
             if dday_cog:
@@ -1199,7 +1199,7 @@ class DDayListBoardView(core.SafeView):
             await interaction.followup.send("📭 현재 등록된 D-Day 일정이 없습니다.", ephemeral=True)
             return
         del_view = DDayDeleteView(ddays, self.bot_instance)
-        await interaction.followup.send("🗑️ 삭제할 D-Day 일정을 아래 메뉴에서 선택하세요 (연결된 전광판 채널도 함께 정리됩니다):", view=del_view, ephemeral=True)
+        await interaction.followup.send("🗑️ 삭제할 D-Day 일정을 아래 메뉴에서 선택하세요 (연결된 전광판 채널도 함께 정리됩니다):", view=del_view, ephemeral=True, wait=True)
 
     @discord.ui.button(label="⚙️ 통합 설정 (/설정)", style=discord.ButtonStyle.secondary, row=1)
     async def open_menu_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1517,7 +1517,7 @@ class PartnerHubView(core.SafeView):
                 shared_list.append(m)
 
         view = MusicLibraryPaginationView("💑 우리만의 공유 음악 보관함", shared_list, items_per_page=5)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @discord.ui.select(placeholder="🗑️ 삭제할 공동 D-Day 일정을 선택하세요...", row=1, options=[discord.SelectOption(label="선택", value="NONE")])
     async def del_dday_select(self, interaction: discord.Interaction, select: discord.ui.Select):
@@ -1940,9 +1940,9 @@ class DDayCog(commands.Cog):
         await core.safe_defer(interaction)
         embed, file, view = await execute_and_build_attendance_response(interaction, self.bot)
         if file:
-            await interaction.followup.send(embed=embed, file=file, view=view)
+            await interaction.followup.send(embed=embed, file=file, view=view, wait=True)
         else:
-            await interaction.followup.send(embed=embed, view=view)
+            await interaction.followup.send(embed=embed, view=view, wait=True)
 
     @app_commands.command(name="출석달력", description="이번 달 출석한 날짜를 시각적 캘린더로 확인하고 개근 보상 마일스톤(7/14/21/28일) 현황을 조회합니다.")
     @app_commands.describe(유저="(선택) 다른 유저의 이번 달 서버 출석 캘린더를 확인합니다.")
@@ -1959,7 +1959,7 @@ class DDayCog(commands.Cog):
             target_user.display_name
         )
         view = AttendanceCalendarView(self.bot, target_user, cal_info)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @app_commands.command(name="출석랭킹", description="현재 서버 또는 전체 서버의 출석체크 순위(누적 출석일 / 연속 출석일)를 확인합니다.")
     @app_commands.describe(
@@ -1988,7 +1988,7 @@ class DDayCog(commands.Cog):
         init_sort = 기준.value if 기준 else "total"
 
         view = AttendanceRankingView(interaction, data, initial_scope=init_scope, initial_sort=init_sort)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @app_commands.command(name="오늘목표", description="오늘의 할 일(To-Do)을 체크하고 최근 7일간의 은하수 잔디(🌌🌠🌑)를 심습니다.")
     @app_commands.describe(
@@ -2008,7 +2008,7 @@ class DDayCog(commands.Cog):
 
         await asyncio.to_thread(core.save_data, data)
         view = TodoTrackerView(interaction.user, profile)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
 
     @app_commands.command(name="알림설정", description="오전 9시 D-Day 알림을 받을 텍스트 채널과 디데이 채널이 생성될 기본 카테고리를 설정합니다.")
@@ -2124,7 +2124,7 @@ class DDayCog(commands.Cog):
 
         data = await asyncio.to_thread(core.load_data)
         view = DDayListBoardView(self.bot, interaction.user, data)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @app_commands.command(name="지나간디데이", description="목표일이 지나 추억 보관소로 이동된 지난 D-Day 일정들을 모아봅니다.")
     async def past_dday_cmd(self, interaction: discord.Interaction):
@@ -2189,7 +2189,7 @@ class DDayCog(commands.Cog):
         mode = 동작.value if 동작 else ("add" if (이름 and 날짜) else "hub")
         if mode in ("hub", "list"):
             hub_view = SecretDDayHubView(interaction.user, s_ddays)
-            await interaction.followup.send(embed=hub_view.build_embed(), view=hub_view, ephemeral=True)
+            await interaction.followup.send(embed=hub_view.build_embed(), view=hub_view, ephemeral=True, wait=True)
             return
 
         if mode == "add":
@@ -2199,7 +2199,7 @@ class DDayCog(commands.Cog):
                     "ℹ️ 아래 **`[➕ 비밀 디데이 & 타임캡슐 추가]`** 버튼을 눌러 간편하게 등록해 보세요!",
                     embed=hub_view.build_embed(),
                     view=hub_view,
-                    ephemeral=True
+                    ephemeral=True, wait=True
                 )
                 return
             try:
@@ -2218,17 +2218,17 @@ class DDayCog(commands.Cog):
             }
             await asyncio.to_thread(core.save_data, data)
             hub_view = SecretDDayHubView(interaction.user, s_ddays)
-            await interaction.followup.send(embed=hub_view.build_embed(), view=hub_view, ephemeral=True)
+            await interaction.followup.send(embed=hub_view.build_embed(), view=hub_view, ephemeral=True, wait=True)
 
         elif mode == "delete":
             if not 이름 or 이름 not in s_ddays:
                 hub_view = SecretDDayHubView(interaction.user, s_ddays)
-                await interaction.followup.send("ℹ️ 아래 드롭다운에서 삭제할 비밀 디데이를 선택해 주세요.", embed=hub_view.build_embed(), view=hub_view, ephemeral=True)
+                await interaction.followup.send("ℹ️ 아래 드롭다운에서 삭제할 비밀 디데이를 선택해 주세요.", embed=hub_view.build_embed(), view=hub_view, ephemeral=True, wait=True)
                 return
             del s_ddays[이름]
             await asyncio.to_thread(core.save_data, data)
             hub_view = SecretDDayHubView(interaction.user, s_ddays)
-            await interaction.followup.send(f"🗑️ 비밀 디데이 **`{이름}`** 일정이 삭제되었습니다.", embed=hub_view.build_embed(), view=hub_view, ephemeral=True)
+            await interaction.followup.send(f"🗑️ 비밀 디데이 **`{이름}`** 일정이 삭제되었습니다.", embed=hub_view.build_embed(), view=hub_view, ephemeral=True, wait=True)
 
     @app_commands.command(name="디데이삭제", description="드롭다운 메뉴에서 일정을 선택해 삭제합니다. (생성된 디데이 채널도 함께 삭제됩니다)")
     async def delete_dday(self, interaction: discord.Interaction):
@@ -3004,7 +3004,7 @@ class DDayCog(commands.Cog):
             await asyncio.to_thread(core.save_data, data)
 
         view = BirthdayBoardView(interaction.user, interaction.guild, data)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     # ==========================================
     # 카테고리 4 - 1: /알림예약 (개인 맞춤형 스마트 알리미)
@@ -3058,7 +3058,7 @@ class DDayCog(commands.Cog):
             await asyncio.to_thread(core.save_data, data)
 
         view = ReminderHubView(interaction.user, interaction.channel_id, interaction.guild_id, data)
-        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
 
 
 # ==========================================

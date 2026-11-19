@@ -155,7 +155,7 @@ class MusicRecommendView(core.SafeView):
         liked_raw = core.safe_get_dict(data, "user_profiles", u_key).get("liked_music")
         liked_list = [m for m in liked_raw if isinstance(m, dict)] if isinstance(liked_raw, list) else []
         view = MusicLibraryPaginationView(f"❤️ {interaction.user.display_name}님의 나만의 음악 보관함", liked_list, items_per_page=5)
-        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
 
 
 class MusicLibraryPaginationView(core.SafeView):
@@ -3185,7 +3185,7 @@ class SharedPlaylistView(core.SafeView):
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
         studio = PlaylistStudioView(interaction.user, interaction.user, data)
-        await interaction.followup.send(embed=studio.build_embed(), view=studio, ephemeral=True)
+        await interaction.followup.send(embed=studio.build_embed(), view=studio, ephemeral=True, wait=True)
 
 
 class PlaylistStudioView(core.SafeView):
@@ -3588,7 +3588,7 @@ class PlaylistStudioView(core.SafeView):
             )
             await interaction.followup.send("✅ 현재 채널에 플레이리스트를 멋지게 공유했습니다!", ephemeral=True)
         else:
-            await interaction.followup.send(embed=shared_embed, view=shared_view)
+            await interaction.followup.send(embed=shared_embed, view=shared_view, wait=True)
 
     @discord.ui.button(label="🔗 플리 링크 가져오기", style=discord.ButtonStyle.secondary, row=4)
     async def import_url_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -3815,7 +3815,7 @@ class MusicCog(commands.Cog):
                 await interaction.followup.send(
                     "ℹ️ 추가할 곡 제목이 입력되지 않아 플레이리스트 스튜디오를 열었습니다. 아래 **`[➕ 곡 추가]`** 버튼을 눌러보세요!",
                     embed=studio.build_embed(),
-                    view=studio
+                    view=studio, wait=True
                 )
                 return
             tracks_list = selected_pl.setdefault("tracks", [])
@@ -3875,13 +3875,13 @@ class MusicCog(commands.Cog):
                     f"✅ **`{selected_pl['emoji']} {selected_pl['name']}`**에서 **{len(removed)}곡**을 삭제했습니다!\n"
                     f"{_format_removed_preview(removed)}",
                     embed=studio.build_embed(),
-                    view=studio
+                    view=studio, wait=True
                 )
                 return
             else:
                 studio = PlaylistStudioView(interaction.user, target_user, data, initial_pl_id=selected_pl["id"])
                 del_view = PlaylistTrackDeleteView(studio)
-                await interaction.followup.send(del_view.build_content(), view=del_view, ephemeral=True)
+                await interaction.followup.send(del_view.build_content(), view=del_view, ephemeral=True, wait=True)
                 return
 
         elif mode == "share":
@@ -3890,7 +3890,7 @@ class MusicCog(commands.Cog):
                 await interaction.followup.send(
                     "⚠️ 아직 플레이리스트에 담긴 곡이 없습니다! 먼저 **`[➕ 곡 추가]`** 버튼으로 곡을 담은 뒤 공유해 주세요.",
                     embed=studio.build_embed(),
-                    view=studio
+                    view=studio, wait=True
                 )
                 return
             selected_pl["share_count"] = int(selected_pl.get("share_count", 0)) + 1
@@ -3899,7 +3899,7 @@ class MusicCog(commands.Cog):
             await interaction.followup.send(
                 content=f"🎧 {interaction.user.mention}님이 플레이리스트 **`{selected_pl.get('emoji', '🎧')} {selected_pl.get('name')}`**을(를) 공유했습니다!",
                 embed=shared_view.build_embed(),
-                view=shared_view
+                view=shared_view, wait=True
             )
             return
 
@@ -4012,7 +4012,7 @@ class MusicCog(commands.Cog):
 
         if not 곡 or not 곡.strip():
             del_view = PlaylistTrackDeleteView(studio)
-            await interaction.followup.send(del_view.build_content(), view=del_view, ephemeral=True)
+            await interaction.followup.send(del_view.build_content(), view=del_view, ephemeral=True, wait=True)
             return
 
         raw_in = 곡.strip()
@@ -4139,7 +4139,7 @@ class MusicCog(commands.Cog):
             await interaction.followup.send(
                 content=f"🎉 **{action_msg}** (총 {len(target_pl['tracks'])}곡 수록)",
                 embed=studio.build_embed(),
-                view=studio
+                view=studio, wait=True
             )
             return
 
@@ -4185,7 +4185,7 @@ class MusicCog(commands.Cog):
             content=f"✅ {p_meta['emoji']} **`{target_pl['emoji']} {target_pl['name']}`**의 **#{len(existing_tracks)}번째 곡**으로 추가되었습니다!{dup_note}\n"
                     f"🎵 **{resolved.get('title', '제목 없음')}** — `{resolved.get('artist', '-')}`",
             embed=studio.build_embed(),
-            view=studio
+            view=studio, wait=True
         )
 
     @app_commands.command(name="플리목록", description="내(또는 특정 유저의) 모든 플레이리스트 목록과 수록곡 현황을 확인합니다.")
@@ -4262,7 +4262,7 @@ class MusicCog(commands.Cog):
 
         if mode in ("hub", "list"):
             hub_view = MusicScheduleHubView(schedules, target_ch, interaction.guild)
-            await interaction.followup.send(embed=hub_view.build_embed(), view=hub_view)
+            await interaction.followup.send(embed=hub_view.build_embed(), view=hub_view, wait=True)
             return
 
         if mode == "add":
@@ -4271,7 +4271,7 @@ class MusicCog(commands.Cog):
                 await interaction.followup.send(
                     "ℹ️ `시간(HH:MM)`이 입력되지 않아 타이머 관리 보드를 열었습니다. **`[➕ 새 알림 타이머 추가]`** 버튼을 눌러보세요!",
                     embed=hub_view.build_embed(),
-                    view=hub_view
+                    view=hub_view, wait=True
                 )
                 return
             clean_time = _normalize_music_time_str(시간)
@@ -4294,12 +4294,12 @@ class MusicCog(commands.Cog):
             hub_view = MusicScheduleHubView(schedules, target_ch, interaction.guild)
             embed = hub_view.build_embed()
             embed.title = f"✅ 새 음악 타이머 등록 완료 (`{clean_time}` — {이름})"
-            await interaction.followup.send(embed=embed, view=hub_view)
+            await interaction.followup.send(embed=embed, view=hub_view, wait=True)
 
         elif mode == "delete":
             if not 삭제할알림:
                 hub_view = MusicScheduleHubView(schedules, target_ch, interaction.guild)
-                await interaction.followup.send("ℹ️ 아래 드롭다운 메뉴에서 삭제할 음악 알림을 선택해 주세요.", embed=hub_view.build_embed(), view=hub_view)
+                await interaction.followup.send("ℹ️ 아래 드롭다운 메뉴에서 삭제할 음악 알림을 선택해 주세요.", embed=hub_view.build_embed(), view=hub_view, wait=True)
                 return
             before_cnt = len(schedules)
             data["music_schedules"] = [
@@ -4311,7 +4311,7 @@ class MusicCog(commands.Cog):
                 return
             await asyncio.to_thread(core.save_data, data)
             hub_view = MusicScheduleHubView(data["music_schedules"], target_ch, interaction.guild)
-            await interaction.followup.send("🗑️ 선택한 음악 알림 타이머가 삭제되었습니다.", embed=hub_view.build_embed(), view=hub_view)
+            await interaction.followup.send("🗑️ 선택한 음악 알림 타이머가 삭제되었습니다.", embed=hub_view.build_embed(), view=hub_view, wait=True)
 
     @app_commands.command(name="음악추천설정", description="매일 오전 7시 음악 추천을 받을 채널과 조건을 설정합니다.")
     @app_commands.default_permissions(manage_guild=True)
@@ -4394,7 +4394,7 @@ class MusicCog(commands.Cog):
             return
 
         embed, view = self.bot.build_music_embed_and_view(track_info, prefs, is_morning=False)
-        await interaction.followup.send(embed=embed, view=view)
+        await interaction.followup.send(embed=embed, view=view, wait=True)
 
     @app_commands.command(name="내음악보관함", description="추천 음악에서 하트(❤️)를 눌러 보관함에 담은 곡들을 확인하고 셔플로 뽑아 듣습니다.")
     async def my_music_library_cmd(self, interaction: discord.Interaction):
@@ -4405,7 +4405,7 @@ class MusicCog(commands.Cog):
         liked_list = [m for m in liked_raw if isinstance(m, dict)] if isinstance(liked_raw, list) else []
 
         view = MusicLibraryPaginationView(f"❤️ {interaction.user.display_name}님의 나만의 음악 보관함", liked_list, items_per_page=5)
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @app_commands.command(name="오디오테스트", description="음성채널에 접속하여 봇의 오디오 출력, DAVE 암호화 및 비프음(소리)을 즉시 점검합니다.")
     async def audio_test_cmd(self, interaction: discord.Interaction):
