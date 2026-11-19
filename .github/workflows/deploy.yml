@@ -147,10 +147,9 @@ jobs:
           fi
 
           {
-            printf "%s\n" "${TOKEN_B64}"
+            printf "TOKEN_B64=%q\n" "${TOKEN_B64}"
             cat << 'REMOTE_SCRIPT'
           set -e
-          read -r TOKEN_B64
           ACTIVE_USER="$1"
 
           echo "=========================================="
