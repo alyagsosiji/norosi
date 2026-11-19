@@ -708,6 +708,25 @@ class GenshinInventoryView(core.SafeView):
         b_next.callback = self._on_next
         self.add_item(b_next)
 
+        core.sync_page_number_buttons(
+            self,
+            current_page=self.page,
+            total_pages=max_page + 1,
+            row=3,
+            on_select=self._on_page_num_selected,
+            zero_indexed=True,
+            max_buttons=5,
+            active_style=discord.ButtonStyle.primary,
+            custom_id_prefix="norosi:GenshinInv:p",
+        )
+
+    async def _on_page_num_selected(self, interaction: discord.Interaction, target_page: int):
+        if not await self._guard(interaction):
+            return
+        self.page = target_page
+        self._build()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
     def _restore_from_message(self, interaction: discord.Interaction):
         msg = getattr(interaction, "message", None)
         if not msg:

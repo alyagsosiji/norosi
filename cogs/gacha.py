@@ -2178,6 +2178,22 @@ class ProsekaRatePaginationView(core.SafeView):
                 default=(self.banner_type == "birthday"),
             ),
         ]
+        core.sync_page_number_buttons(
+            self,
+            current_page=self.current_page,
+            total_pages=self.max_page + 1,
+            row=3,
+            on_select=self._on_page_num_selected,
+            zero_indexed=True,
+            max_buttons=5,
+            active_style=discord.ButtonStyle.primary,
+            custom_id_prefix="norosi:ProsekaRate:p",
+        )
+
+    async def _on_page_num_selected(self, interaction: discord.Interaction, target_page: int):
+        await core.safe_defer(interaction)
+        self.current_page = max(0, min(target_page, self.max_page))
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     def build_embed(self):
         self.update_buttons()

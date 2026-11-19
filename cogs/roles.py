@@ -947,6 +947,23 @@ class ReactionRoleListView(core.SafeView):
             self.delete_select.options = opts
             self.delete_select.disabled = False
 
+        core.sync_page_number_buttons(
+            self,
+            current_page=self.page,
+            total_pages=self.max_page + 1,
+            row=2,
+            on_select=self._on_page_num_selected,
+            zero_indexed=True,
+            max_buttons=5,
+            active_style=discord.ButtonStyle.primary,
+            custom_id_prefix="norosi:RRoleList:p",
+        )
+
+    async def _on_page_num_selected(self, interaction: discord.Interaction, target_page: int):
+        self.page = max(0, min(target_page, self.max_page))
+        self._update_components()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
     def build_embed(self) -> discord.Embed:
         embed = discord.Embed(
             title="📋 서버 등록 반응역할 전체 목록",

@@ -1641,6 +1641,25 @@ class HelpCategoryView(core.SafeView):
             self.next_page_btn.disabled = (self.page >= max_p)
             self.page_indicator_btn.label = f"📄 {self.page + 1} / {total_p}"
 
+        # Row 3: 슬라이딩 페이지 번호 바로 이동 버튼 (최대 5개)
+        core.sync_page_number_buttons(
+            self,
+            current_page=self.page,
+            total_pages=total_p,
+            row=3,
+            on_select=self._on_page_num_selected,
+            zero_indexed=(not is_all_home_capable),
+            max_buttons=5,
+            active_style=discord.ButtonStyle.primary,
+            custom_id_prefix="norosi:Help:p",
+        )
+
+    async def _on_page_num_selected(self, interaction: discord.Interaction, target_page: int):
+        self.page = target_page
+        self.update_buttons()
+        embed = build_help_embed(self.category, self.search_kw, self.page, self.perm_filter)
+        await interaction.response.edit_message(embed=embed, view=self)
+
     # Row 1: 권한 등급별 원클릭 필터 (일반 이용자 / 서버 관리자 / 봇 주인 명확 구분)
     @discord.ui.button(label="👥 전체 권한", style=discord.ButtonStyle.primary, row=1)
     async def perm_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):

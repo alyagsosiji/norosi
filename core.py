@@ -15,7 +15,7 @@ import datetime
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Callable, Awaitable
 import inspect
 import urllib.request
 import urllib.parse
@@ -741,6 +741,74 @@ class SafeView(discord.ui.View):
                 await self._last_interaction.edit_original_response(view=self)
         except Exception:
             pass
+
+
+def sync_page_number_buttons(
+    view: discord.ui.View,
+    *,
+    current_page: int,
+    total_pages: int,
+    row: int,
+    on_select: Callable[[discord.Interaction, int], Awaitable[None]],
+    zero_indexed: bool = True,
+    max_buttons: int = 5,
+    active_style: discord.ButtonStyle = discord.ButtonStyle.primary,
+    label_fn: Optional[Callable[[int, bool], str]] = None,
+    custom_id_prefix: Optional[str] = None,
+) -> None:
+    """
+    페이지네이션 View의 지정 row에 슬라이딩 윈도우 페이지 번호 버튼(최대 5개)을 동기화합니다.
+    - total_pages <= 1 이면 기존 페이지 번호 버튼만 정리하고 추가하지 않습니다.
+    - 현재 페이지는 active_style + '● Np' 표시 + disabled=True로 한눈에 구분됩니다.
+    - 기존 데코레이터 버튼/셀렉트는 건드리지 않고 _is_page_num_btn 마커가 붙은 버튼만 교체합니다.
+    """
+    for child in list(view.children):
+        if getattr(child, "_is_page_num_btn", False):
+            view.remove_item(child)
+
+    if total_pages <= 1:
+        return
+
+    cap = max(1, min(5, int(max_buttons)))
+    if zero_indexed:
+        cur_0 = max(0, min(int(current_page), total_pages - 1))
+        has_active = True
+    else:
+        has_active = 1 <= int(current_page) <= total_pages
+        cur_0 = (int(current_page) - 1) if has_active else 0
+
+    if total_pages <= cap:
+        start_0, end_0 = 0, total_pages
+    else:
+        half = cap // 2
+        start_0 = max(0, cur_0 - half)
+        end_0 = start_0 + cap
+        if end_0 > total_pages:
+            end_0 = total_pages
+            start_0 = max(0, end_0 - cap)
+
+    prefix = custom_id_prefix or f"norosi:{view.__class__.__name__}:pnum"
+
+    def _make_cb(target_page: int):
+        async def _cb(interaction: discord.Interaction):
+            await on_select(interaction, target_page)
+        return _cb
+
+    for idx_0 in range(start_0, end_0):
+        target_val = idx_0 if zero_indexed else (idx_0 + 1)
+        disp_num = idx_0 + 1
+        is_active = has_active and (target_val == current_page)
+        lbl = label_fn(target_val, is_active) if label_fn else (f"● {disp_num}p" if is_active else f"{disp_num}p")
+        btn = discord.ui.Button(
+            label=str(lbl)[:80],
+            style=active_style if is_active else discord.ButtonStyle.secondary,
+            disabled=is_active,
+            row=row,
+            custom_id=f"{prefix}:{target_val}"[:100],
+        )
+        btn._is_page_num_btn = True
+        btn.callback = _make_cb(target_val)
+        view.add_item(btn)
 
 
 def reconstruct_safe_view(view_cls_or_name: type[SafeView] | str, interaction: discord.Interaction) -> Optional[SafeView]:

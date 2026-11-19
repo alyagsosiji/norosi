@@ -917,6 +917,21 @@ class AttendanceRankingView(core.SafeView):
         self.prev_page_btn.disabled = (self.current_page <= 0)
         self.page_indicator_btn.label = f"📄 {self.current_page + 1} / {self.max_page + 1}"
         self.next_page_btn.disabled = (self.current_page >= self.max_page)
+        core.sync_page_number_buttons(
+            self,
+            current_page=self.current_page,
+            total_pages=self.max_page + 1,
+            row=2,
+            on_select=self._on_page_num_selected,
+            zero_indexed=True,
+            max_buttons=5,
+            active_style=discord.ButtonStyle.primary,
+            custom_id_prefix="norosi:AttRank:p",
+        )
+
+    async def _on_page_num_selected(self, interaction: discord.Interaction, target_page: int):
+        self.current_page = target_page
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
     def build_embed(self):
         self.update_buttons()

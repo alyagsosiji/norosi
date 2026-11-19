@@ -182,6 +182,21 @@ class MusicLibraryPaginationView(core.SafeView):
         self.next_page.disabled = is_last
         self.forward_5.disabled = is_last
         self.shuffle_my_library.disabled = (len(self.music_list) == 0)
+        core.sync_page_number_buttons(
+            self,
+            current_page=self.current_page,
+            total_pages=self.max_page + 1,
+            row=1,
+            on_select=self._on_page_num_selected,
+            zero_indexed=True,
+            max_buttons=5,
+            active_style=discord.ButtonStyle.primary,
+            custom_id_prefix="norosi:MusicLib:p",
+        )
+
+    async def _on_page_num_selected(self, interaction: discord.Interaction, target_page: int):
+        self.current_page = max(0, min(target_page, self.max_page))
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
     def build_embed(self):
         self.update_buttons()

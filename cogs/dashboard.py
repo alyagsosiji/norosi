@@ -2941,6 +2941,37 @@ class MasterDashboardView(core.SafeView):
         ref_btn.callback = self._on_refresh_clicked
         self.add_item(ref_btn)
 
+        # Row 4: 현재 카테고리 내 페이지 번호 직접 이동 버튼 (1p / 2p / 3p / 4p)
+        short_labels = self._get_category_page_short_labels(self.current_category, len(cat_pages))
+        core.sync_page_number_buttons(
+            self,
+            current_page=self.current_page,
+            total_pages=len(cat_pages),
+            row=4,
+            on_select=self._on_page_num_selected,
+            zero_indexed=True,
+            max_buttons=5,
+            active_style=discord.ButtonStyle.success,
+            label_fn=lambda p_idx, is_act: f"● {short_labels[p_idx]}" if is_act else short_labels[p_idx],
+            custom_id_prefix=f"norosi:Settings:catpage_{self.current_category}",
+        )
+
+    @staticmethod
+    def _get_category_page_short_labels(cat_key: str, total_pages: int) -> List[str]:
+        preset = {
+            "general": ["1p 출석·일정", "2p 음악·플리", "3p 통계·소통"],
+            "advanced": ["1p 역할·공지", "2p 티켓·음성", "3p 보안·청소", "4p 👑봇주인"],
+            "minigame": ["1p 프세카", "2p 원신·스타", "3p 낚시·생활", "4p 게임·도감"],
+            "personal": ["1p 프로필", "2p 보관함", "3p 목표·파트너", "4p 루틴·대전"],
+        }.get(cat_key, [])
+        return [preset[i] if i < len(preset) else f"{i + 1}p" for i in range(total_pages)]
+
+    async def _on_page_num_selected(self, interaction: discord.Interaction, target_page: int):
+        self.current_page = target_page
+        self.sub_mode = None
+        self.refresh_components()
+        await core.safe_edit_response(interaction, embed=self.build_current_embed(), view=self)
+
     def _make_cat_enter_cb(self, cat_key: str) -> Callable[[discord.Interaction], Awaitable[None]]:
         async def _cb(interaction: discord.Interaction):
             self.current_category = cat_key
@@ -3555,9 +3586,15 @@ class MasterDashboardView(core.SafeView):
             )
 
         ctx_line = self._build_context_summary_for_page(category, page)
+        short_labels = self._get_category_page_short_labels(category, len(cat_pages))
+        page_tabs = " · ".join(
+            f"**`[{lbl}]`**" if i == page else lbl
+            for i, lbl in enumerate(short_labels)
+        )
 
         desc_lines = [
             f"🧭 **위치:** `⚙️ 홈` › **`{cat_meta['label']}`** › **`{page + 1}/{len(cat_pages)}p`** *(전체 `{global_cur}/{global_tot}p`)*",
+            f"📑 **페이지:** {page_tabs}",
             f"🔐 **권한:** {cat_meta['perm_summary']}",
             f"> {ctx_line}",
             "━━━━━━━━━━━━━━━━━━━━━━",
@@ -3573,7 +3610,7 @@ class MasterDashboardView(core.SafeView):
             timestamp=datetime.datetime.now(core.KST),
         )
         embed.set_footer(
-            text=f"⬅️ 홈으로  ·  ◀/▶ 페이지 이동 ({global_cur}/{global_tot}p)  ·  🔄 새로고침"
+            text=f"⬅️ 홈으로  ·  🔢 하단 페이지 번호 바로 이동 ({global_cur}/{global_tot}p)  ·  🔄 새로고침"
         )
         return embed
 
