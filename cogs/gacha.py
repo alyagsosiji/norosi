@@ -1132,7 +1132,15 @@ class GachaRankingView(core.SafeView):
                 core.add_chunked_embed_fields(embed, "🎰 누적 뽑기 횟수 TOP 5", pull_lines, separator="\n", max_chars=950)
             else:
                 embed.add_field(name="📭 데이터 없음", value="아직 집계된 보관함 기록이 없습니다.", inline=False)
-            embed.set_footer(text="하단 버튼으로 [👑 명예의 전당 & 비틱 로그]를 확인할 수 있습니다.")
+            my_rank_txt = ""
+            if self.user and self.stats_list:
+                my_uid = str(self.user.id)
+                ranked = sorted(self.stats_list, key=lambda x: (-x["unique"], -x["high"], -x["pulls"]))
+                for idx, s in enumerate(ranked, 1):
+                    if str(s.get("uid")) == my_uid:
+                        my_rank_txt = f"📍 내 도감 순위: #{idx}위 ({s['unique']:,}종)  ·  "
+                        break
+            embed.set_footer(text=f"{my_rank_txt}하단 버튼으로 [👑 명예의 전당 & 비틱 로그]를 확인할 수 있습니다.")
             return embed
 
         # 명예의 전당 & 픽업 ★4 로그 탭
@@ -1188,6 +1196,38 @@ class GachaRankingView(core.SafeView):
         self.current_tab = "hof"
         self._refresh_buttons()
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=0)
+    async def btn_refresh_rank(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        data = await asyncio.to_thread(core.load_data)
+        g_key = str(interaction.guild.id) if interaction.guild else "DM"
+        g_users = core.safe_get_dict(data, "gacha_users", g_key)
+        total_db_cards = max(1, len(core.PROSEKA_KR_CARDS) or self.total_db_cards)
+        new_stats = []
+        for u_id_str, u_data in g_users.items():
+            if not isinstance(u_data, dict):
+                continue
+            cards = core.as_dict(u_data.get("cards"))
+            if not cards and u_data.get("total_pulls", 0) == 0:
+                continue
+            uniq = len(cards)
+            s4 = sum(1 for c in cards.values() if isinstance(c, dict) and c.get("rarity_type") == "rarity_4")
+            bd = sum(1 for c in cards.values() if isinstance(c, dict) and c.get("rarity_type") == "rarity_birthday")
+            new_stats.append({
+                "uid": u_id_str,
+                "unique": uniq,
+                "rate": (uniq / total_db_cards) * 100.0,
+                "star4": s4,
+                "bday": bd,
+                "high": s4 + bd,
+                "pulls": int(u_data.get("total_pulls", 0) or 0),
+            })
+        self.total_db_cards = total_db_cards
+        self.stats_list = new_stats
+        self.hall_of_fame = await asyncio.to_thread(lambda: core.as_dict(core.get_gacha_hall_of_fame(interaction.guild_id or 0)))
+        self._refresh_buttons()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
 
 class CardTradeAcceptView(core.SafeView):

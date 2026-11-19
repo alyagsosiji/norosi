@@ -2135,6 +2135,23 @@ class FishingAquariumView(core.SafeView):
         await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
         await interaction.followup.send(msg, ephemeral=True)
 
+    @discord.ui.button(label="👜 가방 열기", style=discord.ButtonStyle.secondary, row=1)
+    async def btn_open_bag(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        gid = self.guild_id or (interaction.guild_id or 0)
+        summary = await asyncio.to_thread(
+            fishing_core.get_user_fishing_summary, gid, interaction.user.id, interaction.user.display_name
+        )
+        bag_view = FishingBagView(interaction.user, gid, summary=summary)
+        await interaction.followup.send(embed=bag_view.build_embed(), view=bag_view, wait=True)
+
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=1)
+    async def btn_refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        await self.reload()
+        self.sync_controls()
+        await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
+
 
 # ==========================================
 # 5. 낚시 장비 & 미끼 상점 View
@@ -2787,6 +2804,27 @@ class FishingQuestView(core.SafeView):
         )
         await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
         await interaction.followup.send(msg, ephemeral=True)
+
+    @discord.ui.button(label="🎣 낚시터 열기", style=discord.ButtonStyle.primary, row=0)
+    async def btn_open_fishing(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        gid = self.guild_id or (interaction.guild_id or 0)
+        summary = await asyncio.to_thread(
+            fishing_core.get_user_fishing_summary, gid, interaction.user.id, interaction.user.display_name
+        )
+        cast_view = FishingCastView(interaction.user, gid, summary=summary)
+        await interaction.followup.send(embed=cast_view.build_dashboard_embed(), view=cast_view, wait=True)
+
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=0)
+    async def btn_refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.summary = await asyncio.to_thread(
+            fishing_core.get_user_fishing_summary,
+            self.guild_id,
+            self.user.id,
+            self.user.display_name,
+        )
+        await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
 
 
 # ==========================================

@@ -425,6 +425,13 @@ class MusicScheduleHubView(core.SafeView):
             return
         await interaction.response.send_modal(MusicScheduleAddModal(self, self.default_channel or interaction.channel))
 
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=0)
+    async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        data = await asyncio.to_thread(core.load_data)
+        self.set_schedules(data.get("music_schedules", []))
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
     @discord.ui.select(placeholder="🗑️ 삭제할 음악 알림 타이머를 선택하세요...", row=1, options=[discord.SelectOption(label="선택", value="NONE")])
     async def delete_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         if not _has_music_sched_perm(interaction):

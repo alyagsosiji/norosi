@@ -141,6 +141,7 @@ class FarmView(core.SafeView):
         self.add_item(FarmPlantSelect(self, lu.get("seeds") or {}))
 
         actions = [
+            ("⚡ 일괄(수확+물)", discord.ButtonStyle.success, 2, "quick_manage", self._on_quick_manage),
             ("💧 전체 물주기", discord.ButtonStyle.primary, 2, "water_all", self._on_water),
             ("✨ 전체 비료 (120🪙/칸)", discord.ButtonStyle.secondary, 2, "fert_all", self._on_fertilize),
             ("🧺 전체 수확", discord.ButtonStyle.success, 2, "harvest_all", self._on_harvest),
@@ -213,6 +214,19 @@ class FarmView(core.SafeView):
         )
         embed.set_footer(text="수확 작물은 즉시 판매하거나 /설정 ➔ 🎮 미니게임(세카이 라이프 요리)에서 버프 재료로 활용할 수 있습니다.")
         return embed
+
+    async def _on_quick_manage(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        h_ok, h_msg, _ = await asyncio.to_thread(life_core.harvest_plots, self.guild_id, interaction.user.id, interaction.user.display_name)
+        w_ok, w_msg = await asyncio.to_thread(life_core.water_farm_plot, self.guild_id, interaction.user.id, None, interaction.user.display_name)
+        parts = []
+        if h_ok:
+            parts.append(h_msg)
+        if w_ok:
+            parts.append(w_msg)
+        self.status_msg = " / ".join(parts) if parts else "ℹ️ 수확하거나 물을 줄 작물이 아직 없습니다."
+        await self.refresh()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     async def _on_water(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
@@ -382,6 +396,13 @@ class CommunityFarmView(core.SafeView):
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
         if not ok:
             await interaction.followup.send(msg, ephemeral=True)
+
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=1)
+    async def btn_refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.status_msg = "🔄 공동 농장 현황을 최신으로 갱신했습니다."
+        await self.refresh()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
 
 # ==========================================
@@ -813,6 +834,15 @@ class LifeDashboardView(core.SafeView):
         v = CookingView(interaction.user, self.guild_id, overview=ov)
         msg = await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
         v.message = msg
+
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=0)
+    async def btn_refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        target = self.user or interaction.user
+        self.overview = await asyncio.to_thread(
+            life_core.get_life_overview, self.guild_id, target.id, target.display_name
+        )
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
 
 # ==========================================

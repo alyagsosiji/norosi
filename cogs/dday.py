@@ -279,6 +279,22 @@ class AttendanceCalendarView(core.SafeView):
         view = CardPokedexView(interaction.user, stats, guild_id=guild_id)
         await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=0)
+    async def refresh_cal_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        guild_id = interaction.guild_id or 0
+        guild_name = interaction.guild.name if interaction.guild else "개인 메시지(DM)"
+        self.cal_info = await asyncio.to_thread(
+            core.build_monthly_attendance_calendar,
+            guild_id,
+            guild_name,
+            self.user.id,
+            self.user.display_name,
+        )
+        self.check_now_btn.disabled = bool(self.cal_info.get("checked_today", False))
+        self.check_now_btn.label = "✅ 오늘 출석 완료됨" if self.check_now_btn.disabled else "📅 오늘 출석체크 하기"
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
 
 class AttendanceQuickActionView(core.SafeView):
     """출석체크 결과 하단에서 바로 월간 캘린더, 출석 랭킹, 오늘목표, 카드도감, 빠른 메뉴로 이동하는 버튼 뷰"""
@@ -778,6 +794,41 @@ class TodoTrackerView(core.SafeView):
         self.update_select_options()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
+    @discord.ui.button(label="✅ 전체 완료", style=discord.ButtonStyle.success, row=1)
+    async def complete_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 본인의 목표 보드만 조작할 수 있습니다.", ephemeral=True)
+            return
+
+        await core.safe_defer(interaction)
+        data = await asyncio.to_thread(core.load_data)
+        u_key = str(self.user.id)
+        profile = core.ensure_user_profile(data, u_key, self.user.display_name)
+        todo = core.ensure_user_todo_today(profile)
+
+        tasks_list = [t for t in todo.get("tasks", []) if isinstance(t, dict)]
+        if not tasks_list:
+            await interaction.followup.send("📭 완료 처리할 목표가 없습니다. 먼저 새 목표를 추가해 보세요!", ephemeral=True)
+            return
+
+        for t in tasks_list:
+            t["done"] = True
+        core.sync_todo_history_today(todo)
+        await asyncio.to_thread(core.save_data, data)
+
+        self.profile = profile
+        self.update_select_options()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=1)
+    async def refresh_todo_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        data = await asyncio.to_thread(core.load_data)
+        u_key = str(self.user.id)
+        self.profile = core.ensure_user_profile(data, u_key, self.user.display_name)
+        self.update_select_options()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
 
 # ==========================================
 # 출석 랭킹 (서버별 독립 랭킹 / 전체 서버 통합 랭킹 실시간 전환) UI 클래스
@@ -1161,11 +1212,16 @@ class DDayListBoardView(core.SafeView):
         embed.set_footer(text=" • ".join(footer_parts))
         return embed
 
+    def _sync_sort_styles(self):
+        self.sort_diff_btn.style = discord.ButtonStyle.primary if self.sort_mode == "diff" else discord.ButtonStyle.secondary
+        self.sort_pct_btn.style = discord.ButtonStyle.primary if self.sort_mode == "percent" else discord.ButtonStyle.secondary
+
     @discord.ui.button(label="📅 남은기간 임박순", style=discord.ButtonStyle.primary, row=0)
     async def sort_diff_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.data = await asyncio.to_thread(core.load_data)
         self.sort_mode = "diff"
+        self._sync_sort_styles()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="📊 진행률 높은순", style=discord.ButtonStyle.secondary, row=0)
@@ -1173,6 +1229,7 @@ class DDayListBoardView(core.SafeView):
         await core.safe_defer(interaction)
         self.data = await asyncio.to_thread(core.load_data)
         self.sort_mode = "percent"
+        self._sync_sort_styles()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🔥 7일 이내 임박만 보기", style=discord.ButtonStyle.danger, row=0)
@@ -1181,6 +1238,14 @@ class DDayListBoardView(core.SafeView):
         self.data = await asyncio.to_thread(core.load_data)
         self.filter_mode = "all" if self.filter_mode == "urgent" else "urgent"
         button.label = "🌈 전체 일정 보기" if self.filter_mode == "urgent" else "🔥 7일 이내 임박만 보기"
+        self._sync_sort_styles()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=0)
+    async def refresh_dday_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.data = await asyncio.to_thread(core.load_data)
+        self._sync_sort_styles()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="➕ 새 디데이 등록", style=discord.ButtonStyle.success, row=1)

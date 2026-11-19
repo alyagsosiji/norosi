@@ -176,6 +176,35 @@ class TitleStudioView(core.SafeView):
     def _rebuild(self):
         self.clear_items()
         self.add_item(TitleShopSelect(self, self.stats))
+        btn_card = discord.ui.Button(
+            label="🪪 프로필카드 미리보기",
+            style=discord.ButtonStyle.primary,
+            row=1,
+            custom_id="norosi:TitleStudioView:preview_card",
+        )
+        btn_card.callback = self._on_preview_card
+        self.add_item(btn_card)
+
+        btn_ref = discord.ui.Button(
+            label="🔄 새로고침",
+            style=discord.ButtonStyle.secondary,
+            row=1,
+            custom_id="norosi:TitleStudioView:refresh",
+        )
+        btn_ref.callback = self._on_refresh
+        self.add_item(btn_ref)
+
+    async def _on_preview_card(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        target = self.user or interaction.user
+        gid = self.guild_id or (interaction.guild_id or 0)
+        await _send_profile_card(interaction.followup.send, target, gid, is_interaction=True)
+
+    async def _on_refresh(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        self.status_msg = "🔄 칭호 및 배지 보유 상태를 최신으로 갱신했습니다."
+        await self.refresh()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     def build_embed(self) -> discord.Embed:
         if not self.stats or "title" not in self.stats:
@@ -293,6 +322,13 @@ class EconomyLeaderboardView(core.SafeView):
         await core.safe_defer(interaction)
         self.guild_id = self.guild_id or (interaction.guild_id or 0)
         self.mode = "gold"
+        self.lb = await asyncio.to_thread(economy_core.get_economy_leaderboard, self.guild_id)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=0)
+    async def btn_refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.guild_id = self.guild_id or (interaction.guild_id or 0)
         self.lb = await asyncio.to_thread(economy_core.get_economy_leaderboard, self.guild_id)
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 

@@ -1414,6 +1414,15 @@ class HSRRankingView(core.SafeView):
             b.callback = _cb
             self.add_item(b)
 
+        ref = discord.ui.Button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=0)
+
+        async def _ref_cb(interaction: discord.Interaction):
+            self.guild_id = self.guild_id or (interaction.guild_id or 0)
+            await core.safe_edit_response(interaction, embed=self.build_embed(interaction.guild), view=self)
+
+        ref.callback = _ref_cb
+        self.add_item(ref)
+
     def build_embed(self, guild: discord.Guild | None = None) -> discord.Embed:
         data = core.load_data()
         g_key = str(self.guild_id or 0)
@@ -1431,7 +1440,9 @@ class HSRRankingView(core.SafeView):
                 uname = mem.display_name if mem else f"개척자({uid_i})"
                 lines.append(f"**#{idx}** **{uname}** — ★5 **`{r['r5_count']}회`** (픽업 {r['pickup_count']} · 최소 {r['min_pity']}스택)\n└ {' / '.join(r['items'][:4])}")
             desc = "\n".join(lines) if lines else "*(아직 10연 워프 ★5 명예의 전당 기록이 없습니다)*"
-            return discord.Embed(title="🌟 스타레일 10연 워프 명예의 전당", description=desc, color=discord.Color.gold())
+            emb = discord.Embed(title="🌟 스타레일 10연 워프 명예의 전당", description=desc, color=discord.Color.gold(), timestamp=datetime.datetime.now(core.KST))
+            emb.set_footer(text="하단 버튼으로 랭킹 · 명예의 전당 · ★5 속보를 전환할 수 있습니다.")
+            return emb
 
         if self.mode == "recent":
             hof = hsr_core.get_hsr_hall_of_fame(data, self.guild_id)
@@ -1446,7 +1457,9 @@ class HSRRankingView(core.SafeView):
                 pk = "🎯픽업 " if r.get("is_pickup") else ""
                 lines.append(f"• **{uname}**: {pk}**★★★★★ {r['name']}** (`{r.get('pity', '?')}스택` · {r.get('banner', '')})")
             desc = "\n".join(lines) if lines else "*(최근 ★5 도약 로그가 없습니다)*"
-            return discord.Embed(title="⚡ 스타레일 서버 ★5 최근 획득 속보", description=desc, color=discord.Color.from_rgb(255, 198, 86))
+            emb = discord.Embed(title="⚡ 스타레일 서버 ★5 최근 획득 속보", description=desc, color=discord.Color.from_rgb(255, 198, 86), timestamp=datetime.datetime.now(core.KST))
+            emb.set_footer(text="하단 버튼으로 랭킹 · 명예의 전당 · ★5 속보를 전환할 수 있습니다.")
+            return emb
 
         rows = []
         for uid_s, u_data in g_users.items():
@@ -1468,7 +1481,9 @@ class HSRRankingView(core.SafeView):
             medal = ["🥇", "🥈", "🥉"][idx - 1] if idx <= 3 else f"**#{idx}**"
             lines.append(f"{medal} **{uname}** — ★5 `{r5}종` (성혼6 `{e6}`) · 도감 `{uq}종` · 워프 `{pl:,}회`")
         desc = "\n".join(lines) if lines else "*(아직 이 서버에 스타레일 워프 기록이 있는 유저가 없습니다)*"
-        return discord.Embed(title="🏆 스타레일 서버 컬렉션 랭킹 TOP 15", description=desc, color=discord.Color.from_rgb(174, 114, 255))
+        emb = discord.Embed(title="🏆 스타레일 서버 컬렉션 랭킹 TOP 15", description=desc, color=discord.Color.from_rgb(174, 114, 255), timestamp=datetime.datetime.now(core.KST))
+        emb.set_footer(text="하단 버튼으로 랭킹 · 명예의 전당 · ★5 속보를 전환하거나 새로고침할 수 있습니다.")
+        return emb
 
 
 class HSRRateView(core.SafeView):
