@@ -1050,12 +1050,12 @@ class OshiQuickSelectView(core.SafeView):
         group_b = all_chars[14:]
 
         sel_a = discord.ui.Select(
-            placeholder="💖 [그룹 A] 버츄얼 싱어 · 레오니 · 모모점 캐릭터 선택...",
+            placeholder="💖 [그룹 A] 버츄얼 싱어 · 레오니 · 모모점 선택...",
             options=[
                 discord.SelectOption(
                     label=ch_name,
                     value=ch_name,
-                    description=f"소속 유닛: {char_unit_map.get(ch_name, '세카이')}",
+                    description=char_unit_map.get(ch_name, "세카이"),
                     emoji="🌟",
                 )
                 for ch_name in group_a
@@ -1068,12 +1068,12 @@ class OshiQuickSelectView(core.SafeView):
 
         if group_b:
             sel_b = discord.ui.Select(
-                placeholder="💖 [그룹 B] 비배스 · 원더쇼 · 니고 캐릭터 선택...",
+                placeholder="💖 [그룹 B] 비배스 · 원더쇼 · 니고 선택...",
                 options=[
                     discord.SelectOption(
                         label=ch_name,
                         value=ch_name,
-                        description=f"소속 유닛: {char_unit_map.get(ch_name, '세카이')}",
+                        description=char_unit_map.get(ch_name, "세카이"),
                         emoji="🎶",
                     )
                     for ch_name in group_b
@@ -1085,7 +1085,8 @@ class OshiQuickSelectView(core.SafeView):
             self.add_item(sel_b)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인의 오시 설정 창만 조작할 수 있습니다.", ephemeral=True)
             return False
@@ -1192,7 +1193,8 @@ class CrystalTransferUserSelectView(core.SafeView):
         self.add_item(u_sel)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인의 송금 창만 조작할 수 있습니다.", ephemeral=True)
             return False
@@ -1325,7 +1327,8 @@ class PartnerProposeUserSelectView(core.SafeView):
         self.add_item(u_sel)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인의 파트너 신청 창만 조작할 수 있습니다.", ephemeral=True)
             return False
@@ -1375,7 +1378,8 @@ class CardTradeUserSelectView(core.SafeView):
         self.add_item(u_sel)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인의 카드 교환 창만 조작할 수 있습니다.", ephemeral=True)
             return False
@@ -2705,27 +2709,27 @@ class MasterDashboardView(core.SafeView):
 
             # Row 2: 올인원 빠른 기능 · 랭킹 · 도감 · 보관함 바로가기 셀렉터 (구 /메뉴 빠른 실행 복구 & 확장)
             quick_sel = discord.ui.Select(
-                placeholder="🔍 빠른 실행 · 전 분야 랭킹 · 도감 · 보관함 바로가기...",
+                placeholder="🔍 빠른 실행 · 랭킹 · 도감 · 보관함 바로가기...",
                 custom_id="norosi:Settings:quick_jump_select",
                 row=2,
                 options=[
-                    discord.SelectOption(label="🏆 전 분야 통합 랭킹 보드", value="ranking_hub", description="출석·프로세카·원신·붕스·낚시·타인의삶·자산 순위", emoji="🏆"),
-                    discord.SelectOption(label="📅 서버 출석체크 랭킹 Top 10", value="att_rank", description="누적 출석일 및 연속 개근 순위표", emoji="📅"),
-                    discord.SelectOption(label="🎤 프로세카 가챠 랭킹 보드", value="sekai_rank", description="카드 수집·★4·덱 종합력 서버 랭킹", emoji="🎤"),
-                    discord.SelectOption(label="🌠 원신 수집 · 명예의 전당 랭킹", value="gi_rank", description="5성 수집·모험등급·운명의자리 랭킹", emoji="🌠"),
-                    discord.SelectOption(label="🚄 스타레일 워프 랭킹 보드", value="hsr_rank", description="5성 캐릭터·광추·개척레벨 랭킹", emoji="🚄"),
-                    discord.SelectOption(label="🎣 낚시 최대어(cm·kg) · 대회 랭킹", value="fish_rank", description="역대 대물 기록 및 낚시왕 순위", emoji="🎣"),
-                    discord.SelectOption(label="👶 타인의 삶 엔딩 · 환생 랭킹", value="ol_rank", description="최고 업적 점수 및 엔딩 수집 랭킹", emoji="👶"),
-                    discord.SelectOption(label="🏦 통합 순자산 · 크리스탈 랭킹", value="eco_rank", description="보유 크리스탈 + 4대 게임 컬렉션 자산 순위", emoji="🏦"),
-                    discord.SelectOption(label="📖 5대 통합 도감 & 배너 확률표", value="pokedex_hub", description="프로세카·원신·붕스·낚시·타인의삶 도감", emoji="📖"),
-                    discord.SelectOption(label="🎒 프로세카 내 카드 보관함", value="sekai_inv", description="보유 카드 일러스트·레벨·마스터랭크 조회", emoji="🎒"),
-                    discord.SelectOption(label="🏆 프로세카 마스터 랭크(✦MR) 돌파", value="sekai_mr", description="중복 카드 또는 크리스탈로 MR 돌파", emoji="✨"),
-                    discord.SelectOption(label="👗 캐릭터 3D 의상실 & 의상 상점", value="sekai_costume", description="26인 캐릭터 의상 장착 및 구매", emoji="👗"),
-                    discord.SelectOption(label="⚔️ 세카이 협동 라이브 (리듬게임)", value="sekai_live", description="5인 덱으로 라이브 스코어 달성 & 보상", emoji="⚔️"),
-                    discord.SelectOption(label="💿 내 플레이리스트 스튜디오", value="music_pl", description="유튜브·스포티파이·사클 플리 제작/음성재생", emoji="💿"),
-                    discord.SelectOption(label="🌤️ 실시간 기상청 날씨 & 미세먼지", value="weather", description="전국/해외 도시 기온·체감온도·강수확률", emoji="🌤️"),
-                    discord.SelectOption(label="🔤 끝말잇기 대결 (AI / 유저)", value="wordchain", description="크리스탈 보상 끝말잇기 매치", emoji="🔤"),
-                    discord.SelectOption(label="🔫 러시안 룰렛 서바이벌", value="roulette", description="심장 쫄깃 서바이벌 미니게임", emoji="🔫"),
+                    discord.SelectOption(label="전 분야 통합 랭킹", value="ranking_hub", description="8대 분야 순위표 허브", emoji="🏆"),
+                    discord.SelectOption(label="출석체크 랭킹", value="att_rank", description="누적·연속 출석 순위", emoji="📅"),
+                    discord.SelectOption(label="프로세카 가챠 랭킹", value="sekai_rank", description="카드 수집·종합력 순위", emoji="🎤"),
+                    discord.SelectOption(label="원신 수집 랭킹", value="gi_rank", description="5성 수집·모험등급", emoji="🌠"),
+                    discord.SelectOption(label="스타레일 워프 랭킹", value="hsr_rank", description="5성·광추·개척레벨", emoji="🚄"),
+                    discord.SelectOption(label="낚시 대물·대회 랭킹", value="fish_rank", description="최대어·낚시왕 순위", emoji="🎣"),
+                    discord.SelectOption(label="타인의 삶 엔딩 랭킹", value="ol_rank", description="업적·엔딩 수집 순위", emoji="👶"),
+                    discord.SelectOption(label="통합 순자산 랭킹", value="eco_rank", description="크리스탈·컬렉션 자산", emoji="🏦"),
+                    discord.SelectOption(label="5대 통합 도감·확률표", value="pokedex_hub", description="5대 게임 도감·확률", emoji="📖"),
+                    discord.SelectOption(label="프로세카 카드 보관함", value="sekai_inv", description="보유 카드·일러스트", emoji="🎒"),
+                    discord.SelectOption(label="프로세카 마스터 랭크", value="sekai_mr", description="중복·크리스탈 MR돌파", emoji="✨"),
+                    discord.SelectOption(label="캐릭터 3D 의상실", value="sekai_costume", description="26인 의상 장착·제작", emoji="👗"),
+                    discord.SelectOption(label="세카이 협동 라이브", value="sekai_live", description="5인 덱 리듬게임", emoji="⚔️"),
+                    discord.SelectOption(label="플레이리스트 스튜디오", value="music_pl", description="플리 제작·음성재생", emoji="💿"),
+                    discord.SelectOption(label="실시간 기상청 날씨", value="weather", description="기온·미세먼지 조회", emoji="🌤️"),
+                    discord.SelectOption(label="끝말잇기 대결", value="wordchain", description="AI·유저 끝말잇기", emoji="🔤"),
+                    discord.SelectOption(label="러시안 룰렛", value="roulette", description="서바이벌 미니게임", emoji="🔫"),
                 ],
             )
             quick_sel.callback = self._on_home_quick_jump_selected
@@ -4627,7 +4631,7 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction)
             guild_id = interaction.guild_id or 0
-            st = await asyncio.to_thread(fishing_core.get_pokedex_stats, guild_id, interaction.user.id)
+            st = await asyncio.to_thread(fishing_core.get_fishing_pokedex_stats, guild_id, interaction.user.id)
             view = fishing.FishingPokedexView(interaction.user, guild_id=guild_id, tab="lake", stats=st)
             msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
             view.message = msg

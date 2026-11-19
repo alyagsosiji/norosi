@@ -585,7 +585,8 @@ class RecruitLobbyView(core.SafeView):
 
             self._sync_buttons()
             embed = self.build_embed()
-            await interaction.response.edit_message(embed=embed, view=self)
+            await core.safe_defer(interaction)
+            await core.safe_edit_response(interaction, embed=embed, view=self)
 
             if is_full:
                 mention_str = " ".join(m.mention for m in self.members)
@@ -611,7 +612,8 @@ class RecruitLobbyView(core.SafeView):
             self._sync_buttons()
 
             embed = self.build_embed()
-            await interaction.response.edit_message(embed=embed, view=self)
+            await core.safe_defer(interaction)
+            await core.safe_edit_response(interaction, embed=embed, view=self)
 
             mention_str = " ".join(m.mention for m in self.members)
             depart_msg = (
@@ -1500,7 +1502,8 @@ class WeatherRefreshView(core.SafeView):
         self.user = user
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 날씨를 조회한 당사자만 새로고침할 수 있습니다.", ephemeral=True)
             return False

@@ -1071,7 +1071,8 @@ class EmojiUpscaleConfigView(core.SafeView):
         self.btn_disable.disabled = not enabled
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         if not interaction.guild:
             await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
             return False

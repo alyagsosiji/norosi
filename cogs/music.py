@@ -1491,7 +1491,8 @@ class VoicePlayerControlView(core.SafeView):
         self.update_components()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         guild_obj = getattr(self.player, "guild", None) or interaction.guild
         vc = getattr(guild_obj, "voice_client", None)
         if not vc or not vc.channel:
@@ -3211,7 +3212,8 @@ class PlaylistStudioView(core.SafeView):
         self.update_components()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         if interaction.user.id != self.viewer.id:
             await core.safe_send_response(
                 interaction,
@@ -3266,20 +3268,21 @@ class PlaylistStudioView(core.SafeView):
         for idx, p in enumerate(pls[:25], start=1):
             p_cnt = len(p.get("tracks", []))
             p_plat = p.get("platform", "YouTube")
+            p_short = core.PLAYLIST_PLATFORMS.get(p_plat, {}).get("short", p_plat[:2])
             is_sel = (p["id"] == cur_pl["id"])
             p_em = p.get("emoji", "🎧")
             pl_opts.append(discord.SelectOption(
-                label=f"{p_em} {idx}. {p.get('name', '플리')[:22]} ({p_cnt}곡·{p_plat})"[:52],
+                label=f"{p_em}{idx}.{p.get('name', '플리')[:14]}({p_cnt}·{p_short})"[:34],
                 value=str(p["id"])[:60],
                 default=is_sel
             ))
-        self.playlist_select.options = pl_opts or [discord.SelectOption(label="플레이리스트가 없습니다", value="NONE")]
-        self.playlist_select.placeholder = f"📁 플레이리스트 전환 (현재: {str(cur_pl.get('name', ''))[:25]} · 총 {len(pls)}개)..."[:85]
+        self.playlist_select.options = pl_opts or [discord.SelectOption(label="플레이리스트 없음", value="NONE")]
+        self.playlist_select.placeholder = f"📁 플리 전환 ({str(cur_pl.get('name', ''))[:16]} · {len(pls)}개)"[:60]
 
         # Row 2: 수록곡 선택 드롭다운
         page_tracks = self.get_page_tracks()
         if not page_tracks:
-            self.track_select.options = [discord.SelectOption(label="수록된 곡이 없습니다 — 아래 [➕ 곡 추가] 버튼을 눌러보세요!", value="NONE")]
+            self.track_select.options = [discord.SelectOption(label="수록곡 없음 — [➕ 곡 추가]를 눌러보세요", value="NONE")]
             self.track_select.disabled = True
         else:
             t_opts = []
@@ -3288,7 +3291,7 @@ class PlaylistStudioView(core.SafeView):
                 t_plat = t.get("platform", "YouTube")
                 t_emoji = core.PLAYLIST_PLATFORMS.get(t_plat, core.PLAYLIST_PLATFORMS["YouTube"])["emoji"]
                 t_opts.append(discord.SelectOption(
-                    label=f"{t_emoji} #{idx:02d}. {t.get('title', '제목 없음')[:28]} - {str(t.get('artist', '-'))[:14]}"[:55],
+                    label=f"{t_emoji}#{idx:02d} {t.get('title', '제목 없음')[:18]} - {str(t.get('artist', '-'))[:10]}"[:40],
                     value=str(t.get("id"))[:60],
                 ))
             self.track_select.options = t_opts
@@ -3394,13 +3397,8 @@ class PlaylistStudioView(core.SafeView):
         next_plat = order[(order.index(cur_plat) + 1) % len(order)] if cur_plat in order else "YouTube"
         cur_pl["platform"] = next_plat
 
-        try:
-            if not interaction.response.is_done():
-                await interaction.response.edit_message(embed=self.build_embed(), view=self)
-            else:
-                await interaction.edit_original_response(embed=self.build_embed(), view=self)
-        except Exception:
-            pass
+        await core.safe_defer(interaction)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
         if interaction.user.id == self.owner.id:
             async def _bg_save():

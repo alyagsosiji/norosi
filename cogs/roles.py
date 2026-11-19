@@ -583,7 +583,8 @@ class ReactionRoleBuilderView(core.SafeView):
         self.target_channel: Optional[discord.TextChannel] = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         is_admin = False
         if interaction.guild and isinstance(interaction.user, discord.Member):
             is_admin = (
@@ -904,7 +905,8 @@ class ReactionRoleListView(core.SafeView):
         self._update_components()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         is_admin = False
         if interaction.guild and isinstance(interaction.user, discord.Member):
             is_admin = (
@@ -1029,7 +1031,8 @@ class ReactionRoleStudioView(core.SafeView):
         self.author = author
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         is_admin = False
         if interaction.guild and isinstance(interaction.user, discord.Member):
             is_admin = (

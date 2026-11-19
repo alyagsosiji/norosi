@@ -1389,7 +1389,11 @@ class InteractiveCardTradeStudioView(core.SafeView):
         embed.set_footer(text="동일한 카드끼리는 교환할 수 없습니다 • 드롭다운에서 카드를 선택해 보세요!")
         return embed
 
-    @discord.ui.select(placeholder="📤 1단계: 내가 상대방에게 보낼 카드를 선택하세요...", row=0)
+    @discord.ui.select(
+        placeholder="📤 1단계: 내가 상대방에게 보낼 카드를 선택하세요...",
+        row=0,
+        options=[discord.SelectOption(label="카드 선택", value="NONE")],
+    )
     async def my_card_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         if not self.requester or not self.req_cards:
             await core.safe_send_response(interaction, "⚠️ 교환 스튜디오 세션이 만료되었습니다. `/설정` (`👤 개인` ➔ `🤝 1:1 카드 교환/선물`)에서 다시 열어주세요.", ephemeral=True)
@@ -1405,7 +1409,11 @@ class InteractiveCardTradeStudioView(core.SafeView):
         self.selected_my_cid = val
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
-    @discord.ui.select(placeholder="📥 2단계: 상대방으로부터 받을 카드를 선택하세요...", row=1)
+    @discord.ui.select(
+        placeholder="📥 2단계: 상대방으로부터 받을 카드를 선택하세요...",
+        row=1,
+        options=[discord.SelectOption(label="카드 선택", value="NONE")],
+    )
     async def tgt_card_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         if not self.requester or not self.tgt_cards:
             await core.safe_send_response(interaction, "⚠️ 교환 스튜디오 세션이 만료되었습니다. `/설정` (`👤 개인` ➔ `🤝 1:1 카드 교환/선물`)에서 다시 열어주세요.", ephemeral=True)
@@ -1518,7 +1526,8 @@ class CardIllustToggleView(core.SafeView):
                     self.update_buttons()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         if not self.card or "id" not in self.card:
             self._restore_from_message(interaction)
         return True
@@ -1927,7 +1936,7 @@ class CharacterCostumeWardrobeView(core.SafeView):
                 char_card = next((c for c in core.PROSEKA_KR_CARDS if c.get("char_id") == self.current_char_id), None)
 
         # 2. 의상 원작 카드
-        cos_card_obj = next((c for c in core.PROSEKA_KR_CARDS if c.get("id") == card_id), None) if card_id else None
+        cos_card_obj = core.get_proseka_card_by_id(card_id) if card_id else None
 
         if not is_different_char:
             # 본인 원작 의상이거나 기본 의상인 경우
@@ -1954,7 +1963,11 @@ class CharacterCostumeWardrobeView(core.SafeView):
 
         return embed
 
-    @discord.ui.select(placeholder="🏷️ 1단계: 유닛(그룹)을 선택하세요...", row=0)
+    @discord.ui.select(
+        placeholder="🏷️ 1단계: 유닛(그룹)을 선택하세요...",
+        options=[discord.SelectOption(label="유닛 불러오는 중...", value="Leo/need")],
+        row=0,
+    )
     async def unit_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         await core.safe_defer(interaction)
         self.current_unit = select.values[0]
@@ -1965,7 +1978,11 @@ class CharacterCostumeWardrobeView(core.SafeView):
                 break
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
-    @discord.ui.select(placeholder="👤 2단계: 캐릭터를 선택하세요...", row=1)
+    @discord.ui.select(
+        placeholder="👤 2단계: 캐릭터를 선택하세요...",
+        options=[discord.SelectOption(label="캐릭터 불러오는 중...", value="1")],
+        row=1,
+    )
     async def char_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         await core.safe_defer(interaction)
         try:
@@ -1975,7 +1992,11 @@ class CharacterCostumeWardrobeView(core.SafeView):
         self.view_mode = "char"
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
-    @discord.ui.select(placeholder="👗 3단계: 착용할 보유 의상을 선택하세요...", row=2)
+    @discord.ui.select(
+        placeholder="👗 3단계: 착용할 보유 의상을 선택하세요...",
+        options=[discord.SelectOption(label="보유 의상 불러오는 중...", value="DEFAULT")],
+        row=2,
+    )
     async def equip_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         await core.safe_defer(interaction)
         cos_id = select.values[0]
@@ -1987,7 +2008,11 @@ class CharacterCostumeWardrobeView(core.SafeView):
         else:
             await core.safe_send_response(interaction, f"❌ {msg}", ephemeral=True)
 
-    @discord.ui.select(placeholder="🛍️ 4단계: 다른 캐릭터 의상 제작/구매 (300 💎)...", row=3)
+    @discord.ui.select(
+        placeholder="🛍️ 4단계: 다른 캐릭터 의상 제작/구매 (300 💎)...",
+        options=[discord.SelectOption(label="제작 가능 의상 없음", value="NONE")],
+        row=3,
+    )
     async def shop_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         cos_id = select.values[0]
         if cos_id == "NONE":
@@ -2362,7 +2387,7 @@ class MyInventoryView(core.SafeView):
         raw_id = card.get("id")
         if raw_id is not None:
             raw_str = str(raw_id).strip()
-            ref = next((c for c in core.PROSEKA_KR_CARDS if str(c.get("id")) == raw_str), None)
+            ref = core.get_proseka_card_by_id(raw_str)
             if ref is not None:
                 ref_cid = ref.get("char_id")
                 if ref_cid is not None:
@@ -2411,10 +2436,9 @@ class MyInventoryView(core.SafeView):
             "버츄얼 싱어": "🎤",
         }
         total_unique_all = len(self.all_cards)
-        total_pulls_all = sum(c.get("count", 1) for c in self.all_cards)
         unit_opts = [
             discord.SelectOption(
-                label=f"🌐 전체 유닛 ({total_unique_all}종)"[:60],
+                label=f"전체 유닛 ({total_unique_all}종)"[:45],
                 value="ALL",
                 default=(self.selected_unit == "ALL"),
             )
@@ -2424,7 +2448,7 @@ class MyInventoryView(core.SafeView):
             u_emoji = unit_emojis.get(u_name, "🏷️")
             unit_opts.append(
                 discord.SelectOption(
-                    label=f"{u_emoji} {u_name} ({len(u_cards)}종)"[:60],
+                    label=f"{u_emoji} {u_name} ({len(u_cards)}종)"[:45],
                     value=u_name,
                     default=(self.selected_unit == u_name),
                 )
@@ -2446,20 +2470,20 @@ class MyInventoryView(core.SafeView):
             char_counts[cid] = (prev_u + 1, prev_p + int(c.get("count", 1)))
 
         if self.selected_unit == "ALL":
-            all_char_label = f"🌐 전체 캐릭터 ({len(base_pool)}종)"
+            all_char_label = f"전체 캐릭터 ({len(base_pool)}종)"
             candidate_cids = sorted(cid for cid in char_counts.keys() if cid in core.CHARACTER_MAP)
             if self.selected_char_id is not None and self.selected_char_id in core.CHARACTER_MAP and self.selected_char_id not in candidate_cids:
                 candidate_cids.append(self.selected_char_id)
                 candidate_cids.sort()
         else:
-            all_char_label = f"🌐 {self.selected_unit} 전체 ({len(base_pool)}종)"
+            all_char_label = f"{self.selected_unit} 전체 ({len(base_pool)}종)"
             unit_member_cids = [cid for cid, info in core.CHARACTER_MAP.items() if info.get("unit") == self.selected_unit]
             extra_cids = [cid for cid in sorted(char_counts.keys()) if cid in core.CHARACTER_MAP and cid not in unit_member_cids]
             candidate_cids = unit_member_cids + extra_cids
 
         char_opts = [
             discord.SelectOption(
-                label=all_char_label[:60],
+                label=all_char_label[:45],
                 value="ALL",
                 default=(self.selected_char_id is None),
             )
@@ -2477,9 +2501,10 @@ class MyInventoryView(core.SafeView):
         for cid in display_cids:
             c_info = core.CHARACTER_MAP.get(cid, {"name": f"캐릭터 #{cid}", "unit": "-"})
             u_cnt, _ = char_counts.get(cid, (0, 0))
+            short_name = c_info["name"].split()[-1] if " " in c_info["name"] else c_info["name"]
             char_opts.append(
                 discord.SelectOption(
-                    label=f"{c_info['name']} ({u_cnt}종)"[:60],
+                    label=f"{short_name} ({u_cnt})"[:32],
                     value=str(cid),
                     default=(self.selected_char_id == cid),
                 )
@@ -2523,7 +2548,9 @@ class MyInventoryView(core.SafeView):
                 mr = int(c.get("master_rank", 0))
                 mr_desc = f"·MR{mr}" if mr > 0 else ""
                 star_num = int(c.get("star_num") or c.get("rarity") or 4)
-                label = f"{idx}.{lock_icon}★{star_num} {c['char_name']} [{c['prefix'][:8]}] ({c.get('count', 1)}장{mr_desc})"[:45]
+                raw_cn = str(c.get("char_name") or "")
+                short_cn = raw_cn.split()[-1] if " " in raw_cn else raw_cn
+                label = f"{idx}.{lock_icon}★{star_num} {short_cn} [{c['prefix'][:6]}] ({c.get('count', 1)}{mr_desc})"[:36]
                 opts.append(discord.SelectOption(label=label, value=cid_val[:100]))
             self.illust_select.options = opts[:25] or [discord.SelectOption(label="표시할 카드가 없습니다", value="NONE")]
             self.illust_select.disabled = not bool(opts)
@@ -2677,14 +2704,14 @@ class MyInventoryView(core.SafeView):
         placeholder="📊 정렬 기준 선택...",
         row=1,
         options=[
-            discord.SelectOption(label="🕒 획득일 최신순", value="obtained_desc"),
-            discord.SelectOption(label="🕰️ 획득일 오래된순", value="obtained_asc"),
-            discord.SelectOption(label="⭐ 성(레어도) 높은순", value="star_desc"),
-            discord.SelectOption(label="☆ 성(레어도) 낮은순", value="star_asc"),
-            discord.SelectOption(label="🔒 잠금 보호 카드 우선", value="locked_only"),
-            discord.SelectOption(label="🏷️ 유닛 기준 정렬", value="unit"),
-            discord.SelectOption(label="🔤 캐릭터 이름순", value="char_name"),
-            discord.SelectOption(label="🔢 중복 보유 많은순", value="count_desc")
+            discord.SelectOption(label="획득 최신순", value="obtained_desc"),
+            discord.SelectOption(label="획득 오래된순", value="obtained_asc"),
+            discord.SelectOption(label="레어도 높은순", value="star_desc"),
+            discord.SelectOption(label="레어도 낮은순", value="star_asc"),
+            discord.SelectOption(label="잠금 카드 우선", value="locked_only"),
+            discord.SelectOption(label="유닛 기준", value="unit"),
+            discord.SelectOption(label="캐릭터 이름순", value="char_name"),
+            discord.SelectOption(label="중복 많은순", value="count_desc")
         ]
     )
     async def sort_select(self, interaction: discord.Interaction, select: discord.ui.Select):
@@ -2791,7 +2818,8 @@ class CardPokedexView(core.SafeView):
         self.update_components()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
@@ -3247,7 +3275,8 @@ class EventForecastView(core.SafeView):
         self.update_components()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
@@ -4242,7 +4271,11 @@ class SekaiLiveView(core.SafeView):
             self.selected_song_id = res["song"]["id"]
             await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.select(placeholder="🎵 플레이할 세카이 라이브 곡을 선택하세요...", row=0)
+    @discord.ui.select(
+        placeholder="🎵 플레이할 세카이 라이브 곡을 선택하세요...",
+        options=[discord.SelectOption(label="곡 목록 불러오는 중...", value="0")],
+        row=0,
+    )
     async def song_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         await core.safe_defer(interaction)
         self.selected_song_id = select.values[0]
@@ -5656,7 +5689,11 @@ class MySekaiHubView(core.SafeView):
         embed.set_footer(text="테마와 가구를 수집할수록 매일 /설정 (출석체크) 시 지급되는 크리스탈 이자가 영구적으로 증가합니다!")
         return embed
 
-    @discord.ui.select(placeholder="🎨 배경 테마 변경 또는 신규 테마 구매...", row=0)
+    @discord.ui.select(
+        placeholder="🎨 배경 테마 변경 또는 신규 테마 구매...",
+        options=[discord.SelectOption(label="테마 불러오는 중...", value="default")],
+        row=0,
+    )
     async def theme_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         if not self.owner:
             self.owner = interaction.user
@@ -5705,7 +5742,11 @@ class MySekaiHubView(core.SafeView):
         self.status_notice = f"🎉 **{t_info['name']}** 테마를 구매하고 즉시 적용했습니다! (`-{cost:,}💎` · 출석 보너스 `+{t_info['bonus']}💎/일`)"
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.select(placeholder="🛋️ 세카이 가구·소품 구매 및 배치하기...", row=1)
+    @discord.ui.select(
+        placeholder="🛋️ 세카이 가구·소품 구매 및 배치하기...",
+        options=[discord.SelectOption(label="가구 불러오는 중...", value="NONE")],
+        row=1,
+    )
     async def furniture_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         if not self.owner:
             self.owner = interaction.user

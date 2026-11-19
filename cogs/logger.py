@@ -673,7 +673,8 @@ class GithubWebhookView(core.SafeView):
         self.role = role
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        await super().interaction_check(interaction)
+        if not await super().interaction_check(interaction):
+            return False
         if not await self.bot.is_bot_owner_user(interaction.user):
             await core.safe_send_response(
                 interaction,

@@ -3342,7 +3342,13 @@ class ReminderHubView(core.SafeView):
         embed.set_footer(text="하단 버튼으로 새 알림을 추가하거나 드롭다운에서 기존 예약을 취소할 수 있습니다.")
         return embed
 
-    @discord.ui.select(placeholder="🗑️ 취소(삭제)할 예약 알림을 선택하세요...", min_values=1, max_values=1, row=0)
+    @discord.ui.select(
+        placeholder="🗑️ 취소(삭제)할 예약 알림을 선택하세요...",
+        min_values=1,
+        max_values=1,
+        options=[discord.SelectOption(label="알림 없음", value="NONE")],
+        row=0,
+    )
     async def cancel_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         target_id = select.values[0]
         if target_id == "NONE":

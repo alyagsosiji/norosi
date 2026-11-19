@@ -1127,8 +1127,32 @@ def build_fallback_proseka_quotes():
 
 
 PROSEKA_KR_CARDS = build_fallback_proseka_cards()
+PROSEKA_KR_CARDS_BY_ID: dict[str, dict] = {}
 PROSEKA_KR_QUOTES = build_fallback_proseka_quotes()
 PROSEKA_KR_COSTUMES: dict[str, dict] = {}
+
+
+def _rebuild_proseka_card_index():
+    """PROSEKA_KR_CARDS 리스트로부터 O(1) 카드 ID 조회 인덱스를 갱신합니다."""
+    PROSEKA_KR_CARDS_BY_ID.clear()
+    for c in PROSEKA_KR_CARDS:
+        if isinstance(c, dict) and c.get("id") is not None:
+            PROSEKA_KR_CARDS_BY_ID[str(c["id"])] = c
+
+
+def get_proseka_card_by_id(card_id) -> dict | None:
+    """카드 ID로 마스터 카드 객체를 O(1)로 조회합니다."""
+    if card_id is None:
+        return None
+    key = str(card_id).strip()
+    if not key:
+        return None
+    if not PROSEKA_KR_CARDS_BY_ID and PROSEKA_KR_CARDS:
+        _rebuild_proseka_card_index()
+    return PROSEKA_KR_CARDS_BY_ID.get(key)
+
+
+_rebuild_proseka_card_index()
 
 
 def fetch_json_with_fallback(urls):
@@ -1152,6 +1176,7 @@ def hydrate_proseka_kr_cache_from_disk() -> bool:
         if cached and isinstance(cached, list) and len(cached) > 50 and isinstance(cached[0], dict):
             valid_cached = [c for c in cached if isinstance(c, dict)]
             PROSEKA_KR_CARDS[:] = valid_cached
+            _rebuild_proseka_card_index()
             quotes = []
             for c in valid_cached:
                 gp = (c.get("gachaPhrase") or "").strip()
@@ -1314,6 +1339,7 @@ def load_proseka_kr_db():
 
     if parsed_cards:
         PROSEKA_KR_CARDS[:] = parsed_cards
+        _rebuild_proseka_card_index()
     if parsed_quotes:
         PROSEKA_KR_QUOTES[:] = parsed_quotes
 
@@ -2114,8 +2140,7 @@ def can_card_awaken(card: dict) -> bool:
         return False
     cid = card.get("id") or card.get("card_id")
     if cid is not None:
-        cid_str = str(cid)
-        c_obj = next((c for c in PROSEKA_KR_CARDS if str(c.get("id")) == cid_str), None)
+        c_obj = get_proseka_card_by_id(cid)
         if c_obj:
             return c_obj.get("rarity_type") in ("rarity_3", "rarity_4")
     return False
@@ -2127,10 +2152,9 @@ def _resolve_card_asset_name(card: dict) -> str | None:
         return asset_name
     cid = card.get("id") or card.get("card_id")
     if cid is not None:
-        cid_str = str(cid)
-        for c in PROSEKA_KR_CARDS:
-            if str(c.get("id")) == cid_str and c.get("assetbundleName"):
-                return c["assetbundleName"]
+        c_obj = get_proseka_card_by_id(cid)
+        if c_obj and c_obj.get("assetbundleName"):
+            return c_obj["assetbundleName"]
     return None
 
 
