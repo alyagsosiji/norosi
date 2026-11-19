@@ -1,10 +1,11 @@
 """
-cogs/community.py - 관리자/커뮤니티 편의 & 보안 기능 5종
+cogs/community.py - 관리자/커뮤니티 편의 & 보안 기능 6종
 1. #8  📌 자동 고정 메시지 (/고정메시지 - 관리자 전용)
 2. #12 🔗 SNS 링크 미리보기 보정 & 추적 파라미터 제거 (/링크미리보기)
 3. #42 🚨 동시 입장(Raid) · 봇 테러 비상 방어 모드 (/비상모드 - 관리자 전용)
 4. #48 ✍️ 한 줄씩 이어 쓰는 릴레이 소설 (/릴레이소설)
 5. #11 🔊 임시 음성방 자동 생성기 — Join to Create (/임시음성방)
+6. 🗓️ 예약 이벤트 신청표 (RSVP · 대기열 자동 승격 · 15분 전 자동 리마인드)
 """
 
 
@@ -12,12 +13,13 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import re
 import time
 from typing import Optional
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 import community_core
 import core
@@ -1777,10 +1779,532 @@ class TempVoiceSetupView(core.SafeView):
 
 
 # ==========================================
+# 6. 🗓️ 예약 이벤트 신청표 (RSVP · 대기열 자동 승격 · 15분 전 자동 리마인드)
+# ==========================================
+_EVENT_ID_FOOTER_RE = re.compile(r"ID:\s*(ev_[0-9a-f]{8})")
+
+
+def _format_rsvp_mentions(uid_list: list[int], limit: int = 18) -> str:
+    if not uid_list:
+        return "*(없음)*"
+    shown = [f"<@{uid}>" for uid in uid_list[:limit]]
+    if len(uid_list) > limit:
+        shown.append(f"외 `{len(uid_list) - limit}명`")
+    return " · ".join(shown)
+
+
+def build_event_rsvp_embed(event: dict) -> discord.Embed:
+    status = str(event.get("status") or "open")
+    going = community_core._normalize_uid_list(event.get("going"))
+    waitlist = community_core._normalize_uid_list(event.get("waitlist"))
+    maybe = community_core._normalize_uid_list(event.get("maybe"))
+    declined = community_core._normalize_uid_list(event.get("declined"))
+    max_slots = max(0, int(event.get("max_slots") or 0))
+    start_ts = int(event.get("start_ts") or 0)
+    host_id = int(event.get("host_id") or 0)
+    ev_id = str(event.get("id") or "")
+
+    is_full = max_slots > 0 and len(going) >= max_slots
+    if status == "cancelled":
+        badge = "❌ 취소됨"
+        color = 0xE74C3C
+    elif status == "closed":
+        badge = "🔒 모집 마감"
+        color = 0x95A5A6
+    elif is_full:
+        badge = "🟠 정원 마감 (대기 가능)"
+        color = 0xF39C12
+    else:
+        badge = "🟢 모집 중"
+        color = 0x2ECC71
+
+    cap_txt = f"`{len(going)} / {max_slots}명`" if max_slots > 0 else f"`{len(going)}명` (무제한)"
+    time_txt = f"<t:{start_ts}:F> (<t:{start_ts}:R>)" if start_ts > 0 else "미정"
+    desc_body = (event.get("description") or "").strip()
+
+    lines = [
+        f"**상태:** {badge}  ·  **주최자:** <@{host_id}>",
+        f"🕒 **시작 시각:** {time_txt}",
+        f"👥 **참가 정원:** {cap_txt}",
+    ]
+    if desc_body:
+        lines.append(f"━━━━━━━━━━━━━━━━━━━━━━\n📝 {desc_body}")
+
+    embed = discord.Embed(
+        title=f"🗓️ {event.get('title') or '예약 이벤트'}",
+        description="\n".join(lines),
+        color=color,
+        timestamp=datetime.datetime.now(core.KST),
+    )
+    embed.add_field(
+        name=f"✅ 참가 확정 ({len(going)}명)",
+        value=_format_rsvp_mentions(going),
+        inline=False,
+    )
+    if waitlist:
+        embed.add_field(
+            name=f"⏳ 대기열 ({len(waitlist)}명 · 빈자리 시 자동 승격)",
+            value=_format_rsvp_mentions(waitlist),
+            inline=False,
+        )
+    embed.add_field(
+        name=f"🤔 보류 ({len(maybe)}명)",
+        value=_format_rsvp_mentions(maybe),
+        inline=True,
+    )
+    embed.add_field(
+        name=f"❌ 불참 ({len(declined)}명)",
+        value=_format_rsvp_mentions(declined),
+        inline=True,
+    )
+    embed.set_footer(text=f"⏰ 시작 15분 전 자동 리마인드  |  ID: {ev_id}")
+    return embed
+
+
+class EventRSVPView(core.SafeView):
+    """예약 이벤트 신청표 카드 뷰 (재부팅 후에도 message_id/footer로 자동 복구)"""
+
+    def __init__(
+        self,
+        guild_id: Optional[int] = None,
+        event_id: str = "",
+        *,
+        disabled_rsvp: bool = False,
+    ):
+        super().__init__(timeout=None)
+        self.guild_id = int(guild_id) if guild_id else 0
+        self.event_id = str(event_id or "")
+        self.disabled_rsvp = bool(disabled_rsvp)
+        self._build_buttons()
+
+    def _build_buttons(self):
+        self.clear_items()
+        # Row 0: 참가 / 보류 / 불참
+        b_go = discord.ui.Button(
+            label="참가",
+            emoji="✅",
+            style=discord.ButtonStyle.success,
+            disabled=self.disabled_rsvp,
+            row=0,
+            custom_id="norosi:EventRSVPView:go",
+        )
+        b_go.callback = self._make_rsvp_cb("going")
+        self.add_item(b_go)
+
+        b_mb = discord.ui.Button(
+            label="보류",
+            emoji="🤔",
+            style=discord.ButtonStyle.secondary,
+            disabled=self.disabled_rsvp,
+            row=0,
+            custom_id="norosi:EventRSVPView:mb",
+        )
+        b_mb.callback = self._make_rsvp_cb("maybe")
+        self.add_item(b_mb)
+
+        b_no = discord.ui.Button(
+            label="불참",
+            emoji="❌",
+            style=discord.ButtonStyle.danger,
+            disabled=self.disabled_rsvp,
+            row=0,
+            custom_id="norosi:EventRSVPView:no",
+        )
+        b_no.callback = self._make_rsvp_cb("declined")
+        self.add_item(b_no)
+
+        # Row 1: 새로고침 / 마감·취소
+        b_rf = discord.ui.Button(
+            label="새로고침",
+            emoji="🔄",
+            style=discord.ButtonStyle.secondary,
+            row=1,
+            custom_id="norosi:EventRSVPView:rf",
+        )
+        b_rf.callback = self._on_refresh
+        self.add_item(b_rf)
+
+        b_cl = discord.ui.Button(
+            label="마감·취소",
+            emoji="🔒",
+            style=discord.ButtonStyle.secondary,
+            disabled=self.disabled_rsvp,
+            row=1,
+            custom_id="norosi:EventRSVPView:cl",
+        )
+        b_cl.callback = self._on_close_or_cancel
+        self.add_item(b_cl)
+
+    def _resolve_event_sync(self, data: dict, interaction: discord.Interaction) -> Optional[dict]:
+        gid = self.guild_id or (interaction.guild.id if interaction.guild else 0)
+        if not gid:
+            return None
+        if self.event_id:
+            ev = community_core.get_guild_event(data, gid, self.event_id)
+            if ev:
+                return ev
+        msg = interaction.message
+        if msg:
+            ev = community_core.find_guild_event_by_message_id(data, gid, msg.id)
+            if ev:
+                self.event_id = str(ev.get("id") or "")
+                return ev
+            for emb in getattr(msg, "embeds", []) or []:
+                ft = getattr(getattr(emb, "footer", None), "text", "") or ""
+                m = _EVENT_ID_FOOTER_RE.search(ft)
+                if m:
+                    ev = community_core.get_guild_event(data, gid, m.group(1))
+                    if ev:
+                        self.event_id = str(ev.get("id") or "")
+                        return ev
+        return None
+
+    def _make_rsvp_cb(self, action: str):
+        async def _cb(interaction: discord.Interaction):
+            if not interaction.guild:
+                await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
+                return
+
+            def _apply():
+                with core._DATA_LOCK:
+                    d = core.load_data()
+                    ev = self._resolve_event_sync(d, interaction)
+                    if not ev:
+                        return None, "missing", None
+                    res, promoted = community_core.update_event_rsvp(ev, interaction.user.id, action)
+                    if res != "closed":
+                        core.save_data(d)
+                    return dict(ev), res, promoted
+
+            ev_copy, res, promoted_uid = await asyncio.to_thread(_apply)
+            if not ev_copy or res == "missing":
+                await core.safe_send_response(interaction, "❌ 해당 이벤트 정보를 찾을 수 없습니다.", ephemeral=True)
+                return
+            if res == "closed":
+                self.disabled_rsvp = True
+                self._build_buttons()
+                await core.safe_edit_response(interaction, embed=build_event_rsvp_embed(ev_copy), view=self)
+                await interaction.followup.send("🔒 이미 마감되거나 취소된 이벤트입니다.", ephemeral=True)
+                return
+
+            await core.safe_edit_response(interaction, embed=build_event_rsvp_embed(ev_copy), view=self)
+            msg_map = {
+                "going": "✅ **참가 확정**으로 등록되었습니다!",
+                "waitlist": "⏳ 정원이 가득 차서 **대기열**에 등록되었습니다. 빈자리가 나면 자동 승격됩니다!",
+                "maybe": "🤔 **보류** 상태로 변경되었습니다.",
+                "declined": "❌ **불참** 상태로 변경되었습니다.",
+            }
+            await interaction.followup.send(msg_map.get(res, "✅ 반영되었습니다."), ephemeral=True)
+
+            if promoted_uid and interaction.channel:
+                try:
+                    await interaction.channel.send(
+                        f"🎉 <@{promoted_uid}>님이 **`{ev_copy['title']}`** 이벤트 대기열에서 **✅ 참가 확정**으로 자동 승격되었습니다!"
+                    )
+                except Exception:
+                    pass
+
+        return _cb
+
+    async def _on_refresh(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+
+        def _load():
+            d = core.load_data()
+            ev = self._resolve_event_sync(d, interaction)
+            return dict(ev) if ev else None
+
+        ev_copy = await asyncio.to_thread(_load)
+        if not ev_copy:
+            await core.safe_send_response(interaction, "❌ 이벤트 정보를 찾을 수 없습니다.", ephemeral=True)
+            return
+        self.disabled_rsvp = (str(ev_copy.get("status") or "open") != "open")
+        self._build_buttons()
+        await core.safe_edit_response(interaction, embed=build_event_rsvp_embed(ev_copy), view=self)
+
+    async def _on_close_or_cancel(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+
+        def _check_and_close():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                ev = self._resolve_event_sync(d, interaction)
+                if not ev:
+                    return None, "missing"
+                is_host = int(ev.get("host_id") or 0) == interaction.user.id
+                is_adm = _is_guild_admin(interaction.user, perm_attr="manage_guild")
+                if not (is_host or is_adm):
+                    return dict(ev), "denied"
+                if str(ev.get("status") or "open") != "open":
+                    return dict(ev), "already"
+                community_core.set_guild_event_status(d, interaction.guild.id, ev["id"], "closed")
+                core.save_data(d)
+                return dict(ev), "closed"
+
+        ev_copy, state = await asyncio.to_thread(_check_and_close)
+        if state == "missing" or not ev_copy:
+            await core.safe_send_response(interaction, "❌ 이벤트 정보를 찾을 수 없습니다.", ephemeral=True)
+            return
+        if state == "denied":
+            await core.safe_send_response(interaction, "❌ 이벤트 주최자 또는 서버 관리자만 마감할 수 있습니다.", ephemeral=True)
+            return
+        self.disabled_rsvp = True
+        self._build_buttons()
+        await core.safe_edit_response(interaction, embed=build_event_rsvp_embed(ev_copy), view=self)
+        await interaction.followup.send(f"🔒 **`{ev_copy['title']}`** 이벤트 모집을 마감했습니다.", ephemeral=True)
+
+
+class EventCreateModal(core.SafeModal, title="🗓️ 새 예약 이벤트 생성"):
+    ev_title = discord.ui.TextInput(
+        label="이벤트 제목",
+        placeholder="예: 주말 프로세카 협동 라이브 / 내전 토너먼트",
+        required=True,
+        max_length=80,
+    )
+    ev_datetime = discord.ui.TextInput(
+        label="시작 일시 (KST)",
+        placeholder="예: 내일 21:00 / 05-15 20:30 / 2026-05-15 21:00 / +2시간",
+        required=True,
+        max_length=40,
+    )
+    ev_max_slots = discord.ui.TextInput(
+        label="최대 참가 정원 (숫자, 0 또는 비우면 무제한)",
+        placeholder="예: 5 (초과 시 자동 대기열 등록)",
+        required=False,
+        max_length=3,
+    )
+    ev_desc = discord.ui.TextInput(
+        label="상세 안내 / 준비물 / 음성방 안내 (선택)",
+        style=discord.TextStyle.paragraph,
+        placeholder="참여 방법이나 주의사항을 자유롭게 적어주세요.",
+        required=False,
+        max_length=450,
+    )
+
+    def __init__(self, target_channel: discord.abc.Messageable):
+        super().__init__()
+        self.target_channel = target_channel
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 이벤트를 생성할 수 있습니다.", ephemeral=True)
+            return
+
+        start_dt, err = community_core.parse_kst_event_datetime(self.ev_datetime.value or "")
+        if err or not start_dt:
+            await core.safe_send_response(interaction, f"❌ {err}", ephemeral=True)
+            return
+
+        raw_slots = (self.ev_max_slots.value or "").strip()
+        max_slots = 0
+        if raw_slots:
+            if not raw_slots.isdigit():
+                await core.safe_send_response(interaction, "❌ 최대 정원은 숫자로만 입력해 주세요. (무제한은 `0` 또는 공백)", ephemeral=True)
+                return
+            max_slots = int(raw_slots)
+            if max_slots == 1 or max_slots > 100:
+                await core.safe_send_response(interaction, "❌ 정원은 `0(무제한)` 또는 `2 ~ 100` 사이로 입력해 주세요.", ephemeral=True)
+                return
+
+        await core.safe_defer(interaction, ephemeral=True)
+        ch_id = getattr(self.target_channel, "id", 0) or (interaction.channel.id if interaction.channel else 0)
+
+        def _create():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                ev = community_core.create_guild_event(
+                    d,
+                    interaction.guild.id,
+                    ch_id,
+                    interaction.user.id,
+                    interaction.user.display_name,
+                    self.ev_title.value or "",
+                    start_dt,
+                    max_slots=max_slots,
+                    description=self.ev_desc.value or "",
+                )
+                core.save_data(d)
+                return dict(ev)
+
+        ev = await asyncio.to_thread(_create)
+        rsvp_view = EventRSVPView(guild_id=interaction.guild.id, event_id=ev["id"])
+        rsvp_embed = build_event_rsvp_embed(ev)
+
+        sent_msg = None
+        try:
+            sent_msg = await self.target_channel.send(embed=rsvp_embed, view=rsvp_view)
+        except Exception as e:
+            await interaction.followup.send(f"❌ 채널에 이벤트 신청표를 게시하지 못했습니다: {e}", ephemeral=True)
+            return
+
+        if sent_msg:
+            def _bind_msg():
+                with core._DATA_LOCK:
+                    d = core.load_data()
+                    community_core.set_guild_event_message_id(d, interaction.guild.id, ev["id"], sent_msg.id)
+                    core.save_data(d)
+
+            await asyncio.to_thread(_bind_msg)
+
+        await interaction.followup.send(
+            f"✅ **`{ev['title']}`** 예약 이벤트 신청표를 게시했습니다!\n"
+            f"🕒 시작: <t:{ev['start_ts']}:F> (<t:{ev['start_ts']}:R>) · ⏰ 시작 15분 전 자동 리마인드 예약 완료",
+            ephemeral=True,
+        )
+
+
+class EventHubView(core.SafeView):
+    """서버 예약 이벤트(RSVP) 목록 조회 및 새 이벤트 생성 허브 뷰"""
+
+    def __init__(
+        self,
+        guild: Optional[discord.Guild] = None,
+        user: Optional[discord.abc.User] = None,
+        events: Optional[list[dict]] = None,
+    ):
+        super().__init__(timeout=None)
+        self.guild = guild
+        self.user = user
+        self.events: list[dict] = list(events) if events is not None else []
+        self._rebuild_items()
+
+    def _rebuild_items(self):
+        self.clear_items()
+        if self.events:
+            opts = []
+            for ev in self.events[:20]:
+                going_cnt = len(community_core._normalize_uid_list(ev.get("going")))
+                max_s = int(ev.get("max_slots") or 0)
+                cap = f"{going_cnt}/{max_s}명" if max_s > 0 else f"{going_cnt}명"
+                opts.append(
+                    discord.SelectOption(
+                        label=str(ev.get("title") or "이벤트")[:80],
+                        value=str(ev.get("id") or ""),
+                        description=f"참가 {cap} · 주최 {str(ev.get('host_name') or '')[:20]}"[:100],
+                        emoji="🗓️",
+                    )
+                )
+            sel = discord.ui.Select(
+                placeholder="🔍 신청표를 열거나 다시 볼 이벤트를 선택하세요...",
+                options=opts,
+                row=0,
+                custom_id="norosi:EventHubView:select",
+            )
+            sel.callback = self._on_event_selected
+            self.add_item(sel)
+
+        # Row 1: 새 이벤트 만들기 / 새로고침
+        b_new = discord.ui.Button(
+            label="새 이벤트",
+            emoji="➕",
+            style=discord.ButtonStyle.success,
+            row=1,
+            custom_id="norosi:EventHubView:create",
+        )
+        b_new.callback = self._on_create_clicked
+        self.add_item(b_new)
+
+        b_ref = discord.ui.Button(
+            label="새로고침",
+            emoji="🔄",
+            style=discord.ButtonStyle.primary,
+            row=1,
+            custom_id="norosi:EventHubView:refresh",
+        )
+        b_ref.callback = self._on_refresh_clicked
+        self.add_item(b_ref)
+
+    def build_embed(self) -> discord.Embed:
+        g_name = self.guild.name if self.guild else "서버"
+        if not self.events:
+            body = (
+                "현재 예정된 예약 이벤트가 없습니다.\n"
+                "아래 **`[➕ 새 이벤트]`** 버튼을 눌러 RSVP 신청표를 만들어 보세요!\n\n"
+                "• ✅ 참가 / 🤔 보류 / ❌ 불참 원클릭 집계\n"
+                "• ⏳ 정원 초과 시 대기열 등록 및 빈자리 자동 승격\n"
+                "• ⏰ 시작 15분 전 참가자 자동 리마인드 알림"
+            )
+        else:
+            lines = []
+            for idx, ev in enumerate(self.events[:10], 1):
+                going_cnt = len(community_core._normalize_uid_list(ev.get("going")))
+                wait_cnt = len(community_core._normalize_uid_list(ev.get("waitlist")))
+                max_s = int(ev.get("max_slots") or 0)
+                cap = f"`{going_cnt}/{max_s}명`" if max_s > 0 else f"`{going_cnt}명`"
+                wait_txt = f" *(대기 {wait_cnt})*" if wait_cnt else ""
+                start_ts = int(ev.get("start_ts") or 0)
+                t_txt = f"<t:{start_ts}:f> (<t:{start_ts}:R>)" if start_ts > 0 else "미정"
+                lines.append(f"`{idx}.` **{ev.get('title')}** — {cap}{wait_txt}\n　└ 🕒 {t_txt} · 주최 <@{ev.get('host_id')}>")
+            body = "\n".join(lines)
+
+        embed = discord.Embed(
+            title=f"🗓️ {g_name} 예약 이벤트 신청표 (RSVP)",
+            description=body,
+            color=0x3498DB,
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.set_footer(text=f"진행 중 이벤트 {len(self.events)}건  |  드롭다운에서 이벤트를 선택하면 바로 신청할 수 있습니다.")
+        return embed
+
+    async def _on_create_clicked(self, interaction: discord.Interaction):
+        if not interaction.guild or not interaction.channel:
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 이벤트를 생성할 수 있습니다.", ephemeral=True)
+            return
+        await interaction.response.send_modal(EventCreateModal(interaction.channel))
+
+    async def _on_refresh_clicked(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+        self.guild = interaction.guild
+        data = await asyncio.to_thread(core.load_data)
+        self.events = community_core.get_guild_events(data, interaction.guild.id, include_closed=False)
+        self._rebuild_items()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    async def _on_event_selected(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+        vals = (interaction.data or {}).get("values") or []
+        ev_id = vals[0] if vals else ""
+        data = await asyncio.to_thread(core.load_data)
+        ev = community_core.get_guild_event(data, interaction.guild.id, ev_id)
+        if not ev:
+            await core.safe_send_response(interaction, "❌ 선택한 이벤트를 찾을 수 없습니다.", ephemeral=True)
+            return
+        rsvp_view = EventRSVPView(
+            guild_id=interaction.guild.id,
+            event_id=ev["id"],
+            disabled_rsvp=(str(ev.get("status") or "open") != "open"),
+        )
+        await core.safe_send_response(interaction, embed=build_event_rsvp_embed(ev), view=rsvp_view, ephemeral=False)
+
+
+async def open_guild_event_hub_from_interaction(interaction: discord.Interaction, *, ephemeral: bool = False):
+    """어느 뷰(/설정 등)에서든 예약 이벤트 신청표 허브를 여는 공통 헬퍼"""
+    if not interaction.guild:
+        await core.safe_send_response(interaction, "❌ 예약 이벤트 기능은 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
+        return
+    data = await asyncio.to_thread(core.load_data)
+    events = community_core.get_guild_events(data, interaction.guild.id, include_closed=False)
+    view = EventHubView(guild=interaction.guild, user=interaction.user, events=events)
+    embed = view.build_embed()
+    if interaction.response.is_done():
+        await interaction.followup.send(embed=embed, view=view, ephemeral=ephemeral, wait=True)
+    else:
+        await core.safe_send_response(interaction, embed=embed, view=view, ephemeral=ephemeral)
+
+
+# ==========================================
 # 메인 CommunityCog
 # ==========================================
 class CommunityCog(commands.Cog):
-    """고정메시지(#8) · SNS 링크 보정(#12) · 레이드 비상방어(#42) · 릴레이 소설(#48) · 임시 음성방(#11)"""
+    """고정메시지(#8) · SNS 링크 보정(#12) · 레이드 비상방어(#42) · 릴레이 소설(#48) · 임시 음성방(#11) · 예약 이벤트 RSVP"""
 
     sticky_group = app_commands.Group(
         name="고정메시지",
@@ -1814,6 +2338,65 @@ class CommunityCog(commands.Cog):
         self._temp_voice_user_cd: dict[tuple[int, int], float] = {}
         self._last_sticky_post_ts: dict[int, float] = {}
         self._last_raid_alert_ts: dict[int, float] = {}
+
+    async def cog_load(self):
+        if not self.event_reminder_loop.is_running():
+            self.event_reminder_loop.start()
+
+    def cog_unload(self):
+        if self.event_reminder_loop.is_running():
+            self.event_reminder_loop.cancel()
+
+    @tasks.loop(minutes=1)
+    async def event_reminder_loop(self):
+        """예약 이벤트 시작 15분 전 자동 리마인드 및 시작 알림 발송 루프"""
+        try:
+            def _collect():
+                with core._DATA_LOCK:
+                    d = core.load_data()
+                    due = community_core.collect_due_event_reminders(d)
+                    if due:
+                        core.save_data(d)
+                    return [(dict(ev), kind) for ev, kind in due]
+
+            due_list = await asyncio.to_thread(_collect)
+            for ev, kind in due_list:
+                ch = self.bot.get_channel(int(ev.get("channel_id") or 0))
+                if not ch:
+                    continue
+                going = community_core._normalize_uid_list(ev.get("going"))
+                mentions = " ".join(f"<@{u}>" for u in going[:25]) if going else f"<@{ev.get('host_id')}>"
+                start_ts = int(ev.get("start_ts") or 0)
+                if kind == "15m":
+                    title = f"⏰ 15분 뒤 이벤트 시작! — {ev.get('title')}"
+                    desc = f"🕒 시작 시각: <t:{start_ts}:F> (<t:{start_ts}:R>)\n참가 확정 멤버 여러분, 곧 시작하니 준비해 주세요!"
+                    color = 0xF39C12
+                else:
+                    title = f"🚀 이벤트가 시작됩니다! — {ev.get('title')}"
+                    desc = f"🕒 시작 시각: <t:{start_ts}:F>\n참가자 여러분 모두 모여주세요!"
+                    color = 0x2ECC71
+                embed = discord.Embed(title=title, description=desc, color=color, timestamp=datetime.datetime.now(core.KST))
+                try:
+                    await ch.send(content=mentions, embed=embed)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    @event_reminder_loop.before_loop
+    async def _before_event_reminder_loop(self):
+        await self.bot.wait_until_ready()
+
+    @commands.command(name="이벤트", aliases=["예약이벤트", "신청표", "rsvp"])
+    async def prefix_guild_events(self, ctx: commands.Context):
+        """채팅창에 !이벤트 입력 시 예약 이벤트 신청표 허브 호출"""
+        if not ctx.guild:
+            await ctx.send("❌ 예약 이벤트 기능은 서버 채널에서만 사용할 수 있습니다.")
+            return
+        data = await asyncio.to_thread(core.load_data)
+        events = community_core.get_guild_events(data, ctx.guild.id, include_closed=False)
+        view = EventHubView(guild=ctx.guild, user=ctx.author, events=events)
+        await ctx.send(embed=view.build_embed(), view=view)
 
     def _get_sticky_lock(self, channel_id: int) -> asyncio.Lock:
         lock = self._sticky_locks.get(channel_id)

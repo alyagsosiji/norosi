@@ -3620,6 +3620,60 @@ def ensure_user_profile(data: dict, u_key: str | int, user_name: str = "") -> di
     return p_val
 
 
+DEFAULT_HOME_SHORTCUTS: list[str] = ["att", "prof", "p10", "fish", "rank"]
+
+
+def get_user_home_shortcuts(
+    data: dict,
+    u_key: str | int,
+    valid_keys: set[str] | None = None,
+) -> list[str]:
+    """유저의 /설정 홈 단축바 즐겨찾기(최대 5개)를 반환합니다. 미설정 시 기본 5종을 반환합니다."""
+    profiles = as_dict(data.get("user_profiles"))
+    prof = profiles.get(str(u_key))
+    raw = prof.get("home_shortcuts") if isinstance(prof, dict) else None
+    if not isinstance(raw, list) or not raw:
+        return list(DEFAULT_HOME_SHORTCUTS)
+    cleaned: list[str] = []
+    for k in raw:
+        ks = str(k or "").strip()
+        if not ks or ks in cleaned:
+            continue
+        if valid_keys is not None and ks not in valid_keys:
+            continue
+        cleaned.append(ks)
+        if len(cleaned) >= 5:
+            break
+    return cleaned if cleaned else list(DEFAULT_HOME_SHORTCUTS)
+
+
+def set_user_home_shortcuts(
+    data: dict,
+    u_key: str | int,
+    keys: list[str],
+    *,
+    user_name: str = "",
+    valid_keys: set[str] | None = None,
+) -> list[str]:
+    """유저의 /설정 홈 단축바 즐겨찾기(최대 5개)를 저장합니다. 빈 리스트면 기본값으로 복원합니다."""
+    prof = ensure_user_profile(data, u_key, user_name)
+    cleaned: list[str] = []
+    for k in keys or []:
+        ks = str(k or "").strip()
+        if not ks or ks in cleaned:
+            continue
+        if valid_keys is not None and ks not in valid_keys:
+            continue
+        cleaned.append(ks)
+        if len(cleaned) >= 5:
+            break
+    if not cleaned:
+        prof.pop("home_shortcuts", None)
+        return list(DEFAULT_HOME_SHORTCUTS)
+    prof["home_shortcuts"] = cleaned
+    return cleaned
+
+
 def get_partner_pair_key(u1_id: int | str, u2_id: int | str) -> str:
     s1, s2 = str(u1_id), str(u2_id)
     return f"{min(s1, s2)}_{max(s1, s2)}"

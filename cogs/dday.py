@@ -354,10 +354,10 @@ class AttendanceQuickActionView(core.SafeView):
 
 
 # ==========================================
-# 올인원 빠른 실행 메뉴 (/메뉴) 슈퍼 리모컨 뷰 & 드롭다운
+# 올인원 빠른 실행 리모컨 뷰 & 드롭다운 (레거시 !메뉴 호환)
 # ==========================================
 class CommandRemoteSelect(discord.ui.Select):
-    """55개 슬래시 커맨드를 1초 만에 바로 실행하는 리모컨 검색/선택 드롭다운"""
+    """주요 기능을 1초 만에 바로 실행하는 리모컨 검색/선택 드롭다운"""
     def __init__(self, bot_instance, user: discord.User):
         self.bot_instance = bot_instance
         self.user = user

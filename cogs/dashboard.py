@@ -1,7 +1,7 @@
 """
 cogs/dashboard.py - norosi 통합 설정 (/설정) 컨트롤 허브 (Component V2 스타일 계층형 내비게이션 & 통합 페이지네이션)
-- 1단계 (홈): [🌐 일반] · [⚙️ 고급] · [🎮 미니게임] · [👤 개인] 4대 메인 카테고리 버튼 + 빠른 실행 + 통합 페이지네이션
-- 2단계 (카테고리 내부): 카테고리별 세부 기능 버튼 (페이지당 6개, 총 14페이지 · 84개 기능) + [⬅️ 뒤로가기] + [◀ 이전 / 📄 현재·통합 / 다음 ▶]
+- 1단계 (홈): [🌐 일반] · [⚙️ 고급] · [🎮 미니게임] · [👤 개인] 4대 메인 카테고리 버튼 + 개인 커스텀 즐겨찾기 단축바 + 통합 페이지네이션
+- 2단계 (카테고리 내부): 카테고리별 세부 기능 버튼 (페이지당 6개, 총 15페이지 · 90개 기능) + [⬅️ 뒤로가기] + [◀ 이전 / 📄 현재·통합 / 다음 ▶]
 - 3단계 (세부 제어판): 도감/랭킹/티켓/픽업/백업/초기화 등 하위 버튼 패널 + [⬅️ 뒤로가기] + [🏠 설정 홈으로]
 - 권한 3단계 완벽 분리: [👤 일반 이용자] / [🛡️ 서버 관리자] / [👑 봇 주인] 배지 표시 및 서버 측 이중 권한 검증
 """
@@ -1569,15 +1569,234 @@ class BotBannerModal(core.SafeModal, title="🖼️ [봇주 전용] 봇 프로�
         else:
             await bot_mod.set_bot_banner_slash(interaction, 이미지=None, 이미지url=raw, 초기화=False)
 
+# ==========================================
+# ⭐ 나만의 `/설정` 홈 즐겨찾기 단축바 카탈로그 & 편집 뷰
+# ==========================================
+HOME_SHORTCUT_CATALOG: List[Dict[str, Any]] = [
+    {"key": "att", "label": "출석체크", "emoji": "📅", "style": discord.ButtonStyle.success, "desc": "오늘 출석 도장 & 크리스탈 수령", "cb_name": "_act_attendance"},
+    {"key": "prof", "label": "프로필카드", "emoji": "🪪", "style": discord.ButtonStyle.primary, "desc": "통합 PNG 프로필 카드 발급", "cb_name": "_act_profile_card_png"},
+    {"key": "p10", "label": "프세카10연", "emoji": "🌈", "style": discord.ButtonStyle.secondary, "desc": "프로세카 10연차 즉시 뽑기", "cb_name": "_act_sekai_pull_10"},
+    {"key": "fish", "label": "낚시 출조", "emoji": "🎣", "style": discord.ButtonStyle.secondary, "desc": "호수·강·바다 낚시 출조", "cb_name": "_act_fishing_cast"},
+    {"key": "rank", "label": "통합 랭킹", "emoji": "🏆", "style": discord.ButtonStyle.primary, "desc": "전 분야 8종 서버 랭킹 허브", "cb_name": "_act_ranking_hub"},
+    {"key": "routine", "label": "일일 루틴", "emoji": "☀️", "style": discord.ButtonStyle.success, "desc": "오늘의 일일 루틴 한눈에 보기", "cb_name": "_act_daily_routine"},
+    {"key": "weekly", "label": "주간 미션", "emoji": "🎯", "style": discord.ButtonStyle.primary, "desc": "통합 주간 미션 & 올클리어 보상", "cb_name": "_act_weekly_missions"},
+    {"key": "radio", "label": "무드 라디오", "emoji": "📻", "style": discord.ButtonStyle.primary, "desc": "6대 분위기 원클릭 음성 라디오", "cb_name": "_act_mood_radio"},
+    {"key": "event", "label": "예약 이벤트", "emoji": "🗓️", "style": discord.ButtonStyle.primary, "desc": "RSVP 참가 신청표 & 자동 리마인드", "cb_name": "_act_guild_events"},
+    {"key": "pl", "label": "플리스튜디오", "emoji": "💿", "style": discord.ButtonStyle.secondary, "desc": "내 플레이리스트 제작 & 자동재생", "cb_name": "_act_playlist_studio"},
+    {"key": "gi10", "label": "원신 10연", "emoji": "🌠", "style": discord.ButtonStyle.secondary, "desc": "원신 기원 10연차 뽑기", "cb_name": "_act_gi_pull_10"},
+    {"key": "hsr10", "label": "스타레일10", "emoji": "🚄", "style": discord.ButtonStyle.secondary, "desc": "스타레일 워프 10연차 뽑기", "cb_name": "_act_hsr_warp_10"},
+    {"key": "farm", "label": "개인 농장", "emoji": "🌾", "style": discord.ButtonStyle.success, "desc": "개인 농장 작물 재배 & 수확", "cb_name": "_act_life_farm"},
+    {"key": "todo", "label": "오늘 목표", "emoji": "🌱", "style": discord.ButtonStyle.success, "desc": "오늘 할 일 & 은하수 잔디 보드", "cb_name": "_act_todo_grass"},
+    {"key": "pomo", "label": "뽀모도로", "emoji": "⏳", "style": discord.ButtonStyle.secondary, "desc": "집중/휴식 스터디 타이머 실행", "cb_name": "_act_pomodoro"},
+    {"key": "weather", "label": "실시간날씨", "emoji": "🌤️", "style": discord.ButtonStyle.secondary, "desc": "기상청 기온·미세먼지 조회", "cb_name": "_act_weather"},
+    {"key": "dday", "label": "D-Day보드", "emoji": "📋", "style": discord.ButtonStyle.secondary, "desc": "서버 D-Day 일정 전광판", "cb_name": "_act_dday_list"},
+    {"key": "showcase", "label": "쇼케이스", "emoji": "🌟", "style": discord.ButtonStyle.secondary, "desc": "내 수집품 통합 자랑 카드", "cb_name": "_act_showcase"},
+    {"key": "exchange", "label": "화폐 환전", "emoji": "💱", "style": discord.ButtonStyle.secondary, "desc": "골드⇄크리스탈 안전 환전소", "cb_name": "_act_currency_exchange"},
+    {"key": "battle", "label": "즉석 대전", "emoji": "🎲", "style": discord.ButtonStyle.success, "desc": "하이로우 주사위 & 초성 퀴즈", "cb_name": "_act_mini_battle_hub"},
+]
+HOME_SHORTCUT_MAP: Dict[str, Dict[str, Any]] = {item["key"]: item for item in HOME_SHORTCUT_CATALOG}
+HOME_SHORTCUT_KEYS: set[str] = set(HOME_SHORTCUT_MAP.keys())
+
+
+class HomeShortcutEditView(core.SafeView):
+    """유저별 `/설정` 홈 2번째 줄(Row 1) 즐겨찾기 단축바(최대 5개) 커스터마이징 뷰"""
+
+    def __init__(
+        self,
+        bot: Optional[commands.Bot] = None,
+        user: Optional[discord.abc.User] = None,
+        guild: Optional[discord.Guild] = None,
+        data: Optional[dict] = None,
+        parent_view: Optional["MasterDashboardView"] = None,
+    ):
+        super().__init__(timeout=300)
+        self.bot = bot
+        self.user = user
+        self.guild = guild
+        self.data = data if isinstance(data, dict) else core.get_cached_data()
+        self.parent_view = parent_view
+        uid = self.user.id if self.user else 0
+        self.selected_keys: List[str] = core.get_user_home_shortcuts(
+            self.data, uid, valid_keys=HOME_SHORTCUT_KEYS
+        )
+        self._rebuild_items()
+
+    def _rebuild_items(self):
+        self.clear_items()
+        opts = [
+            discord.SelectOption(
+                label=f"{item['label']}",
+                value=item["key"],
+                description=item["desc"][:100],
+                emoji=item["emoji"],
+                default=(item["key"] in self.selected_keys),
+            )
+            for item in HOME_SHORTCUT_CATALOG[:25]
+        ]
+        sel = discord.ui.Select(
+            placeholder="⭐ 홈 단축바에 배치할 기능 1~5개를 선택하세요...",
+            min_values=1,
+            max_values=5,
+            options=opts,
+            row=0,
+            custom_id="norosi:HomeShortcutEditView:select",
+        )
+        sel.callback = self._on_select_changed
+        self.add_item(sel)
+
+        btn_save = discord.ui.Button(
+            label="저장 & 적용",
+            emoji="💾",
+            style=discord.ButtonStyle.success,
+            row=1,
+            custom_id="norosi:HomeShortcutEditView:save",
+        )
+        btn_save.callback = self._on_save_clicked
+        self.add_item(btn_save)
+
+        btn_reset = discord.ui.Button(
+            label="기본값 복원",
+            emoji="🔄",
+            style=discord.ButtonStyle.secondary,
+            row=1,
+            custom_id="norosi:HomeShortcutEditView:reset",
+        )
+        btn_reset.callback = self._on_reset_clicked
+        self.add_item(btn_reset)
+
+        btn_home = discord.ui.Button(
+            label="설정 홈으로",
+            emoji="🏠",
+            style=discord.ButtonStyle.primary,
+            row=1,
+            custom_id="norosi:HomeShortcutEditView:home",
+        )
+        btn_home.callback = self._on_go_home_clicked
+        self.add_item(btn_home)
+
+    def build_embed(self) -> discord.Embed:
+        preview_chips = "  ".join(
+            f"`[{HOME_SHORTCUT_MAP[k]['emoji']} {HOME_SHORTCUT_MAP[k]['label']}]`"
+            for k in self.selected_keys
+            if k in HOME_SHORTCUT_MAP
+        )
+        is_default = (self.selected_keys == core.DEFAULT_HOME_SHORTCUTS)
+        badge = "기본 프리셋" if is_default else f"커스텀 ({len(self.selected_keys)}개)"
+        embed = discord.Embed(
+            title="⭐ 나만의 `/설정` 홈 즐겨찾기 단축바 편집",
+            description=(
+                "자주 쓰는 기능 **1~5개**를 골라 `/설정` 홈 화면 2번째 줄 단축 버튼으로 고정할 수 있습니다.\n"
+                "아래 드롭다운에서 원하는 기능을 고른 뒤 **`[💾 저장 & 적용]`**을 눌러주세요!\n\n"
+                f"📌 **현재 선택 미리보기 ({badge})**\n"
+                f"{preview_chips or '*(선택 없음)*'}"
+            ),
+            color=0xF1C40F,
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.set_footer(text="설정은 내 계정에 저장되어 모든 서버의 `/설정` 홈에 자동 적용됩니다.")
+        return embed
+
+    async def _on_select_changed(self, interaction: discord.Interaction):
+        vals = (interaction.data or {}).get("values") or []
+        cleaned = [v for v in vals if v in HOME_SHORTCUT_KEYS][:5]
+        if cleaned:
+            self.selected_keys = cleaned
+        self._rebuild_items()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    async def _on_save_clicked(self, interaction: discord.Interaction):
+        uid = interaction.user.id
+        uname = interaction.user.display_name
+        keys_to_save = list(self.selected_keys)
+
+        def _commit():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                saved = core.set_user_home_shortcuts(
+                    d, uid, keys_to_save, user_name=uname, valid_keys=HOME_SHORTCUT_KEYS
+                )
+                core.save_data(d)
+                return d, saved
+
+        new_data, saved_keys = await asyncio.to_thread(_commit)
+        self.data = new_data
+        self.selected_keys = saved_keys
+        self._rebuild_items()
+
+        if self.parent_view is not None:
+            self.parent_view.data = new_data
+            self.parent_view.current_category = "home"
+            self.parent_view.sub_mode = None
+            self.parent_view.refresh_components()
+            if self.parent_view.message:
+                try:
+                    await self.parent_view.message.edit(
+                        embed=self.parent_view.build_current_embed(),
+                        view=self.parent_view,
+                    )
+                except Exception:
+                    pass
+
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+        chips = " · ".join(f"{HOME_SHORTCUT_MAP[k]['emoji']}{HOME_SHORTCUT_MAP[k]['label']}" for k in saved_keys if k in HOME_SHORTCUT_MAP)
+        await interaction.followup.send(f"✅ 나만의 홈 단축바가 저장·적용되었습니다!\n> {chips}", ephemeral=True)
+
+    async def _on_reset_clicked(self, interaction: discord.Interaction):
+        uid = interaction.user.id
+        uname = interaction.user.display_name
+
+        def _commit_reset():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                saved = core.set_user_home_shortcuts(
+                    d, uid, [], user_name=uname, valid_keys=HOME_SHORTCUT_KEYS
+                )
+                core.save_data(d)
+                return d, saved
+
+        new_data, saved_keys = await asyncio.to_thread(_commit_reset)
+        self.data = new_data
+        self.selected_keys = saved_keys
+        self._rebuild_items()
+
+        if self.parent_view is not None:
+            self.parent_view.data = new_data
+            self.parent_view.current_category = "home"
+            self.parent_view.sub_mode = None
+            self.parent_view.refresh_components()
+            if self.parent_view.message:
+                try:
+                    await self.parent_view.message.edit(
+                        embed=self.parent_view.build_current_embed(),
+                        view=self.parent_view,
+                    )
+                except Exception:
+                    pass
+
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+        await interaction.followup.send("🔄 홈 단축바를 기본 프리셋 5종으로 복원했습니다.", ephemeral=True)
+
+    async def _on_go_home_clicked(self, interaction: discord.Interaction):
+        data = await asyncio.to_thread(core.load_data)
+        view = MasterDashboardView(
+            bot=self.bot or interaction.client,
+            user=interaction.user,
+            guild=interaction.guild,
+            data=data,
+            initial_tab="home",
+        )
+        await core.safe_edit_response(interaction, embed=view.build_current_embed(), view=view)
+
+
 # 🎛️ 통합 설정 허브 뷰 (MasterDashboardView / SettingsHubView)
 # ==========================================
 class MasterDashboardView(core.SafeView):
     """
     Component V2 스타일 계층형 통합 `/설정` 뷰:
     - 1단계 (홈 `current_category == 'home'`):
-      [🌐 일반] · [⚙️ 고급] · [🎮 미니게임] · [👤 개인] 4대 카테고리 진입 버튼 + 즉시 실행 + 통합 페이지네이션
+      [🌐 일반] · [⚙️ 고급] · [🎮 미니게임] · [👤 개인] 4대 카테고리 진입 버튼 + 개인 커스텀 즐겨찾기 단축바 + 통합 페이지네이션
     - 2단계 (카테고리 내부 `current_category in ('general', 'advanced', 'minigame', 'personal')`):
-      세부 기능 버튼 (페이지당 6개, 총 14페이지 · 84종 기능) + 카테고리 스위처 + [⬅️ 뒤로가기] + [◀ 이전 / 📄 페이지 / 다음 ▶]
+      세부 기능 버튼 (페이지당 6개, 총 15페이지 · 90종 기능) + 카테고리 스위처 + [⬅️ 뒤로가기] + [◀ 이전 / 📄 페이지 / 다음 ▶]
     - 3단계 (`sub_mode is not None`):
       도감/랭킹/티켓/픽업/백업/초기화 등 세부 제어 패널 + [⬅️ 뒤로가기] + [🏠 설정 홈으로]
     """
@@ -1812,7 +2031,7 @@ class MasterDashboardView(core.SafeView):
         return True
 
     # ----------------------------------------------------
-    # 🗂️ 4대 카테고리 × 14페이지 (총 84개 기능) 통합 카탈로그
+    # 🗂️ 4대 카테고리 × 15페이지 (총 90개 기능) 통합 카탈로그
     # ----------------------------------------------------
     def _build_catalog_pages(self) -> Dict[str, List[Dict[str, Any]]]:
         return {
@@ -1875,7 +2094,7 @@ class MasterDashboardView(core.SafeView):
                     ],
                 },
                 {
-                    "page_title": "🎵 음악 추천 · 플레이리스트 · 음성 컨트롤",
+                    "page_title": "🎵 음악 추천 · 플리 · 무드 라디오 · 음성 컨트롤",
                     "perm": PERM_USER,
                     "items": [
                         {
@@ -1887,9 +2106,17 @@ class MasterDashboardView(core.SafeView):
                             "cb": self._act_playlist_studio,
                         },
                         {
+                            "label": "무드 음성 라디오",
+                            "emoji": "📻",
+                            "style": discord.ButtonStyle.success,
+                            "perm": PERM_USER,
+                            "desc": "로파이·프세카·새벽감성·시티팝·게임OST·피아노 6대 원클릭 라디오",
+                            "cb": self._act_mood_radio,
+                        },
+                        {
                             "label": "지금 음악추천",
                             "emoji": "🎧",
-                            "style": discord.ButtonStyle.success,
+                            "style": discord.ButtonStyle.secondary,
                             "perm": PERM_USER,
                             "desc": "현재 시간대 감성에 어울리는 프로세카/보컬로이드 곡 즉시 선곡",
                             "cb": self._act_music_now,
@@ -1903,20 +2130,12 @@ class MasterDashboardView(core.SafeView):
                             "cb": self._act_music_vault,
                         },
                         {
-                            "label": "배속·음성방 리모컨",
+                            "label": "배속·헤드셋·음성방",
                             "emoji": "⏩",
                             "style": discord.ButtonStyle.secondary,
                             "perm": PERM_USER,
-                            "desc": "음성 재생 배속(0.75x~2.0x) 변경 및 내 임시음성방 리모컨 열기",
+                            "desc": "재생 배속(0.75x~2.0x), 봇 헤드셋 토글, 내 임시음성방 리모컨",
                             "cb": self._act_music_voice_hub,
-                        },
-                        {
-                            "label": "봇 헤드셋 제어",
-                            "emoji": "🎧",
-                            "style": discord.ButtonStyle.secondary,
-                            "perm": PERM_USER,
-                            "desc": "음성채널 봇 청각 차단(Deafen) 상태 켜기/끄기 제어",
-                            "cb": self._act_music_headset_toggle,
                         },
                         {
                             "label": "440Hz 오디오 진단",
@@ -1929,7 +2148,7 @@ class MasterDashboardView(core.SafeView):
                     ],
                 },
                 {
-                    "page_title": "📊 서버 통계 · 파티 모집 · 날씨 · 협동 · 안내",
+                    "page_title": "📊 서버 통계 · 파티 · 예약 이벤트 · 날씨 · 협동",
                     "perm": PERM_USER,
                     "items": [
                         {
@@ -1949,6 +2168,14 @@ class MasterDashboardView(core.SafeView):
                             "cb": self._act_recruit,
                         },
                         {
+                            "label": "예약 이벤트 RSVP",
+                            "emoji": "🗓️",
+                            "style": discord.ButtonStyle.primary,
+                            "perm": PERM_USER,
+                            "desc": "참가·보류·불참 신청표, 정원 대기열 자동승격, 15분 전 자동 리마인드",
+                            "cb": self._act_guild_events,
+                        },
+                        {
                             "label": "실시간 날씨",
                             "emoji": "🌤️",
                             "style": discord.ButtonStyle.secondary,
@@ -1959,7 +2186,7 @@ class MasterDashboardView(core.SafeView):
                         {
                             "label": "협동 릴레이소설",
                             "emoji": "✍️",
-                            "style": discord.ButtonStyle.primary,
+                            "style": discord.ButtonStyle.secondary,
                             "perm": PERM_USER,
                             "desc": "한 줄씩 이어 쓰는 채널 협동 릴레이 소설 시작·이어쓰기·명작집",
                             "cb": self._act_relay_novel_hub,
@@ -1971,14 +2198,6 @@ class MasterDashboardView(core.SafeView):
                             "perm": PERM_USER,
                             "desc": "개발진/운영진에게 익명 또는 계정 공개로 건의사항 전달",
                             "cb": self._act_suggestion,
-                        },
-                        {
-                            "label": "통합 도움말",
-                            "emoji": "📖",
-                            "style": discord.ButtonStyle.secondary,
-                            "perm": PERM_USER,
-                            "desc": "전체 명령어 카탈로그 및 권한 등급별 상세 가이드 열기",
-                            "cb": self._act_open_help,
                         },
                     ],
                 },
@@ -2431,7 +2650,7 @@ class MasterDashboardView(core.SafeView):
             ],
 
             # ==========================================
-            # 4. 👤 개인 (Personal) — 3 Pages (18 items)
+            # 4. 👤 개인 (Personal) — 4 Pages (24 items)
             # ==========================================
             "personal": [
                 {
@@ -2654,7 +2873,7 @@ class MasterDashboardView(core.SafeView):
         }
 
     # ----------------------------------------------------
-    # 🔢 통합 페이지네이션 인덱스 계산 헬퍼 (총 14페이지)
+    # 🔢 통합 페이지네이션 인덱스 계산 헬퍼 (총 15페이지)
     # ----------------------------------------------------
     def _get_flat_pages(self) -> List[Tuple[str, int]]:
         flat: List[Tuple[str, int]] = []
@@ -2700,7 +2919,7 @@ class MasterDashboardView(core.SafeView):
             self._build_sub_mode_components(caller_tier)
             return
 
-        # [1단계] /설정 홈 화면 (4대 메인 카테고리 버튼 + 빠른 실행 + 통합 페이지네이션)
+        # [1단계] /설정 홈 화면 (4대 메인 카테고리 버튼 + 개인 커스텀 단축바 + 통합 페이지네이션)
         if self.current_category == "home":
             # Row 0: 일반, 고급, 미니게임, 개인 (핵심 4대 버튼)
             btn_gen = discord.ui.Button(
@@ -2744,48 +2963,54 @@ class MasterDashboardView(core.SafeView):
             btn_pers.callback = self._make_cat_enter_cb("personal")
             self.add_item(btn_pers)
 
-            # Row 1: 원클릭 자주 쓰는 핵심 단축 버튼 5개 (모바일·PC 전 비율 균일 폭)
-            quick_items = [
-                ("출석체크", "📅", discord.ButtonStyle.success, self._act_attendance, "q_att"),
-                ("프로필카드", "🪪", discord.ButtonStyle.primary, self._act_profile_card_png, "q_prof"),
-                ("프세카10연", "🌈", discord.ButtonStyle.secondary, self._act_sekai_pull_10, "q_p10"),
-                ("낚시 출조", "🎣", discord.ButtonStyle.secondary, self._act_fishing_cast, "q_fish"),
-                ("통합 랭킹", "🏆", discord.ButtonStyle.primary, self._act_ranking_hub, "q_rank"),
-            ]
-            for q_label, q_emoji, q_style, q_cb, q_id in quick_items:
+            # Row 1: 개인 커스텀 즐겨찾기 단축바 (기본 5종, 유저별 최대 5개 자유 편집 가능)
+            uid = self.user.id if self.user else 0
+            shortcut_keys = core.get_user_home_shortcuts(
+                self.data, uid, valid_keys=HOME_SHORTCUT_KEYS
+            )
+            for s_key in shortcut_keys[:5]:
+                s_meta = HOME_SHORTCUT_MAP.get(s_key)
+                if not s_meta:
+                    continue
+                q_cb = getattr(self, s_meta["cb_name"], None)
+                if not q_cb:
+                    continue
                 qb = discord.ui.Button(
-                    label=q_label,
-                    emoji=q_emoji,
-                    style=q_style,
+                    label=s_meta["label"],
+                    emoji=s_meta["emoji"],
+                    style=s_meta["style"],
                     row=1,
-                    custom_id=f"norosi:Settings:{q_id}",
+                    custom_id=f"norosi:Settings:q_{s_key}",
                 )
                 qb.callback = q_cb
                 self.add_item(qb)
 
-            # Row 2: 올인원 빠른 기능 · 랭킹 · 도감 · 보관함 바로가기 셀렉터 (구 /메뉴 빠른 실행 복구 & 확장)
+            # Row 2: 올인원 빠른 실행 · 즐겨찾기 편집 · 라디오 · 이벤트 · 랭킹 · 도감 셀렉터
             quick_sel = discord.ui.Select(
-                placeholder="🔍 빠른 실행 · 랭킹 · 도감 · 보관함 바로가기...",
+                placeholder="🔍 빠른 실행 · 즐겨찾기 편집 · 랭킹 · 도감...",
                 custom_id="norosi:Settings:quick_jump_select",
                 row=2,
                 options=[
-                    discord.SelectOption(label="전 분야 통합 랭킹", value="ranking_hub", description="8대 분야 순위표 허브", emoji="🏆"),
-                    discord.SelectOption(label="출석체크 랭킹", value="att_rank", description="누적·연속 출석 순위", emoji="📅"),
-                    discord.SelectOption(label="프로세카 가챠 랭킹", value="sekai_rank", description="카드 수집·종합력 순위", emoji="🎤"),
-                    discord.SelectOption(label="원신 수집 랭킹", value="gi_rank", description="5성 수집·모험등급", emoji="🌠"),
-                    discord.SelectOption(label="스타레일 워프 랭킹", value="hsr_rank", description="5성·광추·개척레벨", emoji="🚄"),
-                    discord.SelectOption(label="낚시 대물·대회 랭킹", value="fish_rank", description="최대어·낚시왕 순위", emoji="🎣"),
-                    discord.SelectOption(label="타인의 삶 엔딩 랭킹", value="ol_rank", description="업적·엔딩 수집 순위", emoji="👶"),
-                    discord.SelectOption(label="통합 순자산 랭킹", value="eco_rank", description="크리스탈·컬렉션 자산", emoji="🏦"),
-                    discord.SelectOption(label="5대 통합 도감·확률표", value="pokedex_hub", description="5대 게임 도감·확률", emoji="📖"),
-                    discord.SelectOption(label="프로세카 카드 보관함", value="sekai_inv", description="보유 카드·일러스트", emoji="🎒"),
-                    discord.SelectOption(label="프로세카 마스터 랭크", value="sekai_mr", description="중복·크리스탈 MR돌파", emoji="✨"),
-                    discord.SelectOption(label="캐릭터 3D 의상실", value="sekai_costume", description="26인 의상 장착·제작", emoji="👗"),
-                    discord.SelectOption(label="세카이 협동 라이브", value="sekai_live", description="5인 덱 리듬게임", emoji="⚔️"),
-                    discord.SelectOption(label="플레이리스트 스튜디오", value="music_pl", description="플리 제작·음성재생", emoji="💿"),
-                    discord.SelectOption(label="실시간 기상청 날씨", value="weather", description="기온·미세먼지 조회", emoji="🌤️"),
-                    discord.SelectOption(label="끝말잇기 대결", value="wordchain", description="AI·유저 끝말잇기", emoji="🔤"),
-                    discord.SelectOption(label="러시안 룰렛", value="roulette", description="서바이벌 미니게임", emoji="🔫"),
+                    discord.SelectOption(label="⭐ 홈 즐겨찾기 단축바 편집", value="home_shortcuts", description="홈 버튼 5개 커스텀"),
+                    discord.SelectOption(label="📻 무드 음성 라디오", value="mood_radio", description="6대 분위기 BGM"),
+                    discord.SelectOption(label="🗓️ 예약 이벤트 신청표", value="guild_events", description="RSVP·대기열·알림"),
+                    discord.SelectOption(label="🏆 전 분야 통합 랭킹", value="ranking_hub", description="8대 순위표"),
+                    discord.SelectOption(label="📅 출석체크 랭킹", value="att_rank"),
+                    discord.SelectOption(label="🎤 프로세카 가챠 랭킹", value="sekai_rank"),
+                    discord.SelectOption(label="🌠 원신 수집 랭킹", value="gi_rank"),
+                    discord.SelectOption(label="🚄 스타레일 워프 랭킹", value="hsr_rank"),
+                    discord.SelectOption(label="🎣 낚시 대물·대회 랭킹", value="fish_rank"),
+                    discord.SelectOption(label="👶 타인의 삶 엔딩 랭킹", value="ol_rank"),
+                    discord.SelectOption(label="🏦 통합 순자산 랭킹", value="eco_rank"),
+                    discord.SelectOption(label="📖 5대 통합 도감·확률표", value="pokedex_hub"),
+                    discord.SelectOption(label="🎒 프로세카 카드 보관함", value="sekai_inv"),
+                    discord.SelectOption(label="✨ 프로세카 마스터 랭크", value="sekai_mr"),
+                    discord.SelectOption(label="👗 캐릭터 3D 의상실", value="sekai_costume"),
+                    discord.SelectOption(label="⚔️ 세카이 협동 라이브", value="sekai_live"),
+                    discord.SelectOption(label="💿 플레이리스트 스튜디오", value="music_pl"),
+                    discord.SelectOption(label="🌤️ 실시간 기상청 날씨", value="weather"),
+                    discord.SelectOption(label="🔤 끝말잇기 대결", value="wordchain"),
+                    discord.SelectOption(label="🔫 러시안 룰렛", value="roulette"),
                 ],
             )
             quick_sel.callback = self._on_home_quick_jump_selected
@@ -3013,6 +3238,9 @@ class MasterDashboardView(core.SafeView):
             await core.safe_defer(interaction, ephemeral=True)
             return
         jump_map = {
+            "home_shortcuts": self._act_home_shortcuts,
+            "mood_radio": self._act_mood_radio,
+            "guild_events": self._act_guild_events,
             "ranking_hub": self._act_ranking_hub,
             "att_rank": self._act_att_ranking,
             "sekai_rank": self._act_sekai_rank,
@@ -3467,18 +3695,25 @@ class MasterDashboardView(core.SafeView):
 
         flat_total = len(self._get_flat_pages())
 
+        shortcut_keys = core.get_user_home_shortcuts(self.data, u_key, valid_keys=HOME_SHORTCUT_KEYS)
+        sc_badge = (
+            "기본 프리셋"
+            if shortcut_keys == core.DEFAULT_HOME_SHORTCUTS
+            else f"커스텀 `{len(shortcut_keys)}종`"
+        )
+
         desc_lines = [
             f"👋 **{u_name}**님, 환영합니다! 아래 버튼으로 원하는 기능을 바로 실행하세요.",
             self._format_caller_tier_banner(),
             "",
             f"> 📊 **내 요약:** 💎 `{crystals:,}` · 💖 오시 `{oshi}` · 📅 D-Day `{dday_cnt}개`\n"
             f"> 🎮 **컬렉션:** 프로세카 `{sekai_cards}종` · 원신 `{gi_items}종` · 스타레일 `{hsr_items}종`\n"
-            f"> 📅 **출석 상태:** {att_badge}",
+            f"> 📅 **출석 상태:** {att_badge} · ⭐ **홈 단축바:** {sc_badge}",
             "━━━━━━━━━━━━━━━━━━━━━━",
             "### 🗂️ 4대 통합 카테고리 *(총 15페이지 · 90종 기능)*",
             (
                 "1️⃣ **`[🌐 일반]`** *(3p · `👤일반`)*\n"
-                "└ 출석·달력·랭킹 · D-Day·생일 · 미래시 · 음악·플리 · 서버통계 · 파티모집 · 날씨 · 릴레이소설\n\n"
+                "└ 출석·달력·랭킹 · D-Day·생일 · 미래시 · 플리·**무드라디오** · 통계·파티·**예약이벤트** · 날씨·릴레이소설\n\n"
                 "2️⃣ **`[⚙️ 고급]`** *(4p · `🛡️관리자` & `👑봇주인`)*\n"
                 "└ `🛡️관리자` 역할·공지·티켓·임시음성방·고정글·레이드방어·이모지업스케일·감사로그·청소·초기화\n"
                 "└ `👑봇주인` 3대 게임 픽업 · VM 터미널 · **GitHub 배포알림** · **봇 진단** · DB 백업/동기화\n\n"
@@ -3795,6 +4030,35 @@ class MasterDashboardView(core.SafeView):
             await interaction.followup.send(embed=embed, view=view, wait=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 음악 추천 중 오류: {e}", ephemeral=True)
+
+    async def _act_home_shortcuts(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction, ephemeral=True)
+            data = await asyncio.to_thread(core.load_data)
+            edit_view = HomeShortcutEditView(
+                bot=self.bot or interaction.client,
+                user=interaction.user,
+                guild=interaction.guild,
+                data=data,
+                parent_view=self,
+            )
+            await interaction.followup.send(embed=edit_view.build_embed(), view=edit_view, ephemeral=True, wait=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 홈 즐겨찾기 편집기 로드 오류: {e}", ephemeral=True)
+
+    async def _act_mood_radio(self, interaction: discord.Interaction):
+        try:
+            from cogs.music import open_mood_radio_from_interaction
+            await open_mood_radio_from_interaction(interaction, ephemeral=False)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 무드 음성 라디오 로드 오류: {e}", ephemeral=True)
+
+    async def _act_guild_events(self, interaction: discord.Interaction):
+        try:
+            from cogs.community import open_guild_event_hub_from_interaction
+            await open_guild_event_hub_from_interaction(interaction, ephemeral=False)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 예약 이벤트 신청표 로드 오류: {e}", ephemeral=True)
 
     async def _act_music_vault(self, interaction: discord.Interaction):
         try:
@@ -5533,6 +5797,13 @@ class Dashboard(commands.Cog, name="설정"):
         )
         msg = await ctx.send(embed=view.build_current_embed(), view=view)
         view.message = msg
+
+    @commands.command(name="즐겨찾기", aliases=["단축바", "홈편집", "shortcuts"])
+    async def prefix_home_shortcuts(self, ctx: commands.Context):
+        """채팅창에 !즐겨찾기 입력 시 나만의 /설정 홈 단축바(최대 5개) 편집기 호출"""
+        data = await asyncio.to_thread(core.load_data)
+        view = HomeShortcutEditView(bot=self.bot, user=ctx.author, guild=ctx.guild, data=data)
+        await ctx.send(embed=view.build_embed(), view=view)
 
 
 async def setup(bot: commands.Bot):

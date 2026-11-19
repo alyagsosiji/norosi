@@ -1699,7 +1699,7 @@ class VoicePlayerControlView(core.SafeView):
         if thumb:
             embed.set_thumbnail(url=thumb)
 
-        embed.set_footer(text=f"플리: {self.player.playlist_owner_name} • 💡 소리가 안 들릴 땐 봇 우클릭 > [사용자 음량 100%] 확인 • [v2.8-Live]")
+        embed.set_footer(text=f"플리: {self.player.playlist_owner_name} • 💡 소리가 안 들릴 땐 봇 우클릭 > [사용자 음량 100%] 확인")
         return embed
 
     # Row 0: 핵심 재생 컨트롤 (이전 / 일시정지 / 다음 / 반복 / 퇴장)
@@ -1951,6 +1951,283 @@ async def start_voice_playlist_from_context(
     ctrl_view = VoicePlayerControlView(player)
     sent_msg = await ctx.send(content=msg, embed=ctrl_view.build_embed(), view=ctrl_view)
     player.control_message = sent_msg
+
+
+# ==========================================
+# 📻 원클릭 분위기(무드) 음성 라디오 (6대 큐레이션 채널)
+# ==========================================
+MOOD_RADIO_STATIONS: list[dict] = [
+    {
+        "key": "lofi",
+        "short_label": "로파이",
+        "name": "Lo-Fi 집중 스터디 라디오",
+        "emoji": "☕",
+        "color": 0x8D6E63,
+        "desc": "공부·코딩·작업할 때 틀어두기 좋은 포근한 로파이 힙합 & 칠 비트 스테이션",
+        "tracks": [
+            {"title": "Lofi Hip Hop Beats to Relax Study to", "artist": "Lofi Girl"},
+            {"title": "Snowman", "artist": "WYS"},
+            {"title": "Affection", "artist": "Jinsang"},
+            {"title": "Aruarian Dance", "artist": "Nujabes"},
+            {"title": "Feather", "artist": "Nujabes"},
+            {"title": "Luv(sic) Part 3", "artist": "Nujabes"},
+            {"title": "Warm Nights", "artist": "Xori"},
+            {"title": "Coffee Shop Lofi Chill Beats", "artist": "Chillhop Music"},
+        ],
+    },
+    {
+        "key": "sekai",
+        "short_label": "프세카",
+        "name": "프로세카 · 보컬로이드 라디오",
+        "emoji": "🎤",
+        "color": 0x00CCDD,
+        "desc": "세카이 대표 명곡부터 보컬로이드 레전드까지 끊임없이 이어지는 텐션 업 스테이션",
+        "tracks": [
+            {"title": "군청찬가 (Gunjo Sanka)", "artist": "Eve"},
+            {"title": "Tell Your World", "artist": "livetune feat. Hatsune Miku"},
+            {"title": "천본앵 (Senbonzakura)", "artist": "WhiteFlame"},
+            {"title": "Melt", "artist": "ryo (supercell)"},
+            {"title": "KING", "artist": "Kanaria"},
+            {"title": "밤을 달리다 (Racing into the Night)", "artist": "YOASOBI"},
+            {"title": "아이돌 (Idol)", "artist": "YOASOBI"},
+            {"title": "Roki", "artist": "mikitoP"},
+        ],
+    },
+    {
+        "key": "rain",
+        "short_label": "새벽감성",
+        "name": "비 오는 새벽 감성 라디오",
+        "emoji": "🌧️",
+        "color": 0x5C6BC0,
+        "desc": "빗소리처럼 차분하게 스며드는 인디·어쿠스틱·발라드 새벽 감성 스테이션",
+        "tracks": [
+            {"title": "밤편지 (Through the Night)", "artist": "아이유 (IU)"},
+            {"title": "비도 오고 그래서", "artist": "헤이즈 (Heize)"},
+            {"title": "주저하는 연인들을 위해", "artist": "잔나비"},
+            {"title": "숲 (Forest)", "artist": "최유리"},
+            {"title": "사랑하게 될 줄 알았어", "artist": "전미도"},
+            {"title": "어떻게 이별까지 사랑하겠어 널 사랑하는 거지", "artist": "AKMU"},
+            {"title": "Rain", "artist": "태연 (TAEYEON)"},
+            {"title": "야생화", "artist": "박효신"},
+        ],
+    },
+    {
+        "key": "jpop",
+        "short_label": "시티팝",
+        "name": "시티팝 · J-Pop 드라이브 라디오",
+        "emoji": "🌆",
+        "color": 0xEC407A,
+        "desc": "청량한 야경과 잘 어울리는 J-Pop · 시티팝 히트곡 논스톱 드라이브 스테이션",
+        "tracks": [
+            {"title": "Pretender", "artist": "Official HIGE DANdism"},
+            {"title": "Lemon", "artist": "Kenshi Yonezu"},
+            {"title": "Shinunoga E-Wa", "artist": "Fujii Kaze"},
+            {"title": "Marigold", "artist": "Aimyon"},
+            {"title": "Betelgeuse", "artist": "Yuuri"},
+            {"title": "Kaiju no Hanauta", "artist": "Vaundy"},
+            {"title": "Plastic Love", "artist": "Mariya Takeuchi"},
+            {"title": "Stay With Me", "artist": "Miki Matsubara"},
+        ],
+    },
+    {
+        "key": "anime",
+        "short_label": "게임OST",
+        "name": "게임 · 애니 OST 명곡 라디오",
+        "emoji": "✨",
+        "color": 0xAB47BC,
+        "desc": "원신·스타레일·신카이 마코토·지브리 등 몰입감 최고조 OST 큐레이션 스테이션",
+        "tracks": [
+            {"title": "Sparkle", "artist": "RADWIMPS"},
+            {"title": "Suzume", "artist": "RADWIMPS feat. Toaka"},
+            {"title": "Merry-Go-Round of Life", "artist": "Joe Hisaishi"},
+            {"title": "Summer", "artist": "Joe Hisaishi"},
+            {"title": "Liyue Main Theme", "artist": "HOYO-MiX"},
+            {"title": "Hope Is the Thing With Feathers", "artist": "HOYO-MiX"},
+            {"title": "Wildfire", "artist": "HOYO-MiX"},
+            {"title": "Hopes and Dreams", "artist": "Toby Fox"},
+        ],
+    },
+    {
+        "key": "cafe",
+        "short_label": "카페피아노",
+        "name": "잔잔한 카페 피아노 라디오",
+        "emoji": "🎹",
+        "color": 0x26A69A,
+        "desc": "대화·독서·휴식을 방해하지 않는 부드러운 피아노 & 재즈 연주곡 스테이션",
+        "tracks": [
+            {"title": "River Flows in You", "artist": "Yiruma"},
+            {"title": "Kiss the Rain", "artist": "Yiruma"},
+            {"title": "Merry Christmas Mr. Lawrence", "artist": "Ryuichi Sakamoto"},
+            {"title": "Clair de Lune", "artist": "Claude Debussy"},
+            {"title": "One Summer's Day", "artist": "Joe Hisaishi"},
+            {"title": "Gymnopedie No. 1", "artist": "Erik Satie"},
+            {"title": "Studio Ghibli Relaxing Piano Collection", "artist": "Piano"},
+            {"title": "Autumn Leaves Jazz Piano", "artist": "Bill Evans"},
+        ],
+    },
+]
+MOOD_RADIO_MAP: dict[str, dict] = {st["key"]: st for st in MOOD_RADIO_STATIONS}
+
+
+class MoodRadioView(core.SafeView):
+    """원클릭 분위기(무드) 음성 라디오 선택 & 즉시 스트리밍 컨트롤 뷰"""
+
+    def __init__(
+        self,
+        user: Optional[discord.abc.User] = None,
+        guild: Optional[discord.Guild] = None,
+        selected_mood: str = "lofi",
+        shuffle_on: bool = True,
+    ):
+        super().__init__(timeout=None)
+        self.user = user
+        self.guild = guild
+        self.selected_mood = selected_mood if selected_mood in MOOD_RADIO_MAP else "lofi"
+        self.shuffle_on = bool(shuffle_on)
+        self._rebuild_items()
+
+    def _rebuild_items(self):
+        self.clear_items()
+        # Row 0 & Row 1: 6대 무드 스테이션 (각 줄 3개씩 균일 배치)
+        for idx, st in enumerate(MOOD_RADIO_STATIONS):
+            row_num = 0 if idx < 3 else 1
+            is_sel = (st["key"] == self.selected_mood)
+            btn = discord.ui.Button(
+                label=st["short_label"],
+                emoji=st["emoji"],
+                style=discord.ButtonStyle.primary if is_sel else discord.ButtonStyle.secondary,
+                row=row_num,
+                custom_id=f"norosi:MoodRadioView:mood_{st['key']}",
+            )
+            btn.callback = self._make_select_cb(st["key"])
+            self.add_item(btn)
+
+        # Row 2: 재생 / 셔플 / 정지 3버튼 균일 배치
+        btn_play = discord.ui.Button(
+            label="라디오 재생",
+            emoji="▶️",
+            style=discord.ButtonStyle.success,
+            row=2,
+            custom_id="norosi:MoodRadioView:play",
+        )
+        btn_play.callback = self._on_play_clicked
+        self.add_item(btn_play)
+
+        btn_shuf = discord.ui.Button(
+            label="셔플 ON" if self.shuffle_on else "셔플 OFF",
+            emoji="🔀",
+            style=discord.ButtonStyle.primary if self.shuffle_on else discord.ButtonStyle.secondary,
+            row=2,
+            custom_id="norosi:MoodRadioView:shuffle",
+        )
+        btn_shuf.callback = self._on_shuffle_clicked
+        self.add_item(btn_shuf)
+
+        btn_stop = discord.ui.Button(
+            label="재생 정지",
+            emoji="⏹️",
+            style=discord.ButtonStyle.danger,
+            row=2,
+            custom_id="norosi:MoodRadioView:stop",
+        )
+        btn_stop.callback = self._on_stop_clicked
+        self.add_item(btn_stop)
+
+    def build_embed(self) -> discord.Embed:
+        st = MOOD_RADIO_MAP.get(self.selected_mood, MOOD_RADIO_STATIONS[0])
+        track_lines = [
+            f"`{i:02d}.` **{t['title']}** — *{t['artist']}*"
+            for i, t in enumerate(st["tracks"], 1)
+        ]
+
+        vc_status = "⏸️ 현재 음성채널 대기 중 (음성방 입장 후 `[▶️ 라디오 재생]` 클릭)"
+        if self.guild:
+            player = _VOICE_PLAYERS.get(self.guild.id)
+            if player and player.is_playing_flag and player.voice_client and player.voice_client.is_connected():
+                cur = player.get_current_track()
+                cur_title = cur.get("title", "재생 중") if cur else "재생 중"
+                vc_status = f"🔊 재생 중: **{player.playlist_emoji} {player.playlist_name}** — `{cur_title}`"
+
+        embed = discord.Embed(
+            title=f"📻 무드 음성 라디오 — {st['emoji']} {st['name']}",
+            description=(
+                f"{st['desc']}\n\n"
+                f"📡 **음성 상태:** {vc_status}\n"
+                f"🔀 **재생 순서:** `{'셔플 랜덤' if self.shuffle_on else '순번 재생'}`  ·  🔁 **무한 반복:** `전체 반복 ON`\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"**🎵 수록 큐레이션 ({len(st['tracks'])}곡)**\n" + "\n".join(track_lines)
+            ),
+            color=st["color"],
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.set_footer(text="원하는 분위기를 고른 뒤 [▶️ 라디오 재생]을 누르면 현재 음성채널로 바로 송출됩니다.")
+        return embed
+
+    def _make_select_cb(self, mood_key: str):
+        async def _cb(interaction: discord.Interaction):
+            if not self.guild and interaction.guild:
+                self.guild = interaction.guild
+            self.selected_mood = mood_key
+            self._rebuild_items()
+            await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+        return _cb
+
+    async def _on_shuffle_clicked(self, interaction: discord.Interaction):
+        if not self.guild and interaction.guild:
+            self.guild = interaction.guild
+        self.shuffle_on = not self.shuffle_on
+        self._rebuild_items()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    async def _on_play_clicked(self, interaction: discord.Interaction):
+        if not self.guild and interaction.guild:
+            self.guild = interaction.guild
+        st = MOOD_RADIO_MAP.get(self.selected_mood, MOOD_RADIO_STATIONS[0])
+        raw_tracks = [dict(t, platform="YouTube") for t in st["tracks"]]
+        if self.shuffle_on:
+            random.shuffle(raw_tracks)
+        pl_data = {
+            "id": f"mood_radio_{st['key']}",
+            "name": st["name"],
+            "emoji": st["emoji"],
+            "platform": "YouTube",
+            "tracks": raw_tracks,
+        }
+        if interaction.guild:
+            player = get_voice_player(interaction.client, interaction.guild)
+            player.loop_mode = "all"
+        await start_voice_playlist_from_interaction(interaction, interaction.user, pl_data, start_index=0)
+
+    async def _on_stop_clicked(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 음성 라디오를 제어할 수 있습니다.", ephemeral=True)
+            return
+        can_ctrl, ctrl_err = _can_control_voice_player(interaction.user, interaction.guild)
+        if not can_ctrl:
+            await core.safe_send_response(interaction, ctrl_err, ephemeral=True)
+            return
+        player = _VOICE_PLAYERS.get(interaction.guild.id)
+        if not player or not (player.voice_client and player.voice_client.is_connected()):
+            await core.safe_send_response(interaction, "ℹ️ 현재 음성채널에서 재생 중인 라디오가 없습니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        await player.stop_and_disconnect()
+        await interaction.followup.send("⏹️ 음성 라디오 재생을 정지하고 음성채널에서 퇴장했습니다.", ephemeral=True)
+
+
+async def open_mood_radio_from_interaction(
+    interaction: discord.Interaction,
+    initial_mood: str = "lofi",
+    *,
+    ephemeral: bool = False,
+):
+    """어느 뷰(/설정, 명령어 등)에서든 무드 음성 라디오 패널을 여는 공통 헬퍼"""
+    view = MoodRadioView(user=interaction.user, guild=interaction.guild, selected_mood=initial_mood)
+    embed = view.build_embed()
+    if interaction.response.is_done():
+        await interaction.followup.send(embed=embed, view=view, ephemeral=ephemeral, wait=True)
+    else:
+        await core.safe_send_response(interaction, embed=embed, view=view, ephemeral=ephemeral)
 
 
 class PlaylistReorderModal(core.SafeModal, title="🔢 곡 순번 변경 (자동재생 순서 조정)"):
@@ -5252,7 +5529,18 @@ class MusicCog(commands.Cog):
         ok, msg = await player.set_playback_speed(val)
         await ctx.send(f"✅ {msg}")
 
-
+    @commands.command(name="라디오", aliases=["무드라디오", "분위기라디오", "radio", "bgm"])
+    async def prefix_mood_radio(self, ctx: commands.Context, 분위기: Optional[str] = None):
+        """채팅창에 !라디오 입력 시 원클릭 분위기(무드) 음성 라디오 패널 호출"""
+        mood_key = "lofi"
+        if 분위기:
+            kw = 분위기.strip().lower()
+            for st in MOOD_RADIO_STATIONS:
+                if kw in st["key"] or kw in st["short_label"].lower() or kw in st["name"].lower():
+                    mood_key = st["key"]
+                    break
+        view = MoodRadioView(user=ctx.author, guild=ctx.guild, selected_mood=mood_key)
+        await ctx.send(embed=view.build_embed(), view=view)
 
 
 async def setup(bot):

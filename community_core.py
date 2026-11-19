@@ -1,6 +1,7 @@
 """
 community_core.py - 자동 고정 메시지(#8), SNS 링크 미리보기/추적 제거(#12),
-동시 입장(Raid) 비상 방어(#42), 릴레이 소설(#48) 코어 로직 및 데이터 헬퍼
+동시 입장(Raid) 비상 방어(#42), 릴레이 소설(#48), 임시 음성방(#11),
+예약 이벤트 신청표(RSVP & 자동 리마인드) 코어 로직 및 데이터 헬퍼
 """
 
 from __future__ import annotations
@@ -744,4 +745,274 @@ def remove_temp_voice_room(data: dict, guild_id: int, channel_id: int) -> Option
     removed = cfg["active_rooms"].pop(str(channel_id), None)
     save_temp_voice_config(data, guild_id, cfg)
     return removed if isinstance(removed, dict) else None
+
+
+# ==========================================
+# 6. 🗓️ 예약 이벤트 신청표 (RSVP & 자동 리마인드)
+# ==========================================
+def parse_kst_event_datetime(
+    raw: str,
+    now_kst: Optional[datetime.datetime] = None,
+) -> tuple[Optional[datetime.datetime], str]:
+    """
+    유저가 입력한 KST 일시 문자열을 파싱합니다.
+    지원 형식:
+      - YYYY-MM-DD HH:MM (예: 2026-05-15 21:00)
+      - MM-DD HH:MM 또는 MM/DD HH:MM (예: 05-15 21:00, 5/15 21:00)
+      - 오늘 HH:MM / 내일 HH:MM / 모레 HH:MM
+      - +30분 / +2시간 / +1시간 30분
+    """
+    text = (raw or "").strip()
+    if not text:
+        return None, "시작 일시를 입력해 주세요. (예: `내일 21:00`, `05-15 20:30`, `2026-05-15 21:00`, `+2시간`)"
+
+    now = now_kst or datetime.datetime.now(core.KST)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=core.KST)
+
+    # 1) 상대 시간: +30분, +2시간, +1시간 30분
+    rel_m = re.fullmatch(r"\+\s*(?:(\d+)\s*시간)?\s*(?:(\d+)\s*분)?", text)
+    if rel_m and (rel_m.group(1) or rel_m.group(2)):
+        hrs = int(rel_m.group(1) or 0)
+        mins = int(rel_m.group(2) or 0)
+        total_min = hrs * 60 + mins
+        if total_min < 5 or total_min > 60 * 24 * 60:
+            return None, "상대 시간은 최소 5분 이상, 최대 60일 이내로 입력해 주세요."
+        target = (now + datetime.timedelta(minutes=total_min)).replace(second=0, microsecond=0)
+        return target, ""
+
+    # 2) 오늘/내일/모레 HH:MM
+    day_m = re.fullmatch(r"(오늘|내일|모레)\s+(\d{1,2})[:시]\s*(\d{1,2})분?", text)
+    if day_m:
+        day_word, hh_s, mm_s = day_m.group(1), day_m.group(2), day_m.group(3)
+        offset = {"오늘": 0, "내일": 1, "모레": 2}[day_word]
+        hh, mm = int(hh_s), int(mm_s)
+        if not (0 <= hh <= 23 and 0 <= mm <= 59):
+            return None, "시각은 `00:00 ~ 23:59` 범위로 입력해 주세요."
+        base_date = (now + datetime.timedelta(days=offset)).date()
+        target = datetime.datetime(base_date.year, base_date.month, base_date.day, hh, mm, tzinfo=core.KST)
+        if target <= now:
+            return None, "이미 지난 시각입니다. 현재 시각 이후로 입력해 주세요."
+        return target, ""
+
+    # 3) YYYY-MM-DD HH:MM (또는 YYYY/MM/DD HH:MM, YYYY.MM.DD HH:MM)
+    full_m = re.fullmatch(r"(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\s+(\d{1,2})[:시]\s*(\d{1,2})분?", text)
+    if full_m:
+        y, mo, d, hh, mm = (int(full_m.group(i)) for i in range(1, 6))
+        try:
+            target = datetime.datetime(y, mo, d, hh, mm, tzinfo=core.KST)
+        except ValueError:
+            return None, "올바른 날짜·시각이 아닙니다. (예: `2026-05-15 21:00`)"
+        if target <= now:
+            return None, "이미 지난 시각입니다. 현재 시각 이후로 입력해 주세요."
+        return target, ""
+
+    # 4) MM-DD HH:MM (또는 MM/DD HH:MM)
+    short_m = re.fullmatch(r"(\d{1,2})[-/.](\d{1,2})\s+(\d{1,2})[:시]\s*(\d{1,2})분?", text)
+    if short_m:
+        mo, d, hh, mm = (int(short_m.group(i)) for i in range(1, 5))
+        try:
+            target = datetime.datetime(now.year, mo, d, hh, mm, tzinfo=core.KST)
+        except ValueError:
+            return None, "올바른 월·일·시각이 아닙니다. (예: `05-15 21:00`)"
+        if target <= now:
+            try:
+                target = datetime.datetime(now.year + 1, mo, d, hh, mm, tzinfo=core.KST)
+            except ValueError:
+                return None, "이미 지난 시각입니다. 연도를 포함해 다시 입력해 주세요."
+        return target, ""
+
+    return None, "일시 형식을 인식하지 못했습니다. 예: `내일 21:00`, `05-15 20:30`, `2026-05-15 21:00`, `+2시간`"
+
+
+def _normalize_uid_list(raw) -> list[int]:
+    if not isinstance(raw, list):
+        return []
+    out: list[int] = []
+    for x in raw:
+        try:
+            iv = int(x)
+        except (TypeError, ValueError):
+            continue
+        if iv > 0 and iv not in out:
+            out.append(iv)
+    return out
+
+
+def get_guild_events(data: dict, guild_id: int, *, include_closed: bool = False) -> list[dict]:
+    root = core.as_dict(data.get("guild_events"))
+    g_map = core.as_dict(root.get(str(guild_id)))
+    out: list[dict] = []
+    for ev in g_map.values():
+        if not isinstance(ev, dict):
+            continue
+        status = str(ev.get("status") or "open")
+        if not include_closed and status != "open":
+            continue
+        out.append(ev)
+    out.sort(key=lambda e: int(e.get("start_ts", 0) or 0))
+    return out
+
+
+def get_guild_event(data: dict, guild_id: int, event_id: str) -> Optional[dict]:
+    root = core.as_dict(data.get("guild_events"))
+    g_map = core.as_dict(root.get(str(guild_id)))
+    ev = g_map.get(str(event_id))
+    return ev if isinstance(ev, dict) else None
+
+
+def find_guild_event_by_message_id(data: dict, guild_id: int, message_id: int) -> Optional[dict]:
+    if not message_id:
+        return None
+    root = core.as_dict(data.get("guild_events"))
+    g_map = core.as_dict(root.get(str(guild_id)))
+    for ev in g_map.values():
+        if isinstance(ev, dict) and int(ev.get("message_id") or 0) == int(message_id):
+            return ev
+    return None
+
+
+def create_guild_event(
+    data: dict,
+    guild_id: int,
+    channel_id: int,
+    host_id: int,
+    host_name: str,
+    title: str,
+    start_dt: datetime.datetime,
+    *,
+    max_slots: int = 0,
+    description: str = "",
+    message_id: Optional[int] = None,
+) -> dict:
+    g_map = core.ensure_dict_path(data, "guild_events", str(guild_id))
+    ev_id = f"ev_{uuid.uuid4().hex[:8]}"
+    safe_slots = max(0, min(100, int(max_slots or 0)))
+    entry = {
+        "id": ev_id,
+        "guild_id": int(guild_id),
+        "channel_id": int(channel_id),
+        "message_id": int(message_id) if message_id else None,
+        "host_id": int(host_id),
+        "host_name": str(host_name or "주최자")[:64],
+        "title": (title or "예약 이벤트").strip()[:80],
+        "description": (description or "").strip()[:500],
+        "start_iso": start_dt.isoformat(),
+        "start_ts": int(start_dt.timestamp()),
+        "max_slots": safe_slots,
+        "going": [int(host_id)],
+        "waitlist": [],
+        "maybe": [],
+        "declined": [],
+        "status": "open",
+        "reminded_15m": False,
+        "started_notified": False,
+        "created_at": datetime.datetime.now(core.KST).isoformat(),
+    }
+    g_map[ev_id] = entry
+    return entry
+
+
+def set_guild_event_message_id(data: dict, guild_id: int, event_id: str, message_id: int) -> Optional[dict]:
+    ev = get_guild_event(data, guild_id, event_id)
+    if not ev:
+        return None
+    ev["message_id"] = int(message_id)
+    return ev
+
+
+def update_event_rsvp(event: dict, user_id: int, action: str) -> tuple[str, Optional[int]]:
+    """
+    예약 이벤트 RSVP 상태를 갱신합니다.
+    action: "going" | "maybe" | "declined"
+    반환: (결과 상태 ["going"|"waitlist"|"maybe"|"declined"|"closed"], 자동 승격된 대기자 user_id 또는 None)
+    """
+    if str(event.get("status") or "open") != "open":
+        return "closed", None
+
+    uid = int(user_id)
+    going = _normalize_uid_list(event.get("going"))
+    waitlist = _normalize_uid_list(event.get("waitlist"))
+    maybe = _normalize_uid_list(event.get("maybe"))
+    declined = _normalize_uid_list(event.get("declined"))
+    max_slots = max(0, int(event.get("max_slots") or 0))
+
+    was_going = uid in going
+    going = [x for x in going if x != uid]
+    waitlist = [x for x in waitlist if x != uid]
+    maybe = [x for x in maybe if x != uid]
+    declined = [x for x in declined if x != uid]
+
+    promoted_uid: Optional[int] = None
+    result_state = action
+
+    if action == "going":
+        if max_slots > 0 and len(going) >= max_slots:
+            waitlist.append(uid)
+            result_state = "waitlist"
+        else:
+            going.append(uid)
+            result_state = "going"
+    elif action == "maybe":
+        maybe.append(uid)
+        result_state = "maybe"
+    else:
+        declined.append(uid)
+        result_state = "declined"
+
+    # 기존 확정 참가자가 빠지면서 빈자리가 생기면 대기열 1순위를 자동 승격
+    if was_going and action != "going" and max_slots > 0 and len(going) < max_slots and waitlist:
+        promoted_uid = waitlist.pop(0)
+        going.append(promoted_uid)
+
+    event["going"] = going
+    event["waitlist"] = waitlist
+    event["maybe"] = maybe
+    event["declined"] = declined
+    return result_state, promoted_uid
+
+
+def set_guild_event_status(data: dict, guild_id: int, event_id: str, status: str) -> Optional[dict]:
+    ev = get_guild_event(data, guild_id, event_id)
+    if not ev:
+        return None
+    if status not in ("open", "closed", "cancelled"):
+        return None
+    ev["status"] = status
+    return ev
+
+
+def collect_due_event_reminders(data: dict, now_ts: Optional[int] = None) -> list[tuple[dict, str]]:
+    """
+    15분 전 자동 리마인드 및 시작 시각 알림 대상 이벤트를 수집하고 플래그를 표시합니다.
+    24시간이 지난 오픈 이벤트는 자동으로 closed 처리합니다.
+    """
+    ts = int(now_ts if now_ts is not None else time.time())
+    root = core.as_dict(data.get("guild_events"))
+    due: list[tuple[dict, str]] = []
+    for g_map in root.values():
+        if not isinstance(g_map, dict):
+            continue
+        for ev in g_map.values():
+            if not isinstance(ev, dict):
+                continue
+            if str(ev.get("status") or "open") != "open":
+                continue
+            start_ts = int(ev.get("start_ts") or 0)
+            if start_ts <= 0:
+                continue
+            diff = start_ts - ts
+            # 15분 전 (0 < diff <= 900)
+            if 0 < diff <= 900 and not ev.get("reminded_15m"):
+                ev["reminded_15m"] = True
+                due.append((ev, "15m"))
+            # 시작 시각 도달 (-600 <= diff <= 0)
+            elif -600 <= diff <= 0 and not ev.get("started_notified"):
+                ev["started_notified"] = True
+                due.append((ev, "start"))
+            # 시작 후 24시간 경과 시 자동 마감
+            elif diff < -86400:
+                ev["status"] = "closed"
+    return due
+
 
