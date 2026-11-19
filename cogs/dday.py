@@ -3188,7 +3188,7 @@ class BirthdayBoardView(core.SafeView):
             description=(
                 f"👤 **등록자 · 내 생일 ({who_display}):** {my_status}\n"
                 f"🎁 **생일 당일 혜택:** 자정(00:00 KST) 자동 축하 메시지 & 보너스 **`+500 💎 크리스탈`** 즉시 지급!\n"
-                "───────────────────────────────────────\n"
+                "──────────────────────\n"
                 f"### 🎈 다가오는 생일 멤버 목록 (가까운 순)\n{list_str}"
             ),
             color=discord.Color.from_rgb(255, 105, 180),
@@ -3333,7 +3333,7 @@ class ReminderHubView(core.SafeView):
             description=(
                 "원하는 상대 시간(`30분 뒤`, `2시간 후`)이나 지정 시각(`15:30`, `오후 8시`)을 입력하면\n"
                 "정확한 시각에 **개인 DM 및 채널 멘션**으로 잊지 않게 챙겨드립니다!\n"
-                "───────────────────────────────────────\n"
+                "──────────────────────\n"
                 f"### 📋 대기 중인 내 예약 알림 ({len(my_rems)}개)\n{list_str}"
             ),
             color=discord.Color.from_rgb(0, 204, 221),

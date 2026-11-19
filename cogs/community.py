@@ -156,7 +156,7 @@ def _build_relay_active_embed(story: dict) -> discord.Embed:
             f"• **진행률:** {bar} **`{cur_cnt} / {max_turns}턴`**\n"
             f"• **진행 방식:** {mode_label} · `{turn_rule}`\n"
             f"• **최근 작성자:** {last_turn.get('user_name', '작가')}\n"
-            "───────────────────────────────────────\n"
+            "──────────────────────\n"
             f"{body}"
         ),
         color=discord.Color.from_rgb(155, 89, 182),
@@ -191,7 +191,7 @@ def _build_relay_completed_embed(completed: dict) -> discord.Embed:
         description=(
             f"🎉 총 **{len(turns)}턴**의 문장이 모여 한 편의 릴레이 소설이 완성되었습니다!\n"
             f"👥 **참여 작가 ({len(authors)}명):** {', '.join(authors) if authors else completed.get('creator_name', '작가')}\n"
-            "───────────────────────────────────────\n"
+            "──────────────────────\n"
             f"{story_body}"
         ),
         color=discord.Color.gold(),
@@ -1114,7 +1114,7 @@ def _build_temp_voice_panel_embed(
             f"• **현재 인원 / 정원:** `{cur_members}명` / {limit_txt}\n"
             f"• **입장 잠금:** {'🔒 **잠김** (방장·관리자만 입장)' if locked else '🔓 **열림** (누구나 입장 가능)'}\n"
             f"• **채널 노출:** {'👻 **숨김** (일반 멤버에게 채널 비공개)' if hidden else '👁️ **공개** (채널 목록에 표시)'}\n"
-            "───────────────────────────────────────\n"
+            "──────────────────────\n"
             "💡 **모든 인원이 퇴장하면 이 음성방은 자동으로 깔끔하게 삭제됩니다.**\n"
             "💡 원래 방장이 퇴장한 상태라면 방 안의 다른 멤버가 **`[👑 방장 인계받기]`**를 누를 수 있어요!"
         ),

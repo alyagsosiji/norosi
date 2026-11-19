@@ -169,12 +169,20 @@ class FarmView(core.SafeView):
         now_ts = time.time()
 
         plot_lines = []
+        ready_cnt = 0
+        growing_cnt = 0
+        empty_cnt = 0
         for idx, p in enumerate(lu.get("plots") or [], 1):
             sid = p.get("seed_id")
             if not sid or sid not in life_core.SEEDS:
+                empty_cnt += 1
                 plot_lines.append(f"`{idx}번 밭` 🟫 **비어 있음** *(아래 드롭다운에서 씨앗 심기)*")
             else:
                 sp = life_core.SEEDS[sid]
+                if float(p.get("ready_at", 0) or 0) <= now_ts:
+                    ready_cnt += 1
+                else:
+                    growing_cnt += 1
                 tags = []
                 if p.get("watered"):
                     tags.append("💧물줌")
@@ -193,16 +201,17 @@ class FarmView(core.SafeView):
             title=f"🌾 {lu['name']}님의 개인 농장 (농장 Lv.{lu['farm_level']})",
             description=(
                 f"• **🪙 낚시 골드:** **`{ov['gold']:,}🪙`**  ·  **💎 크리스탈:** **`{ov['crystals']:,}💎`**  ·  **밭 크기:** `{lu['plot_slots']}/6칸`\n"
+                f"• **📊 밭 현황:** 🌾 수확 가능 `{ready_cnt}` · 🌱 성장 중 `{growing_cnt}` · 🟫 빈 밭 `{empty_cnt}`\n"
                 f"• **🌱 보유 씨앗:** {seed_txt}\n"
                 f"• **🧺 수확 작물(요리 재료/판매):** {crop_txt}"
                 f"{banner}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
                 + "\n".join(plot_lines)
             )[:4096],
             color=0x84CC16,
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_footer(text="수확 작물은 즉시 판매하거나 /설정 (세카이 라이프 요리)에서 고급 생선 요리 버프 재료로 활용할 수 있습니다!")
+        embed.set_footer(text="수확 작물은 즉시 판매하거나 /설정 ➔ 🎮 미니게임(세카이 라이프 요리)에서 버프 재료로 활용할 수 있습니다.")
         return embed
 
     async def _on_water(self, interaction: discord.Interaction):
@@ -749,14 +758,14 @@ class LifeDashboardView(core.SafeView):
             title=f"🌿 {lu['name']}님의 생활 컨텐츠 종합 허브",
             description=(
                 "개인 농장, 서버 공동 농장, 동반 펫, 생선 요리로 낚시와 일일 출석 보상을 극대화하세요!\n\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"• **💰 보유 재화:** 🪙 `{ov['gold']:,}🪙` · 💎 `{ov['crystals']:,}💎`\n"
                 f"• **🌾 개인 농장 (Lv.{lu['farm_level']}):** 밭 `{lu['plot_slots']}칸` (수확 가능 `{ready_cnt}` · 성장중 `{growing_cnt}`)\n"
                 f"• **🤝 서버 공동 농장 (Lv.{gf['level']}/10):** 공용 희귀 `+{(gf['level']-1)*2}%` · 골드 `+{(gf['level']-1)*3}%` · 출석 `+{gf['level']*5 if gf['exp']>0 else 0}💎`\n"
                 f"• **🐾 동반 펫:** {pet_str} · 간식 `{lu['pet_food']}개`\n"
                 f"• **🍳 요리 & 활성 버프:** 요리 `{sum((lu.get('dishes') or {}).values())}개` · 활성 버프 `{len(buffs.get('active_dishes') or [])}/3종`\n"
                 f"• **⚡ 현재 통합 보정:** 쿨타임 `-{buffs['cooldown_reduce']:.2f}초` · 희귀 `+{int(buffs['rare_bonus']*100)}%` · 골드 `+{int(buffs['gold_bonus']*100)}%` · 출석 `+{buffs['attendance_total_bonus']}💎`\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                "━━━━━━━━━━━━━━━━━━━━━━"
             ),
             color=0x10B981,
             timestamp=datetime.datetime.now(core.KST),

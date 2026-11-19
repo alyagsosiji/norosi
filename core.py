@@ -4568,7 +4568,7 @@ def build_monthly_attendance_calendar(guild_id: int, guild_name: str, user_id: i
         cal = calendar.Calendar(firstweekday=6)  # 일요일 시작 달력
         weeks = cal.monthdayscalendar(now.year, now.month)
 
-        cal_rows = [" 일   월   화   수   목   금   토 ", "──────────────────────────────────"]
+        cal_rows = [" 일   월   화   수   목   금   토 ", "──────────────────────"]
         for week in weeks:
             row_cells = []
             for day_num in week:

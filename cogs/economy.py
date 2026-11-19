@@ -83,7 +83,7 @@ async def _send_profile_card(
         if un_txt:
             embed.add_field(name="🎉 새 업적 칭호 자동 해금!", value=un_txt, inline=False)
 
-    embed.set_footer(text="칭호 변경 및 꾸미기는 /경제 칭호 · 자산 송금은 /경제 송금")
+    embed.set_footer(text="칭호 꾸미기·자산 송금은 /설정 ➔ 👤 개인에서 이용할 수 있습니다.")
 
     if png_buf is not None:
         file = discord.File(fp=png_buf, filename="profile_card.png")
@@ -212,7 +212,7 @@ class TitleStudioView(core.SafeView):
             color=discord.Color.from_rgb(*cur.get("rgb", (56, 189, 248))),
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_footer(text="아래 드롭다운에서 보유 칭호를 즉시 장착하거나 새 칭호를 구매할 수 있습니다 (/프로필카드 반영)")
+        embed.set_footer(text="아래 드롭다운에서 보유 칭호를 즉시 장착하거나 새 칭호를 구매할 수 있습니다 (/설정 ➔ 👤 개인 프로필카드 반영)")
         return embed
 
 
@@ -226,8 +226,15 @@ class EconomyLeaderboardView(core.SafeView):
         self.guild_id = int(guild_id or 0)
         self.mode = mode
         self.lb = lb if lb is not None else economy_core.get_economy_leaderboard(self.guild_id)
+        self._sync_tab_styles()
+
+    def _sync_tab_styles(self):
+        self.btn_net.style = discord.ButtonStyle.primary if self.mode == "net_worth" else discord.ButtonStyle.secondary
+        self.btn_cry.style = discord.ButtonStyle.primary if self.mode == "crystal" else discord.ButtonStyle.secondary
+        self.btn_gold.style = discord.ButtonStyle.primary if self.mode == "gold" else discord.ButtonStyle.secondary
 
     def build_embed(self) -> discord.Embed:
+        self._sync_tab_styles()
         medals = ["🥇", "🥈", "🥉"]
         if self.mode == "crystal":
             title = "💎 통합 크리스탈 랭킹 TOP 15"
@@ -239,11 +246,19 @@ class EconomyLeaderboardView(core.SafeView):
             title = "🏦 서버 통합 순자산 랭킹 TOP 15 (💎 + 🪙×0.25)"
             rows = self.lb["by_total"]
 
+        my_uid = str(self.user.id) if self.user else ""
+        my_rank = None
+        for idx, r in enumerate(rows, 1):
+            if my_uid and str(r.get("user_id", "")) == my_uid:
+                my_rank = idx
+                break
+
         lines = []
         for idx, r in enumerate(rows[:15]):
             m = medals[idx] if idx < 3 else f"`{idx + 1:2d}.`"
+            me_tag = " 👈" if (my_uid and str(r.get("user_id", "")) == my_uid) else ""
             lines.append(
-                f"{m} {r['title_emoji']} **`{r['title_tag']}` {r['user_name']}** — "
+                f"{m} {r['title_emoji']} **`{r['title_tag']}` {r['user_name']}**{me_tag} — "
                 f"💎 `{r['crystals']:,}` · 🪙 `{r['fish_gold']:,}` *(총 `{r['net_worth']:,}` · 출석 `{r['att_days']}일`)*"
             )
         desc = "\n".join(lines) if lines else "*(아직 집계된 자산 데이터가 없습니다.)*"
@@ -253,7 +268,8 @@ class EconomyLeaderboardView(core.SafeView):
             color=0x38BDF8,
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_footer(text="하단 버튼으로 순자산 · 크리스탈 · 낚시 골드 기준을 전환할 수 있습니다.")
+        rank_hint = f"📍 내 순위: #{my_rank}위  ·  " if my_rank else ""
+        embed.set_footer(text=f"{rank_hint}하단 버튼으로 순자산 · 크리스탈 · 낚시 골드 기준을 전환할 수 있습니다.")
         return embed
 
     @discord.ui.button(label="🏦 통합 순자산순", style=discord.ButtonStyle.primary, row=0)

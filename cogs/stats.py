@@ -194,7 +194,7 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
                 f"🏠 **서버 멤버:** {members_desc}\n"
                 f"📢 **채널 현황:** 텍스트 `{len(text_chs)}개` · 음성 `{len(voice_chs)}개` · 역할 `{roles_cnt}개` (부스트 `Lv.{boost_lvl} / {boost_cnt}개`)\n"
                 f"📅 **기준 일시:** `{now_kst.strftime('%Y-%m-%d %H:%M KST')}`\n"
-                "───────────────────────────────────────\n"
+                "──────────────────────\n"
                 f"💬 **채팅 메시지량:** {msg_val_str}\n"
                 f"🔊 **음성채널 실시간 현황:** {vc_active_str}\n"
                 f"📅 **오늘 출석 참여율:** `{att_rate}%` (`{today_att_count:,}` / `{member_count:,}명` 완료 · 누적 등록 `{total_att_registered:,}명`)\n\n"
@@ -528,12 +528,12 @@ class RecruitLobbyView(core.SafeView):
         desc = (
             f"{status_badge}\n\n"
             f"📊 **모집 현황:** `{gauge_str}` **{pct}%** (`{curr_cnt}/{self.capacity}명`)\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
             f"📋 **파티 상세 정보:**\n"
             f"{info_str}\n\n"
             f"👥 **참가 파티원 명단:**\n"
             f"{slots_str}\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
             f"{bottom_guide}"
         )
 
@@ -966,7 +966,7 @@ class StatsCog(commands.Cog):
             title="🖥️ norosi 봇 호스트 서버 실시간 시스템 상태",
             description=(
                 "**[👑 봇 주인 전용]** 봇 인스턴스의 하드웨어 자원, 네트워크 레이턴시 및 런타임 현황입니다.\n"
-                "───────────────────────────────────────"
+                "──────────────────────"
             ),
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST)
@@ -1109,7 +1109,7 @@ class StatsCog(commands.Cog):
             description=(
                 f"👤 **유저 멘션:** {target.mention} (`{target.name}`)\n"
                 f"🆔 **고유 ID:** `{target.id}` · **권한 등급:** `{perm_summary}`\n"
-                "───────────────────────────────────────"
+                "──────────────────────"
             ),
             color=embed_color,
             timestamp=now_kst
@@ -1522,7 +1522,7 @@ class WeatherRefreshView(core.SafeView):
             title=f"{w.get('weather_emoji', '🌤️')} [{w.get('location', self.query or '서울')}] 초정밀 실시간 기상 & 대기질 리포트",
             description=(
                 f"📍 **관측 좌표:** `위도 {w.get('lat', '-')}, 경도 {w.get('lon', '-')}` · 🕒 **기준:** `{now_kst.strftime('%Y-%m-%d %H:%M KST')}`\n"
-                "───────────────────────────────────────\n"
+                "──────────────────────\n"
                 f"### 🌡️ 현재 기온: **`{w.get('temp', 0.0):.1f}°C`** ({w.get('weather_desc', '맑음')})\n"
                 f"• **체감 온도:** **`{w.get('feels_like', 0.0):.1f}°C`**  |  **오늘 최저/최고:** `{w.get('min_temp', 0.0):.1f}°C` / `{w.get('max_temp', 0.0):.1f}°C`\n"
                 f"• **상대 습도:** `{w.get('humidity', 0)}%`  |  **풍속:** `{w.get('wind', 0)} km/h`  |  **기압:** `{w.get('pressure', 1013.0):.0f} hPa`"
@@ -1656,7 +1656,7 @@ class WordChainGameView(core.SafeView):
             description=(
                 f"🎮 **대결 모드:** {mode_str}\n"
                 f"🔥 **현재 랠리:** `{self.rally_count}회` 연속 성공\n"
-                "───────────────────────────────────────\n"
+                "──────────────────────\n"
                 f"### 🎯 현재 제시어: **`{self.current_word}`**\n"
                 f"👉 이어갈 첫 글자: {dueum_str}(으)로 시작하는 2글자 이상 단어\n\n"
                 f"📜 **단어 체인 기록:**\n{recent_chain}\n\n"
@@ -1904,7 +1904,7 @@ class RussianRouletteView(core.SafeView):
             description=(
                 f"🎯 **장전 실탄:** `6발 중 {self.bullets}발` (현재 격발 확률: **`{danger_pct}%`**)\n"
                 f"💎 **누적 생존 상금:** **`{self.pot_crystals:,} 💎`** (생존 콤보: `{self.survivor_streak}연속`)\n"
-                "───────────────────────────────────────\n"
+                "──────────────────────\n"
                 f"### 🔄 실린더 상태: `{self._cylinder_visual()}`\n\n"
                 f"📢 **상황 중계:**\n> {self.last_log}"
             ),
@@ -2166,7 +2166,7 @@ def build_suggestion_result_embed(entry: dict) -> discord.Embed:
             f"🔒 **공개 유형:** {'🔒 익명 건의 (내 계정 정보 비공개)' if is_anon else '📢 계정 공개 건의 (답변 및 피드백 가능)'}\n"
             f"🕒 **접수 시각:** `{entry['created_at']}`\n\n"
             f"**접수된 내용 요약:**\n> {entry['content'][:250]}{'...' if len(entry['content']) > 250 else ''}\n\n"
-            "───────────────────────────────────────\n"
+            "──────────────────────\n"
             f"{SUGGESTION_TERMS_SUMMARY}"
         ),
         color=discord.Color.green(),
@@ -2282,7 +2282,7 @@ class SuggestionTypeSelectView(core.SafeView):
             "• 닉네임과 디스코드 ID가 포함되어 접수됩니다.",
             "• 개발진이 필요시 추가 확인이나 답변, 보상 크리스탈(💎)을 드릴 수 있습니다.",
             "",
-            "───────────────────────────────────────",
+            "──────────────────────",
             SUGGESTION_TERMS_SUMMARY
         ])
 

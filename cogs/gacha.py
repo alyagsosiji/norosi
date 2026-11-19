@@ -151,7 +151,7 @@ def build_gacha_pull_embed(
         header_lines.append(f"🎂 **오늘의 생일 픽업:** `{bday_names}` (하단 무료 단차 / 생일 배너 픽업 강조!)")
 
     banner_line = "\n".join(header_lines) + "\n\n"
-    footer_summary = f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{summary_line}"
+    footer_summary = f"\n\n━━━━━━━━━━━━━━━━━━━━━━\n{summary_line}"
     body_text = "\n\n".join(lines)
     max_body = max(200, 4050 - len(banner_line) - len(footer_summary))
     if len(body_text) > max_body:
@@ -1373,10 +1373,10 @@ class InteractiveCardTradeStudioView(core.SafeView):
             description=(
                 "중복 보유 카드를 우선 정렬하여 보여드립니다. (`🔒 잠금` 카드는 자동 보호됨)\n"
                 "양쪽 카드를 선택한 뒤 **`[📨 교환 신청서 발송하기]`** 버튼을 눌러주세요!\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"📤 **내가 제공할 카드:**\n└ {my_line}\n\n"
                 f"📥 **{tgt_name}님에게 받을 카드:**\n└ {tgt_line}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"💎 **교환 수수료:** `100 💎` (상대방 수락 시에만 차감 · 내 보유: `{self.my_crystals:,} 💎`)"
             ),
             color=discord.Color.from_rgb(0, 204, 221),
@@ -1897,7 +1897,7 @@ class CharacterCostumeWardrobeView(core.SafeView):
             desc_lines.append(f"   └ 💡 **착용 모델:** `{char_info['name']}` (의상 원작자: `{equipped.get('char_name')}`)")
 
         desc_lines.extend([
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            "━━━━━━━━━━━━━━━━━━━━━━",
             f"• 💎 **보유 크리스탈:** **`{crystals:,} 💎`**",
             f"• 👕 **착용 가능한 보유 의상:** `{len(unlocked)}벌`  ·  🛍️ **새로 제작 가능한 의상:** `{len(purchasable)}벌`\n",
             f"*💡 가챠에서 뽑은 카드의 3D 의상을 `{core.COSTUME_PURCHASE_PRICE} 💎`로 제작하여 다른 동일 체형 캐릭터에게 자유롭게 입힐 수 있습니다.*"
@@ -2047,7 +2047,7 @@ class CharacterCostumeWardrobeView(core.SafeView):
     async def btn_info(self, interaction: discord.Interaction, button: discord.ui.Button):
         info_text = (
             "👗 **세카이 3D 의상 & 어나더 컬러 시스템 안내**\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
             "• **의상 획득 (가챠 연동):**\n"
             "  - `/설정` (`🎰 프로세카 뽑기`)에서 3D 의상이 포함된 ★4 카드를 뽑으면, 해당 원본 캐릭터에게 의상이 **자동 무료 해금**됩니다.\n\n"
             "• **어나더 컬러 & 한정 헤어 (✦MR.2 해금):**\n"
@@ -3894,18 +3894,25 @@ class MasterRankView(core.SafeView):
         star_num = self._card_star_num(selected, 3)
         cos = core.get_costume_for_card(selected.get("id"))
 
-        # 다음 MR 예상 종합력 미리보기
+        # 다음 MR 예상 종합력 미리보기 & 즉시 돌파 가능 여부 배지
         if mr < 5:
             next_card = dict(selected)
             next_card["master_rank"] = mr + 1
             next_pwr = core.get_card_power(next_card)
             next_cost = core.get_master_rank_crystal_cost(star_num, mr)
+            if cnt >= 2:
+                ready_badge = f"✅ **무료 돌파 가능!** *(중복 `{cnt - 1}장` 보유 · `0💎`)*"
+            elif crystals >= next_cost:
+                ready_badge = f"💎 **크리스탈 돌파 가능!** *(돌파 후 잔여 `{crystals - next_cost:,}💎`)*"
+            else:
+                ready_badge = f"⚠️ **크리스탈 `{next_cost - crystals:,}💎` 부족** *(중복 카드 또는 크리스탈 필요)*"
             next_line = (
+                f"• **돌파 상태:** {ready_badge}\n"
                 f"• **다음 단계 (`✦MR.{mr + 1}`):** `⚔️ {cur_pwr:,}` ➔ **`⚔️ {next_pwr:,}` (`+{next_pwr - cur_pwr:,}`)**\n"
-                f"• **돌파 재료 선택:** 중복 카드 `1장` (`0💎`, 현재 보유 `{cnt}장`) 또는 크리스탈 **`{next_cost:,}💎`**"
+                f"• **돌파 재료:** 중복 카드 `1장` (`0💎`, 보유 `{cnt}장`) 또는 **`{next_cost:,}💎`**"
             )
         else:
-            next_line = "• ✨ **최고 마스터 랭크(`✦MR.5/5`) 도달 완료!** (`+40%` 종합력 보너스 적용 중)"
+            next_line = "• 🏆 **최고 마스터 랭크(`✦MR.5/5`) 도달 완료!** (`+40%` 종합력 보너스 적용 중)"
 
         perk_lines = []
         if cos:
@@ -3932,14 +3939,14 @@ class MasterRankView(core.SafeView):
                 f"• **마스터 랭크:** {mr_gauge} **`✦MR.{mr} / 5`** (`종합력 +{mr * 8}%`)\n"
                 f"• **레벨 & 종합력:** `Lv.{cur_lvl}/{max_lvl}` · **`⚔️ {cur_pwr:,}`** · **보유 크리스탈:** **`{crystals:,} 💎`**\n"
                 f"{next_line}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
                 + "\n".join(perk_lines)
             ),
             color=discord.Color.from_rgb(170, 90, 255) if mr >= 2 else discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST)
         )
         embed.set_thumbnail(url=core.get_proseka_card_image_url(selected, "auto"))
-        embed.set_footer(text="✦MR.1당 종합력 +8% (MR.5 최대 +40%) · 3D 의상 카드는 MR.2에서 어나더 컬러 3종 & 한정 헤어 해금!")
+        embed.set_footer(text="✦MR.1당 종합력 +8% (최대 +40%) · 3D 의상 카드는 ✦MR.2에서 어나더 컬러 & 한정 헤어 해금")
         return embed
 
     async def _commit_ui_update(self, interaction: discord.Interaction, data: dict, sync_page_to_selected: bool = True):
@@ -5671,13 +5678,13 @@ class MySekaiHubView(core.SafeView):
             description=(
                 f"> 💬 **\"{ms.get('greeting', '환영합니다!')}\"**\n"
                 f"{notice_block}"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🎨 **적용 배경 테마:** **{theme_info['name']}** (`+{theme_info['bonus']}💎/일`)\n"
                 f"└ *{theme_info['desc']}*\n\n"
                 f"🛋️ **미니 룸 가구 진열장 (`{cnt_furn}/{total_furn}`):**\n"
                 f"### 🪟 【  {room_icons}  】 🪟\n"
                 f"└ 수집도: `{progress_bar}` (**{int(cnt_furn / max(1, total_furn) * 100)}%**)\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                "━━━━━━━━━━━━━━━━━━━━━━"
             ),
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST)

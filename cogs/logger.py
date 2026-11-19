@@ -1888,9 +1888,9 @@ def build_announcement_embed(
         title=f"{emoji}  {title}",
         description=(
             f"{meta_line}\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"{content}\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
             "💬 *공지사항 관련 문의 또는 건의사항은 서버 관리진에게 문의해 주세요.*"
         ),
         color=color,
@@ -1999,9 +1999,9 @@ class AnnouncementPreviewView(core.SafeView):
         color_label = ANNOUNCEMENT_COLORS.get(self.color_key, ANNOUNCEMENT_COLORS["cyan"])[1]
 
         return (
-            "┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n"
+            "┏━━━━━━━━━━━━━━━━━━━━━━┓\n"
             "   📢 **norosi 공지사항 프리미엄 스튜디오 (미리보기)**\n"
-            "┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n"
+            "┗━━━━━━━━━━━━━━━━━━━━━━┛\n"
             f"• 📢 **발송 채널:** {self.target_channel.mention}\n"
             f"• 🔔 **멘션 모드:** `{m_label}`\n"
             f"• 🏷️ **분류 배지:** `{badge_label}`  ·  🎨 **테마 색상:** `{color_label}`\n"
@@ -2304,7 +2304,7 @@ class InactiveUserListView(core.SafeView):
                 f"• **활동 멤버:** `{active_cnt:,}명` (**{active_ratio:.1f}%**)\n"
                 f"• **비활성 유저:** `{inactive_cnt:,}명` (**{inactive_ratio:.1f}%**)\n"
                 f"• **활동 비율:** `{gauge_str}`\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
                 + "\n".join(lines)
             ),
             color=discord.Color.from_rgb(235, 69, 158) if inactive_cnt > 0 else discord.Color.green(),

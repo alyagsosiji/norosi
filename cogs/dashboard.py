@@ -3379,32 +3379,30 @@ class MasterDashboardView(core.SafeView):
         flat_total = len(self._get_flat_pages())
 
         desc_lines = [
-            f"👋 **{u_name}**님, 환영합니다! 원하는 카테고리 버튼을 눌러 세부 기능을 실행하세요.",
+            f"👋 **{u_name}**님, 환영합니다! 아래 버튼으로 원하는 기능을 바로 실행하세요.",
             self._format_caller_tier_banner(),
             "",
-            "```ansi",
-            f"\u001b[1;36m[ 📊 내 실시간 요약 ]\u001b[0m 💎 {crystals:,} 크리스탈  |  💖 오시: {oshi}  |  📅 D-Day: {dday_cnt}개",
-            f"\u001b[1;32m[ 🎮 컬렉션 현황 ]\u001b[0m 프로세카 {sekai_cards}종  ·  원신 {gi_items}종  ·  스타레일 {hsr_items}종",
-            "```",
-            f"• **📅 오늘 출석 상태:** {att_badge}",
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            "### 🗂️ 4대 통합 카테고리 (총 14페이지 · 84종 기능)",
+            f"> 📊 **내 요약:** 💎 `{crystals:,}` · 💖 오시 `{oshi}` · 📅 D-Day `{dday_cnt}개`\n"
+            f"> 🎮 **컬렉션:** 프로세카 `{sekai_cards}종` · 원신 `{gi_items}종` · 스타레일 `{hsr_items}종`\n"
+            f"> 📅 **출석 상태:** {att_badge}",
+            "━━━━━━━━━━━━━━━━━━━━━━",
+            "### 🗂️ 4대 통합 카테고리 *(총 14페이지 · 84종 기능)*",
             (
-                "1️⃣ **`[🌐 일반]`** *(3페이지 · `👤 일반 이용자`)*\n"
-                "└ 출석체크·달력·랭킹, D-Day·생일 전광판, 프로세카 미래시, 음악·플리·배속, 서버통계, 파티모집, 날씨, 릴레이소설\n"
-                "2️⃣ **`[⚙️ 고급]`** *(4페이지 · `🛡️ 서버 관리자` & `👑 봇 주인` 구분)*\n"
-                "└ `[🛡️관리자]` 역할버튼·반응역할·공지·1:1티켓·임시음성방·고정글·레이드방어·이모지업스케일·감사로그·청소·초기화\n"
-                "└ `[👑봇주인]` 3대 게임 글로벌 픽업 · VM 터미널 로그 · **GitHub 연동/배포알림** · **봇 상태 진단** · DB 백업 & 동기화\n"
-                "3️⃣ **`[🎮 미니게임]`** *(4페이지 · `👤 일반 이용자`)*\n"
-                "└ 프로세카 뽑기·라이브·마스터랭크·의상·마이세카이, 원신 기원, 스타레일 워프, 낚시·대회·수족관, 농장·펫, 타인의삶, 끝말잇기, 룰렛\n"
-                "4️⃣ **`[👤 개인]`** *(3페이지 · `👤 일반 이용자`)*\n"
-                "└ 고화질 PNG 프로필카드, 오시·칭호·송금, 4대 게임 개인 보관함 & 덱/파티 편성, 오늘목표 잔디, 집중모드, 비밀 D-Day, 파트너"
+                "1️⃣ **`[🌐 일반]`** *(3p · `👤일반`)*\n"
+                "└ 출석·달력·랭킹 · D-Day·생일 · 미래시 · 음악·플리 · 서버통계 · 파티모집 · 날씨 · 릴레이소설\n\n"
+                "2️⃣ **`[⚙️ 고급]`** *(4p · `🛡️관리자` & `👑봇주인`)*\n"
+                "└ `🛡️관리자` 역할·공지·티켓·임시음성방·고정글·레이드방어·이모지업스케일·감사로그·청소·초기화\n"
+                "└ `👑봇주인` 3대 게임 픽업 · VM 터미널 · **GitHub 배포알림** · **봇 진단** · DB 백업/동기화\n\n"
+                "3️⃣ **`[🎮 미니게임]`** *(4p · `👤일반`)*\n"
+                "└ 프로세카 · 원신 · 스타레일 · 낚시·수족관 · 농장·펫 · 타인의삶 · 끝말잇기 · 룰렛\n\n"
+                "4️⃣ **`[👤 개인]`** *(3p · `👤일반`)*\n"
+                "└ PNG 프로필카드 · 오시·칭호·송금 · 4대 게임 보관함/덱 · 오늘목표 · 집중모드 · 파트너"
             ),
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            "━━━━━━━━━━━━━━━━━━━━━━",
         ]
 
         embed = discord.Embed(
-            title="⚙️ norosi 통합 설정 허브 (Component V2 컨트롤 타워)",
+            title="⚙️ norosi 통합 설정 허브 (컨트롤 타워)",
             description="\n".join(desc_lines),
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST),
@@ -3412,7 +3410,7 @@ class MasterDashboardView(core.SafeView):
         if self.user and hasattr(self.user, "display_avatar"):
             embed.set_thumbnail(url=self.user.display_avatar.url)
         embed.set_footer(
-            text=f"하단 [🌐 일반 / ⚙️ 고급 / 🎮 미니게임 / 👤 개인] 클릭 또는 [◀ / ▶] 통합 페이지네이션 (총 {flat_total}페이지)"
+            text=f"🌐 일반 · ⚙️ 고급 · 🎮 미니게임 · 👤 개인  |  ◀/▶ 전체 {flat_total}p 이동"
         )
         return embed
 
@@ -3499,13 +3497,13 @@ class MasterDashboardView(core.SafeView):
         ctx_line = self._build_context_summary_for_page(category, page)
 
         desc_lines = [
-            f"🧭 **위치:** `⚙️ 설정 홈`  ›  **`{cat_meta['label']}`**  ›  **`페이지 {page + 1} / {len(cat_pages)}`** *(통합 `{global_cur} / {global_tot}p`)*",
-            f"🔐 **권한 구분:** {cat_meta['perm_summary']}",
-            ctx_line,
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            f"🧭 **위치:** `⚙️ 홈` › **`{cat_meta['label']}`** › **`{page + 1}/{len(cat_pages)}p`** *(전체 `{global_cur}/{global_tot}p`)*",
+            f"🔐 **권한:** {cat_meta['perm_summary']}",
+            f"> {ctx_line}",
+            "━━━━━━━━━━━━━━━━━━━━━━",
             f"### {page_obj['page_title']}",
             "\n".join(item_lines),
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            "━━━━━━━━━━━━━━━━━━━━━━",
         ]
 
         embed = discord.Embed(
@@ -3515,7 +3513,7 @@ class MasterDashboardView(core.SafeView):
             timestamp=datetime.datetime.now(core.KST),
         )
         embed.set_footer(
-            text=f"[⬅️ 뒤로가기: 설정 홈]  •  [◀ 이전 / 다음 ▶: 통합 14p 페이지네이션]  •  현재 통합 {global_cur}/{global_tot}페이지"
+            text=f"⬅️ 홈으로  ·  ◀/▶ 페이지 이동 ({global_cur}/{global_tot}p)  ·  🔄 새로고침"
         )
         return embed
 
@@ -3531,14 +3529,14 @@ class MasterDashboardView(core.SafeView):
             btn_lines.append(f"• **`[{b_emoji} {b_label}]`**")
 
         desc_lines = [
-            f"🧭 **위치:** `⚙️ 설정 홈`  ›  `{cat_meta['label']} ({self.current_page + 1}p)`  ›  **`{sub_def['title']}`**",
-            f"🔐 **요구 권한:** `{perm_txt}`",
+            f"🧭 **위치:** `⚙️ 홈` › `{cat_meta['label']} ({self.current_page + 1}p)` › **`{sub_def['title']}`**",
+            f"🔐 **권한:** `{perm_txt}`",
             "",
-            sub_def.get("desc", ""),
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            f"> {sub_def.get('desc', '')}",
+            "━━━━━━━━━━━━━━━━━━━━━━",
             "### 🎛️ 실행 가능한 세부 기능",
             "\n".join(btn_lines),
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            "━━━━━━━━━━━━━━━━━━━━━━",
         ]
 
         embed = discord.Embed(
@@ -3547,7 +3545,7 @@ class MasterDashboardView(core.SafeView):
             color=discord.Color.from_rgb(r, g, b),
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_footer(text="[⬅️ 뒤로가기]를 누르면 이전 카테고리 페이지로 돌아가며, [🏠 설정 홈으로]를 누르면 메인으로 복귀합니다.")
+        embed.set_footer(text="⬅️ 이전 페이지  ·  🏠 설정 홈  ·  🔄 새로고침")
         return embed
 
     async def _enter_sub_mode(self, interaction: discord.Interaction, mode_key: str):

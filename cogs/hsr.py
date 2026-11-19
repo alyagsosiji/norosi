@@ -167,7 +167,7 @@ def _build_hsr_result_embed(result: dict, user: discord.abc.User | None) -> tupl
     stat_bar = f"★★★★★ `{len(r5)}` · ★★★★ `{len(r4)}` · ★★★ `{len(r3)}` · 🎯픽업 `{len(pickups)}`{rew_sum}"
 
     header = f"{mode_banner}🚄 **워프:** `{b_cfg['name']}`{rot_tag}\n🎯 **현재 픽업:** `{feat_str}`\n\n"
-    footer_block = f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{stat_bar}\n{pity_line}"
+    footer_block = f"\n\n━━━━━━━━━━━━━━━━━━━━━━\n{stat_bar}\n{pity_line}"
     body = "\n".join(lines)
     max_b = max(200, 4040 - len(header) - len(footer_block))
     if len(body) > max_b:

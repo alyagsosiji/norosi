@@ -496,15 +496,22 @@ class FishingCastView(core.SafeView):
                 inline=False,
             )
         bag_cap = fishing_core.get_bag_capacity(u)
+        bag_cnt = len(u.get("bag", []))
+        bag_warn = ""
+        if bag_cap > 0:
+            if bag_cnt >= bag_cap:
+                bag_warn = " 🚨 **가득 참!**"
+            elif bag_cnt / bag_cap >= 0.85:
+                bag_warn = " ⚠️ **거의 가득 참**"
         embed.add_field(
             name=f"💰 재화 & 낚시꾼 Lv.{u['level']}",
             value=(
                 f"• **🪙 낚시 골드:** **`{u['gold']:,}🪙`**  ·  **💎 크리스탈:** **`{crystals:,}💎`**\n"
-                f"• **🎒 가방:** `{len(u.get('bag', [])):,}/{bag_cap:,}마리`  ·  **📖 도감:** `{len(u.get('pokedex', {})):,}/{len(fishing_core.FISH_SPECIES_DB):,}종`  ·  **🐠 수족관:** `{len(u.get('tank', [])):,}/{u.get('tank_slots', 4)}칸`"
+                f"• **🎒 가방:** `{bag_cnt:,}/{bag_cap:,}마리`{bag_warn}  ·  **📖 도감:** `{len(u.get('pokedex', {})):,}/{len(fishing_core.FISH_SPECIES_DB):,}종`  ·  **🐠 수족관:** `{len(u.get('tank', [])):,}/{u.get('tank_slots', 4)}칸`"
             ),
             inline=False,
         )
-        embed.set_footer(text=f"💡 [🪝 찌 던지기] 클릭(쿨타임 {cd_note}) ➔ 입질 신호가 오면 초록색 [🎣 지금 당기세요!]를 누르세요! (모바일 지연 보정 +1.25초 적용)")
+        embed.set_footer(text=f"💡 [🪝 찌 던지기](쿨타임 {cd_note}) ➔ 입질 시 초록색 [🎣 지금 당기세요!] 클릭 (모바일 보정 +1.25초)")
         return embed
 
     def build_catch_embed(self, res: Dict[str, Any]) -> discord.Embed:
@@ -1326,7 +1333,7 @@ class FishingBagView(core.SafeView):
             description=(
                 f"• **보유 골드:** `{u['gold']:,}🪙`  ·  **조회 총 가치:** `{total_gold:,}🪙` (잠금제외 `{unlocked_cnt:,}마리 = {unlocked_gold:,}🪙`)\n"
                 f"{sel_summary}  ·  **페이지:** `{self.page + 1} / {total_p}`\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"{body}"
             )[:4096],
             color=0x38BDF8,
@@ -1887,7 +1894,7 @@ class FishingPokedexView(core.SafeView):
                 f"🌊 강 `{by_h['river']['owned']:,}/{by_h['river']['total']:,}`  ·  "
                 f"⚓ 바다 `{by_h['sea']['owned']:,}/{by_h['sea']['total']:,}`\n"
                 f"• **필터:** `{r_label}` · `{z_label}`{q_label} (`{len(items):,}종 일치`)  ·  **페이지:** `{self.page + 1:,} / {total_p:,}`\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"{body}"
             )[:4096],
             color=0x0EA5E9,
@@ -2103,7 +2110,7 @@ class FishingAquariumView(core.SafeView):
             description=(
                 f"• **시간당 관람 수익:** **`+{hourly:,}🪙/시간`**  ·  **수확 대기 골드:** **`+{pending:,}🪙`** *(최대 24시간 누적)*\n"
                 f"• **어항 크기:** `{max_slots}/20칸` ({exp_txt})\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"{body}"
             )[:4096],
             color=0x14B8A6,
@@ -2371,7 +2378,7 @@ class FishingShopView(core.SafeView):
             title=title,
             description=(
                 f"🪙 **보유 낚시 골드:** **`{u['gold']:,}🪙`**\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" + "\n".join(lines)
+                "━━━━━━━━━━━━━━━━━━━━━━\n" + "\n".join(lines)
             )[:4096],
             color=0xF59E0B,
             timestamp=datetime.datetime.now(core.KST),
@@ -2922,7 +2929,7 @@ class FishingTournamentView(core.SafeView):
                     "✨ **계절(제철) 어종 특별 혜택**\n"
                     "• 상시 포획 시 **판매 가치 `+25%🪙`** 자동 보너스!\n"
                     "• 낚시 대회 진행 중 포획 시 **계절 포인트 `1.5배` · 최장어 환산 `+15%`** 적용!\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
                     f"{body}"
                 )[:4096],
                 color=season["color"],
@@ -2959,7 +2966,7 @@ class FishingTournamentView(core.SafeView):
                     "• 🥈 **2위 (준우승):** `8,000🪙` + `300💎`\n"
                     "• 🥉 **3위 (입상):** `4,000🪙` + `150💎`\n"
                     "• 🎖️ **참가 완주상 (4위~):** `1,000🪙` + `30💎`\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
                     f"{hist_txt}"
                 )[:4096],
                 color=0xF59E0B,
@@ -2977,7 +2984,7 @@ class FishingTournamentView(core.SafeView):
                     "• **🗓️ 주말 정규 토너먼트:** 매주 **토요일 00:00 ~ 일요일 23:59 (KST)** 자동 오픈!\n"
                     "• **🏁 깜짝 번개 대회:** 아래 **`[🏁 새 대회 개최]`** 버튼으로 지금 바로 30분~2시간 대회를 열 수 있습니다.\n"
                     f"• **{season['emoji']} 이번 계절 제철 어종 (+25%🪙 / 대회 1.5x):** {feat_preview}\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
                     "🎁 **시상 보상:** 🥇 `15,000🪙 + 500💎` · 🥈 `8,000🪙 + 300💎` · 🥉 `4,000🪙 + 150💎` · 참가상 `1,000🪙 + 30💎`"
                 )[:4096],
                 color=season["color"],
@@ -3017,7 +3024,7 @@ class FishingTournamentView(core.SafeView):
                 f"• **대상 수역:** {hab_lbl}  ·  **남은 시간:** ⏳ **`{rem_str}`**\n"
                 f"> *{m_meta['desc']}*\n"
                 f"• **{season['emoji']} {season['name']} 제철 보너스 어종:** {feat_names}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
                 "📊 **실시간 리더보드 (TOP 10)**\n"
                 f"{board_txt}"
             )[:4096],
@@ -3421,7 +3428,7 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
             description=(
                 f"• **EXP:** `{summary['rem_exp']} / {summary['need_exp']}`  ·  **누적 포획:** `{u['total_catches']:,}마리` (👑 월척 `{u['total_trophy']:,}회` · 🏆 대회 우승 `{wins}회`)\n"
                 f"• **🪙 보유 낚시 골드:** **`{u['gold']:,}🪙`** (누적 수익 `{u['total_gold_earned']:,}🪙`)  ·  **💎 크리스탈:** **`{summary['crystals']:,}💎`**\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"• **낚싯대:** {rod['emoji']} `{rod['name']}`\n"
                 f"• **릴:** {reel['emoji']} `{reel['name']}`\n"
                 f"• **그물:** {net_txt}\n"
