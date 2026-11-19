@@ -1,6 +1,8 @@
 import os
 import re
+import gc
 import sys
+import stat
 import time
 import io
 import copy
@@ -8,6 +10,8 @@ import json
 import shutil
 import random
 import platform
+import threading
+import importlib.metadata
 try:
     import resource
 except ImportError:
@@ -747,6 +751,52 @@ class RecruitModal(core.SafeModal, title="🎮 파티 / 팀원 모집 작성"):
             pass
 
 
+class BotStatusRefreshView(core.SafeView):
+    """봇 주인 전용 /봇상태 실시간 새로고침 및 메모리 정리 뷰"""
+
+    def __init__(self, stats_cog: "StatsCog | None" = None, owner_id: int = 0):
+        super().__init__(timeout=300)
+        self.stats_cog = stats_cog
+        self.owner_id = owner_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        bot_ref = (self.stats_cog.bot if self.stats_cog else None) or interaction.client
+        is_owner = False
+        if bot_ref and hasattr(bot_ref, "is_bot_owner_user"):
+            try:
+                is_owner = await bot_ref.is_bot_owner_user(interaction.user)
+            except Exception:
+                is_owner = False
+        if not is_owner or (self.owner_id and interaction.user.id != self.owner_id):
+            await core.safe_send_response(
+                interaction,
+                "🚨 **권한 부족:** 봇 상태 진단은 **👑 봇 주인(소유자)** 만 조작할 수 있습니다.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="🔄 상태·핑 새로고침", style=discord.ButtonStyle.primary, row=0)
+    async def btn_refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        if not self.stats_cog:
+            return
+        embed = await self.stats_cog._build_detailed_bot_status_embed(interaction.user.display_name)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
+
+    @discord.ui.button(label="🧹 메모리(GC) 정리", style=discord.ButtonStyle.secondary, row=0)
+    async def btn_gc_collect(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        collected = await asyncio.to_thread(gc.collect)
+        if not self.stats_cog:
+            return
+        embed = await self.stats_cog._build_detailed_bot_status_embed(interaction.user.display_name)
+        embed.set_footer(text=f"🧹 GC 정리 완료 ({collected:,}개 객체 회수) • 요청자: {interaction.user.display_name}")
+        await core.safe_edit_response(interaction, embed=embed, view=self)
+
+
 class StatsCog(commands.Cog):
     """서버 활성도 및 채널/음성/출석 통계 요약 및 상세 대시보드 Cog"""
 
@@ -886,56 +936,197 @@ class StatsCog(commands.Cog):
         view = ServerStatsDashboardView(interaction.guild, data, tf, mode, user=interaction.user)
         await interaction.followup.send(embed=embed, view=view, wait=True)
 
-    @app_commands.command(name="봇상태", description="[봇 주인 전용] norosi 봇의 호스트 시스템 리소스(RAM, CPU, 디스크, 핑, 업타임) 상태를 확인합니다.")
-    @app_commands.default_permissions(administrator=True)
-    async def host_system_stats_cmd(self, interaction: discord.Interaction):
-        # 봇 주인(소유자) 전용 권한 안전 검증
-        if not await self.bot.is_bot_owner_user(interaction.user):
-            await core.safe_send_response(
-                interaction,
-                content="🚨 **권한 부족:** 봇 상태(호스트 시스템 리소스) 조회는 **👑 봇 주인(소유자)** 만 실행할 수 있습니다.",
-                ephemeral=True
-            )
-            return
+    @staticmethod
+    def _collect_host_metrics_sync() -> dict:
+        """블로킹 파일/OS 지표 수집을 워커 스레드에서 안전하게 수행 (시크릿·민감정보 절대 미포함)."""
+        t0 = time.perf_counter()
+        data = core.load_data()
+        data_io_ms = round((time.perf_counter() - t0) * 1000, 2)
 
-        await core.safe_defer(interaction, ephemeral=True)
+        # 프로세스 실시간 RSS(VmRSS) 및 피크(VmHWM) — Linux /proc/self/status 우선
+        rss_mb = 0.0
+        hwm_mb = 0.0
+        try:
+            if os.path.exists("/proc/self/status"):
+                with open("/proc/self/status", "r", encoding="utf-8", errors="ignore") as fp:
+                    for ln in fp:
+                        if ln.startswith("VmRSS:"):
+                            rss_mb = round(int(ln.split()[1]) / 1024, 2)
+                        elif ln.startswith("VmHWM:"):
+                            hwm_mb = round(int(ln.split()[1]) / 1024, 2)
+        except Exception:
+            pass
 
-        # 시스템 리소스 및 프로세스 지표 측정
-        start_ping = time.perf_counter()
-        data = await asyncio.to_thread(core.load_data)
-        data_disk_ms = round((time.perf_counter() - start_ping) * 1000, 2)
-
-        # 메모리 사용량 (RSS - OS별 단위 보정: Linux KB / Darwin Byte / Windows fallback)
+        cpu_user_s = 0.0
+        cpu_sys_s = 0.0
         try:
             if resource:
-                mem_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-                if sys.platform == "darwin":
-                    mem_mb = round(mem_kb / (1024 * 1024), 2)
-                else:
-                    mem_mb = round(mem_kb / 1024, 2)
-            else:
-                mem_mb = 0.0
+                ru = resource.getrusage(resource.RUSAGE_SELF)
+                cpu_user_s = round(ru.ru_utime, 1)
+                cpu_sys_s = round(ru.ru_stime, 1)
+                if hwm_mb <= 0:
+                    hwm_mb = round(ru.ru_maxrss / (1024 * 1024), 2) if sys.platform == "darwin" else round(ru.ru_maxrss / 1024, 2)
+                if rss_mb <= 0:
+                    rss_mb = hwm_mb
         except Exception:
-            mem_mb = 0.0
+            pass
 
-        # 디스크 용량 (GB)
+        # 호스트 전체 메모리 (/proc/meminfo)
+        host_mem_total_gb = host_mem_used_gb = host_mem_pct = 0.0
+        try:
+            if os.path.exists("/proc/meminfo"):
+                meminfo = {}
+                with open("/proc/meminfo", "r", encoding="utf-8", errors="ignore") as fp:
+                    for ln in fp:
+                        parts = ln.split()
+                        if len(parts) >= 2:
+                            meminfo[parts[0].rstrip(":")] = int(parts[1])
+                total_kb = meminfo.get("MemTotal", 0)
+                avail_kb = meminfo.get("MemAvailable", meminfo.get("MemFree", 0))
+                if total_kb > 0:
+                    used_kb = max(0, total_kb - avail_kb)
+                    host_mem_total_gb = round(total_kb / (1024 * 1024), 2)
+                    host_mem_used_gb = round(used_kb / (1024 * 1024), 2)
+                    host_mem_pct = round((used_kb / total_kb) * 100, 1)
+        except Exception:
+            pass
+
+        # 디스크 용량
         try:
             disk = shutil.disk_usage(".")
             disk_total_gb = round(disk.total / (1024 ** 3), 1)
             disk_used_gb = round(disk.used / (1024 ** 3), 2)
             disk_free_gb = round(disk.free / (1024 ** 3), 1)
-            disk_pct = round((disk.used / disk.total) * 100, 1)
+            disk_pct = round((disk.used / disk.total) * 100, 1) if disk.total else 0.0
         except Exception:
-            disk_total_gb = disk_used_gb = disk_free_gb = disk_pct = 0
+            disk_total_gb = disk_used_gb = disk_free_gb = disk_pct = 0.0
 
-        # CPU 로드 및 OS 정보
+        # CPU 로드 & 코어
+        cpu_cores = os.cpu_count() or 1
         try:
-            load_avg = os.getloadavg()
-            load_str = f"{load_avg[0]:.2f}, {load_avg[1]:.2f}, {load_avg[2]:.2f}"
+            la = os.getloadavg()
+            load_str = f"{la[0]:.2f} / {la[1]:.2f} / {la[2]:.2f}"
         except Exception:
             load_str = "지원 안 됨"
 
-        # 업타임 계산
+        # DB 파일 크기 & 권한(0600 보안 상태)
+        db_size_kb = 0.0
+        db_perm_str = "미생성"
+        db_perm_ok = False
+        try:
+            st = os.stat(core.DATA_FILE)
+            db_size_kb = round(st.st_size / 1024, 1)
+            mode_oct = stat.S_IMODE(st.st_mode)
+            db_perm_str = f"{mode_oct:04o}"
+            db_perm_ok = (mode_oct & 0o077) == 0
+        except Exception:
+            pass
+
+        # DB/캐시 카운트 요약
+        profiles_cnt = len(core.as_dict(data.get("user_profiles")))
+        ddays_cnt = len(core.as_dict(data.get("ddays")))
+        reminders_cnt = len(data.get("reminders") or [])
+        schedules_cnt = len(data.get("music_schedules") or [])
+        proseka_cards_cnt = len(getattr(core, "PROSEKA_KR_CARDS", []) or [])
+        proseka_costumes_cnt = len(getattr(core, "PROSEKA_COSTUMES_CACHE", []) or [])
+
+        emote_cache_cnt = 0
+        try:
+            from cogs import emoji_upscale
+            emote_cache_cnt = len(getattr(emoji_upscale.GLOBAL_EMOTE_CACHE, "_store", {}))
+        except Exception:
+            pass
+
+        # 주요 라이브러리 버전
+        def _pkg_ver(name: str) -> str:
+            try:
+                return importlib.metadata.version(name)
+            except Exception:
+                return "-"
+
+        return {
+            "data_io_ms": data_io_ms,
+            "rss_mb": rss_mb,
+            "hwm_mb": hwm_mb,
+            "cpu_user_s": cpu_user_s,
+            "cpu_sys_s": cpu_sys_s,
+            "host_mem_total_gb": host_mem_total_gb,
+            "host_mem_used_gb": host_mem_used_gb,
+            "host_mem_pct": host_mem_pct,
+            "disk_total_gb": disk_total_gb,
+            "disk_used_gb": disk_used_gb,
+            "disk_free_gb": disk_free_gb,
+            "disk_pct": disk_pct,
+            "cpu_cores": cpu_cores,
+            "load_str": load_str,
+            "db_size_kb": db_size_kb,
+            "db_perm_str": db_perm_str,
+            "db_perm_ok": db_perm_ok,
+            "profiles_cnt": profiles_cnt,
+            "ddays_cnt": ddays_cnt,
+            "reminders_cnt": reminders_cnt,
+            "schedules_cnt": schedules_cnt,
+            "proseka_cards_cnt": proseka_cards_cnt,
+            "proseka_costumes_cnt": proseka_costumes_cnt,
+            "emote_cache_cnt": emote_cache_cnt,
+            "ver_aiohttp": _pkg_ver("aiohttp"),
+            "ver_nacl": _pkg_ver("PyNaCl"),
+            "ver_davey": _pkg_ver("davey"),
+            "ver_ytdlp": _pkg_ver("yt-dlp"),
+            "has_orjson": bool(getattr(discord.utils, "HAS_ORJSON", False)),
+            "firebase_active": bool(core.get_firebase_endpoint()),
+            "webhook_secret_set": bool((os.getenv("GITHUB_WEBHOOK_SECRET") or "").strip()),
+            "signing_key_set": bool((os.getenv("SIGNING_KEY") or os.getenv("EMOTE_CDN_SIGNING_KEY") or "").strip()),
+        }
+
+    async def _build_detailed_bot_status_embed(self, requester_name: str) -> discord.Embed:
+        # 1. 이벤트 루프 스케줄링 지연(Event Loop Lag) 측정
+        t_loop = time.perf_counter()
+        await asyncio.sleep(0)
+        loop_lag_ms = round((time.perf_counter() - t_loop) * 1000, 2)
+
+        # 2. 워커 스레드에서 호스트/DB 지표 수집
+        m = await asyncio.to_thread(self._collect_host_metrics_sync)
+
+        # 3. Discord REST API 왕복 지연 실측 (경량 /gateway 조회)
+        rest_ping_ms: Optional[float] = None
+        try:
+            t_rest = time.perf_counter()
+            await self.bot.http.request(discord.http.Route("GET", "/gateway"))
+            rest_ping_ms = round((time.perf_counter() - t_rest) * 1000, 1)
+        except Exception:
+            rest_ping_ms = None
+
+        # 4. WebSocket 핑 및 등급
+        ws_raw = self.bot.latency
+        ws_latency = round(ws_raw * 1000, 1) if ws_raw == ws_raw and ws_raw >= 0 else -1.0
+        if ws_latency < 0:
+            ws_badge = "⚪ 측정 중"
+            embed_color = discord.Color.light_grey()
+        elif ws_latency < 80:
+            ws_badge = "🟢 최상"
+            embed_color = discord.Color.from_rgb(46, 204, 113)
+        elif ws_latency < 180:
+            ws_badge = "🟡 양호"
+            embed_color = discord.Color.from_rgb(0, 204, 221)
+        elif ws_latency < 300:
+            ws_badge = "🟠 보통"
+            embed_color = discord.Color.gold()
+        else:
+            ws_badge = "🔴 지연"
+            embed_color = discord.Color.red()
+
+        rest_str = f"`{rest_ping_ms}ms`" if rest_ping_ms is not None else "`측정 불가`"
+
+        # 5. 이벤트 루프 / 커넥터 / JSON 최적화 엔진 정보
+        running_loop = asyncio.get_running_loop()
+        loop_engine = "uvloop ⚡" if "uvloop" in type(running_loop).__module__.lower() else "asyncio"
+        json_engine = "orjson ⚡" if m["has_orjson"] else "stdlib json"
+        conn = getattr(getattr(self.bot, "http", None), "connector", None)
+        conn_family = getattr(conn, "_family", 0)
+        conn_label = "IPv4+DNS캐시 ⚡" if conn_family == 2 else "기본(Dual)"
+
+        # 6. 업타임 & 런타임 카운트
         bot_start = getattr(self.bot, "start_time", None)
         if bot_start:
             uptime_td = datetime.datetime.now(core.KST) - bot_start
@@ -948,65 +1139,150 @@ class StatsCog(commands.Cog):
             uptime_str = "측정 중"
             start_str = "-"
 
-        # 핑 및 게이트웨이 상태
-        ws_latency = round(self.bot.latency * 1000, 1)
         guilds_cnt = len(self.bot.guilds)
         users_cnt = sum(g.member_count or 0 for g in self.bot.guilds)
+        channels_cnt = sum(len(g.channels) for g in self.bot.guilds)
+        vc_cnt = len(getattr(self.bot, "voice_clients", []) or [])
         cogs_cnt = len(self.bot.cogs)
         exts_cnt = len(self.bot.extensions)
+        slash_cnt = len(self.bot.tree.get_commands())
+        active_tasks = len(asyncio.all_tasks())
+        active_threads = threading.active_count()
+        gc_counts = gc.get_count()
 
-        # 게이지 바 시각화 헬퍼
-        def make_bar(pct: float, length: int = 10) -> str:
+        # 백그라운드 루프 헬스 체크
+        loop_names = (
+            "midnight_tasks",
+            "morning_music_alert",
+            "morning_text_alert",
+            "custom_music_schedules_loop",
+            "terminal_log_dispatch_loop",
+        )
+        running_loops = 0
+        total_loops = 0
+        for attr in loop_names:
+            lp = getattr(self.bot, attr, None)
+            if lp is not None:
+                total_loops += 1
+                if lp.is_running():
+                    running_loops += 1
+
+        def _make_bar(pct: float, length: int = 10) -> str:
             filled = min(length, max(0, int(round((pct / 100) * length))))
             return "█" * filled + "░" * (length - filled)
 
-        disk_bar = make_bar(disk_pct)
+        disk_bar = _make_bar(m["disk_pct"])
+        host_mem_line = (
+            f"• **호스트 RAM:** `{m['host_mem_used_gb']}GB` / `{m['host_mem_total_gb']}GB` (`{m['host_mem_pct']}%`)\n"
+            f"  └ `[{_make_bar(m['host_mem_pct'])}]`\n"
+            if m["host_mem_total_gb"] > 0
+            else ""
+        )
+
+        # 보안 가드 상태 (시크릿 값은 절대 표시하지 않음)
+        am_safe = getattr(getattr(self.bot, "allowed_mentions", None), "everyone", True) is False
+        web_started = bool(getattr(self.bot, "_web_started", False))
+        sec_lines = (
+            f"• **DB 권한(`0600`):** `{'✅ 안전' if m['db_perm_ok'] else '⚠️ 점검'} ({m['db_perm_str']})`\n"
+            f"• **@everyone 차단:** `{'✅ ON' if am_safe else '⚠️ OFF'}` · **웹서버:** `{'✅ 가동' if web_started else '⏹️ 꺼짐'}`\n"
+            f"• **웹훅 서명키:** `{'✅ 설정됨' if m['webhook_secret_set'] else '🔒 미설정(차단)'}`\n"
+            f"• **CDN 서명키:** `{'✅ 설정됨' if m['signing_key_set'] else '➖ 미설정'}`"
+        )
 
         embed = discord.Embed(
-            title="🖥️ norosi 봇 호스트 서버 실시간 시스템 상태",
+            title="🖥️ norosi 봇 정밀 시스템 & 네트워크 상태 진단",
             description=(
-                "**[👑 봇 주인 전용]** 봇 인스턴스의 하드웨어 자원, 네트워크 레이턴시 및 런타임 현황입니다.\n"
-                "──────────────────────"
+                "**[👑 봇 주인 전용]** 게이트웨이·REST·이벤트 루프·호스트 자원·캐시·보안 상태를 실시간 진단합니다.\n"
+                "──────────────────────────"
             ),
-            color=discord.Color.from_rgb(0, 204, 221),
-            timestamp=datetime.datetime.now(core.KST)
+            color=embed_color,
+            timestamp=datetime.datetime.now(core.KST),
         )
 
         embed.add_field(
-            name="📡 네트워크 & 게이트웨이",
+            name="📡 네트워크 & 지연 시간",
             value=(
-                f"• **WebSocket 핑:** `{ws_latency}ms` (정상)\n"
-                f"• **데이터 I/O 지연:** `{data_disk_ms}ms`\n"
-                f"• **참여 서버 수:** `{guilds_cnt:,}개 길드`\n"
-                f"• **서비스 유저 수:** `{users_cnt:,}명`"
+                f"• **WebSocket 핑:** `{ws_latency}ms` ({ws_badge})\n"
+                f"• **REST API 핑:** {rest_str}\n"
+                f"• **이벤트 루프 지연:** `{loop_lag_ms}ms`\n"
+                f"• **메모리 DB I/O:** `{m['data_io_ms']}ms`\n"
+                f"• **가속 엔진:** `{loop_engine}` · `{json_engine}`\n"
+                f"• **커넥터:** `{conn_label}`"
             ),
-            inline=True
+            inline=True,
         )
 
         embed.add_field(
-            name="⚙️ 시스템 리소스 & 메모리",
+            name="⚙️ 호스트 & 프로세스 자원",
             value=(
-                f"• **RAM 점유(RSS):** `{mem_mb} MB`\n"
-                f"• **CPU 로드:** `{load_str}`\n"
-                f"• **디스크:** `{disk_used_gb}GB` / `{disk_total_gb}GB` (`{disk_pct}%`)\n"
-                f"└ `[{disk_bar}]`"
+                f"• **프로세스 RAM:** `{m['rss_mb']}MB` *(피크 `{m['hwm_mb']}MB`)*\n"
+                f"{host_mem_line}"
+                f"• **CPU ({m['cpu_cores']}코어):** 로드 `{m['load_str']}`\n"
+                f"• **CPU 누적:** `user {m['cpu_user_s']}s` / `sys {m['cpu_sys_s']}s`\n"
+                f"• **디스크:** `{m['disk_used_gb']}GB` / `{m['disk_total_gb']}GB` (`{m['disk_pct']}%`)\n"
+                f"  └ `[{disk_bar}]` *(여유 `{m['disk_free_gb']}GB`)*"
             ),
-            inline=True
+            inline=True,
         )
 
         embed.add_field(
-            name="⏱️ 프로세스 런타임 & 업타임",
+            name="🌐 디스코드 & 런타임",
             value=(
-                f"• **가동 시작일:** `{start_str}`\n"
-                f"• **연속 가동 시간:** `{uptime_str}`\n"
-                f"• **활성 확장 Cogs:** `{cogs_cnt}개 모듈` (`{exts_cnt}개 로드됨`)\n"
-                f"• **Python 버전:** `{platform.python_version()}` (`{platform.system()} {platform.release()[:10]}`)"
+                f"• **길드 / 멤버:** `{guilds_cnt:,}서버` · `{users_cnt:,}명` · `{channels_cnt:,}채널`\n"
+                f"• **음성 연결:** `{vc_cnt}개 채널` · **슬래시:** `{slash_cnt}개`\n"
+                f"• **Cogs / 확장:** `{cogs_cnt}개` / `{exts_cnt}개`\n"
+                f"• **스케줄러 루프:** `{running_loops}/{total_loops}` 정상 가동\n"
+                f"• **동시성:** 태스크 `{active_tasks}` · 스레드 `{active_threads}` · GC `{gc_counts}`"
             ),
-            inline=False
+            inline=False,
         )
 
-        embed.set_footer(text=f"요청자: {interaction.user.display_name} • 24/7 백그라운드 헬스체크 정상 가동 중")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        embed.add_field(
+            name="🗄️ 데이터 & 캐시 현황",
+            value=(
+                f"• **로컬 DB:** `{m['db_size_kb']} KB` (`{'Firebase 동기화' if m['firebase_active'] else '로컬 전용'}`)\n"
+                f"• **유저 / 디데이:** `{m['profiles_cnt']:,}명` · `{m['ddays_cnt']:,}건`\n"
+                f"• **알림 / 음악예약:** `{m['reminders_cnt']:,}건` · `{m['schedules_cnt']:,}건`\n"
+                f"• **캐시:** 카드 `{m['proseka_cards_cnt']:,}` · 의상 `{m['proseka_costumes_cnt']:,}` · CDN `{m['emote_cache_cnt']:,}`"
+            ),
+            inline=True,
+        )
+
+        embed.add_field(
+            name="🛡️ 보안 가드 상태",
+            value=sec_lines,
+            inline=True,
+        )
+
+        embed.add_field(
+            name="⏱️ 업타임 & 라이브러리 버전",
+            value=(
+                f"• **시작 시각:** `{start_str}` · **업타임:** `{uptime_str}`\n"
+                f"• **환경:** `Python {platform.python_version()}` (`{platform.system()} {platform.release()[:14]}`)\n"
+                f"• **패키지:** `discord.py {discord.__version__}` · `aiohttp {m['ver_aiohttp']}` · `yt-dlp {m['ver_ytdlp']}` · `davey {m['ver_davey']}`"
+            ),
+            inline=False,
+        )
+
+        embed.set_footer(text=f"요청자: {requester_name} • 민감 키/토큰은 출력하지 않는 보안 진단 모드")
+        return embed
+
+    @app_commands.command(name="봇상태", description="[봇 주인 전용] norosi 봇의 호스트 시스템 리소스(RAM, CPU, 디스크, 핑, 업타임, 보안) 상태를 상세 진단합니다.")
+    @app_commands.default_permissions(administrator=True)
+    async def host_system_stats_cmd(self, interaction: discord.Interaction):
+        # 봇 주인(소유자) 전용 권한 안전 검증
+        if not await self.bot.is_bot_owner_user(interaction.user):
+            await core.safe_send_response(
+                interaction,
+                content="🚨 **권한 부족:** 봇 상태(호스트 시스템 리소스) 조회는 **👑 봇 주인(소유자)** 만 실행할 수 있습니다.",
+                ephemeral=True
+            )
+            return
+
+        await core.safe_defer(interaction, ephemeral=True)
+        embed = await self._build_detailed_bot_status_embed(interaction.user.display_name)
+        view = BotStatusRefreshView(self, interaction.user.id)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     # ==========================================
     # 카테고리 5 - 4: /유저정보 (멤버 상세 프로필 조회기)

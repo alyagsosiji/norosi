@@ -4,6 +4,7 @@ import sys
 import copy
 import time
 import hmac
+import socket
 import hashlib
 import logging
 import asyncio
@@ -434,10 +435,18 @@ class NorosiBot(commands.Bot):
         if http_client is None:
             return
 
-        # 1. 닫힌 connector가 남아있으면 None으로 되돌려 새 ClientSession이 정상 커넥터를 생성하게 함
+        # 1. 닫힌/미생성 connector를 IPv4 우선 + DNS 캐시(300s) + Keep-Alive(60s) 저지연 커넥터로 교체
         conn = getattr(http_client, "connector", None)
-        if conn is not None and conn is not discord.utils.MISSING:
-            if getattr(conn, "closed", False):
+        if conn is None or conn is discord.utils.MISSING or getattr(conn, "closed", False):
+            try:
+                http_client.connector = aiohttp.TCPConnector(
+                    limit=0,
+                    family=socket.AF_INET,
+                    ttl_dns_cache=300,
+                    keepalive_timeout=60.0,
+                    enable_cleanup_closed=True,
+                )
+            except Exception:
                 try:
                     http_client.connector = None
                 except Exception:
@@ -2463,6 +2472,12 @@ async def main():
 
 
 if __name__ == "__main__":
+    if sys.platform != "win32":
+        try:
+            import uvloop
+            uvloop.install()
+        except Exception:
+            pass
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
