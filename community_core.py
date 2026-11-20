@@ -185,13 +185,13 @@ def transform_single_url(
 
     if host in ("x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com", "mobile.x.com"):
         is_twitter = True
-        if sns_preview and re.match(r"^/[^/]+/status/\d+", path):
+        if sns_preview and re.match(r"^/(?:[^/]+|i/web)/status/\d+", path):
             new_host = "fxtwitter.com"
             service_label = "X (Twitter)"
             platform_key = "x"
     elif host in ("instagram.com", "www.instagram.com", "m.instagram.com"):
-        if sns_preview and re.match(r"^/(p|reel|reels|tv|stories)/", path):
-            new_host = "kkinstagram.com"
+        if sns_preview and re.match(r"^/(?:[^/]+/)?(p|reel|reels|tv|stories|share)/", path):
+            new_host = "oginstagram.com"
             service_label = "Instagram"
             platform_key = "instagram"
     elif host in ("tiktok.com", "www.tiktok.com", "m.tiktok.com", "vt.tiktok.com", "vm.tiktok.com"):
@@ -232,6 +232,7 @@ def transform_single_url(
             platform_key = "youtube"
     elif host in ("facebook.com", "www.facebook.com", "m.facebook.com", "fb.watch"):
         if sns_preview and (host == "fb.watch" or any(seg in path for seg in ("/reel/", "/videos/", "/posts/", "/share/", "/watch", "/photo"))):
+            new_host = "facebed.com" if host != "fb.watch" else host
             service_label = "Facebook"
             platform_key = "facebook"
     elif host in ("pinterest.com", "www.pinterest.com", "kr.pinterest.com", "pin.it"):
@@ -326,7 +327,8 @@ def replace_urls_with_clean_links(
     원본 메시지 본문의 텍스트·코드블록·스포일러·<링크>·기존 마크다운 링크는 그대로 보존하면서,
     변환 대상 raw URL만 깔끔하게 치환합니다.
     - canonical_plain=True: Components V2 상단 표시용으로 추적 파라미터만 제거된 공식 클린 URL로 치환
-    - canonical_plain=False: 폴백용 마스킹 링크([🔗 서비스](프록시url))로 치환
+    - canonical_plain=False: 프록시 임베드용 숨김 트리거(<공식클린URL>[\u2800](프록시URL))로 치환
+      (Discord는 표시 텍스트가 https://...인 마스킹 링크를 피싱 방지로 차단하므로 <공식URL> + 비가시 브레일 공백 마스킹 사용)
     """
     if not text or not cfg.get("enabled", False):
         return text, []
@@ -350,11 +352,9 @@ def replace_urls_with_clean_links(
             return match.group(0)
         items.append(item)
         trailing = raw_url[len(item["original"]):]
-        if canonical_plain:
+        if canonical_plain or item["canonical"] == item["cleaned"]:
             return f"{item['canonical']}{trailing}"
-        icon = "🔗" if item["kind"] == "sns" else "🧹"
-        label = str(item["service"]).replace("[", "(").replace("]", ")")
-        return f"[{icon} {label}]({item['cleaned']}){trailing}"
+        return f"<{item['canonical']}>[\u2800]({item['cleaned']}){trailing}"
 
     replaced = _LINK_TOKEN_RE.sub(_repl, text)
     return replaced, items

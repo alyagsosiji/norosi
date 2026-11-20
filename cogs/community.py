@@ -3118,8 +3118,9 @@ class CommunityCog(commands.Cog):
         view = discord.ui.View(timeout=None)
         added = 0
         for it in items[:3]:
-            url = str(it.get("cleaned") or "")
-            if not url.startswith(("http://", "https://")) or len(url) > 512:
+            raw_url = str(it.get("canonical") or it.get("cleaned") or "")
+            url = sns_embed_core._sanitize_discord_url(raw_url)
+            if not url or len(url) > 512:
                 continue
             label_base = str(it.get("service") or "링크")[:24]
             icon = "🔗" if it.get("kind") == "sns" else "🧹"
@@ -3217,15 +3218,16 @@ class CommunityCog(commands.Cog):
                     top_text=replaced_canonical,
                     sender_prefix=f"-# {safe_sender}" if is_reply else "",
                 )
-        except Exception:
+        except Exception as e:
+            print(f"⚠️ [clean_link] V2 build failed ({primary_platform}): {e}", flush=True)
             v2_layout = None
             v2_files = []
 
-        # 2) 폴백 준비 (API 추출 실패 시 기존 프록시 마스킹 링크 또는 추적제거 임베드 사용)
+        # 2) 폴백 준비 (Instagram은 oginstagram.com 네이티브 Component Embed, 대용량 영상·API 실패 시 프록시 임베드)
         needs_unfurl = self._needs_native_media_unfurl(items)
-        open_view = self._build_clean_link_open_view(items)
+        open_view = None if primary_platform == "instagram" else self._build_clean_link_open_view(items)
         stripped_note = ""
-        if needs_unfurl:
+        if needs_unfurl and primary_platform != "instagram":
             stripped_all = [p for it in items for p in (it.get("stripped_params") or [])]
             if stripped_all:
                 uniq_p = list(dict.fromkeys(stripped_all))[:4]
@@ -3270,6 +3272,8 @@ class CommunityCog(commands.Cog):
                     )
                     if v2_layout is not None:
                         try:
+                            for f in v2_files:
+                                f.reset()
                             v2_kw: dict = {
                                 "view": v2_layout,
                                 "reference": reply_ref,
@@ -3279,8 +3283,30 @@ class CommunityCog(commands.Cog):
                             if v2_files:
                                 v2_kw["files"] = v2_files
                             sent_msg = await channel.send(**v2_kw)
-                        except discord.HTTPException:
-                            sent_msg = None
+                        except discord.HTTPException as e:
+                            print(f"⚠️ [clean_link] V2 reply failed: {e}", flush=True)
+                            if post_data is not None and post_data.author_avatar:
+                                try:
+                                    v2_no_av, v2_no_av_files = await sns_embed_core.build_sns_components_v2_payload(
+                                        post_data,
+                                        top_text=replaced_canonical,
+                                        sender_prefix=f"-# {safe_sender}",
+                                        include_avatar_thumbnail=False,
+                                    )
+                                    if v2_no_av is not None:
+                                        kw2 = {
+                                            "view": v2_no_av,
+                                            "reference": reply_ref,
+                                            "mention_author": mention_target,
+                                            "allowed_mentions": reply_allowed,
+                                        }
+                                        if v2_no_av_files:
+                                            kw2["files"] = v2_no_av_files
+                                        sent_msg = await channel.send(**kw2)
+                                except Exception:
+                                    sent_msg = None
+                            else:
+                                sent_msg = None
                     if sent_msg is None:
                         send_kwargs: dict = {
                             "reference": reply_ref,
@@ -3318,9 +3344,25 @@ class CommunityCog(commands.Cog):
                                 if v2_files:
                                     kw_v2["files"] = v2_files
                                 return await wh.send(**kw_v2)
-                            except discord.HTTPException:
-                                pass
-                        # 2순위: 프록시 마스킹 링크 또는 추적제거 임베드
+                            except discord.HTTPException as e:
+                                print(f"⚠️ [clean_link] V2 webhook failed ({primary_platform}): {e}", flush=True)
+                                if post_data is not None and post_data.author_avatar:
+                                    try:
+                                        v2_no_av, v2_no_av_files = await sns_embed_core.build_sns_components_v2_payload(
+                                            post_data,
+                                            top_text=replaced_canonical,
+                                            sender_prefix="",
+                                            include_avatar_thumbnail=False,
+                                        )
+                                        if v2_no_av is not None:
+                                            kw_v2_2 = dict(base_wh_kwargs)
+                                            kw_v2_2["view"] = v2_no_av
+                                            if v2_no_av_files:
+                                                kw_v2_2["files"] = v2_no_av_files
+                                            return await wh.send(**kw_v2_2)
+                                    except Exception:
+                                        pass
+                        # 2순위: 프록시 마스킹 링크([공식URL](oginstagram/fxtwitter 등)) 또는 추적제거 임베드
                         kw_fb = dict(base_wh_kwargs)
                         if clean_embed is not None:
                             kw_fb["embed"] = clean_embed
@@ -3362,6 +3404,8 @@ class CommunityCog(commands.Cog):
 
         if v2_layout is not None:
             try:
+                for f in v2_files:
+                    f.reset()
                 v2_reply_kw: dict = {"view": v2_layout, "mention_author": False}
                 if v2_files:
                     v2_reply_kw["files"] = v2_files
@@ -3369,6 +3413,26 @@ class CommunityCog(commands.Cog):
                 if sent_reply and getattr(sent_reply, "id", None):
                     self._record_clean_link_message(int(sent_reply.id), int(message.author.id))
                 return
+            except discord.HTTPException as e:
+                print(f"⚠️ [clean_link] V2 fallback reply failed: {e}", flush=True)
+                if post_data is not None and post_data.author_avatar:
+                    try:
+                        v2_no_av, v2_no_av_files = await sns_embed_core.build_sns_components_v2_payload(
+                            post_data,
+                            top_text=replaced_canonical,
+                            sender_prefix="",
+                            include_avatar_thumbnail=False,
+                        )
+                        if v2_no_av is not None:
+                            kw2 = {"view": v2_no_av, "mention_author": False}
+                            if v2_no_av_files:
+                                kw2["files"] = v2_no_av_files
+                            sent_reply = await message.reply(**kw2)
+                            if sent_reply and getattr(sent_reply, "id", None):
+                                self._record_clean_link_message(int(sent_reply.id), int(message.author.id))
+                            return
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -3381,9 +3445,12 @@ class CommunityCog(commands.Cog):
 
         link_lines = []
         for it in items:
-            icon = "🔗" if it["kind"] == "sns" else "🧹"
-            label = str(it["service"]).replace("[", "(").replace("]", ")")
-            link_lines.append(f"[{icon} {label}]({it['cleaned']})")
+            if it.get("canonical") and it["canonical"] != it["cleaned"]:
+                link_lines.append(f"<{it['canonical']}>[\u2800]({it['cleaned']})")
+            else:
+                icon = "🔗" if it["kind"] == "sns" else "🧹"
+                label = str(it["service"]).replace("[", "(").replace("]", ")")
+                link_lines.append(f"[{icon} {label}]({it['cleaned']})")
         body = "\n".join(link_lines) + stripped_note
         try:
             await message.reply(body, view=LinkCleanupView(), mention_author=False)

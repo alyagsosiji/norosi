@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import html
+from html.parser import HTMLParser
 import io
 import ipaddress
 import json
@@ -43,6 +44,64 @@ PLATFORM_META: dict[str, dict[str, Any]] = {
     "pinterest": {"name": "Pinterest", "emoji": "📌", "color": 0xE60023},
     "web": {"name": "Link", "emoji": "🔗", "color": 0x00CCDD},
 }
+
+
+class _OGMetaParser(HTMLParser):
+    """어포스트로피·따옴표 미사용 속성 등 모든 HTML meta/title을 안전하게 파싱합니다."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.og: dict[str, str] = {}
+        self._in_title = False
+        self._title_parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]):
+        t = tag.lower()
+        if t == "meta":
+            amap = {k.lower(): (v or "") for k, v in attrs if k}
+            key = (amap.get("property") or amap.get("name") or "").strip().lower()
+            val = amap.get("content", "").strip()
+            if key and val and key not in self.og:
+                self.og[key] = val
+        elif t == "title":
+            self._in_title = True
+
+    def handle_endtag(self, tag: str):
+        if tag.lower() == "title":
+            self._in_title = False
+
+    def handle_data(self, data: str):
+        if self._in_title:
+            self._title_parts.append(data)
+
+    def get_title(self) -> str:
+        return re.sub(r"\s+", " ", "".join(self._title_parts)).strip()
+
+
+def _make_http_session() -> aiohttp.ClientSession:
+    """IPv6 타임아웃 지연을 방지하기 위해 IPv4 전용 TCPConnector 세션을 생성합니다."""
+    connector = aiohttp.TCPConnector(family=socket.AF_INET, ttl_dns_cache=300)
+    return aiohttp.ClientSession(connector=connector)
+
+
+def _sanitize_discord_url(url: str) -> str:
+    """Discord Button/Thumbnail/MediaGallery에서 HTTP 400이 나지 않도록 비ASCII 경로를 안전 인코딩합니다."""
+    if not url or not isinstance(url, str):
+        return ""
+    u = url.strip()
+    if not u.startswith(("http://", "https://")) or len(u) > 2048:
+        return ""
+    if any(ch in u for ch in ("\r", "\n", "\t")):
+        return ""
+    try:
+        parsed = urllib.parse.urlsplit(u)
+        safe_path = urllib.parse.quote(urllib.parse.unquote(parsed.path), safe="/:@!$&'()*+,;=-._~")
+        safe_query = urllib.parse.quote(urllib.parse.unquote(parsed.query), safe="=&/:@!$'()*+,;?-._~")
+        safe_frag = urllib.parse.quote(urllib.parse.unquote(parsed.fragment), safe="/:@!$&'()*+,;=-._~")
+        out = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, safe_path, safe_query, safe_frag))
+        return out if len(out) <= 2048 else ""
+    except Exception:
+        return ""
 
 
 @dataclass
@@ -103,9 +162,12 @@ def _is_safe_public_url(url: str) -> bool:
     except ValueError:
         pass
     try:
-        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+        infos = socket.getaddrinfo(host, None, family=socket.AF_INET, type=socket.SOCK_STREAM)
     except OSError:
-        return False
+        try:
+            infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+        except OSError:
+            return False
     if not infos:
         return False
     for info in infos:
@@ -140,10 +202,10 @@ def detect_sns_platform(url: str) -> Optional[str]:
     path = parsed.path or ""
 
     if host in ("x.com", "www.x.com", "mobile.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com", "fxtwitter.com", "vxtwitter.com", "fixupx.com"):
-        if re.match(r"^/[^/]+/status/\d+", path):
+        if re.match(r"^/(?:[^/]+|i/web)/status/\d+", path):
             return "x"
-    elif host in ("instagram.com", "www.instagram.com", "m.instagram.com", "kkinstagram.com", "ddinstagram.com", "vxinstagram.com"):
-        if re.match(r"^/(p|reel|reels|tv|stories)/", path):
+    elif host in ("instagram.com", "www.instagram.com", "m.instagram.com", "oginstagram.com", "hhinstagram.com", "kkinstagram.com", "ddinstagram.com", "vxinstagram.com"):
+        if re.match(r"^/(?:[^/]+/)?(p|reel|reels|tv|stories|share)/", path):
             return "instagram"
     elif host in ("tiktok.com", "www.tiktok.com", "m.tiktok.com", "vt.tiktok.com", "vm.tiktok.com", "vxtiktok.com", "vt.vxtiktok.com", "vm.vxtiktok.com"):
         if path and path != "/":
@@ -165,7 +227,7 @@ def detect_sns_platform(url: str) -> Optional[str]:
             return "youtube"
         if path.startswith(("/shorts/", "/watch")):
             return "youtube"
-    elif host in ("facebook.com", "www.facebook.com", "m.facebook.com", "fb.watch"):
+    elif host in ("facebook.com", "www.facebook.com", "m.facebook.com", "fb.watch", "facebed.com"):
         if host == "fb.watch" or any(seg in path for seg in ("/reel/", "/videos/", "/posts/", "/share/", "/watch", "/photo")):
             return "facebook"
     elif host in ("pinterest.com", "www.pinterest.com", "kr.pinterest.com", "pin.it"):
@@ -175,12 +237,12 @@ def detect_sns_platform(url: str) -> Optional[str]:
 
 
 def _canonical_original_url(url: str, platform: str) -> str:
-    """fxtwitter/kkinstagram 등 프록시 도메인 입력도 깔끔한 공식 원본 URL로 정규화합니다."""
+    """프록시 도메인 입력도 깔끔한 공식 원본 URL로 정규화합니다."""
     parsed = urllib.parse.urlsplit(url)
     host = (parsed.hostname or "").lower()
     if platform == "x" and host in ("fxtwitter.com", "vxtwitter.com", "fixupx.com", "twitter.com", "www.twitter.com", "mobile.twitter.com", "mobile.x.com"):
         return urllib.parse.urlunsplit(("https", "x.com", parsed.path, "", ""))
-    if platform == "instagram" and host in ("kkinstagram.com", "ddinstagram.com", "vxinstagram.com", "m.instagram.com", "instagram.com"):
+    if platform == "instagram" and host in ("oginstagram.com", "hhinstagram.com", "kkinstagram.com", "ddinstagram.com", "vxinstagram.com", "m.instagram.com", "instagram.com"):
         return urllib.parse.urlunsplit(("https", "www.instagram.com", parsed.path, "", ""))
     if platform == "tiktok" and host in ("vxtiktok.com", "vt.vxtiktok.com", "vm.vxtiktok.com"):
         orig_host = "vt.tiktok.com" if host.startswith("vt.") else ("vm.tiktok.com" if host.startswith("vm.") else "www.tiktok.com")
@@ -193,6 +255,8 @@ def _canonical_original_url(url: str, platform: str) -> str:
         return urllib.parse.urlunsplit(("https", "www.reddit.com", parsed.path, "", ""))
     if platform == "pixiv" and host == "phixiv.net":
         return urllib.parse.urlunsplit(("https", "www.pixiv.net", parsed.path, "", ""))
+    if platform == "facebook" and host == "facebed.com":
+        return urllib.parse.urlunsplit(("https", "www.facebook.com", parsed.path, "", ""))
     return url
 
 
@@ -234,20 +298,16 @@ async def _fetch_html_og(session: aiohttp.ClientSession, url: str, ua: str = DIS
     except Exception:
         return {}
 
-    og: dict[str, str] = {}
-    for m in re.finditer(r"<meta\s+([^>]+)>", text, re.IGNORECASE):
-        attrs = m.group(1)
-        k_m = re.search(r'(?:property|name)\s*=\s*["\']([^"\']+)["\']', attrs, re.IGNORECASE)
-        v_m = re.search(r'content\s*=\s*["\']([^"\']*)["\']', attrs, re.IGNORECASE)
-        if k_m and v_m:
-            key = k_m.group(1).strip().lower()
-            val = html.unescape(v_m.group(1).strip())
-            if val and key not in og:
-                og[key] = val
+    parser = _OGMetaParser()
+    try:
+        parser.feed(text)
+    except Exception:
+        pass
+    og = parser.og
     if "og:title" not in og:
-        t_m = re.search(r"<title[^>]*>(.*?)</title>", text, re.IGNORECASE | re.DOTALL)
-        if t_m:
-            og["og:title"] = html.unescape(re.sub(r"\s+", " ", t_m.group(1)).strip())
+        t = parser.get_title()
+        if t:
+            og["og:title"] = t
     return og
 
 
@@ -370,10 +430,11 @@ def _parse_iso_ts(raw: Optional[str]) -> Optional[int]:
 # 플랫폼별 추출기
 # ==========================================
 async def _extract_x(session: aiohttp.ClientSession, url: str) -> Optional[SnsPostData]:
-    m = re.search(r"/([^/]+)/status/(\d+)", urllib.parse.urlsplit(url).path)
+    m = re.search(r"/(?:(i/web)|([^/]+))/status/(\d+)", urllib.parse.urlsplit(url).path)
     if not m:
         return None
-    user_seg, status_id = m.group(1), m.group(2)
+    user_seg = "i" if m.group(1) else m.group(2)
+    status_id = m.group(3)
     canonical = f"https://x.com/{user_seg}/status/{status_id}"
 
     data = await _fetch_json(session, f"https://api.fxtwitter.com/{user_seg}/status/{status_id}")
@@ -415,70 +476,47 @@ async def _extract_x(session: aiohttp.ClientSession, url: str) -> Optional[SnsPo
             image_urls=photos[:4],
             site_label="X (Twitter)",
         )
+
+    # 2순위: api.vxtwitter.com JSON 폴백
+    vx = await _fetch_json(session, f"https://api.vxtwitter.com/{user_seg}/status/{status_id}")
+    if isinstance(vx, dict) and (vx.get("text") is not None or vx.get("mediaURLs")):
+        handle = str(vx.get("user_screen_name") or user_seg)
+        media_ext = vx.get("media_extended") or []
+        photos = []
+        video_url = ""
+        for item in media_ext:
+            if not isinstance(item, dict):
+                continue
+            mtype = str(item.get("type") or "")
+            murl = str(item.get("url") or "")
+            if mtype == "video" and murl and not video_url:
+                video_url = murl
+                if item.get("thumbnail_url"):
+                    photos.append(str(item["thumbnail_url"]))
+            elif murl:
+                photos.append(murl)
+        return SnsPostData(
+            platform="x",
+            url=canonical,
+            author_name=str(vx.get("user_name") or handle),
+            author_handle=handle,
+            author_url=f"https://x.com/{handle}",
+            author_avatar=str(vx.get("user_profile_image_url") or ""),
+            caption=str(vx.get("text") or ""),
+            likes=_safe_int(vx.get("likes")),
+            reposts=_safe_int(vx.get("retweets")),
+            comments=_safe_int(vx.get("replies")),
+            created_ts=_safe_int(vx.get("date_epoch")),
+            video_url=video_url,
+            image_urls=photos[:4],
+            site_label="X (Twitter)",
+        )
     return None
 
 
 async def _extract_instagram(session: aiohttp.ClientSession, url: str) -> Optional[SnsPostData]:
-    canonical = _canonical_original_url(url, "instagram")
-    parsed = urllib.parse.urlsplit(canonical)
-
-    # 1순위: yt-dlp (작성자, @핸들, 조회수/좋아요/댓글, 캡션, MP4 영상까지 풀 추출)
-    info = await _ytdlp_extract_info(canonical, timeout_sec=8.5)
-    if isinstance(info, dict) and (info.get("uploader") or info.get("channel") or info.get("description") or info.get("thumbnail")):
-        handle = str(info.get("uploader_id") or info.get("channel_id") or info.get("uploader") or "").lstrip("@")
-        author_name = str(info.get("uploader") or info.get("channel") or handle or "Instagram")
-        video_url, video_hdrs = _pick_best_small_mp4(info)
-        thumb = str(info.get("thumbnail") or "")
-        images = [thumb] if thumb.startswith(("http://", "https://")) else []
-        ts = _safe_int(info.get("timestamp"))
-        if not ts and info.get("upload_date") and len(str(info["upload_date"])) == 8:
-            try:
-                dt = datetime.datetime.strptime(str(info["upload_date"]), "%Y%m%d").replace(tzinfo=datetime.timezone.utc)
-                ts = int(dt.timestamp())
-            except Exception:
-                pass
-        return SnsPostData(
-            platform="instagram",
-            url=canonical,
-            author_name=author_name,
-            author_handle=handle,
-            author_url=f"https://www.instagram.com/{handle}/" if handle else canonical,
-            author_avatar="",
-            caption=str(info.get("description") or info.get("title") or ""),
-            views=_safe_int(info.get("view_count")),
-            likes=_safe_int(info.get("like_count")),
-            comments=_safe_int(info.get("comment_count")),
-            created_ts=ts,
-            video_url=video_url,
-            video_headers=video_hdrs,
-            image_urls=images[:4],
-            download_images=bool(images),
-            site_label="Instagram",
-        )
-
-    # 2순위: kkinstagram / vxinstagram OG 메타데이터 추출
-    for proxy_host in ("kkinstagram.com", "vxinstagram.com"):
-        proxy_url = urllib.parse.urlunsplit(("https", proxy_host, parsed.path, "", ""))
-        og = await _fetch_html_og(session, proxy_url, ua=DISCORD_BOT_UA)
-        if og.get("og:title") or og.get("og:description") or og.get("og:video") or og.get("og:image"):
-            raw_title = og.get("og:title") or "Instagram"
-            handle_m = re.search(r"@([A-Za-z0-9._]+)", raw_title)
-            handle = handle_m.group(1) if handle_m else ""
-            author_name = re.sub(r"\s*\(@[^)]+\)\s*", "", raw_title).strip() or handle or "Instagram"
-            vid = og.get("og:video:secure_url") or og.get("og:video") or ""
-            img = og.get("og:image") or ""
-            return SnsPostData(
-                platform="instagram",
-                url=canonical,
-                author_name=author_name,
-                author_handle=handle,
-                author_url=f"https://www.instagram.com/{handle}/" if handle else canonical,
-                caption=og.get("og:description") or "",
-                video_url=vid,
-                image_urls=[img] if img.startswith(("http://", "https://")) else [],
-                download_images=bool(img),
-                site_label="Instagram",
-            )
+    # Instagram은 oginstagram.com이 Discord 공식 Component Embed(첨부 스크린샷 동일: 작성자·통계·캡션·무제한 영상·버튼)를
+    # 서버 IP 차단·10MB 제한 없이 직접 제공하므로, [공식URL](https://oginstagram.com/...) 프록시 임베드를 우선 사용합니다.
     return None
 
 
@@ -672,7 +710,7 @@ async def _extract_threads(session: aiohttp.ClientSession, url: str) -> Optional
     handle_m = re.search(r"/@([^/]+)/", parsed.path)
     handle = handle_m.group(1) if handle_m else ""
 
-    for proxy_host in ("vxthreads.net", "fixthreads.net"):
+    for proxy_host in ("fixthreads.net", "vxthreads.net"):
         proxy_url = urllib.parse.urlunsplit(("https", proxy_host, parsed.path, "", ""))
         og = await _fetch_html_og(session, proxy_url, ua=DISCORD_BOT_UA)
         if og.get("og:description") or og.get("og:image") or og.get("og:video"):
@@ -696,9 +734,12 @@ async def _extract_threads(session: aiohttp.ClientSession, url: str) -> Optional
 async def _extract_youtube(session: aiohttp.ClientSession, url: str) -> Optional[SnsPostData]:
     parsed = urllib.parse.urlsplit(url)
     is_shorts = "/shorts/" in (parsed.path or "")
+    # 일반 유튜브(watch / youtu.be)는 Discord 자체 네이티브 플레이어가 가장 안정적이므로 V2 정적 카드로 덮지 않음
+    if not is_shorts:
+        return None
     q = urllib.parse.quote(url, safe="")
     oembed = await _fetch_json(session, f"https://www.youtube.com/oembed?url={q}&format=json")
-    info = await _ytdlp_extract_info(url, timeout_sec=7.5) if is_shorts else None
+    info = await _ytdlp_extract_info(url, timeout_sec=7.5)
 
     if isinstance(info, dict):
         video_url, video_hdrs = _pick_best_small_mp4(info)
@@ -730,24 +771,30 @@ async def _extract_youtube(session: aiohttp.ClientSession, url: str) -> Optional
             author_url=str(oembed.get("author_url") or url),
             caption=str(oembed.get("title") or ""),
             image_urls=[thumb] if thumb.startswith("http") else [],
-            site_label="YouTube",
+            site_label="YouTube Shorts",
         )
     return None
 
 
 async def _extract_generic_og(session: aiohttp.ClientSession, url: str, platform: str) -> Optional[SnsPostData]:
+    host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    # Spotify 등 Discord 네이티브 플레이어가 제공되는 호스트는 기본 임베드 유지
+    if host in ("open.spotify.com", "play.spotify.com"):
+        return None
     og = await _fetch_html_og(session, url, ua=DISCORD_BOT_UA)
     if not og:
         og = await _fetch_html_og(session, url, ua=HTTP_UA)
     if not (og.get("og:title") or og.get("og:description") or og.get("og:image") or og.get("og:video")):
         return None
-    host = (urllib.parse.urlsplit(url).hostname or "").lower()
     site_name = og.get("og:site_name") or PLATFORM_META.get(platform, {}).get("name") or host
     title = og.get("og:title") or site_name
     desc = og.get("og:description") or ""
-    caption = f"**{title}**" + (f"\n{desc[:500]}" if desc and desc != title else "")
     img = og.get("og:image") or ""
     vid = og.get("og:video:secure_url") or og.get("og:video") or ""
+    # Facebook 로그인 벽(제목만 'Facebook'/'Log in'이고 설명·미디어 없음)이면 facebed.com 프록시로 폴백
+    if platform == "facebook" and not desc and not img and not vid:
+        return None
+    caption = f"**{title}**" + (f"\n{desc[:500]}" if desc and desc != title else "")
     return SnsPostData(
         platform=platform if platform in PLATFORM_META else "web",
         url=url,
@@ -763,7 +810,7 @@ async def _extract_generic_og(session: aiohttp.ClientSession, url: str, platform
 async def fetch_sns_post_data(url: str, platform: Optional[str] = None) -> Optional[SnsPostData]:
     """지원 SNS/웹 링크에서 작성자·통계·본문·미디어 정보를 추출합니다."""
     plat = platform or detect_sns_platform(url) or "web"
-    async with aiohttp.ClientSession() as session:
+    async with _make_http_session() as session:
         extractors = {
             "x": _extract_x,
             "instagram": _extract_instagram,
@@ -779,7 +826,8 @@ async def fetch_sns_post_data(url: str, platform: Optional[str] = None) -> Optio
         if fn:
             try:
                 data = await fn(session, url)
-            except Exception:
+            except Exception as e:
+                print(f"⚠️ [sns_embed] {plat} extract failed: {e}", flush=True)
                 data = None
         if data is None and plat in ("facebook", "pinterest", "threads", "web"):
             data = await _extract_generic_og(session, url, plat)
@@ -804,7 +852,8 @@ async def build_sns_components_v2_payload(
     *,
     top_text: str,
     sender_prefix: str = "",
-) -> tuple[discord.ui.LayoutView, list[discord.File]]:
+    include_avatar_thumbnail: bool = True,
+) -> tuple[Optional[discord.ui.LayoutView], list[discord.File]]:
     """
     스크린샷과 동일한 Discord Components V2 리치 카드(LayoutView + Container + Section + Thumbnail + MediaGallery + Link Button)를 생성합니다.
     영상(<=9.5MB)은 직접 첨부해 카드 안에서 바로 재생되도록 구성합니다.
@@ -817,7 +866,7 @@ async def build_sns_components_v2_payload(
     files: list[discord.File] = []
     gallery_items: list[discord.MediaGalleryItem] = []
 
-    async with aiohttp.ClientSession() as session:
+    async with _make_http_session() as session:
         # 1) 동영상 우선 다운로드 (9.5MB 이하 시 카드 내 인라인 재생!)
         video_attached = False
         if post.video_url:
@@ -832,16 +881,20 @@ async def build_sns_components_v2_payload(
                 files.append(discord.File(io.BytesIO(v_bytes), filename="sns_video.mp4"))
                 gallery_items.append(discord.MediaGalleryItem("attachment://sns_video.mp4"))
                 video_attached = True
+            elif post.platform in ("x", "tiktok", "reddit", "threads"):
+                # 9.5MB 초과 대용량 영상은 프록시 스트리밍 임베드(fxtwitter/vxtiktok 등)가 더 매끄럽게 재생됨
+                return None, []
 
         # 2) 이미지 갤러리 (영상 미첨부 시 또는 다중 이미지 게시물)
         if not video_attached and post.image_urls:
             for idx, img_url in enumerate(post.image_urls[:4]):
-                if not img_url.startswith(("http://", "https://")):
+                safe_img = _sanitize_discord_url(img_url)
+                if not safe_img:
                     continue
                 if post.download_images:
                     i_bytes = await _download_media_bytes(
                         session,
-                        img_url,
+                        safe_img,
                         MAX_IMAGE_BYTES,
                         headers=post.image_headers or None,
                         timeout_sec=8.0,
@@ -851,7 +904,7 @@ async def build_sns_components_v2_payload(
                         files.append(discord.File(io.BytesIO(i_bytes), filename=fname))
                         gallery_items.append(discord.MediaGalleryItem(f"attachment://{fname}"))
                         continue
-                gallery_items.append(discord.MediaGalleryItem(img_url))
+                gallery_items.append(discord.MediaGalleryItem(safe_img))
 
     layout = discord.ui.LayoutView(timeout=None)
 
@@ -868,18 +921,20 @@ async def build_sns_components_v2_payload(
         author_lines.append(f"**{discord.utils.escape_markdown(post.author_name[:100])}**")
     if post.author_handle:
         h_disp = post.author_handle if post.author_handle.startswith(("@", "u/", "r/", "pixiv/")) else f"@{post.author_handle}"
-        if post.author_url and post.author_url.startswith(("http://", "https://")):
-            author_lines.append(f"[{h_disp}]({post.author_url})")
+        safe_aurl = _sanitize_discord_url(post.author_url)
+        if safe_aurl:
+            author_lines.append(f"[{h_disp}]({safe_aurl})")
         else:
             author_lines.append(h_disp)
 
+    safe_avatar = _sanitize_discord_url(post.author_avatar) if include_avatar_thumbnail else ""
     if author_lines:
         author_text = "\n".join(author_lines)
-        if post.author_avatar and post.author_avatar.startswith(("http://", "https://")):
+        if safe_avatar:
             container_children.append(
                 discord.ui.Section(
                     discord.ui.TextDisplay(author_text),
-                    accessory=discord.ui.Thumbnail(post.author_avatar),
+                    accessory=discord.ui.Thumbnail(safe_avatar),
                 )
             )
         else:
@@ -905,8 +960,8 @@ async def build_sns_components_v2_payload(
     # 4. 하단 푸터 (플랫폼명 · 현지화 타임스탬프 + 우측 바로가기 버튼)
     ts_part = f" · <t:{post.created_ts}:f>" if post.created_ts else ""
     footer_text = f"-# {p_emoji} {p_name}{ts_part}"
-    btn_url = post.url if (post.url.startswith(("http://", "https://")) and len(post.url) <= 512) else None
-    if btn_url:
+    btn_url = _sanitize_discord_url(post.url)
+    if btn_url and len(btn_url) <= 512:
         container_children.append(
             discord.ui.Section(
                 discord.ui.TextDisplay(footer_text),
