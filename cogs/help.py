@@ -1023,7 +1023,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "📅 D-Day & 생일 & 라이프",
         "name": "/디데이추가",
         "perm": "admin",
-        "settings_path": "⚙️ 고급 2p > 📅 디데이 전광판 관리",
+        "settings_path": "⚙️ 고급 3p > 📅 서버 D-Day 관리 (또는 홈 드롭다운)",
         "desc": "[서버 관리자] 새 서버 D-Day 일정을 추가하고 선택한 카테고리에 음성 전광판 채널 자동 생성 (`/전광판설정`, `/디데이삭제` 지원)",
         "params": "이름: [제목] 날짜: [YYYY-MM-DD] 카테고리: [채널위치(선택)] 이모지: [아이콘(선택)]",
         "example": "/디데이추가 이름:수능 날짜:2026-11-19",
@@ -1100,7 +1100,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "📅 D-Day & 생일 & 라이프",
         "name": "/알림설정",
         "perm": "admin",
-        "settings_path": "⚙️ 고급 2p > 📅 디데이 전광판 관리",
+        "settings_path": "⚙️ 고급 3p > 📅 서버 D-Day 관리 (또는 홈 드롭다운)",
         "desc": "[서버 관리자] 매일 오전 9시 D-Day 브리핑 알림을 받을 텍스트 채널과 기본 카테고리 설정",
         "params": "알림채널: [#채널] 기본카테고리: [카테고리]",
         "example": "/알림설정 알림채널:#디데이알림",
@@ -1271,7 +1271,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎵 음악 & 플레이리스트",
         "name": "/음악추천설정",
         "perm": "admin",
-        "settings_path": "⚙️ 고급 2p > 🎵 정기 음악알림 설정",
+        "settings_path": "⚙️ 고급 3p > 🌅 음악 스케줄러 설정",
         "desc": "[서버 관리자] 매일 오전 7시 모닝 음악 추천 채널 및 맞춤형 정기 음악 알람(`/음악알림추가`) 설정",
         "params": "채널: [#채널] 플랫폼: [유튜브/스포티파이/사운드클라우드/랜덤]",
         "example": "/음악추천설정 채널:#음악추천",
@@ -1456,17 +1456,13 @@ def build_help_embed(
     if category == "all" and not search_kw.strip() and perm_filter == "all" and page == 0:
         desc_lines = [
             header_links,
-            "━━━━━━━━━━━━━━━━━━━━━━",
-            "### ⚙️ `/설정` & `/도움말` 2종 통합 안내",
-            "> 모든 기능이 **`/설정`**(`!설정`) 버튼 허브로 통합되었습니다.\n"
-            "> **`🌐 일반`** · **`⚙️ 고급`** · **`🎮 미니게임`** · **`👤 개인`** 탭과 **`◀/▶` 페이지 이동**으로 원하는 기능을 바로 실행하세요.",
             "",
-            "### 🔐 권한별 이용 범위",
-            f"• **`👤 일반` ({user_cnt}종):** 출석, 가챠, 낚시, 농장, 인생게임, 음악, 내 보관함 (`🌐일반` · `🎮미니게임` · `👤개인`)\n"
-            f"• **`🛡️ 관리자` ({admin_cnt}종):** 감사로그, 공지, 반응역할, 이모지 업스케일, 티켓, 임시음성방, 고정글 (`⚙️고급 1~3p`)\n"
-            f"• **`👑 봇주인` ({owner_cnt}종):** 3대 게임 픽업, GitHub 배포알림, 봇 진단, 터미널 로그, DB 백업 (`⚙️고급 3~4p`)",
-            "━━━━━━━━━━━━━━━━━━━━━━",
-            "👇 아래 **드롭다운**이나 **권한 필터** / **`다음 ▶`** 버튼으로 `/설정` 내 정확한 위치를 확인하세요!",
+            "### ⚙️ 핵심 명령어 3종: `/설정` · `/도움말` · `/후원`",
+            f"• **`👤 일반` ({user_cnt}종)** — 출석 · 가챠 · 낚시 · 농장 · 음악 · 내 보관함",
+            f"• **`🛡️ 관리자` ({admin_cnt}종)** — 역할 · 공지 · 티켓 · **D-Day 채널** · 보안 · 로그",
+            f"• **`👑 봇주인` ({owner_cnt}종)** — 픽업 · GitHub 알림 · 봇 진단 · DB 백업",
+            "",
+            "👇 아래 **카테고리 드롭다운** · **권한 필터** · **`🔍 검색`** 으로 바로 찾아보세요!",
         ]
         embed = discord.Embed(
             title="📖 norosi 통합 도움말 & `/설정` 가이드",
@@ -1475,7 +1471,7 @@ def build_help_embed(
             timestamp=datetime.datetime.now(core.KST),
         )
 
-        # 가독성을 위해 핵심 카테고리를 깔끔한 요약 블록으로 그룹핑
+        # 2열 인라인 카드로 스크롤 부담을 절반으로 줄여 한눈에 탐색 가능하게 구성
         for cat_key, cat_title, cat_summary in CATEGORY_META:
             cat_items = [c for c in COMMAND_CATALOG if c["category"] == cat_key]
             u_c = sum(1 for c in cat_items if c.get("perm") == "user")
@@ -1483,21 +1479,21 @@ def build_help_embed(
             o_c = sum(1 for c in cat_items if c.get("perm") == "owner")
             badge_parts = []
             if u_c:
-                badge_parts.append(f"`👤일반 {u_c}`")
+                badge_parts.append(f"`👤{u_c}`")
             if a_c:
-                badge_parts.append(f"`🛡️관리자 {a_c}`")
+                badge_parts.append(f"`🛡️{a_c}`")
             if o_c:
-                badge_parts.append(f"`👑봇주인 {o_c}`")
+                badge_parts.append(f"`👑{o_c}`")
             badge_str = " ".join(badge_parts)
 
             embed.add_field(
-                name=f"{cat_title}  ({len(cat_items)}종)",
-                value=f"{badge_str}\n└ {cat_summary}",
-                inline=False,
+                name=f"{cat_title} ({len(cat_items)})",
+                value=f"{badge_str}\n{cat_summary[:90]}",
+                inline=True,
             )
 
         embed.set_footer(
-            text=f"총 {total_cmds}종 기능 수록  ·  [⚙️ 통합 설정 (/설정) 열기] 버튼으로 즉시 실행"
+            text=f"총 {total_cmds}종 기능 수록  ·  [⚙️ /설정 열기]로 모든 기능 즉시 실행"
         )
         return embed
 
@@ -1508,19 +1504,17 @@ def build_help_embed(
         embed = discord.Embed(
             title="🔍 도움말 검색 결과 없음",
             description=(
-                f"{header_links}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"⚠️ 조건(검색어: `{search_kw or '없음'}` · 권한: `{PERM_BADGE_MAP.get(perm_filter, '전체')}`)과 일치하는 기능이 없습니다.\n\n"
-                "💡 **추천 검색어:** `설정`, `마스터랭크`, `원신`, `스타레일`, `낚시`, `농장`, `인생`, `티켓`, `임시음성방`, `이모지업스케일`\n"
-                "👉 아래 **`[🏠 전체 요약]`** 버튼으로 홈으로 돌아갈 수 있습니다."
+                f"{header_links}\n\n"
+                f"⚠️ 조건(검색어: `{search_kw or '없음'}` · 권한: `{PERM_BADGE_MAP.get(perm_filter, '전체')}`)과 일치하는 기능이 없습니다.\n"
+                "💡 **추천 검색어:** `디데이`, `전광판`, `라디오`, `낚시`, `티켓`, `이모지`, `후원`, `업적`"
             ),
             color=discord.Color.orange(),
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_footer(text="norosi Help  ·  /설정 으로 모든 기능을 버튼으로 실행할 수 있습니다.")
+        embed.set_footer(text="norosi Help  ·  [🏠 전체 요약]으로 돌아가기")
         return embed
 
-    per_page = 4
+    per_page = 5
     total_pages = max(1, math.ceil(len(filtered) / per_page))
 
     is_all_unfiltered = (category == "all" and not search_kw.strip() and perm_filter == "all" and page > 0)
@@ -1531,20 +1525,16 @@ def build_help_embed(
     page_items = filtered[start_i : start_i + per_page]
 
     cat_header = "🌟 전체 기능 상세" if category == "all" else page_items[0]["cat_label"]
-    perm_header = "👥 전체 권한" if perm_filter == "all" else PERM_BADGE_MAP.get(perm_filter, "👥 전체")
+    perm_header = "전체" if perm_filter == "all" else PERM_BADGE_MAP.get(perm_filter, "전체")
     display_curr_page = eff_page + 1
 
     desc_lines = [
+        f"📂 **{cat_header}**  ·  🔐 **{perm_header}**  ·  📄 **`{display_curr_page}/{total_pages}p`** *(총 {len(filtered)}종)*",
         header_links,
-        "━━━━━━━━━━━━━━━━━━━━━━",
-        f"📂 **분류:** **{cat_header}**  ·  🔐 **권한:** **{perm_header}**",
-        f"📄 **범위:** 총 **`{len(filtered)}개`** 중 **`{start_i + 1}~{start_i + len(page_items)}번째`**  (`{display_curr_page}/{total_pages}p`)",
-        "💡 *각 항목의 **`📍 /설정 위치`** 버튼을 눌러 즉시 실행할 수 있습니다.*",
-        "━━━━━━━━━━━━━━━━━━━━━━",
     ]
 
     embed = discord.Embed(
-        title=f"📖 norosi 상세 도움말 — {cat_header}",
+        title=f"📖 norosi 도움말 — {cat_header}",
         description="\n".join(desc_lines),
         color=discord.Color.from_rgb(0, 204, 221),
         timestamp=datetime.datetime.now(core.KST),
@@ -1552,18 +1542,19 @@ def build_help_embed(
 
     for item in page_items:
         perm_key = item.get("perm", "user")
-        perm_tag = PERM_SHORT_BADGE.get(perm_key, "[👤일반]")
+        perm_tag = "" if perm_key == "user" else f" `{PERM_SHORT_BADGE.get(perm_key, '').strip('[]')}`"
         settings_loc = item.get("settings_path") or "⚙️ /설정 허브"
-        cmd_label = item["name"] if item["name"] in ("/설정", "/도움말") else f"{item['name'].lstrip('/')} (통합됨)"
-        field_name = f"🔹 `{cmd_label}`  {perm_tag}  ·  📍 `{settings_loc}`"
-        field_value = (
-            f"> {item['desc']}\n"
-            f"• **위치:** `{settings_loc}`  ｜  **기능:** `{item['params']}`"
+        cmd_label = item["name"] if item["name"] in ("/설정", "/도움말", "/후원") else item["name"].lstrip("/")
+        params_str = str(item.get("params") or "").strip()
+        param_line = f"\n　• 옵션: `{params_str}`" if params_str and params_str != "없음" else ""
+        embed.add_field(
+            name=f"🔹 {cmd_label}{perm_tag}",
+            value=f"{item['desc']}\n　└ 📍 **`{settings_loc}`**{param_line}",
+            inline=False,
         )
-        embed.add_field(name=field_name, value=field_value, inline=False)
 
     embed.set_footer(
-        text=f"{display_curr_page}/{total_pages}p (총 {len(filtered)}개)  ·  🏠 전체 요약  ·  ⚙️ 통합 설정 (/설정)"
+        text=f"{display_curr_page}/{total_pages}p (총 {len(filtered)}개)  ·  🏠 전체 요약  ·  ⚙️ /설정 열기"
     )
     return embed
 

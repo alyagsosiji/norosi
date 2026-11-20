@@ -8,6 +8,7 @@ cogs/dashboard.py - norosi 통합 설정 (/설정) 컨트롤 허브 (Component V
 
 import os
 import io
+import re
 import json
 import copy
 import random
@@ -3170,6 +3171,7 @@ class MasterDashboardView(core.SafeView):
                     discord.SelectOption(label="🔍 통합 기능 검색 (키워드 점프)", value="feature_search", description="키워드로 130+ 기능 즉시 실행"),
                     discord.SelectOption(label="⭐ 홈 즐겨찾기 단축바 편집", value="home_shortcuts", description="홈 버튼 5개 커스텀"),
                     discord.SelectOption(label="🏅 내 업적 & 뱃지 (12종)", value="achievements", description="크로스 기능 업적 달성 현황"),
+                    discord.SelectOption(label="📅 D-Day 채널·알림 설정", value="admin_dday", description="전광판 채널·카테고리·9시 알림"),
                     discord.SelectOption(label="📻 무드 음성 라디오", value="mood_radio", description="6대 분위기 BGM"),
                     discord.SelectOption(label="🗓️ 예약 이벤트 신청표", value="guild_events", description="RSVP·대기열·알림"),
                     discord.SelectOption(label="🏆 전 분야 통합 랭킹", value="ranking_hub", description="8대 순위표"),
@@ -3420,6 +3422,7 @@ class MasterDashboardView(core.SafeView):
             "feature_search": self._act_feature_search,
             "home_shortcuts": self._act_home_shortcuts,
             "achievements": self._act_achievements,
+            "admin_dday": self._act_admin_dday_hub,
             "mood_radio": self._act_mood_radio,
             "guild_events": self._act_guild_events,
             "ranking_hub": self._act_ranking_hub,
@@ -3884,39 +3887,48 @@ class MasterDashboardView(core.SafeView):
             else f"커스텀 `{len(shortcut_keys)}종`"
         )
 
+        tier = detect_user_perm_tier_sync(self.user, self.guild)
+        tier_short = PERM_BADGES.get(tier, "👤 일반 이용자")
+        att_short = f"✅ 출석 (`{guild_att.get('streak', 0)}일`)" if is_attended else "⏳ 미출석"
+
         desc_lines = [
-            f"👋 **{u_name}**님, 환영합니다! 아래 버튼으로 원하는 기능을 바로 실행하세요.",
-            self._format_caller_tier_banner(),
+            f"👋 **{u_name}**님  ·  {tier_short}",
+            f"💎 `{crystals:,}`  ·  💖 `{oshi}`  ·  📅 D-Day `{dday_cnt}개`  ·  {att_short}",
+            f"🎮 수집: 프세카 `{sekai_cards}` · 원신 `{gi_items}` · 스타레일 `{hsr_items}`  ·  ⭐ 단축바 `{sc_badge}`",
             "",
-            f"> 📊 **내 요약:** 💎 `{crystals:,}` · 💖 오시 `{oshi}` · 📅 D-Day `{dday_cnt}개`\n"
-            f"> 🎮 **컬렉션:** 프로세카 `{sekai_cards}종` · 원신 `{gi_items}종` · 스타레일 `{hsr_items}종`\n"
-            f"> 📅 **출석 상태:** {att_badge} · ⭐ **홈 단축바:** {sc_badge}",
-            "━━━━━━━━━━━━━━━━━━━━━━",
-            "### 🗂️ 4대 통합 카테고리 *(총 15페이지 · 90종 기능)*",
-            (
-                "1️⃣ **`[🌐 일반]`** *(3p · `👤일반`)*\n"
-                "└ 출석·달력·랭킹 · D-Day·생일 · 미래시 · 플리·**무드라디오** · 통계·파티·**예약이벤트** · 날씨·릴레이소설\n\n"
-                "2️⃣ **`[⚙️ 고급]`** *(4p · `🛡️관리자` & `👑봇주인`)*\n"
-                "└ `🛡️관리자` 역할·공지·티켓·임시음성방·고정글·레이드방어·이모지업스케일·감사로그·청소·초기화\n"
-                "└ `👑봇주인` 3대 게임 픽업 · VM 터미널 · **GitHub 배포알림** · **봇 진단** · DB 백업/동기화\n\n"
-                "3️⃣ **`[🎮 미니게임]`** *(4p · `👤일반`)*\n"
-                "└ 프로세카 · 원신 · 스타레일 · 낚시·수족관 · 농장·펫 · 타인의삶 · 끝말잇기 · 룰렛\n\n"
-                "4️⃣ **`[👤 개인]`** *(4p · `👤일반`)*\n"
-                "└ PNG 프로필카드 · 4대 게임 보관함/덱 · 오늘목표·파트너 · **일일루틴·주간미션·환전소·쇼케이스·미니대전**"
-            ),
-            "━━━━━━━━━━━━━━━━━━━━━━",
+            "💡 **빠른 찾기:** 아래 드롭다운 맨 위 **`🔍 통합 기능 검색`** 으로 키워드 점프!",
         ]
 
         embed = discord.Embed(
-            title="⚙️ norosi 통합 설정 허브 (컨트롤 타워)",
+            title="⚙️ norosi 통합 설정 허브",
             description="\n".join(desc_lines),
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST),
         )
+        embed.add_field(
+            name="🌐 일반 (3p)",
+            value="• 출석 · D-Day · 생일\n• 플레이리스트 · 무드라디오\n• 서버통계 · 파티 · 예약이벤트 · 날씨",
+            inline=True,
+        )
+        embed.add_field(
+            name="⚙️ 고급 (4p · 관리자/봇주)",
+            value="• 역할 · 공지 · 티켓 · 임시음성방\n• **D-Day 채널·알림 설정** · 음악알람\n• 보안 · 로그 · 봇주 픽업/진단/백업",
+            inline=True,
+        )
+        embed.add_field(
+            name="🎮 미니게임 (4p)",
+            value="• 프로세카 · 원신 · 스타레일\n• 낚시(3.6만종) · 농장 · 펫 · 요리\n• 타인의삶 · 끝말잇기 · 룰렛",
+            inline=True,
+        )
+        embed.add_field(
+            name="👤 개인 (4p)",
+            value="• PNG 프로필카드 · 칭호 · 송금\n• 4대 보관함/덱 · 오늘목표 · 파트너\n• 일일루틴 · 주간미션 · 업적 · 환전",
+            inline=True,
+        )
         if self.user and hasattr(self.user, "display_avatar"):
             embed.set_thumbnail(url=self.user.display_avatar.url)
         embed.set_footer(
-            text=f"🌐 일반 · ⚙️ 고급 · 🎮 미니게임 · 👤 개인  |  ◀/▶ 전체 {flat_total}p 이동"
+            text=f"상단 4개 버튼으로 카테고리 이동  ·  ◀/▶ 전체 {flat_total}p 탐색"
         )
         return embed
 
@@ -3931,56 +3943,56 @@ class MasterDashboardView(core.SafeView):
             if page == 0:
                 dday_cnt = len(core.filter_guild_ddays(self.data.get("ddays"), self.guild))
                 bday_cnt = len(core.as_dict(self.data.get("birthdays")))
-                return f"📌 **현황:** 등록된 D-Day `{dday_cnt}개`  ·  등록된 생일 멤버 `{bday_cnt}명`"
+                return f"📌 이 서버 D-Day `{dday_cnt}개` · 생일 등록 `{bday_cnt}명`"
             if page == 1:
                 pls = core.ensure_user_playlists(profile, u_name)
                 vc_txt = "🎶 음성 연결됨" if getattr(self.guild, "voice_client", None) else "⏸️ 음성 대기 중"
-                return f"🎵 **현황:** 내 플레이리스트 `{len(pls)}개`  ·  애청곡 `{len(profile.get('liked_music', []))}곡`  ·  {vc_txt}"
+                return f"🎵 내 플리 `{len(pls)}개` · 애청곡 `{len(profile.get('liked_music', []))}곡` · {vc_txt}"
             g_cnt = getattr(self.guild, "member_count", 1) if self.guild else 1
-            return f"📊 **현황:** 서버 멤버 `{g_cnt:,}명`  ·  실시간 파티 모집·기상청 날씨·협동 소설 즉시 이용 가능"
+            return f"📊 서버 멤버 `{g_cnt:,}명` · 파티 모집 · 날씨 · 릴레이소설"
 
         if category == "advanced":
             tier = detect_user_perm_tier_sync(self.user, self.guild)
-            tier_label = PERM_BADGES.get(tier, "👤 일반 이용자")
+            tier_label = PERM_BADGES.get(tier, "👤 일반")
             if page < 3:
-                access_ok = "✅ 조작 가능 (관리자 권한 확인됨)" if tier in (PERM_ADMIN, PERM_OWNER) else "🔒 열람 모드 (조작 시 🛡️서버 관리자 권한 필요)"
-                return f"🛡️ **페이지 권한:** `[🛡️ 서버 관리자 전용]`  ·  **내 상태:** {tier_label} → {access_ok}"
-            access_ok = "✅ 조작 가능 (👑봇 주인 확인됨)" if tier == PERM_OWNER else "🔒 잠금됨 (👑봇 주인만 조작 가능 — 일반 관리자 조작 불가)"
-            return f"👑 **페이지 권한:** `[👑 봇 주인 전용]`  ·  **내 상태:** {tier_label} → {access_ok}"
+                access_ok = "✅ 조작 가능" if tier in (PERM_ADMIN, PERM_OWNER) else "🔒 관리자 전용"
+                return f"🛡️ 서버 관리자 영역 · 내 권한: {tier_label} ({access_ok})"
+            access_ok = "✅ 조작 가능" if tier == PERM_OWNER else "🔒 봇 주인 전용"
+            return f"👑 봇 주인 영역 · 내 권한: {tier_label} ({access_ok})"
 
         if category == "minigame":
             if page == 0:
                 crystals = int(profile.get("crystals", 0))
                 u_gacha = core.safe_get_dict(self.data, "gacha_users", g_key, u_key)
                 cards_cnt = len(core.as_dict(u_gacha.get("cards")))
-                return f"🎤 **프로세카 현황:** 보유 크리스탈 `{crystals:,}💎`  ·  보유 카드 `{cards_cnt}장`  ·  스탬프 `{u_gacha.get('pity_count', 0)}/100`"
+                return f"🎤 크리스탈 `{crystals:,}💎` · 보유 카드 `{cards_cnt}장` · 스탬프 `{u_gacha.get('pity_count', 0)}/100`"
             if page == 1:
                 gi_u = core.safe_get_dict(self.data, "genshin_users", g_key, u_key)
                 hsr_u = core.safe_get_dict(self.data, "hsr_users", g_key, u_key)
                 return (
-                    f"🌠 **원신 스택:** 캐릭터 `{gi_u.get('pity_char', 0)}/90` · 무기 `{gi_u.get('pity_weapon', 0)}/80`  |  "
-                    f"🚄 **스타레일 스택:** 캐릭터 `{hsr_u.get('pity_char', 0)}/90` · 상시 `{hsr_u.get('standard_total_pulls', 0)}/300`"
+                    f"🌠 원신 `{gi_u.get('pity_char', 0)}/90` · "
+                    f"🚄 스타레일 `{hsr_u.get('pity_char', 0)}/90` (상시 `{hsr_u.get('standard_total_pulls', 0)}/300`)"
                 )
             if page == 2:
-                return "🎣 **낚시 & 생활:** 글로벌 `36,700종` 어종 출조 · 주말/제철 토너먼트 · 개인/공동 농장 · 펫 육성"
-            return "🎲 **인생 & 캐주얼:** 타인의 삶 `1,000종` 멀티엔딩 · 두음법칙 끝말잇기 · 러시안룰렛 · 5대 통합 도감/랭킹"
+                return "🎣 어종 `36,700종` 낚시 · 토너먼트 · 개인/공동 농장 · 펫 육성"
+            return "🎲 타인의 삶 `1,000종` 엔딩 · 끝말잇기 · 러시안룰렛 · 통합 도감/랭킹"
 
         # personal
         if page == 0:
             crystals = int(profile.get("crystals", 0))
             oshi = profile.get("oshi") or "미설정"
-            return f"🪪 **내 프로필 요약:** 보유 `{crystals:,}💎`  ·  대표 오시 `{oshi}`  ·  고화질 PNG 프로필카드 즉시 발급"
+            return f"🪪 보유 `{crystals:,}💎` · 오시 `{oshi}` · PNG 프로필카드 즉시 발급"
         if page == 1:
             deck_cnt = len(profile.get("deck", []))
-            return f"🎒 **내 보관함 요약:** 프로세카 5인 덱 `{deck_cnt}/5장` 편성 중  ·  원신/스타레일/낚시 보관함 원클릭 관리"
+            return f"🎒 프로세카 5인 덱 `{deck_cnt}/5장` · 원신/스타레일/낚시 보관함"
         if page == 2:
             todo = core.ensure_user_todo_today(profile)
             tasks_list = [t for t in (todo.get("tasks") or []) if isinstance(t, dict)]
             done_cnt = sum(1 for t in tasks_list if t.get("done"))
             partner_id = profile.get("partner_id")
             p_txt = f"<@{partner_id}>" if partner_id else "미등록"
-            return f"🌱 **오늘 목표:** `{done_cnt}/{len(tasks_list)}` 완료  ·  💑 **파트너:** {p_txt}"
-        return "☀️ **일일 루틴 & 소셜:** 숙제 일괄 수령 · 주간 미션 · 🪙⇄💎 환전소 · 수집품 쇼케이스 · 주사위/초성 퀴즈"
+            return f"🌱 오늘 목표 `{done_cnt}/{len(tasks_list)}` · 💑 파트너 {p_txt}"
+        return "☀️ 일일 루틴 · 주간 미션 · 🪙⇄💎 환전소 · 업적 쇼케이스 · 미니대전"
 
     def _build_category_page_embed(self, category: str, page: int) -> discord.Embed:
         cat_meta = CATEGORY_INFO.get(category, CATEGORY_INFO["general"])
@@ -3996,28 +4008,31 @@ class MasterDashboardView(core.SafeView):
         item_lines = []
         for idx, it in enumerate(items[:6]):
             nb = num_badges[idx] if idx < len(num_badges) else "•"
-            p_tag = PERM_SHORT_BADGES.get(it.get("perm", PERM_USER), "👤일반")
+            it_perm = it.get("perm", PERM_USER)
+            perm_suffix = (
+                " `👑봇주`" if it_perm == PERM_OWNER
+                else (" `🛡️관리자`" if it_perm == PERM_ADMIN else "")
+            )
+            desc_clean = re.sub(r"^\[[^\]]+\]\s*", "", str(it.get("desc") or "")).strip()
             item_lines.append(
-                f"{nb} **`[{it['emoji']} {it['label']}]`** `[{p_tag}]`\n"
-                f"   └ {it['desc']}"
+                f"{nb} {it['emoji']} **{it['label']}**{perm_suffix}\n"
+                f"　└ {desc_clean}"
             )
 
         ctx_line = self._build_context_summary_for_page(category, page)
         short_labels = self._get_category_page_short_labels(category, len(cat_pages))
-        page_tabs = " · ".join(
-            f"**`[{lbl}]`**" if i == page else lbl
+        page_tabs = "  ·  ".join(
+            f"**`{lbl}`**" if i == page else f"{lbl}"
             for i, lbl in enumerate(short_labels)
         )
 
         desc_lines = [
-            f"🧭 **위치:** `⚙️ 홈` › **`{cat_meta['label']}`** › **`{page + 1}/{len(cat_pages)}p`** *(전체 `{global_cur}/{global_tot}p`)*",
-            f"📑 **페이지:** {page_tabs}",
-            f"🔐 **권한:** {cat_meta['perm_summary']}",
+            f"🧭 `홈` › **{cat_meta['label']}** `{page + 1}/{len(cat_pages)}p`  *(전체 `{global_cur}/{global_tot}p`)*",
+            f"📑 {page_tabs}",
             f"> {ctx_line}",
-            "━━━━━━━━━━━━━━━━━━━━━━",
+            "",
             f"### {page_obj['page_title']}",
-            "\n".join(item_lines),
-            "━━━━━━━━━━━━━━━━━━━━━━",
+            "\n\n".join(item_lines),
         ]
 
         embed = discord.Embed(
@@ -4027,7 +4042,7 @@ class MasterDashboardView(core.SafeView):
             timestamp=datetime.datetime.now(core.KST),
         )
         embed.set_footer(
-            text=f"⬅️ 홈으로  ·  🔢 하단 페이지 번호 바로 이동 ({global_cur}/{global_tot}p)  ·  🔄 새로고침"
+            text=f"🏠 홈  ·  🔢 페이지 번호 바로 이동 ({global_cur}/{global_tot}p)  ·  🔄 새로고침"
         )
         return embed
 
