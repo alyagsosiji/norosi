@@ -1329,7 +1329,7 @@ class FishingBagView(core.SafeView):
 
         body = "\n".join(lines) if lines else "> *(조건에 맞는 물고기가 가방에 없습니다. `/설정` (`🎮 미니게임` ➔ `🎣 세카이 낚시 출조`)로 낚아 보세요!)*"
         embed = discord.Embed(
-            title=f"🎒 {self.user.display_name}님의 낚시 가방 (`{len(bag_raw):,}/{bag_cap:,}마리`)",
+            title=f"🎒 {self.user.display_name}님의 낚시 가방 ({len(bag_raw):,}/{bag_cap:,}마리)",
             description=(
                 f"• **보유 골드:** `{u['gold']:,}🪙`  ·  **조회 총 가치:** `{total_gold:,}🪙` (잠금제외 `{unlocked_cnt:,}마리 = {unlocked_gold:,}🪙`)\n"
                 f"{sel_summary}  ·  **페이지:** `{self.page + 1} / {total_p}`\n"
@@ -2106,7 +2106,7 @@ class FishingAquariumView(core.SafeView):
         exp_txt = "최대 크기 달성!" if max_slots >= 20 else f"다음 확장(+2칸): `{next_cost:,}🪙`"
 
         return discord.Embed(
-            title=f"🐠 {self.target_user.display_name}님의 프라이빗 수족관 (`{len(tank)}/{max_slots}칸`)",
+            title=f"🐠 {self.target_user.display_name}님의 프라이빗 수족관 ({len(tank)}/{max_slots}칸)",
             description=(
                 f"• **시간당 관람 수익:** **`+{hourly:,}🪙/시간`**  ·  **수확 대기 골드:** **`+{pending:,}🪙`** *(최대 24시간 누적)*\n"
                 f"• **어항 크기:** `{max_slots}/20칸` ({exp_txt})\n"

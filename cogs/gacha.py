@@ -5572,7 +5572,7 @@ class GachaCog(commands.Cog):
             timestamp=datetime.datetime.now(core.KST)
         )
         embed.set_thumbnail(url=core.get_proseka_card_image_url(target, "auto"))
-        embed.set_footer(text=f"요청자: {interaction.user.display_name} • `/설정` (`🎒 프로세카 카드 보관함` 및 `🪪 내 통합 프로필`)에서 강화된 스탯을 확인할 수 있습니다.")
+        embed.set_footer(text=f"요청자: {interaction.user.display_name} • /설정 (🎒 프로세카 보관함 및 🪪 통합 PNG 프로필카드)에서 강화된 스탯을 확인할 수 있습니다.")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="마이세카이", description="나만의 미니 룸 테마와 세카이 가구를 꾸미고 매일 출석체크 추가 크리스탈 이자(패시브 보너스)를 받습니다.")

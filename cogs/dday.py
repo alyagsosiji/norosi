@@ -64,7 +64,7 @@ async def execute_and_build_attendance_response(interaction: discord.Interaction
             if milestone_bonus > 0 else ""
         )
         dup_embed = discord.Embed(
-            title=f"⏳ {user_name}님, 오늘 `{guild_name}` 출석은 이미 완료되었습니다!",
+            title=f"⏳ {user_name}님, 오늘 [{guild_name}] 출석은 이미 완료되었습니다!",
             description=(
                 "출석체크는 **각 서버별로 하루 1회(자정 `00:00` 초기화)** 진행할 수 있습니다.\n"
                 "*(다른 디스코드 서버에서는 오늘 아직 출석하지 않았다면 추가로 출석 가능합니다!)*"
@@ -117,7 +117,7 @@ async def execute_and_build_attendance_response(interaction: discord.Interaction
         milestone_banner += f"\n🐾 **생활 컨텐츠(펫/공동농장/요리) 출석 보너스:** **`+{life_bonus:,}💎`** ({l_reasons})"
 
     embed = discord.Embed(
-        title=f"🌟 {user_name}님, `{guild_name}` 오늘의 출석체크 완료! (+{gained_crystals:,} 💎)",
+        title=f"🌟 {user_name}님, [{guild_name}] 오늘의 출석체크 완료! (+{gained_crystals:,} 💎)",
         description=(
             f"💬 **오늘의 세카이 메시지** — **{quote_info['char_name']}** ({quote_info['unit']}){oshi_badge}\n"
             f"> **\"{quote_info['quote']}\"**\n"

@@ -1511,7 +1511,7 @@ class LoggerCog(commands.Cog):
         diff_str = ("\n\n📝 **상세 변경 내역:**\n" + "\n".join(diff_lines)) if diff_lines else ""
 
         embed = discord.Embed(
-            title=f"⚖️ 모더레이션 조치: {kr_action} (`{raw_action}`)",
+            title=f"⚖️ 모더레이션 조치: {kr_action} ({raw_action})",
             description=(
                 f"👮 **조치자 (Mod):** {mod_info}\n"
                 f"🎯 **조치 대상:** {target_info}\n"

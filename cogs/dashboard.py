@@ -1736,10 +1736,10 @@ class DashboardSearchResultView(core.SafeView):
     def build_embed(self) -> discord.Embed:
         if not self.matches:
             return discord.Embed(
-                title=f"🔍 기능 검색 결과: `{self.keyword}`",
+                title=f"🔍 기능 검색 결과: {self.keyword}",
                 description=(
                     "일치하는 기능을 찾지 못했습니다.\n"
-                    "• 더 짧은 키워드로 다시 검색해 보세요! *(예: `낚시`, `라디오`, `티켓`, `환전`, `업적`, `후원`)*"
+                    "• 더 짧은 키워드로 다시 검색해 보세요! *(예: `디데이`, `낚시`, `라디오`, `티켓`, `환전`, `업적`, `후원`)*"
                 ),
                 color=discord.Color.orange(),
                 timestamp=datetime.datetime.now(core.KST),
@@ -1748,13 +1748,17 @@ class DashboardSearchResultView(core.SafeView):
         for idx, m in enumerate(self.matches, start=1):
             it = m["item"]
             perm_tag = " `👑봇주`" if it.get("perm") == PERM_OWNER else (" `🛡️관리자`" if it.get("perm") == PERM_ADMIN else "")
+            lbl_clean = re.sub(r"^\[(?:봇주인|서버관리자)\]\s*", "", str(it.get("label") or "-")).strip()
+            desc_clean = re.sub(r"^\[[^\]]+\]\s*", "", str(it.get("desc") or "")).strip()
+            if len(desc_clean) > 70:
+                desc_clean = desc_clean[:69].rstrip() + "…"
             lines.append(
-                f"`{idx:02d}.` {it.get('emoji', '•')} **{it.get('label', '-')}**{perm_tag} "
+                f"`{idx:02d}.` {it.get('emoji', '•')} **{lbl_clean}**{perm_tag} "
                 f"*({m['cat_label']} {m['page_num']}p)*\n"
-                f"　└ {str(it.get('desc', ''))[:70]}"
+                f"　└ {desc_clean}"
             )
         embed = discord.Embed(
-            title=f"🔍 기능 검색 결과: `{self.keyword}` ({len(self.matches)}건)",
+            title=f"🔍 기능 검색 결과: {self.keyword} ({len(self.matches)}건)",
             description="\n".join(lines)[:4096],
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST),
@@ -1860,7 +1864,7 @@ class HomeShortcutEditView(core.SafeView):
         is_default = (self.selected_keys == core.DEFAULT_HOME_SHORTCUTS)
         badge = "기본 프리셋" if is_default else f"커스텀 ({len(self.selected_keys)}개)"
         embed = discord.Embed(
-            title="⭐ 나만의 `/설정` 홈 즐겨찾기 단축바 편집",
+            title="⭐ 나만의 /설정 홈 즐겨찾기 단축바 편집",
             description=(
                 "자주 쓰는 기능 **1~5개**를 골라 `/설정` 홈 화면 2번째 줄 단축 버튼으로 고정할 수 있습니다.\n"
                 "아래 드롭다운에서 원하는 기능을 고른 뒤 **`[💾 저장 & 적용]`**을 눌러주세요!\n\n"
@@ -1870,7 +1874,7 @@ class HomeShortcutEditView(core.SafeView):
             color=0xF1C40F,
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_footer(text="설정은 내 계정에 저장되어 모든 서버의 `/설정` 홈에 자동 적용됩니다.")
+        embed.set_footer(text="설정은 내 계정에 저장되어 모든 서버의 /설정 홈에 자동 적용됩니다.")
         return embed
 
     async def _on_select_changed(self, interaction: discord.Interaction):
@@ -3884,7 +3888,7 @@ class MasterDashboardView(core.SafeView):
         sc_badge = (
             "기본 프리셋"
             if shortcut_keys == core.DEFAULT_HOME_SHORTCUTS
-            else f"커스텀 `{len(shortcut_keys)}종`"
+            else f"커스텀 {len(shortcut_keys)}종"
         )
 
         tier = detect_user_perm_tier_sync(self.user, self.guild)
@@ -3907,23 +3911,23 @@ class MasterDashboardView(core.SafeView):
         )
         embed.add_field(
             name="🌐 일반 (3p)",
-            value="• 출석 · D-Day · 생일\n• 플레이리스트 · 무드라디오\n• 서버통계 · 파티 · 예약이벤트 · 날씨",
-            inline=True,
+            value="출석 · D-Day · 생일 · 플레이리스트 · 무드라디오 · 서버통계 · 파티 · 예약이벤트 · 날씨",
+            inline=False,
         )
         embed.add_field(
             name="⚙️ 고급 (4p · 관리자/봇주)",
-            value="• 역할 · 공지 · 티켓 · 임시음성방\n• **D-Day 채널·알림 설정** · 음악알람\n• 보안 · 로그 · 봇주 픽업/진단/백업",
-            inline=True,
+            value="역할 · 공지 · 티켓 · 임시음성방 · **D-Day 채널·알림 설정** · 음악알람 · 보안 · 로그 · 픽업/진단/백업",
+            inline=False,
         )
         embed.add_field(
             name="🎮 미니게임 (4p)",
-            value="• 프로세카 · 원신 · 스타레일\n• 낚시(3.6만종) · 농장 · 펫 · 요리\n• 타인의삶 · 끝말잇기 · 룰렛",
-            inline=True,
+            value="프로세카 · 원신 · 스타레일 · 낚시(3.6만종) · 농장 · 펫 · 요리 · 타인의삶 · 끝말잇기 · 룰렛",
+            inline=False,
         )
         embed.add_field(
             name="👤 개인 (4p)",
-            value="• PNG 프로필카드 · 칭호 · 송금\n• 4대 보관함/덱 · 오늘목표 · 파트너\n• 일일루틴 · 주간미션 · 업적 · 환전",
-            inline=True,
+            value="PNG 프로필카드 · 칭호 · 송금 · 4대 보관함/덱 · 오늘목표 · 파트너 · 일일루틴 · 주간미션 · 업적 · 환전",
+            inline=False,
         )
         if self.user and hasattr(self.user, "display_avatar"):
             embed.set_thumbnail(url=self.user.display_avatar.url)
@@ -4013,9 +4017,10 @@ class MasterDashboardView(core.SafeView):
                 " `👑봇주`" if it_perm == PERM_OWNER
                 else (" `🛡️관리자`" if it_perm == PERM_ADMIN else "")
             )
+            lbl_clean = re.sub(r"^\[(?:봇주인|서버관리자)\]\s*", "", str(it.get("label") or "")).strip()
             desc_clean = re.sub(r"^\[[^\]]+\]\s*", "", str(it.get("desc") or "")).strip()
             item_lines.append(
-                f"{nb} {it['emoji']} **{it['label']}**{perm_suffix}\n"
+                f"{nb} {it['emoji']} **{lbl_clean}**{perm_suffix}\n"
                 f"　└ {desc_clean}"
             )
 
@@ -4048,24 +4053,29 @@ class MasterDashboardView(core.SafeView):
 
     def _build_sub_mode_embed(self) -> discord.Embed:
         sub_def = self._get_sub_mode_definition()
-        cat_meta = CATEGORY_INFO.get(self.current_category, CATEGORY_INFO["general"])
-        r, g, b = cat_meta["color"]
+        if self.current_category == "home":
+            r, g, b = (0, 204, 221)
+            breadcrumb = f"🧭 `홈` › **{sub_def['title']}**"
+        else:
+            cat_meta = CATEGORY_INFO.get(self.current_category, CATEGORY_INFO["general"])
+            r, g, b = cat_meta["color"]
+            breadcrumb = f"🧭 `홈` › **{cat_meta['label']}** `{self.current_page + 1}p` › **{sub_def['title']}**"
+
         req_perm = sub_def.get("perm", PERM_USER)
         perm_txt = PERM_BADGES.get(req_perm, "👤 일반 이용자")
 
-        btn_lines = []
-        for b_label, b_emoji, _, _ in sub_def.get("buttons", []):
-            btn_lines.append(f"• **`[{b_emoji} {b_label}]`**")
+        btn_lines = [
+            f"• {b_emoji} **{b_label}**"
+            for b_label, b_emoji, _, _ in sub_def.get("buttons", [])
+        ]
 
         desc_lines = [
-            f"🧭 **위치:** `⚙️ 홈` › `{cat_meta['label']} ({self.current_page + 1}p)` › **`{sub_def['title']}`**",
-            f"🔐 **권한:** `{perm_txt}`",
-            "",
+            breadcrumb,
+            f"🔐 권한: `{perm_txt}`",
             f"> {sub_def.get('desc', '')}",
-            "━━━━━━━━━━━━━━━━━━━━━━",
+            "",
             "### 🎛️ 실행 가능한 세부 기능",
             "\n".join(btn_lines),
-            "━━━━━━━━━━━━━━━━━━━━━━",
         ]
 
         embed = discord.Embed(

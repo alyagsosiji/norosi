@@ -257,7 +257,7 @@ def _build_ticket_config_embed(cfg: Dict[str, Any], guild: Optional[discord.Guil
         color=0x38BDF8,
         timestamp=datetime.datetime.now(core.KST),
     )
-    embed.set_footer(text="아래 역할 드롭다운으로 특수문자 포함 역할을 바로 선택하거나, `/설정` (`🎫 1:1 문의 티켓 관리`)에서 패널을 발행하세요!")
+    embed.set_footer(text="아래 역할 드롭다운으로 특수문자 포함 역할을 바로 선택하거나, /설정 (⚙️ 고급 1p > 🎫 1:1 문의티켓 설정)에서 패널을 발행하세요!")
     return embed
 
 

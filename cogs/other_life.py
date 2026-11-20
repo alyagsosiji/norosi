@@ -1241,7 +1241,7 @@ class OtherLifeRankingView(core.SafeView):
             color=0xF59E0B,
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_footer(text="`/설정` (`🎮 미니게임` ➔ `🌌 타인의 삶 시작`) 또는 `!타인의인생`으로 새로운 생애를 살아보세요!")
+        embed.set_footer(text="/설정 (🎮 미니게임 4p > 👶 타인의 삶 플레이) 또는 !타인의인생 으로 새로운 생애를 살아보세요!")
         return embed
 
     @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=0)

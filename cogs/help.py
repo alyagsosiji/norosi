@@ -4,12 +4,15 @@ cogs/help.py - norosi bot help: 통합 설정(/설정) 반영 & 권한별(일반
 
 import asyncio
 import math
+import re
 import datetime
 import discord
 from discord.ext import commands
 from discord import app_commands
 from typing import Optional, List, Dict, Any
 import core
+
+HELP_PER_PAGE = 5
 
 TERMS_URL = "https://app.notion.com/p/40f0518d0603809ea4bde601d93fbffb?source=copy_link"
 PRIVACY_URL = "https://app.notion.com/p/40f0518d06038048b0c6ea1052ce23e7?source=copy_link"
@@ -59,7 +62,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "⚙️ 통합 설정 & 서버 관리",
         "name": "/로그채널설정",
         "perm": "admin",
-        "settings_path": "⚙️ 고급 1p > 📜 감사 로그 설정",
+        "settings_path": "⚙️ 고급 2p > 📜 실시간 감사로그",
         "desc": "[서버 관리자] 메시지 삭제·수정, 멤버 입퇴장, 음성방 이동 등 7대 실시간 감사 로그 채널 설정",
         "params": "채널: [#채널] 상태: [활성화/비활성화]",
         "example": "/로그채널설정 채널:#서버-로그 상태:활성화",
@@ -204,7 +207,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎮 출석 & 프로세카 가챠",
         "name": "/출석랭킹",
         "perm": "user",
-        "settings_path": "🌐 일반 3p > 🏆 통합 랭킹 허브",
+        "settings_path": "🌐 일반 1p > 🏆 출석체크 랭킹",
         "desc": "현재 서버 또는 전체 서버의 출석 순위(누적 출석일 / 연속 출석일) 보드",
         "params": "범위: [서버/전체] 기준: [누적/연속]",
         "example": "/출석랭킹 범위:서버 기준:연속",
@@ -226,7 +229,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎮 출석 & 프로세카 가챠",
         "name": "/내캐릭터",
         "perm": "user",
-        "settings_path": "👤 개인 1p > 🎒 프로세카 내캐릭터",
+        "settings_path": "👤 개인 2p > 🎒 프로세카 보관함",
         "desc": "보유 카드 보관함 조회·검색, 각성 전/후 일러스트 전환, ✦MR 확인, 🔒잠금 및 중복 변환 관리",
         "params": "유저: [@유저(선택)] 검색어: [캐릭터명(선택)]",
         "example": "/내캐릭터 검색어:카나데",
@@ -237,7 +240,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎮 출석 & 프로세카 가챠",
         "name": "/카드도감",
         "perm": "user",
-        "settings_path": "🌐 일반 3p > 📖 통합 도감 허브",
+        "settings_path": "🎮 미니게임 4p > 📖 통합 도감 & 확률표 (또는 홈 드롭다운)",
         "desc": "캐릭터별 수집률(%)과 미보유/보유 카드를 탭별 10개씩 페이지로 확인",
         "params": "유저: [@유저(선택)] 초기탭: [수집률/미보유카드/보유카드(선택)]",
         "example": "/카드도감 초기탭:미보유 카드",
@@ -248,7 +251,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎮 출석 & 프로세카 가챠",
         "name": "/카드강화",
         "perm": "user",
-        "settings_path": "👤 개인 1p > 🎸 프로세카 덱·강화·마스터",
+        "settings_path": "👤 개인 2p > 🎴 5인 덱 & 카드강화",
         "desc": "크리스탈을 소모하여 보유 카드 레벨과 종합력 상승 (MAX 달성 시 보너스 💎 지급)",
         "params": "카드선택: [보유카드] 강화단계: [+1레벨/+10레벨/MAX]",
         "example": "/카드강화 카드선택:101 강화단계:MAX",
@@ -259,7 +262,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎮 출석 & 프로세카 가챠",
         "name": "/마스터랭크",
         "perm": "user",
-        "settings_path": "👤 개인 1p > 🎸 프로세카 덱·강화·마스터",
+        "settings_path": "🎮 미니게임 1p > 🏆 마스터 랭크 돌파",
         "desc": "중복 카드 1장(0💎) 또는 크리스탈로 마스터 랭크(✦0~5) 돌파 (성급·중복보유 필터 지원, MR.2 어나더 컬러 해금)",
         "params": "카드선택: [보유카드(선택)]",
         "example": "/마스터랭크",
@@ -281,7 +284,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎮 출석 & 프로세카 가챠",
         "name": "/중복카드변환",
         "perm": "user",
-        "settings_path": "👤 개인 1p > 💎 중복카드 크리스탈 변환",
+        "settings_path": "👤 개인 2p > 💎 중복카드 일괄환전",
         "desc": "2장 이상 중복 보유 카드(원본 및 🔒잠금 제외)를 성급별 크리스탈로 일괄 환전",
         "params": "없음",
         "example": "/중복카드변환",
@@ -292,7 +295,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎮 출석 & 프로세카 가챠",
         "name": "/카드교환",
         "perm": "user",
-        "settings_path": "👤 개인 1p > 🔄 카드 교환·선물 장터",
+        "settings_path": "👤 개인 2p > 🎴 5인 덱 & 카드강화",
         "desc": "크리스탈 100개를 사용하여 다른 유저와 보유 카드를 1:1 실시간 교환",
         "params": "상대유저: [@유저] 내카드: [카드(선택)] 상대카드: [카드(선택)]",
         "example": "/카드교환 상대유저:@친구",
@@ -303,7 +306,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎮 출석 & 프로세카 가챠",
         "name": "/카드선물",
         "perm": "user",
-        "settings_path": "👤 개인 1p > 🔄 카드 교환·선물 장터",
+        "settings_path": "👤 개인 2p > 🎴 5인 덱 & 카드강화",
         "desc": "크리스탈 50개를 사용하여 파트너에게 보유 카드 선물",
         "params": "내카드: [카드] 메시지: [축하메시지(선택)]",
         "example": "/카드선물 내카드:101 메시지:선물이야!",
@@ -314,7 +317,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎮 출석 & 프로세카 가챠",
         "name": "/마이세카이",
         "perm": "user",
-        "settings_path": "🎮 미니게임 3p > 🏠 마이세카이 룸",
+        "settings_path": "🎮 미니게임 1p > 🏠 마이세카이 미니룸",
         "desc": "나만의 미니 룸 테마와 세카이 가구를 배치하고 매일 출석체크 추가 크리스탈 이자 획득",
         "params": "유저: [@유저(선택)]",
         "example": "/마이세카이",
@@ -325,7 +328,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎮 출석 & 프로세카 가챠",
         "name": "/의상",
         "perm": "user",
-        "settings_path": "👤 개인 1p > 👗 3D 의상실 & 제작",
+        "settings_path": "🎮 미니게임 1p > 👗 3D 의상실 & 헤어",
         "desc": "캐릭터별 3D 의상 착용, 어나더 컬러 3종 전환(✦MR.2 해금) 및 가챠 의상 제작",
         "params": "캐릭터: [캐릭터이름(선택)]",
         "example": "/의상 캐릭터:호시노 이치카",
@@ -336,7 +339,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎮 출석 & 프로세카 가챠",
         "name": "/덱편성",
         "perm": "user",
-        "settings_path": "👤 개인 1p > 🎸 프로세카 덱·강화·마스터",
+        "settings_path": "👤 개인 2p > 🎴 5인 덱 & 카드강화",
         "desc": "보유 카드 중 최대 5장을 골라 리더와 멤버로 5인 유닛 덱 편성 및 총 종합력 계산",
         "params": "리더: [카드] 멤버2~5: [카드 4장(선택)]",
         "example": "/덱편성 리더:101",
@@ -358,7 +361,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎮 출석 & 프로세카 가챠",
         "name": "/내프로필",
         "perm": "user",
-        "settings_path": "🌐 일반 1p > 🎸 프로세카 프로필",
+        "settings_path": "👤 개인 1p > 🎸 프로세카 내 프로필",
         "desc": "오시 일러스트, 마이세카이, 5인 덱(✦MR), 라이브 기록, 출석 일수, 크리스탈, 가챠 통계 종합 조회",
         "params": "유저: [@유저(선택)]",
         "example": "/내프로필",
@@ -369,7 +372,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎮 출석 & 프로세카 가챠",
         "name": "/가챠랭킹",
         "perm": "user",
-        "settings_path": "🌐 일반 3p > 🏆 통합 랭킹 허브",
+        "settings_path": "🎮 미니게임 4p > 🏆 통합 랭킹 보드 (또는 홈 드롭다운)",
         "desc": "서버 도감 수집률·★4 보유 순위 및 단일 10연차 명예의 전당·최근 ★4 획득 로그 조회",
         "params": "없음",
         "example": "/가챠랭킹",
@@ -380,7 +383,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎮 출석 & 프로세카 가챠",
         "name": "/프로세카확률목록",
         "perm": "user",
-        "settings_path": "🌐 일반 3p > 📖 통합 도감 허브",
+        "settings_path": "🎮 미니게임 4p > 📖 통합 도감 & 확률표 (또는 홈 드롭다운)",
         "desc": "한국 서버 배너별(🌟일반·🎊페스·🎂생일) 상세 확률 및 픽업 카드 명단 조회",
         "params": "배너: [일반/페스/생일(선택)]",
         "example": "/프로세카확률목록",
@@ -415,7 +418,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🌠 원신 (기원·도감·상점)",
         "name": "/원신 기원",
         "perm": "user",
-        "settings_path": "🎮 미니게임 1p > 🌠 원신 기원",
+        "settings_path": "🎮 미니게임 2p > 🌠 원신 10회 기원",
         "desc": "원신 5대 배너(캐릭터①·②/신의주조 무기/성유물 비경/상시) 기원! KST 2시간 시각별 픽업 로테이션·포착된 광휘 지원",
         "params": "배너: [캐릭터①/②/신의주조/성유물비경/상시] 횟수: [10회/1회]",
         "example": "/원신 기원 배너:🏺 성유물 비경 기원 횟수:10회 기원",
@@ -426,7 +429,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🌠 원신 (기원·도감·상점)",
         "name": "/원신 운명의궤도",
         "perm": "user",
-        "settings_path": "🎮 미니게임 1p > 🗡️ 원신 운명의 궤도",
+        "settings_path": "🎮 미니게임 2p > 🌠 원신 배너·무기·성유물",
         "desc": "신의 주조(무기 이벤트 기원) 목표 5성 무기를 지정하여 명정 포인트 1/1 확정 보장 설정",
         "params": "버튼 UI로 픽업 무기 선택/해제",
         "example": "/원신 운명의궤도",
@@ -448,7 +451,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🌠 원신 (기원·도감·상점)",
         "name": "/원신 도감",
         "perm": "user",
-        "settings_path": "🌐 일반 3p > 📖 통합 도감 허브",
+        "settings_path": "🎮 미니게임 4p > 📖 통합 도감 & 확률표 (또는 홈 드롭다운)",
         "desc": "원신 전체 캐릭터·무기·성유물 세트 도감 수집률 및 미보유 목록 열람",
         "params": "탭: [보유/미보유/전체] 분류: [전체/캐릭터/무기/성유물]",
         "example": "/원신 도감",
@@ -459,7 +462,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🌠 원신 (기원·도감·상점)",
         "name": "/원신 상점",
         "perm": "user",
-        "settings_path": "👤 개인 2p > 🛒 원신 페이몬 상점",
+        "settings_path": "🎮 미니게임 2p > 🛒 원신 페이몬 상점",
         "desc": "페이몬의 상점! 스타라이트 월간 ★4 캐릭터·무기 & 스타더스트 인연·영웅의 경험 교환",
         "params": "없음 (드롭다운 교환)",
         "example": "/원신 상점",
@@ -492,7 +495,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🌠 원신 (기원·도감·상점)",
         "name": "/원신 확률",
         "perm": "user",
-        "settings_path": "🌐 일반 3p > 📖 통합 도감 허브",
+        "settings_path": "🎮 미니게임 4p > 📖 통합 도감 & 확률표 (또는 홈 드롭다운)",
         "desc": "현재 시각(KST) 기준 원신 5대 배너 픽업 정보와 천장/포착된 광휘/운명의 궤도 확률표 확인",
         "params": "배너: [캐릭터①/②/무기/성유물/상시]",
         "example": "/원신 확률",
@@ -503,7 +506,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🌠 원신 (기원·도감·상점)",
         "name": "/원신 랭킹",
         "perm": "user",
-        "settings_path": "🌐 일반 3p > 🏆 통합 랭킹 허브",
+        "settings_path": "🎮 미니게임 4p > 🏆 통합 랭킹 보드 (또는 홈 드롭다운)",
         "desc": "서버 원신 수집 랭킹, 10연 명예의 전당(최다 ★5·저스택), 최근 ★5 획득 속보 조회",
         "params": "없음",
         "example": "/원신 랭킹",
@@ -538,7 +541,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🚄 스타레일 (워프·상점·편대)",
         "name": "/스타레일 워프",
         "perm": "user",
-        "settings_path": "🎮 미니게임 1p > 🚄 스타레일 워프",
+        "settings_path": "🎮 미니게임 2p > 🚄 스타레일 10회 워프",
         "desc": "스타레일 5대 배너(캐릭터①·②/광추 75:25/터널유물·장신구/상시) 워프! KST 2시간 시각별 픽업 로테이션 지원",
         "params": "배너: [캐릭터①/②/광추/유물/상시] 횟수: [10회/1회]",
         "example": "/스타레일 워프 배너:🏺 터널 유물 & 차원 장신구 워프 횟수:10회 워프",
@@ -549,7 +552,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🚄 스타레일 (워프·상점·편대)",
         "name": "/스타레일 상시300선택",
         "perm": "user",
-        "settings_path": "🎮 미니게임 1p > ⭐ 스타레일 상시 300선택",
+        "settings_path": "🎮 미니게임 2p > 🚄 스타레일 배너·광추·유물",
         "desc": "뭇별의 워프(상시) 누적 300회 달성 시 상시 5성 캐릭터 7명 중 1명 확정 초대",
         "params": "드롭다운으로 상시 5성 직접 선택",
         "example": "/스타레일 상시300선택",
@@ -571,7 +574,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🚄 스타레일 (워프·상점·편대)",
         "name": "/스타레일 도감",
         "perm": "user",
-        "settings_path": "🌐 일반 3p > 📖 통합 도감 허브",
+        "settings_path": "🎮 미니게임 4p > 📖 통합 도감 & 확률표 (또는 홈 드롭다운)",
         "desc": "스타레일 전체 캐릭터·광추·유물/장신구 세트 아카이브 수집률 및 보유/미보유 확인",
         "params": "탭: [보유/미보유/전체] 분류: [전체/캐릭터/광추/유물]",
         "example": "/스타레일 도감",
@@ -582,7 +585,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🚄 스타레일 (워프·상점·편대)",
         "name": "/스타레일 상점",
         "perm": "user",
-        "settings_path": "👤 개인 2p > 🛒 스타레일 별빛·헤르타 상점",
+        "settings_path": "🎮 미니게임 2p > 🛒 스타레일 상점",
         "desc": "별빛 교환(600별빛 상시 5성 광추·월간 ★4), 헤르타 상점(채권 5성 광추), 불멸의 잔재 티켓 교환",
         "params": "탭 & 드롭다운 교환",
         "example": "/스타레일 상점",
@@ -615,7 +618,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🚄 스타레일 (워프·상점·편대)",
         "name": "/스타레일 확률",
         "perm": "user",
-        "settings_path": "🌐 일반 3p > 📖 통합 도감 허브",
+        "settings_path": "🎮 미니게임 4p > 📖 통합 도감 & 확률표 (또는 홈 드롭다운)",
         "desc": "현재 시각(KST) 기준 스타레일 5대 배너 픽업 정보 및 캐릭터 50/50 · 광추 75/25 확률표 확인",
         "params": "배너: [캐릭터①/②/광추/유물/상시]",
         "example": "/스타레일 확률",
@@ -626,7 +629,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🚄 스타레일 (워프·상점·편대)",
         "name": "/스타레일 랭킹",
         "perm": "user",
-        "settings_path": "🌐 일반 3p > 🏆 통합 랭킹 허브",
+        "settings_path": "🎮 미니게임 4p > 🏆 통합 랭킹 보드 (또는 홈 드롭다운)",
         "desc": "서버 스타레일 수집 랭킹 · 10연 워프 명예의 전당 · 최근 ★5 도약 속보 조회",
         "params": "없음",
         "example": "/스타레일 랭킹",
@@ -661,7 +664,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎣 통합 낚시 (호수·강·바다)",
         "name": "/낚시 출조",
         "perm": "user",
-        "settings_path": "🎮 미니게임 2p > 🎣 낚시 출조 허브",
+        "settings_path": "🎮 미니게임 3p > 🎣 낚시 출조 (3대수역)",
         "desc": "🏞️호수·🌊강·⚓바다 36,700+종 글로벌 어종 DB + 13개 세부 수역 입질 미니게임 & 포획 인증서 카드",
         "params": "장소: [호수/강/바다] 미끼: [떡밥/지렁이/크릴/루어/야광/황금] 빠른모드: [예/아니오]",
         "example": "/낚시 출조 장소:바다 미끼:메탈 지그 루어",
@@ -672,7 +675,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎣 통합 낚시 (호수·강·바다)",
         "name": "/낚시 가방",
         "perm": "user",
-        "settings_path": "👤 개인 3p > 🐟 낚시 가방 & 수족관",
+        "settings_path": "👤 개인 2p > 👜 낚시 가방 & 퀘스트",
         "desc": "잡은 물고기 보관함(길이·무게·가치) 필터 조회, 🔒 잠금 보호, 개별/일괄 판매 및 수족관 이동",
         "params": "장소: [전체/호수/강/바다] 성급: [전체/★1~★5]",
         "example": "/낚시 가방 장소:바다",
@@ -683,7 +686,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎣 통합 낚시 (호수·강·바다)",
         "name": "/낚시 도감",
         "perm": "user",
-        "settings_path": "🌐 일반 3p > 📖 통합 도감 허브",
+        "settings_path": "🎮 미니게임 4p > 📖 통합 도감 & 확률표 (또는 홈 드롭다운)",
         "desc": "호수·강·바다별 어종 수집률(%), 성급·세부 수역 필터, 개인 최고 cm/kg 및 자동완성 검색",
         "params": "탭: [호수/강/바다/미보유] 어종검색: [자동완성 물고기명]",
         "example": "/낚시 도감 어종검색:태평양 참다랑어",
@@ -694,7 +697,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎣 통합 낚시 (호수·강·바다)",
         "name": "/낚시 수족관",
         "perm": "user",
-        "settings_path": "👤 개인 3p > 🐟 낚시 가방 & 수족관",
+        "settings_path": "🎮 미니게임 3p > 🐠 내 프라이빗 수족관",
         "desc": "아끼는 대물을 프라이빗 어항(최대 20칸)에 전시하고 시간당 낚시 골드 수익 수확",
         "params": "유저: [@유저(선택)]",
         "example": "/낚시 수족관",
@@ -705,7 +708,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎣 통합 낚시 (호수·강·바다)",
         "name": "/낚시 상점",
         "perm": "user",
-        "settings_path": "🎮 미니게임 2p > 🛒 낚시 장비 상점",
+        "settings_path": "🎮 미니게임 3p > 🛒 낚시 장비·미끼상점",
         "desc": "낚싯대 6티어(포세이돈 로드), 릴 5티어(크로노스 릴), 특급 미끼, 수족관 슬롯 확장권 구매",
         "params": "분류: [낚싯대/릴/미끼/수족관확장]",
         "example": "/낚시 상점 분류:낚싯대",
@@ -716,7 +719,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎣 통합 낚시 (호수·강·바다)",
         "name": "/낚시 랭킹",
         "perm": "user",
-        "settings_path": "🌐 일반 3p > 🏆 통합 랭킹 허브",
+        "settings_path": "🎮 미니게임 4p > 🏆 통합 랭킹 보드 (또는 홈 드롭다운)",
         "desc": "서버 내 최대 길이(cm) · 최대 무게(kg) · 도감 수집왕 순위표 & 랭커 상세 조회 (`/낚시랭킹` 단축 명령어 지원)",
         "params": "기준: [최대길이/최대무게/도감] 장소: [전체/호수/강/바다]",
         "example": "/낚시 랭킹 기준:최대길이",
@@ -727,7 +730,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎣 통합 낚시 (호수·강·바다)",
         "name": "/낚시 퀘스트",
         "perm": "user",
-        "settings_path": "🎮 미니게임 2p > 📜 일일 낚시 퀘스트",
+        "settings_path": "👤 개인 2p > 👜 낚시 가방 & 퀘스트",
         "desc": "매일 KST 00:00 갱신되는 일일 낚시 의뢰 3종 완료 시 낚시 골드(🪙) + 크리스탈(💎) 보상 수령",
         "params": "없음",
         "example": "/낚시 퀘스트",
@@ -738,7 +741,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎣 통합 낚시 (호수·강·바다)",
         "name": "/낚시 프로필",
         "perm": "user",
-        "settings_path": "👤 개인 3p > 🐟 낚시 가방 & 수족관",
+        "settings_path": "👤 개인 2p > 👜 낚시 가방 & 퀘스트",
         "desc": "낚시꾼 레벨·경험치·장착 장비·골드·크리스탈·수족관·도감 수집률 종합 라이선스 조회",
         "params": "유저: [@멤버(선택)]",
         "example": "/낚시 프로필",
@@ -749,7 +752,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎣 통합 낚시 (호수·강·바다)",
         "name": "/낚시 환경",
         "perm": "user",
-        "settings_path": "🎮 미니게임 2p > 🌦️ 실시간 낚시 환경",
+        "settings_path": "👤 개인 2p > 👜 낚시 가방 & 퀘스트",
         "desc": "현재 KST 낮/밤·피딩타임·2시간 주기 날씨(맑음/비/폭풍우/안개) 및 추천 대물 예보",
         "params": "없음",
         "example": "/낚시 환경",
@@ -760,7 +763,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎣 통합 낚시 (호수·강·바다)",
         "name": "/낚시 대회",
         "perm": "user",
-        "settings_path": "🎮 미니게임 2p > 🏆 주말·제철 낚시대회",
+        "settings_path": "🎮 미니게임 3p > 🏆 주말·제철 낚시대회",
         "desc": "주말 낚시 대회 & 계절 한정 어종(+25%🪙·1.5배 점수) 토너먼트 실시간 순위표 조회 및 개최·정산 (`/낚시대회` 지원)",
         "params": "동작: [현황/개최/정산(선택)] 종목: [최장어/총중량/제철포인트(선택)]",
         "example": "/낚시 대회",
@@ -773,7 +776,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "💳 통합 경제 & 프로필카드",
         "name": "/프로필카드",
         "perm": "user",
-        "settings_path": "🌐 일반 1p > 🪪 통합 프로필카드",
+        "settings_path": "👤 개인 1p > 🪪 통합 PNG 프로필카드",
         "desc": "프로세카·원신·스타레일·낚시·생활·칭호·배지를 한 장에 담은 고화질 PNG 통합 프로필 카드 발급 (`/경제 프로필카드` 지원)",
         "params": "유저: [@멤버(선택)]",
         "example": "/프로필카드",
@@ -784,7 +787,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "💳 통합 경제 & 프로필카드",
         "name": "/경제 송금",
         "perm": "user",
-        "settings_path": "👤 개인 2p > 💸 크리스탈 송금",
+        "settings_path": "👤 개인 1p > 💸 크리스탈 송금",
         "desc": "다른 서버 멤버에게 크리스탈(💎)을 안전하게 송금합니다 (5% 세금 차감 · 일일 최대 5,000💎 한도)",
         "params": "받는유저: [@멤버] 금액: [10~5000💎] 메모: [선택]",
         "example": "/경제 송금 받는유저:@친구 금액:500",
@@ -795,7 +798,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "💳 통합 경제 & 프로필카드",
         "name": "/경제 칭호",
         "perm": "user",
-        "settings_path": "👤 개인 2p > 🏷️ 칭호 상점 & 업적 배지",
+        "settings_path": "👤 개인 1p > 🏷️ 칭호 상점 & 배지",
         "desc": "크리스탈·낚시골드로 특별 칭호를 구매·장착하고, 자동 해금된 업적 배지 쇼케이스를 관리합니다",
         "params": "없음 (상점 & 장착 뷰 오픈)",
         "example": "/경제 칭호",
@@ -806,7 +809,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "💳 통합 경제 & 프로필카드",
         "name": "/경제 랭킹",
         "perm": "user",
-        "settings_path": "🌐 일반 3p > 🏆 통합 랭킹 허브",
+        "settings_path": "🎮 미니게임 4p > 🏆 통합 랭킹 보드 (또는 홈 드롭다운)",
         "desc": "서버 크리스탈 · 낚시 골드 · 통합 순자산(Net Worth) 부자 랭킹을 확인합니다",
         "params": "없음",
         "example": "/경제 랭킹",
@@ -898,7 +901,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "👶 타인의 삶 (인생 시뮬레이션)",
         "name": "/인생 랭킹",
         "perm": "user",
-        "settings_path": "🌐 일반 3p > 🏆 통합 랭킹 허브",
+        "settings_path": "🎮 미니게임 4p > 🏆 통합 랭킹 보드 (또는 홈 드롭다운)",
         "desc": "서버 유저들의 타인의 삶 엔딩 수집률 · 최고 인생 점수 명예의 전당을 확인합니다",
         "params": "없음",
         "example": "/인생 랭킹",
@@ -944,7 +947,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎫 티켓 & 임시음성방 & 보안",
         "name": "/임시음성방",
         "perm": "user",
-        "settings_path": "🌐 일반 2p > 🔊 내 임시음성방 리모컨 / ⚙️ 고급 1p > 생성기 설정",
+        "settings_path": "🌐 일반 2p > ⏩ 배속·헤드셋·음성방 / ⚙️ 고급 2p > 🔊 임시음성방 설정",
         "desc": "입장 시 개인 음성방이 자동 생성되고 전원 퇴장 시 삭제되는 Join-to-Create 생성기 설정(관리자) 및 방장 리모컨(이름/정원/잠금/숨김/방장인계)",
         "params": "메뉴: [리모컨호출(일반)/관리자설정(관리자)]",
         "example": "/임시음성방",
@@ -988,7 +991,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎫 티켓 & 임시음성방 & 보안",
         "name": "/릴레이소설 시작",
         "perm": "user",
-        "settings_path": "🎮 미니게임 4p > ✍️ 릴레이 소설 공방",
+        "settings_path": "🌐 일반 3p > ✍️ 협동 릴레이소설",
         "desc": "채널 멤버들이 한 줄씩 이어 쓰는 협동 릴레이 소설 개설 (블라인드/전체공개 모드 지원, `/릴레이소설 현황/목록/중단` 지원)",
         "params": "제목: [제목] 첫문장: [첫 줄] 목표턴: [3~30턴] 공개모드: [블라인드/전체공개]",
         "example": "/릴레이소설 시작 제목:세카이의 밤 첫문장:자정이 되자 휴대폰 화면이 빛났다.",
@@ -1113,7 +1116,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎲 미니게임 & 파티 모집",
         "name": "/모집",
         "perm": "user",
-        "settings_path": "🌐 일반 2p > 🤝 파티원 모집 생성",
+        "settings_path": "🌐 일반 3p > 🤝 게임 파티모집",
         "desc": "프로세카 협력 라이브, 롤, 발로란트, 스팀 등 모든 게임 파티원 실시간 모집 (팝업 모달 지원, 풀방 시 전원 자동 멘션)",
         "params": "옵션 없이 실행 시 모달 팝업, 또는 게임/인원수/목표/방번호 지정",
         "example": "/모집",
@@ -1146,7 +1149,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "🎲 미니게임 & 파티 모집",
         "name": "/날씨",
         "perm": "user",
-        "settings_path": "🌐 일반 2p > 🌤️ 실시간 전국 날씨",
+        "settings_path": "🌐 일반 3p > 🌤️ 실시간 날씨",
         "desc": "기상청(KMA)/ECMWF 실시간 관측 기온, 체감온도, 미세먼지(PM10/PM2.5), 강수확률 및 우산 가이드",
         "params": "지역: [도시/시/군/구 이름]",
         "example": "/날씨 지역:서울",
@@ -1170,7 +1173,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "📊 서버/유저 통계 & 건의",
         "name": "/유저정보",
         "perm": "user",
-        "settings_path": "🌐 일반 2p > 🔍 멤버 상세 정보",
+        "settings_path": "👤 개인 1p > 📊 내 디스코드 정보",
         "desc": "멤버의 디스코드 가입일, 서버 입장 순번(#N번째), 보유 역할, 출석/크리스탈/채팅량 상세 분석",
         "params": "유저: [@멤버(선택)]",
         "example": "/유저정보",
@@ -1181,7 +1184,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "📊 서버/유저 통계 & 건의",
         "name": "/서버통계",
         "perm": "user",
-        "settings_path": "🌐 일반 2p > 📊 서버 종합 통계",
+        "settings_path": "🌐 일반 3p > 📊 실시간 서버통계",
         "desc": "서버의 일일/주간 채팅량, Top3 활성 채널, 실시간 음성 통화 인원, 출석률 및 시간대별 분포",
         "params": "기간: [일간/주간] 상세보기: [요약/상세]",
         "example": "/서버통계",
@@ -1203,7 +1206,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "📊 서버/유저 통계 & 건의",
         "name": "/후원",
         "perm": "user",
-        "settings_path": "🏠 홈 빠른 실행 > 💖 팀 봉화 후원하기 (또는 `/후원` · `!후원`)",
+        "settings_path": "🏠 홈 빠른 실행 > 💖 팀 봉화 후원하기 (또는 /후원 · !후원)",
         "desc": "팀 봉화 (소유주 : 아시) GitHub Sponsors 후원 안내 — 봇 운영에 도움이 됩니다",
         "params": "없음",
         "example": "/후원",
@@ -1376,22 +1379,44 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "example": "!이벤트 또는 /설정 ➔ 🌐 일반 3p",
         "source": "cogs/community.py",
     },
+    {
+        "category": "admin",
+        "cat_label": "⚙️ 통합 설정 & 서버 관리",
+        "name": "통합 기능 검색",
+        "perm": "user",
+        "settings_path": "🏠 홈 빠른 실행 > 🔍 통합 기능 검색 (키워드 점프)",
+        "desc": "키워드 입력 한 번으로 /설정 내 130+ 기능 중 일치 항목을 찾아 버튼으로 즉시 실행",
+        "params": "키워드: [디데이/낚시/라디오/티켓 등]",
+        "example": "/설정 홈 드롭다운 > 🔍 통합 기능 검색",
+        "source": "cogs/dashboard.py",
+    },
+    {
+        "category": "economy",
+        "cat_label": "💳 통합 경제 & 프로필카드 & 칭호",
+        "name": "내 업적 & 뱃지",
+        "perm": "user",
+        "settings_path": "🏠 홈 빠른 실행 > 🏅 내 업적 & 뱃지 (또는 👤 개인 4p > 쇼케이스)",
+        "desc": "출석·가챠·낚시·농장·인생·경제 등 12종 크로스 기능 업적 달성 현황 및 자동 해금 배지 확인",
+        "params": "없음",
+        "example": "/설정 홈 드롭다운 > 🏅 내 업적 & 뱃지",
+        "source": "cogs/dashboard.py",
+    },
 ]
 
 CATEGORY_META = [
-    ("admin", "⚙️ 통합 설정(/설정) & 서버 관리", "`/설정` (일반·고급·미니게임·개인 통합 허브 · 홈 즐겨찾기 단축바), 감사로그, 공지발송, 반응역할, 이모지업스케일, 백업"),
-    ("cards", "🎮 출석 & 프로세카 가챠", "`/출석체크`, `/프로세카뽑기`, `/마스터랭크`, `/라이브`, `/마이세카이`, `/의상`, `/덱편성`"),
-    ("genshin", "🌠 원신 기원 & 도감 & 상점", "`/원신 기원`, `/원신 운명의궤도`, `/원신 보관함`, `/원신 상점`, `/원신 파티편성`"),
-    ("hsr", "🚄 스타레일 워프 & 아카이브 & 상점", "`/스타레일 워프`, `/스타레일 상시300선택`, `/스타레일 보관함`, `/스타레일 상점`, `/스타레일 파티편성`"),
-    ("fishing", "🎣 통합 낚시 & 주말·제철 대회", "`/낚시 출조`, `/낚시 대회`, `/낚시 가방`, `/낚시 수족관`, `/낚시 상점`, `/낚시 퀘스트`"),
-    ("economy", "💳 통합 경제 & 프로필카드 & 칭호", "`/프로필카드`, `/경제 송금`, `/경제 칭호`, `/경제 랭킹`, `/환전소`, `/쇼케이스`"),
-    ("life", "🌾 생활 — 농장 · 공동농장 · 펫 · 요리", "`/생활 대시보드`, `/생활 농장`, `/생활 공동농장`, `/생활 펫`, `/생활 요리`, `/일일루틴`, `/주간미션`"),
-    ("other_life", "👶 타인의 삶 — 1,000엔딩 인생 RPG", "`/인생 플레이`, `/인생 도감`, `/인생 랭킹`, `/즉석미니대전`"),
-    ("tickets", "🎫 1:1 티켓 & 임시음성방 & 보안·릴레이", "`/티켓 설정`, `/티켓 패널생성`, `/임시음성방`, `/고정메시지 설정`, `/링크보정 설정`, `/비상모드 설정`"),
-    ("dday", "📅 D-Day & 생일 & 스터디·목표", "`/디데이목록`, `/생일등록`, `/파트너`, `/비밀디데이`, `/오늘목표`, `/집중모드`, `/하드코어스터디`"),
-    ("games", "🎲 미니게임 & 파티·예약이벤트 & 유틸", "`/모집`, `!이벤트`(RSVP), `/끝말잇기`, `/러시안룰렛`, `/날씨`, `/알림예약`"),
-    ("stats", "📊 서버/유저 통계 & 건의 & 후원 & 봇상태", "`/유저정보`, `/서버통계`, `/건의`, `/후원`, `/봇상태`"),
-    ("music", "🎵 음악 & 플레이리스트 & 무드라디오", "`/플레이리스트`, `!라디오`(무드 음성 라디오), `/플리재생`, `/음악지금추천`, `/음악추천설정`"),
+    ("admin", "⚙️ 통합 설정 & 서버 관리", "`/설정`, 기능검색, 즐겨찾기, 감사로그, 공지, 반응역할, 업스케일, 백업"),
+    ("cards", "🎮 출석 & 프로세카 가챠", "출석체크, 프로세카뽑기, 마스터랭크, 라이브, 마이세카이, 의상, 덱편성"),
+    ("genshin", "🌠 원신 기원 & 도감 & 상점", "원신 기원, 운명의궤도, 보관함, 상점, 파티편성"),
+    ("hsr", "🚄 스타레일 워프 & 편대 & 상점", "스타레일 워프, 상시300선택, 보관함, 상점, 파티편성"),
+    ("fishing", "🎣 통합 낚시 & 주말·제철 대회", "낚시 출조(3.6만종), 대회, 가방, 수족관, 상점, 퀘스트"),
+    ("economy", "💳 통합 경제 & 프로필 & 업적", "PNG 프로필카드, 송금, 칭호, 랭킹, 환전소, 쇼케이스, 12종 업적"),
+    ("life", "🌾 생활 (농장·펫·요리·루틴)", "생활 대시보드, 개인/공동농장, 펫, 요리, 일일루틴, 주간미션"),
+    ("other_life", "👶 타인의 삶 (1,000엔딩 RPG)", "인생 플레이, 엔딩 도감, 랭킹, 즉석미니대전"),
+    ("tickets", "🎫 1:1 티켓 & 음성방 & 보안", "1:1 티켓, 임시음성방, 자동고정글, SNS 링크보정, 레이드 방어"),
+    ("dday", "📅 D-Day & 생일 & 스터디", "D-Day 채널·전광판·9시알림, 생일, 파트너, 비밀디데이, 목표·집중"),
+    ("games", "🎲 미니게임 & 파티·예약이벤트", "파티모집, `!이벤트`(RSVP), 끝말잇기, 러시안룰렛, 날씨, 알림예약"),
+    ("stats", "📊 통계 & 건의 & 후원 & 봇상태", "유저정보, 서버통계(유저/봇 구분), 건의, `/후원`, 봇상태 진단"),
+    ("music", "🎵 음악 & 플리 & 무드라디오", "플레이리스트, `!라디오`, 음성재생, 모닝음악, 맞춤 음악알람"),
 ]
 
 CATEGORY_DROPDOWN_OPTIONS = [
@@ -1465,13 +1490,12 @@ def build_help_embed(
             "👇 아래 **카테고리 드롭다운** · **권한 필터** · **`🔍 검색`** 으로 바로 찾아보세요!",
         ]
         embed = discord.Embed(
-            title="📖 norosi 통합 도움말 & `/설정` 가이드",
+            title="📖 norosi 통합 도움말 & /설정 가이드",
             description="\n".join(desc_lines),
             color=discord.Color.from_rgb(88, 101, 242),
             timestamp=datetime.datetime.now(core.KST),
         )
 
-        # 2열 인라인 카드로 스크롤 부담을 절반으로 줄여 한눈에 탐색 가능하게 구성
         for cat_key, cat_title, cat_summary in CATEGORY_META:
             cat_items = [c for c in COMMAND_CATALOG if c["category"] == cat_key]
             u_c = sum(1 for c in cat_items if c.get("perm") == "user")
@@ -1488,12 +1512,12 @@ def build_help_embed(
 
             embed.add_field(
                 name=f"{cat_title} ({len(cat_items)})",
-                value=f"{badge_str}\n{cat_summary[:90]}",
-                inline=True,
+                value=f"{badge_str} — {cat_summary}",
+                inline=False,
             )
 
         embed.set_footer(
-            text=f"총 {total_cmds}종 기능 수록  ·  [⚙️ /설정 열기]로 모든 기능 즉시 실행"
+            text=f"총 {total_cmds}종 기능 수록  ·  [⚙️ /설정]으로 모든 기능 즉시 실행"
         )
         return embed
 
@@ -1511,10 +1535,10 @@ def build_help_embed(
             color=discord.Color.orange(),
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_footer(text="norosi Help  ·  [🏠 전체 요약]으로 돌아가기")
+        embed.set_footer(text="norosi Help  ·  [🏠 요약]으로 돌아가기")
         return embed
 
-    per_page = 5
+    per_page = HELP_PER_PAGE
     total_pages = max(1, math.ceil(len(filtered) / per_page))
 
     is_all_unfiltered = (category == "all" and not search_kw.strip() and perm_filter == "all" and page > 0)
@@ -1526,10 +1550,11 @@ def build_help_embed(
 
     cat_header = "🌟 전체 기능 상세" if category == "all" else page_items[0]["cat_label"]
     perm_header = "전체" if perm_filter == "all" else PERM_BADGE_MAP.get(perm_filter, "전체")
+    kw_tag = f"  ·  🔍 `{search_kw.strip()}`" if search_kw.strip() else ""
     display_curr_page = eff_page + 1
 
     desc_lines = [
-        f"📂 **{cat_header}**  ·  🔐 **{perm_header}**  ·  📄 **`{display_curr_page}/{total_pages}p`** *(총 {len(filtered)}종)*",
+        f"📂 **{cat_header}**  ·  🔐 **{perm_header}**{kw_tag}  ·  📄 **`{display_curr_page}/{total_pages}p`** *(총 {len(filtered)}종)*",
         header_links,
     ]
 
@@ -1543,20 +1568,48 @@ def build_help_embed(
     for item in page_items:
         perm_key = item.get("perm", "user")
         perm_tag = "" if perm_key == "user" else f" `{PERM_SHORT_BADGE.get(perm_key, '').strip('[]')}`"
-        settings_loc = item.get("settings_path") or "⚙️ /설정 허브"
+        settings_loc = str(item.get("settings_path") or "⚙️ /설정 허브").replace("`", "")
         cmd_label = item["name"] if item["name"] in ("/설정", "/도움말", "/후원") else item["name"].lstrip("/")
-        params_str = str(item.get("params") or "").strip()
+        desc_clean = re.sub(r"^\[(?:서버\s*관리자|봇\s*주인(?:\s*전용)?)\]\s*", "", str(item.get("desc") or "")).strip()
+        params_str = str(item.get("params") or "").strip().replace("`", "")
         param_line = f"\n　• 옵션: `{params_str}`" if params_str and params_str != "없음" else ""
         embed.add_field(
             name=f"🔹 {cmd_label}{perm_tag}",
-            value=f"{item['desc']}\n　└ 📍 **`{settings_loc}`**{param_line}",
+            value=f"{desc_clean}\n　└ 📍 **`{settings_loc}`**{param_line}",
             inline=False,
         )
 
     embed.set_footer(
-        text=f"{display_curr_page}/{total_pages}p (총 {len(filtered)}개)  ·  🏠 전체 요약  ·  ⚙️ /설정 열기"
+        text=f"{display_curr_page}/{total_pages}p (총 {len(filtered)}개)  ·  🏠 요약  ·  ⚙️ /설정"
     )
     return embed
+
+
+class HelpSearchModal(discord.ui.Modal, title="🔍 도움말 키워드 검색"):
+    keyword = discord.ui.TextInput(
+        label="검색어 입력 (기능 이름·설명·경로)",
+        placeholder="예: 디데이, 전광판, 라디오, 낚시, 티켓, 업적, 후원",
+        required=False,
+        max_length=40,
+    )
+
+    def __init__(self, parent_view: "HelpCategoryView"):
+        super().__init__()
+        self.parent_view = parent_view
+        if parent_view.search_kw:
+            self.keyword.default = parent_view.search_kw[:40]
+
+    async def on_submit(self, interaction: discord.Interaction):
+        self.parent_view.search_kw = (self.keyword.value or "").strip()
+        self.parent_view.page = 0
+        self.parent_view.update_buttons()
+        embed = build_help_embed(
+            self.parent_view.category,
+            self.parent_view.search_kw,
+            self.parent_view.page,
+            self.parent_view.perm_filter,
+        )
+        await core.safe_edit_response(interaction, embed=embed, view=self.parent_view)
 
 
 class HelpCategorySelect(discord.ui.Select):
@@ -1605,7 +1658,7 @@ class HelpCategorySelect(discord.ui.Select):
 
 
 class HelpCategoryView(core.SafeView):
-    """페이지네이션(◀/▶), 권한별 필터(일반/관리자/봇주인), 통합 설정(/설정) 바로가기를 지원하는 도움말 뷰"""
+    """페이지네이션(◀/▶), 권한별 필터(일반/관리자/봇주인), 키워드 검색, 통합 설정(/설정) 바로가기를 지원하는 도움말 뷰"""
     def __init__(
         self,
         bot_instance=None,
@@ -1644,12 +1697,12 @@ class HelpCategoryView(core.SafeView):
 
     def _total_pages(self) -> int:
         filtered = self._get_filtered()
-        return max(1, math.ceil(len(filtered) / 4))
+        return max(1, math.ceil(len(filtered) / HELP_PER_PAGE))
 
     def _max_page(self) -> int:
         if self.category == "all" and not self.search_kw.strip() and self.perm_filter == "all":
-            return math.ceil(len(COMMAND_CATALOG) / 4)
-        return max(0, math.ceil(len(self._get_filtered()) / 4) - 1)
+            return math.ceil(len(COMMAND_CATALOG) / HELP_PER_PAGE)
+        return max(0, math.ceil(len(self._get_filtered()) / HELP_PER_PAGE) - 1)
 
     def update_buttons(self):
         max_p = self._max_page()
@@ -1661,6 +1714,7 @@ class HelpCategoryView(core.SafeView):
         self.perm_user_btn.style = discord.ButtonStyle.primary if self.perm_filter == "user" else discord.ButtonStyle.secondary
         self.perm_admin_btn.style = discord.ButtonStyle.primary if self.perm_filter == "admin" else discord.ButtonStyle.secondary
         self.perm_owner_btn.style = discord.ButtonStyle.primary if self.perm_filter == "owner" else discord.ButtonStyle.secondary
+        self.search_btn.style = discord.ButtonStyle.primary if self.search_kw.strip() else discord.ButtonStyle.secondary
 
         if is_all_home_capable:
             if self.page == 0:
@@ -1695,11 +1749,11 @@ class HelpCategoryView(core.SafeView):
         embed = build_help_embed(self.category, self.search_kw, self.page, self.perm_filter)
         await core.safe_edit_response(interaction, embed=embed, view=self)
 
-    # Row 1: 권한 등급별 원클릭 필터 (일반 이용자 / 서버 관리자 / 봇 주인 명확 구분)
+    # Row 1: 권한 등급별 원클릭 필터 + 키워드 검색 모달
     @discord.ui.button(label="👥 전체", style=discord.ButtonStyle.primary, row=1)
     async def perm_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.perm_filter = "all"
-        self.page = 0 if self.category != "all" else 1
+        self.page = 0 if (self.category != "all" or self.search_kw.strip()) else 1
         self.update_buttons()
         embed = build_help_embed(self.category, self.search_kw, self.page, self.perm_filter)
         await core.safe_edit_response(interaction, embed=embed, view=self)
@@ -1727,6 +1781,10 @@ class HelpCategoryView(core.SafeView):
         self.update_buttons()
         embed = build_help_embed(self.category, self.search_kw, self.page, self.perm_filter)
         await core.safe_edit_response(interaction, embed=embed, view=self)
+
+    @discord.ui.button(label="🔍 검색", style=discord.ButtonStyle.secondary, row=1)
+    async def search_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(HelpSearchModal(self))
 
     # Row 2: 페이지네이션 & 통합 설정(/설정) 바로가기
     @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary, row=2)
