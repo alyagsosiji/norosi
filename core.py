@@ -6073,6 +6073,92 @@ def get_galaxy_progress_bar(start_str, target_str):
     return f"{info['grass_bar']} **{info['percent']}%** ({info['badge']})"
 
 
+def dday_belongs_to_guild(info: dict, guild: Any) -> bool:
+    """해당 D-Day 항목이 지정된 서버(guild)에 속하는지 판별합니다."""
+    if not isinstance(info, dict):
+        return False
+    if guild is None:
+        return True
+    gid = getattr(guild, "id", guild)
+    d_guild_id = info.get("guild_id")
+    if d_guild_id is not None and str(d_guild_id).isdigit():
+        return int(d_guild_id) == int(gid)
+    # 레거시(guild_id 미기록) 항목은 연결된 채널이 현재 서버에 존재할 때만 해당 서버 소속으로 인정
+    ch_id = info.get("channel_id")
+    if ch_id is not None and str(ch_id).isdigit() and hasattr(guild, "get_channel"):
+        return guild.get_channel(int(ch_id)) is not None
+    return False
+
+
+def filter_guild_ddays(ddays: dict, guild: Any) -> dict:
+    """전체 D-Day 맵에서 현재 서버(guild) 소속 항목만 필터링합니다."""
+    return {
+        k: v
+        for k, v in as_dict(ddays).items()
+        if isinstance(v, dict) and dday_belongs_to_guild(v, guild)
+    }
+
+
+def get_dday_display_name(key: str, info: dict) -> str:
+    """충돌 방지 내부 키(name#guild_id)가 사용된 경우에도 사용자에게는 깔끔한 표시 이름을 반환합니다."""
+    if isinstance(info, dict):
+        dn = str(info.get("display_name") or "").strip()
+        if dn:
+            return dn
+    return str(key)
+
+
+def resolve_dday_storage_key(ddays: dict, name: str, guild_id: int | None) -> str:
+    """
+    서로 다른 서버에서 동일한 D-Day 이름을 등록해도 기존 서버 일정을 덮어쓰지 않도록
+    충돌 시 서버 전용 내부 키(name#guild_id)를 반환합니다.
+    """
+    d_map = as_dict(ddays)
+    if not guild_id:
+        return name
+    # 이미 이 서버에 같은 display_name으로 등록된 충돌 키가 있으면 재사용(업데이트)
+    scoped_key = f"{name}#{int(guild_id)}"
+    if scoped_key in d_map:
+        return scoped_key
+    existing = d_map.get(name)
+    if not isinstance(existing, dict):
+        return name
+    ex_gid = existing.get("guild_id")
+    if ex_gid is None or (str(ex_gid).isdigit() and int(ex_gid) == int(guild_id)):
+        return name
+    return scoped_key
+
+
+def get_guild_setting(data: dict, guild_id: int | None, key: str, fallback_global: bool = True):
+    """서버별 설정(guild_settings[guild_id][key])을 우선 조회하고, 미설정 시 전역 settings[key]로 안전 폴백합니다."""
+    if guild_id:
+        gs = safe_get_dict(data, "guild_settings", str(guild_id))
+        if key in gs and gs[key] is not None:
+            return gs[key]
+    if fallback_global:
+        return as_dict(data.get("settings")).get(key)
+    return None
+
+
+def set_guild_setting(data: dict, guild_id: int | None, key: str, value: Any) -> None:
+    """서버별 설정(guild_settings[guild_id][key])에 저장합니다 (guild_id 없을 때만 전역 settings 저장)."""
+    if guild_id:
+        gs = ensure_dict_path(data, "guild_settings", str(guild_id))
+        gs[key] = value
+    else:
+        s_map = ensure_dict_path(data, "settings")
+        s_map[key] = value
+
+
+def get_guild_music_prefs(data: dict, guild_id: int | None) -> dict:
+    """서버별 음악 추천 취향(guild_music_prefs[guild_id])을 우선 반환하고 없으면 전역 music_prefs로 폴백합니다."""
+    if guild_id:
+        gp = safe_get_dict(data, "guild_music_prefs", str(guild_id))
+        if gp:
+            return gp
+    return as_dict(data.get("music_prefs")) or copy.deepcopy(DEFAULT_CONFIG["music_prefs"])
+
+
 def build_dday_grass_board_summary(ddays_dict: dict):
     """
     등록된 모든 D-Day 일정을 '은하수 잔디 막대 그래프' 비교 보드 형태로 생성합니다.
@@ -6107,7 +6193,8 @@ def build_dday_grass_board_summary(ddays_dict: dict):
             counts["past"] += 1
 
         items.append({
-            "name": name,
+            "name": get_dday_display_name(name, info),
+            "storage_key": name,
             "date": date_str,
             "start_date": start_str,
             "emoji": info.get("emoji", "🌠"),

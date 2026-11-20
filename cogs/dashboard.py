@@ -3873,7 +3873,7 @@ class MasterDashboardView(core.SafeView):
         sekai_cards = len(core.safe_get_dict(self.data, "gacha_users", g_key, u_key, "cards"))
         gi_items = len(core.as_dict(core.safe_get_dict(self.data, "genshin_users", g_key, u_key).get("items")))
         hsr_items = len(core.as_dict(core.safe_get_dict(self.data, "hsr_users", g_key, u_key).get("items")))
-        dday_cnt = len(core.as_dict(self.data.get("ddays")))
+        dday_cnt = len(core.filter_guild_ddays(self.data.get("ddays"), self.guild))
 
         flat_total = len(self._get_flat_pages())
 
@@ -3929,7 +3929,7 @@ class MasterDashboardView(core.SafeView):
 
         if category == "general":
             if page == 0:
-                dday_cnt = len(core.as_dict(self.data.get("ddays")))
+                dday_cnt = len(core.filter_guild_ddays(self.data.get("ddays"), self.guild))
                 bday_cnt = len(core.as_dict(self.data.get("birthdays")))
                 return f"📌 **현황:** 등록된 D-Day `{dday_cnt}개`  ·  등록된 생일 멤버 `{bday_cnt}명`"
             if page == 1:
@@ -4119,8 +4119,9 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
-            view = dday.DDayListBoardView(self.bot or interaction.client, interaction.user, data)
-            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view = dday.DDayListBoardView(self.bot or interaction.client, interaction.user, data, guild=interaction.guild)
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ D-Day 전광판 조회 중 오류: {e}", ephemeral=True)
 
@@ -4202,7 +4203,7 @@ class MasterDashboardView(core.SafeView):
         try:
             await core.safe_defer(interaction)
             data = await asyncio.to_thread(core.load_data)
-            prefs = core.as_dict(data.get("music_prefs")) or core.DEFAULT_CONFIG["music_prefs"]
+            prefs = core.get_guild_music_prefs(data, interaction.guild_id)
             track_info, err = await core.get_recommended_music(prefs)
             if err or not track_info:
                 await interaction.followup.send(f"❌ **음악 선곡 실패:** {err or '추천 곡을 찾을 수 없습니다.'}", ephemeral=True)
@@ -4615,8 +4616,7 @@ class MasterDashboardView(core.SafeView):
         def _save_ch():
             with core._DATA_LOCK:
                 data = core.load_data()
-                settings = core.ensure_dict_path(data, "settings")
-                settings["dday_alert_channel_id"] = interaction.channel.id
+                core.set_guild_setting(data, interaction.guild_id, "dday_alert_channel_id", interaction.channel.id)
                 core.save_data(data)
 
         await asyncio.to_thread(_save_ch)
@@ -4641,8 +4641,15 @@ class MasterDashboardView(core.SafeView):
         def _save_m():
             with core._DATA_LOCK:
                 data = core.load_data()
-                prefs = core.ensure_dict_path(data, "music_prefs")
-                prefs["channel_id"] = interaction.channel.id
+                if interaction.guild_id:
+                    g_prefs_map = core.ensure_dict_path(data, "guild_music_prefs")
+                    g_key = str(interaction.guild_id)
+                    base_p = core.as_dict(g_prefs_map.get(g_key)) or copy.deepcopy(core.get_guild_music_prefs(data, interaction.guild_id))
+                    base_p["channel_id"] = interaction.channel.id
+                    g_prefs_map[g_key] = base_p
+                else:
+                    prefs = core.ensure_dict_path(data, "music_prefs")
+                    prefs["channel_id"] = interaction.channel.id
                 core.save_data(data)
 
         await asyncio.to_thread(_save_m)
@@ -4656,7 +4663,7 @@ class MasterDashboardView(core.SafeView):
             return
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
-        schedules = data.get("custom_music_schedules") if isinstance(data.get("custom_music_schedules"), list) else []
+        schedules = data.get("music_schedules") if isinstance(data.get("music_schedules"), list) else []
         view = music.MusicScheduleHubView(schedules, interaction.channel, guild=interaction.guild)
         await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
 
@@ -5661,8 +5668,7 @@ class MasterDashboardView(core.SafeView):
         def _save_default_cat():
             with core._DATA_LOCK:
                 data = core.load_data()
-                settings_map = core.ensure_dict_path(data, "settings")
-                settings_map["default_category_id"] = cat.id
+                core.set_guild_setting(data, interaction.guild_id, "default_category_id", cat.id)
                 core.save_data(data)
         await asyncio.to_thread(_save_default_cat)
         await interaction.followup.send(

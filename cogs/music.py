@@ -72,7 +72,7 @@ class MusicRecommendView(core.SafeView):
     @discord.ui.button(label="🔄 다른 곡 추천", style=discord.ButtonStyle.secondary, row=0)
     async def shuffle_music(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
-        latest_prefs = (await asyncio.to_thread(core.load_data)).get("music_prefs", self.prefs)
+        latest_prefs = core.get_guild_music_prefs(await asyncio.to_thread(core.load_data), interaction.guild_id) or self.prefs
         track_info, error = await core.get_recommended_music(latest_prefs)
         if error or not track_info:
             await interaction.followup.send(f"❌ **다른 곡 추천 실패:** {error}", ephemeral=True)

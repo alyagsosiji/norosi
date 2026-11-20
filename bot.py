@@ -1275,20 +1275,24 @@ class NorosiBot(commands.Bot):
 
             emoji = info.get("emoji", "🌠")
             plus_one_val = bool(info.get("plus_one", False))
-            new_name = core.format_dday_channel_name(name, info["date"], emoji, plus_one=plus_one_val)
+            display_name = core.get_dday_display_name(name, info)
+            new_name = core.format_dday_channel_name(display_name, info["date"], emoji, plus_one=plus_one_val)
             if getattr(channel, "name", None) != new_name:
                 try:
                     await channel.edit(name=new_name)
                 except discord.Forbidden:
-                    if alert_channel:
+                    ch_guild_id = getattr(getattr(channel, "guild", None), "id", None) or info.get("guild_id")
+                    guild_alert_id = core.get_guild_setting(data, ch_guild_id, "dday_alert_channel_id")
+                    target_alert = await self.resolve_channel(guild_alert_id) if guild_alert_id else alert_channel
+                    if target_alert:
                         try:
-                            await alert_channel.send(
+                            await target_alert.send(
                                 f"🚨 **권한 오류:** 봇에게 `{channel.name}` 채널의 **'채널 관리'** 권한이 없습니다."
                             )
                         except Exception:
                             pass
                 except Exception as e:
-                    print(f"전광판 업데이트 오류 ({name}): {e}", flush=True)
+                    print(f"전광판 업데이트 오류 ({display_name}): {e}", flush=True)
 
     def build_music_embed_and_view(self, track_info: dict, prefs: dict, is_morning: bool = False, custom_title: Optional[str] = None):
         """추천 음악 임베드 및 MusicRecommendView를 생성하는 헬퍼 메서드 (누락되었던 함수 선언부 복원)"""
@@ -1446,27 +1450,42 @@ class NorosiBot(commands.Bot):
     @tasks.loop(time=datetime.time(hour=7, minute=0, tzinfo=core.KST))
     async def morning_music_alert(self):
         data = await asyncio.to_thread(core.load_data)
-        prefs = core.as_dict(data.get("music_prefs")) or core.DEFAULT_CONFIG["music_prefs"]
-        target_ch_id = prefs.get("channel_id") or core.as_dict(data.get("settings")).get("dday_alert_channel_id")
-        if not target_ch_id:
-            return
+        targets: list[tuple[int, dict]] = []
+        seen_ch_ids: set[int] = set()
 
-        channel = await self.resolve_channel(target_ch_id)
-        if not channel:
-            return
+        guild_prefs_map = core.as_dict(data.get("guild_music_prefs"))
+        for g_key, g_prefs in guild_prefs_map.items():
+            if not isinstance(g_prefs, dict):
+                continue
+            gid_int = int(g_key) if str(g_key).isdigit() else None
+            ch_id = g_prefs.get("channel_id") or core.get_guild_setting(data, gid_int, "dday_alert_channel_id", fallback_global=False)
+            if ch_id and int(ch_id) not in seen_ch_ids:
+                seen_ch_ids.add(int(ch_id))
+                targets.append((int(ch_id), g_prefs))
 
-        track_info, error = await core.get_recommended_music(prefs)
-        if error or not track_info:
+        # 레거시 단일 전역 music_prefs 폴백 (아직 guild_music_prefs에 포함되지 않은 채널만)
+        legacy_prefs = core.as_dict(data.get("music_prefs")) or core.DEFAULT_CONFIG["music_prefs"]
+        legacy_ch_id = legacy_prefs.get("channel_id") or core.as_dict(data.get("settings")).get("dday_alert_channel_id")
+        if legacy_ch_id and int(legacy_ch_id) not in seen_ch_ids:
+            seen_ch_ids.add(int(legacy_ch_id))
+            targets.append((int(legacy_ch_id), legacy_prefs))
+
+        for target_ch_id, prefs in targets:
+            channel = await self.resolve_channel(target_ch_id)
+            if not channel:
+                continue
+            track_info, error = await core.get_recommended_music(prefs)
+            if error or not track_info:
+                try:
+                    await channel.send(f"🎧 **오늘의 음악 추천 실패:** {error}")
+                except Exception:
+                    pass
+                continue
+            embed, view = self.build_music_embed_and_view(track_info, prefs, is_morning=True)
             try:
-                await channel.send(f"🎧 **오늘의 음악 추천 실패:** {error}")
+                await channel.send("☀️ **좋은 아침입니다! 오늘의 추천 곡을 확인해 보세요.**", embed=embed, view=view)
             except Exception:
                 pass
-            return
-        embed, view = self.build_music_embed_and_view(track_info, prefs, is_morning=True)
-        try:
-            await channel.send("☀️ **좋은 아침입니다! 오늘의 추천 곡을 확인해 보세요.**", embed=embed, view=view)
-        except Exception:
-            pass
 
     @morning_music_alert.before_loop
     async def before_morning_music_alert(self):
@@ -1675,74 +1694,92 @@ class NorosiBot(commands.Bot):
 
             await asyncio.to_thread(_save_morning_dm)
 
-        # 3. 서버 공개 오전 9시 D-Day 요약 알림
-        alert_ch_id = core.as_dict(data.get("settings")).get("dday_alert_channel_id")
-        if not alert_ch_id:
+        # 3. 서버별 공개 오전 9시 D-Day 요약 알림 (각 서버 소속 D-Day만 격리 발송)
+        all_ddays = core.as_dict(data.get("ddays"))
+        if not all_ddays:
             return
 
-        channel = await self.resolve_channel(alert_ch_id)
-        if not channel:
-            return
-
-        ddays = core.as_dict(data.get("ddays"))
-        if not ddays:
-            return
-
-        embed = discord.Embed(
-            title="📅 오늘의 은하수 D-Day 현황 브리핑",
-            color=discord.Color.from_rgb(0, 204, 221),
-            timestamp=datetime.datetime.now(core.KST)
-        )
-        upcoming_lines, recent_past_lines = [], []
-        archived_count = 0
-        min_diff = 9999
-
-        valid_ddays = [(n, inf) for n, inf in ddays.items() if isinstance(inf, dict)]
-        for name, info in sorted(valid_ddays, key=lambda x: x[1].get("date", "9999-12-31")):
-            date_str = info.get("date")
-            if not date_str:
+        alert_targets: list[int] = []
+        seen_alert_chs: set[int] = set()
+        for _g_key, g_cfg in core.as_dict(data.get("guild_settings")).items():
+            if not isinstance(g_cfg, dict):
                 continue
-            plus_one_val = bool(info.get("plus_one", False))
-            try:
-                diff, text = core.get_dday_info(date_str, plus_one=plus_one_val)
-            except Exception:
+            ch_id = g_cfg.get("dday_alert_channel_id")
+            if ch_id and int(ch_id) not in seen_alert_chs:
+                seen_alert_chs.add(int(ch_id))
+                alert_targets.append(int(ch_id))
+
+        legacy_alert_ch = core.as_dict(data.get("settings")).get("dday_alert_channel_id")
+        if legacy_alert_ch and int(legacy_alert_ch) not in seen_alert_chs:
+            seen_alert_chs.add(int(legacy_alert_ch))
+            alert_targets.append(int(legacy_alert_ch))
+
+        for alert_ch_id in alert_targets:
+            channel = await self.resolve_channel(alert_ch_id)
+            if not channel:
                 continue
-            display_name = f"{name} 🔄" if info.get("repeat") else name
-            if diff >= 0:
-                bar_str = core.get_galaxy_progress_bar(info.get("start_date", today_str), date_str)
-                upcoming_lines.append(f"• **{display_name}** (`{date_str}`) — **`{text}`**\n  └ {bar_str}")
-                if diff < min_diff:
-                    min_diff = diff
-            elif diff >= -7:
-                plus_tag = " `(+1일 계산)`" if plus_one_val else ""
-                recent_past_lines.append(f"• ~~{display_name} ({date_str})~~ : `{text}`{plus_tag}")
-            else:
-                archived_count += 1
 
-        core.add_chunked_embed_fields(
-            embed,
-            base_name="🌠 진행 중인 일정",
-            lines=upcoming_lines,
-            empty_text="예정된 일정이 없습니다.",
-            separator="\n\n"
-        )
+            ch_guild = getattr(channel, "guild", None)
+            ddays = core.filter_guild_ddays(all_ddays, ch_guild) if ch_guild else all_ddays
+            if not ddays:
+                continue
 
-        if recent_past_lines:
+            embed = discord.Embed(
+                title="📅 오늘의 은하수 D-Day 현황 브리핑",
+                color=discord.Color.from_rgb(0, 204, 221),
+                timestamp=datetime.datetime.now(core.KST)
+            )
+            upcoming_lines, recent_past_lines = [], []
+            archived_count = 0
+            min_diff = 9999
+
+            valid_ddays = [(n, inf) for n, inf in ddays.items() if isinstance(inf, dict)]
+            for name, info in sorted(valid_ddays, key=lambda x: x[1].get("date", "9999-12-31")):
+                date_str = info.get("date")
+                if not date_str:
+                    continue
+                plus_one_val = bool(info.get("plus_one", False))
+                try:
+                    diff, text = core.get_dday_info(date_str, plus_one=plus_one_val)
+                except Exception:
+                    continue
+                shown_name = core.get_dday_display_name(name, info)
+                display_name = f"{shown_name} 🔄" if info.get("repeat") else shown_name
+                if diff >= 0:
+                    bar_str = core.get_galaxy_progress_bar(info.get("start_date", today_str), date_str)
+                    upcoming_lines.append(f"• **{display_name}** (`{date_str}`) — **`{text}`**\n  └ {bar_str}")
+                    if diff < min_diff:
+                        min_diff = diff
+                elif diff >= -7:
+                    plus_tag = " `(+1일 계산)`" if plus_one_val else ""
+                    recent_past_lines.append(f"• ~~{display_name} ({date_str})~~ : `{text}`{plus_tag}")
+                else:
+                    archived_count += 1
+
             core.add_chunked_embed_fields(
                 embed,
-                base_name="🕒 최근 지난 일정 (7일 이내)",
-                lines=recent_past_lines,
-                separator="\n"
+                base_name="🌠 진행 중인 일정",
+                lines=upcoming_lines,
+                empty_text="예정된 일정이 없습니다.",
+                separator="\n\n"
             )
 
-        if archived_count > 0:
-            embed.set_footer(text=f"📦 7일 이상 경과한 지난 일정 {archived_count}개는 /설정 (지나간 D-Day 추억 보관소)에서 확인할 수 있습니다.")
+            if recent_past_lines:
+                core.add_chunked_embed_fields(
+                    embed,
+                    base_name="🕒 최근 지난 일정 (7일 이내)",
+                    lines=recent_past_lines,
+                    separator="\n"
+                )
 
-        embed.color = core.get_embed_color(min_diff if upcoming_lines else -1)
-        try:
-            await channel.send(embed=embed)
-        except Exception as e:
-            print(f"⚠️ 오전 9시 D-Day 알림 전송 오류: {e}", flush=True)
+            if archived_count > 0:
+                embed.set_footer(text=f"📦 7일 이상 경과한 지난 일정 {archived_count}개는 /설정 (지나간 D-Day 추억 보관소)에서 확인할 수 있습니다.")
+
+            embed.color = core.get_embed_color(min_diff if upcoming_lines else -1)
+            try:
+                await channel.send(embed=embed)
+            except Exception as e:
+                print(f"⚠️ 오전 9시 D-Day 알림 전송 오류 (채널 {alert_ch_id}): {e}", flush=True)
 
     @morning_text_alert.before_loop
     async def before_morning_text_alert(self):

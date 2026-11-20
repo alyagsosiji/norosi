@@ -1105,8 +1105,10 @@ class DDayQuickAddModal(core.SafeModal, title="📅 새 D-Day 일정 빠른 등�
         name_val = self.d_name.value.strip()
         emoji_val = (self.d_emoji.value.strip() or "🌠")
         ddays_map = core.ensure_dict_path(data, "ddays")
-        existing = core.as_dict(ddays_map.get(name_val))
-        ddays_map[name_val] = {
+        storage_key = core.resolve_dday_storage_key(ddays_map, name_val, interaction.guild_id)
+        existing = core.as_dict(ddays_map.get(storage_key))
+        ddays_map[storage_key] = {
+            "display_name": name_val,
             "date": target_val,
             "repeat": existing.get("repeat", False),
             "plus_one": plus_one_val,
@@ -1131,16 +1133,18 @@ class DDayListBoardView(core.SafeView):
     등록된 모든 D-Day 일정의 진행 상황을 남은 기간(diff)에 따라 색상이 동적으로 변하는
     '은하수 잔디 막대 그래프'로 시각화하는 인터랙티브 대시보드 뷰 (/디데이목록)
     """
-    def __init__(self, bot_instance, user: discord.User, data: dict):
+    def __init__(self, bot_instance, user: discord.User, data: dict, guild: discord.Guild | None = None):
         super().__init__(timeout=600)
         self.bot_instance = bot_instance
         self.user = user
         self.data = data
+        self.guild = guild
+        self.message = None
         self.sort_mode = "diff"      # "diff" (남은 기간 임박순) | "percent" (진행률 높은순)
         self.filter_mode = "all"     # "all" (전체) | "urgent" (7일 이내 임박/주의만)
 
     def build_embed(self):
-        ddays = core.as_dict(self.data.get("ddays"))
+        ddays = core.filter_guild_ddays(self.data.get("ddays"), self.guild)
         summary = core.build_dday_grass_board_summary(ddays)
         all_items = summary["items"]
         counts = summary["counts"]
@@ -1269,7 +1273,8 @@ class DDayListBoardView(core.SafeView):
 
     @discord.ui.button(label="🗑️ 삭제(관리자)", style=discord.ButtonStyle.danger, row=1)
     async def delete_dday_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.guild and isinstance(interaction.user, discord.Member) and not interaction.user.guild_permissions.administrator:
+        is_owner = bool(core.BOT_OWNER_ID and interaction.user.id == core.BOT_OWNER_ID)
+        if interaction.guild and isinstance(interaction.user, discord.Member) and not interaction.user.guild_permissions.administrator and not is_owner:
             await core.safe_send_response(interaction, "❌ 디데이 일정 삭제는 **서버 관리자**만 실행할 수 있습니다.", ephemeral=True)
             return
         await core.safe_defer(interaction, ephemeral=True)
@@ -1278,7 +1283,7 @@ class DDayListBoardView(core.SafeView):
         if not ddays:
             await interaction.followup.send("📭 이 서버에 등록된 D-Day 일정이 없습니다.", ephemeral=True)
             return
-        del_view = DDayDeleteView(ddays, self.bot_instance, guild=interaction.guild)
+        del_view = DDayDeleteView(ddays, self.bot_instance, guild=interaction.guild, parent_board_view=self)
         await interaction.followup.send("🗑️ 이 서버에서 삭제할 D-Day 일정을 아래 메뉴에서 선택하세요 (연결된 전광판 채널도 함께 정리됩니다):", view=del_view, ephemeral=True, wait=True)
 
     @discord.ui.button(label="⚙️ /설정", style=discord.ButtonStyle.secondary, row=1)
@@ -1740,33 +1745,19 @@ class PartnerAcceptView(core.SafeView):
 
 def _dday_belongs_to_guild(info: dict, guild: discord.Guild | None) -> bool:
     """해당 D-Day 항목이 지정된 서버(guild)에 속하는지 판별합니다."""
-    if not isinstance(info, dict):
-        return False
-    if guild is None:
-        return True
-    d_guild_id = info.get("guild_id")
-    if d_guild_id is not None and str(d_guild_id).isdigit():
-        return int(d_guild_id) == guild.id
-    # 레거시(guild_id 미기록) 항목은 연결된 채널이 현재 서버에 존재할 때만 해당 서버 소속으로 인정
-    ch_id = info.get("channel_id")
-    if ch_id is not None and str(ch_id).isdigit():
-        return guild.get_channel(int(ch_id)) is not None
-    return False
+    return core.dday_belongs_to_guild(info, guild)
 
 
 def _filter_guild_ddays(ddays: dict, guild: discord.Guild | None) -> dict:
     """전체 D-Day 맵에서 현재 서버(guild) 소속 항목만 필터링합니다."""
-    return {
-        k: v
-        for k, v in core.as_dict(ddays).items()
-        if isinstance(v, dict) and _dday_belongs_to_guild(v, guild)
-    }
+    return core.filter_guild_ddays(ddays, guild)
 
 
 class DDayDeleteSelect(discord.ui.Select):
-    def __init__(self, ddays, bot_instance, guild: discord.Guild | None = None):
+    def __init__(self, ddays, bot_instance, guild: discord.Guild | None = None, parent_board_view=None):
         self.bot_instance = bot_instance
         self.guild = guild
+        self.parent_board_view = parent_board_view
         options = []
         seen_vals = set()
         scoped_ddays = _filter_guild_ddays(ddays, guild) if guild is not None else {
@@ -1778,11 +1769,12 @@ class DDayDeleteSelect(discord.ui.Select):
             if not val or val in seen_vals:
                 continue
             seen_vals.add(val)
+            display_name = core.get_dday_display_name(name, info)
             date_str = info.get("date", "")
             repeat_icon = "🔄 " if info.get("repeat") else ""
             ch_icon = "🔊채널있음 | " if info.get("channel_id") else ""
             options.append(discord.SelectOption(
-                label=str(name)[:100],
+                label=str(display_name)[:100],
                 value=val,
                 description=(f"{ch_icon}{repeat_icon}목표일: {date_str}" if date_str else "목표일 미지정")[:100]
             ))
@@ -1813,6 +1805,7 @@ class DDayDeleteSelect(discord.ui.Select):
                 selected_name = matched_key
         if selected_name in ddays_map:
             dday_info = core.as_dict(ddays_map.get(selected_name))
+            display_name = core.get_dday_display_name(selected_name, dday_info)
             target_guild = interaction.guild or self.guild
             if target_guild is not None and not _dday_belongs_to_guild(dday_info, target_guild):
                 await interaction.edit_original_response(
@@ -1834,7 +1827,7 @@ class DDayDeleteSelect(discord.ui.Select):
                         ch = None
                 if ch and (not interaction.guild or getattr(ch, "guild", None) == interaction.guild):
                     try:
-                        await ch.delete(reason=f"디데이 '{selected_name}' 삭제에 따른 자동 채널 삭제")
+                        await ch.delete(reason=f"디데이 '{display_name}' 삭제에 따른 자동 채널 삭제")
                         channel_deleted_msg = "\n• 연결된 디데이 전광판 채널도 함께 삭제되었습니다."
                     except discord.Forbidden:
                         channel_deleted_msg = "\n⚠️ 봇에게 '채널 관리' 권한이 없어 채널은 삭제하지 못했습니다."
@@ -1848,12 +1841,22 @@ class DDayDeleteSelect(discord.ui.Select):
                     if selected_name in dmap:
                         del dmap[selected_name]
                         core.save_data(latest)
+                    return latest
 
-            await asyncio.to_thread(_do_remove_dday)
+            latest_data = await asyncio.to_thread(_do_remove_dday)
+
+            if self.parent_board_view is not None:
+                self.parent_board_view.data = latest_data
+                parent_msg = getattr(self.parent_board_view, "message", None)
+                if parent_msg is not None:
+                    try:
+                        await parent_msg.edit(embed=self.parent_board_view.build_embed(), view=self.parent_board_view)
+                    except Exception:
+                        pass
 
             embed = discord.Embed(
                 title="🗑️ 디데이 및 채널 삭제 완료",
-                description=f"**{selected_name}** 일정이 데이터베이스에서 제거되었습니다.{channel_deleted_msg}",
+                description=f"**{display_name}** 일정이 데이터베이스에서 제거되었습니다.{channel_deleted_msg}",
                 color=discord.Color.blue()
             )
             await interaction.edit_original_response(content=None, embed=embed, view=None)
@@ -1862,9 +1865,9 @@ class DDayDeleteSelect(discord.ui.Select):
 
 
 class DDayDeleteView(core.SafeView):
-    def __init__(self, ddays, bot_instance, guild: discord.Guild | None = None):
+    def __init__(self, ddays, bot_instance, guild: discord.Guild | None = None, parent_board_view=None):
         super().__init__(timeout=120)
-        self.add_item(DDayDeleteSelect(ddays, bot_instance, guild=guild))
+        self.add_item(DDayDeleteSelect(ddays, bot_instance, guild=guild, parent_board_view=parent_board_view))
 
 
 class ResetConfirmView(core.SafeView):
@@ -1975,8 +1978,8 @@ class DDayCog(commands.Cog):
         data = await asyncio.to_thread(core.load_data)
 
         ddays_map = core.ensure_dict_path(data, "ddays")
-        settings_map = core.ensure_dict_path(data, "settings")
-        existing_info = core.as_dict(ddays_map.get(이름))
+        storage_key = core.resolve_dday_storage_key(ddays_map, 이름, interaction.guild_id)
+        existing_info = core.as_dict(ddays_map.get(storage_key))
         existing_ch_id = existing_info.get("channel_id")
         plus_one_val = bool(플러스1)
         repeat_val = bool(existing_info.get("repeat", False)) if 매년반복 is None else bool(매년반복)
@@ -1996,8 +1999,9 @@ class DDayCog(commands.Cog):
             actual_start = min(core.get_today_str(), 날짜)
 
         target_category = 카테고리
-        if not target_category and settings_map.get("default_category_id") and interaction.guild:
-            target_category = interaction.guild.get_channel(int(settings_map["default_category_id"]))
+        default_cat_id = core.get_guild_setting(data, interaction.guild_id, "default_category_id")
+        if not target_category and default_cat_id and interaction.guild:
+            target_category = interaction.guild.get_channel(int(default_cat_id))
 
         created_channel = None
         channel_status_msg = "생성 안 함 (`채널생성: False`)"
@@ -2033,7 +2037,8 @@ class DDayCog(commands.Cog):
                 except Exception as e:
                     channel_status_msg = f"⚠️ 채널 생성 실패: {e}"
 
-        ddays_map[이름] = {
+        ddays_map[storage_key] = {
+            "display_name": 이름,
             "date": 날짜,
             "repeat": repeat_val,
             "plus_one": plus_one_val,
@@ -2164,13 +2169,12 @@ class DDayCog(commands.Cog):
             return
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
-        settings_map = core.ensure_dict_path(data, "settings")
-        settings_map["dday_alert_channel_id"] = 알림채널.id
+        core.set_guild_setting(data, interaction.guild_id, "dday_alert_channel_id", 알림채널.id)
         if 기본카테고리:
-            settings_map["default_category_id"] = 기본카테고리.id
+            core.set_guild_setting(data, interaction.guild_id, "default_category_id", 기본카테고리.id)
         await asyncio.to_thread(core.save_data, data)
 
-        cat_id = settings_map.get("default_category_id")
+        cat_id = core.get_guild_setting(data, interaction.guild_id, "default_category_id")
         cat_obj = interaction.guild.get_channel(int(cat_id)) if (cat_id and interaction.guild) else None
         cat_name = f"📁 `{cat_obj.name}`" if cat_obj else "미지정 (디데이 추가 시 개별 선택 가능)"
 
@@ -2256,8 +2260,9 @@ class DDayCog(commands.Cog):
             await core.safe_defer(interaction)
 
         data = await asyncio.to_thread(core.load_data)
-        view = DDayListBoardView(self.bot, interaction.user, data)
-        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        view = DDayListBoardView(self.bot, interaction.user, data, guild=interaction.guild)
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        view.message = msg
 
     @app_commands.command(name="지나간디데이", description="목표일이 지나 추억 보관소로 이동된 지난 D-Day 일정들을 모아봅니다.")
     async def past_dday_cmd(self, interaction: discord.Interaction):
@@ -2265,7 +2270,7 @@ class DDayCog(commands.Cog):
             await core.safe_defer(interaction)
 
         data = await asyncio.to_thread(core.load_data)
-        ddays = {k: v for k, v in core.as_dict(data.get("ddays")).items() if isinstance(v, dict)}
+        ddays = core.filter_guild_ddays(data.get("ddays"), interaction.guild)
         past_lines = []
 
         for name, info in sorted(ddays.items(), key=lambda x: x[1].get("date", "9999-12-31"), reverse=True):
@@ -2278,8 +2283,9 @@ class DDayCog(commands.Cog):
             except Exception:
                 continue
             if diff < 0:
+                display_name = core.get_dday_display_name(name, info)
                 plus_badge = " `(+1일 계산)`" if plus_one else ""
-                past_lines.append(f"• **{name}** (`{date_str}`) — `{text}` 경과{plus_badge}")
+                past_lines.append(f"• **{display_name}** (`{date_str}`) — `{text}` 경과{plus_badge}")
 
         embed = discord.Embed(
             title="📦 추억 보관소 (지나간 D-Day 목록)",
@@ -2365,6 +2371,10 @@ class DDayCog(commands.Cog):
 
     @app_commands.command(name="디데이삭제", description="드롭다운 메뉴에서 일정을 선택해 삭제합니다. (생성된 디데이 채널도 함께 삭제됩니다)")
     async def delete_dday(self, interaction: discord.Interaction):
+        is_owner = bool(core.BOT_OWNER_ID and interaction.user.id == core.BOT_OWNER_ID)
+        if interaction.guild and isinstance(interaction.user, discord.Member) and not interaction.user.guild_permissions.administrator and not is_owner:
+            await core.safe_send_response(interaction, "❌ 디데이 일정 삭제는 **서버 관리자**만 실행할 수 있습니다.", ephemeral=True)
+            return
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
         ddays = _filter_guild_ddays(data.get("ddays"), interaction.guild)

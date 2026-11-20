@@ -127,7 +127,7 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
             streak_leader_str = f"`{top_u.get('user_name', '유저')}` (연속 `{top_u.get('streak', 0)}일` 🔥)"
 
     # 4. 실제 norosi 봇 서비스 활용 지표 (D-Day, 프로세카 가챠 수집)
-    ddays_cnt = sum(1 for d in core.as_dict(data.get("ddays")).values() if isinstance(d, dict) and (d.get("guild_id") == guild.id or not d.get("guild_id")))
+    ddays_cnt = len(core.filter_guild_ddays(data.get("ddays"), guild))
     g_gacha_users = core.safe_get_dict(data, "gacha_users", g_key)
     gacha_users_cnt = len(g_gacha_users)
     total_cards_cnt = sum(len(core.as_dict(u.get("cards"))) for u in g_gacha_users.values() if isinstance(u, dict))
