@@ -148,14 +148,19 @@ TITLES: Dict[str, Dict[str, Any]] = {
     },
 }
 
-BADGE_CATALOG: List[Dict[str, str]] = [
-    {"id": "att_7", "emoji": "🔥", "name": "출석 개근(7일+)"},
-    {"id": "sekai_star4", "emoji": "⭐", "name": "세카이 ★4 컬렉터"},
-    {"id": "genshin_5star", "emoji": "🌠", "name": "티바트 ★5 인연"},
-    {"id": "hsr_5star", "emoji": "🚄", "name": "은하 ★5 개척"},
-    {"id": "fisher_dex", "emoji": "🐠", "name": "어종 탐색가(15종+)"},
-    {"id": "life_pet", "emoji": "🐾", "name": "펫 & 셰프"},
-    {"id": "rich_vip", "emoji": "💎", "name": "크리스탈 부호(5,000+)"},
+BADGE_CATALOG: List[Dict[str, Any]] = [
+    {"id": "att_7", "emoji": "🔥", "name": "출석 개근(7일+)", "desc": "누적 또는 연속 출석 7일 달성", "target": 7},
+    {"id": "sekai_star4", "emoji": "⭐", "name": "세카이 ★4 컬렉터", "desc": "프로세카 ★4 카드 1장 이상 보유", "target": 1},
+    {"id": "genshin_5star", "emoji": "🌠", "name": "티바트 ★5 인연", "desc": "원신 ★5 캐릭터·무기 1종 이상 보유", "target": 1},
+    {"id": "hsr_5star", "emoji": "🚄", "name": "은하 ★5 개척", "desc": "스타레일 ★5 캐릭터·광추 1종 이상 보유", "target": 1},
+    {"id": "fisher_dex", "emoji": "🐠", "name": "어종 탐색가(15종+)", "desc": "낚시 도감 15종 이상 수집", "target": 15},
+    {"id": "life_pet", "emoji": "🐾", "name": "펫 & 셰프", "desc": "반려 펫 보유 또는 요리 1회 이상", "target": 1},
+    {"id": "rich_vip", "emoji": "💎", "name": "크리스탈 부호(5,000+)", "desc": "보유 크리스탈 5,000💎 이상", "target": 5000},
+    {"id": "att_30", "emoji": "👑", "name": "출석 전설(30일+)", "desc": "누적 또는 연속 출석 30일 달성", "target": 30},
+    {"id": "sekai_deck_50k", "emoji": "⚔️", "name": "세카이 정예 덱(5만+)", "desc": "프로세카 5인 덱 종합력 50,000 이상", "target": 50000},
+    {"id": "fisher_master", "emoji": "🐋", "name": "대해의 도감왕(50종+)", "desc": "낚시 도감 50종 이상 수집", "target": 50},
+    {"id": "other_life_5", "emoji": "📖", "name": "다중 인생 여행자(5+)", "desc": "타인의 삶 엔딩 5종 이상 수집", "target": 5},
+    {"id": "todo_10", "emoji": "🌱", "name": "꾸준한 목표 달성(10+)", "desc": "오늘 목표(잔디) 누적 10회 이상 완료", "target": 10},
 ]
 
 
@@ -290,22 +295,51 @@ def collect_user_unified_stats(
             owned_titles.append(tid)
             newly_unlocked_titles.append(tid)
 
-    # 배지 평가
-    badges: List[Dict[str, str]] = []
-    if att_total >= 7 or att_max_streak >= 7:
-        badges.append(BADGE_CATALOG[0])
-    if sekai_star4 >= 1:
-        badges.append(BADGE_CATALOG[1])
-    if gen_5star >= 1:
-        badges.append(BADGE_CATALOG[2])
-    if hsr_5star >= 1:
-        badges.append(BADGE_CATALOG[3])
-    if fish_dex_cnt >= 15:
-        badges.append(BADGE_CATALOG[4])
-    if len(pets_map) >= 1 or _safe_int(life_user.get("total_cooked"), 0) >= 1:
-        badges.append(BADGE_CATALOG[5])
-    if crystals >= 5000:
-        badges.append(BADGE_CATALOG[6])
+    # 추가 크로스 기능 지표 (타인의 삶 엔딩 · 오늘 목표 잔디 누적 완료)
+    ol_user = core.safe_get_dict(data, "other_life_users", g_key, u_key)
+    ol_endings_cnt = len(ol_user.get("endings") or []) if isinstance(ol_user.get("endings"), (list, dict, set)) else 0
+    todo_u = core.safe_get_dict(data, "user_todos", u_key)
+    todo_history = core.as_dict(todo_u.get("history"))
+    todo_total_done = sum(max(0, _safe_int(v, 0)) for v in todo_history.values())
+
+    # 12종 크로스 기능 업적/배지 평가
+    att_best = max(att_total, att_max_streak)
+    life_act = len(pets_map) + _safe_int(life_user.get("total_cooked"), 0)
+    progress_map = {
+        "att_7": att_best,
+        "sekai_star4": sekai_star4,
+        "genshin_5star": gen_5star,
+        "hsr_5star": hsr_5star,
+        "fisher_dex": fish_dex_cnt,
+        "life_pet": life_act,
+        "rich_vip": crystals,
+        "att_30": att_best,
+        "sekai_deck_50k": deck_power,
+        "fisher_master": fish_dex_cnt,
+        "other_life_5": ol_endings_cnt,
+        "todo_10": todo_total_done,
+    }
+    badges: List[Dict[str, Any]] = []
+    locked_badges: List[Dict[str, Any]] = []
+    for b in BADGE_CATALOG:
+        cur_val = progress_map.get(b["id"], 0)
+        tgt_val = int(b.get("target", 1) or 1)
+        entry = {**b, "current": cur_val, "target": tgt_val, "unlocked": cur_val >= tgt_val}
+        if entry["unlocked"]:
+            badges.append(entry)
+        else:
+            locked_badges.append(entry)
+
+    total_badges = len(BADGE_CATALOG)
+    unlocked_cnt = len(badges)
+    ach_summary = {
+        "unlocked": badges,
+        "locked": locked_badges,
+        "unlocked_count": unlocked_cnt,
+        "total_count": total_badges,
+        "completion_pct": round((unlocked_cnt / total_badges) * 100, 1) if total_badges else 0.0,
+        "badge_strip": " ".join(f"{b['emoji']}`{b['name']}`" for b in badges[:6]) if badges else "아직 해금된 뱃지 없음",
+    }
 
     title_meta = get_equipped_title_info(prof)
     return {
@@ -317,6 +351,7 @@ def collect_user_unified_stats(
         "owned_titles": list(owned_titles),
         "newly_unlocked_titles": newly_unlocked_titles,
         "badges": badges,
+        "achievements": ach_summary,
         "att_total": att_total,
         "att_streak": att_streak,
         "att_max_streak": att_max_streak,
@@ -977,9 +1012,18 @@ def render_unified_profile_card_png(
                         line_clean = base_l[:cut].rstrip() + "..."
                 draw.text((px + 18, ly), line_clean, font=f_body, fill=(226, 232, 240, 240))
 
-        # 하단 푸터
+        # 하단 푸터 (크로스 기능 업적 달성도 연동 표시)
+        ach = stats.get("achievements") or {}
+        ach_u = ach.get("unlocked_count", len(stats.get("badges") or []))
+        ach_t = ach.get("total_count", len(BADGE_CATALOG))
+        ach_pct = ach.get("completion_pct", round((ach_u / ach_t) * 100, 1) if ach_t else 0.0)
         now_str = datetime.datetime.now(core.KST).strftime("%Y-%m-%d %H:%M KST")
-        draw.text((44, h - 42), core._sanitize_grid_text(f"norosi Unified Profile Card  ·  Issued at {now_str}"), font=f_sm, fill=(148, 163, 184, 220))
+        draw.text(
+            (44, h - 42),
+            core._sanitize_grid_text(f"norosi Unified Profile Card  ·  업적 {ach_u}/{ach_t} ({ach_pct}%)  ·  Issued at {now_str}"),
+            font=f_sm,
+            fill=(148, 163, 184, 220),
+        )
 
         buf = io.BytesIO()
         img.save(buf, format="PNG", compress_level=1)
@@ -994,6 +1038,24 @@ def render_unified_profile_card_png(
                 img.close()
             except Exception:
                 pass
+
+
+def evaluate_user_achievements(
+    data: dict,
+    guild_id: int | str,
+    user_id: int | str,
+    user_name: str = "",
+) -> Dict[str, Any]:
+    """유저의 12종 크로스 기능 업적·뱃지 달성 현황과 진행도를 반환합니다."""
+    st = collect_user_unified_stats(data, guild_id, user_id, user_name)
+    return st.get("achievements") or {
+        "unlocked": [],
+        "locked": [],
+        "unlocked_count": 0,
+        "total_count": len(BADGE_CATALOG),
+        "completion_pct": 0.0,
+        "badge_strip": "아직 해금된 뱃지 없음",
+    }
 
 
 async def build_unified_profile_card_bytes(

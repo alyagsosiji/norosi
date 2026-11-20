@@ -1594,9 +1594,172 @@ HOME_SHORTCUT_CATALOG: List[Dict[str, Any]] = [
     {"key": "exchange", "label": "화폐 환전", "emoji": "💱", "style": discord.ButtonStyle.secondary, "desc": "골드⇄크리스탈 안전 환전소", "cb_name": "_act_currency_exchange"},
     {"key": "battle", "label": "즉석 대전", "emoji": "🎲", "style": discord.ButtonStyle.success, "desc": "하이로우 주사위 & 초성 퀴즈", "cb_name": "_act_mini_battle_hub"},
     {"key": "sponsor", "label": "후원하기", "emoji": "💖", "style": discord.ButtonStyle.secondary, "desc": "팀 봉화 (소유주 : 아시) 후원 · 봇 운영 지원", "cb_name": "_act_sponsor"},
+    {"key": "search", "label": "기능 검색", "emoji": "🔍", "style": discord.ButtonStyle.primary, "desc": "키워드로 130+ 기능 즉시 검색 & 실행", "cb_name": "_act_feature_search"},
+    {"key": "achievements", "label": "업적 뱃지", "emoji": "🏅", "style": discord.ButtonStyle.primary, "desc": "크로스 기능 12종 업적·뱃지 달성 현황", "cb_name": "_act_achievements"},
 ]
 HOME_SHORTCUT_MAP: Dict[str, Dict[str, Any]] = {item["key"]: item for item in HOME_SHORTCUT_CATALOG}
 HOME_SHORTCUT_KEYS: set[str] = set(HOME_SHORTCUT_MAP.keys())
+
+
+class DashboardFeatureSearchModal(core.SafeModal, title="🔍 /설정 통합 기능 검색"):
+    keyword_input = discord.ui.TextInput(
+        label="찾을 기능 키워드",
+        placeholder="예: 낚시, 라디오, 티켓, 환전, 날씨, 업적, 후원...",
+        required=True,
+        min_length=1,
+        max_length=40,
+    )
+
+    def __init__(self, parent_view: "MasterDashboardView"):
+        super().__init__()
+        self.parent_view = parent_view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        kw = (self.keyword_input.value or "").strip()
+        if not kw:
+            await core.safe_send_response(interaction, "❌ 검색할 키워드를 입력해 주세요.", ephemeral=True)
+            return
+        tokens = [t.lower() for t in kw.split() if t.strip()]
+        cat_labels = {
+            "general": "🌐 일반",
+            "advanced": "⚙️ 고급",
+            "minigame": "🎮 미니게임",
+            "personal": "👤 개인",
+        }
+        matches: List[Dict[str, Any]] = []
+        seen_labels: set[str] = set()
+        for cat_key, pages in (self.parent_view._pages_cache or {}).items():
+            for p_idx, page in enumerate(pages, start=1):
+                for item in page.get("items", []):
+                    lbl = str(item.get("label") or "")
+                    desc = str(item.get("desc") or "")
+                    haystack = f"{lbl} {desc} {page.get('page_title', '')}".lower()
+                    if all(tok in haystack for tok in tokens):
+                        if lbl in seen_labels:
+                            continue
+                        seen_labels.add(lbl)
+                        matches.append({
+                            "cat_label": cat_labels.get(cat_key, cat_key),
+                            "page_num": p_idx,
+                            "item": item,
+                        })
+        # 홈 단축키(업적/후원 등)도 함께 검색 보강
+        for sc_item in HOME_SHORTCUT_CATALOG:
+            if sc_item["key"] == "search":
+                continue
+            lbl = sc_item["label"]
+            haystack = f"{lbl} {sc_item['desc']}".lower()
+            if all(tok in haystack for tok in tokens) and lbl not in seen_labels:
+                cb = getattr(self.parent_view, sc_item["cb_name"], None)
+                if callable(cb):
+                    seen_labels.add(lbl)
+                    matches.append({
+                        "cat_label": "🏠 홈 바로가기",
+                        "page_num": 1,
+                        "item": {
+                            "label": lbl,
+                            "emoji": sc_item["emoji"],
+                            "style": sc_item["style"],
+                            "perm": PERM_USER,
+                            "desc": sc_item["desc"],
+                            "cb": cb,
+                        },
+                    })
+
+        view = DashboardSearchResultView(self.parent_view, kw, matches, owner_id=interaction.user.id)
+        await core.safe_send_response(interaction, embed=view.build_embed(), view=view, ephemeral=True)
+
+
+class DashboardSearchResultView(core.SafeView):
+    """통합 기능 검색 결과 즉시 실행 뷰 (최대 10개 원클릭 버튼 + 다시 검색)"""
+
+    def __init__(
+        self,
+        parent_view: Optional["MasterDashboardView"] = None,
+        keyword: str = "",
+        matches: Optional[List[Dict[str, Any]]] = None,
+        owner_id: int = 0,
+    ):
+        super().__init__(timeout=180)
+        self.parent_view = parent_view
+        self.keyword = keyword
+        self.matches = (matches or [])[:10]
+        self.owner_id = owner_id
+
+        for idx, m in enumerate(self.matches):
+            item = m["item"]
+            row = 0 if idx < 5 else 1
+            btn = discord.ui.Button(
+                label=str(item.get("label") or "실행")[:40],
+                emoji=item.get("emoji") or "▶️",
+                style=item.get("style") or discord.ButtonStyle.secondary,
+                row=row,
+            )
+            cb = item.get("cb")
+
+            async def _on_click(inter: discord.Interaction, _cb=cb):
+                if callable(_cb):
+                    await _cb(inter)
+                else:
+                    await core.safe_send_response(inter, "❌ 실행할 수 없는 항목입니다.", ephemeral=True)
+
+            btn.callback = _on_click
+            self.add_item(btn)
+
+        again_btn = discord.ui.Button(
+            label="🔍 다시 검색",
+            style=discord.ButtonStyle.primary,
+            row=2 if len(self.matches) > 5 else 1,
+        )
+        again_btn.callback = self._on_search_again
+        self.add_item(again_btn)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        if self.owner_id and interaction.user.id != self.owner_id:
+            await core.safe_send_response(
+                interaction,
+                "❌ 본인이 검색한 결과 창에서만 버튼을 조작할 수 있습니다.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    async def _on_search_again(self, interaction: discord.Interaction):
+        if self.parent_view is None:
+            await core.safe_send_response(interaction, "⚠️ `/설정`을 다시 열어 검색해 주세요.", ephemeral=True)
+            return
+        await interaction.response.send_modal(DashboardFeatureSearchModal(self.parent_view))
+
+    def build_embed(self) -> discord.Embed:
+        if not self.matches:
+            return discord.Embed(
+                title=f"🔍 기능 검색 결과: `{self.keyword}`",
+                description=(
+                    "일치하는 기능을 찾지 못했습니다.\n"
+                    "• 더 짧은 키워드로 다시 검색해 보세요! *(예: `낚시`, `라디오`, `티켓`, `환전`, `업적`, `후원`)*"
+                ),
+                color=discord.Color.orange(),
+                timestamp=datetime.datetime.now(core.KST),
+            )
+        lines = []
+        for idx, m in enumerate(self.matches, start=1):
+            it = m["item"]
+            perm_tag = " `👑봇주`" if it.get("perm") == PERM_OWNER else (" `🛡️관리자`" if it.get("perm") == PERM_ADMIN else "")
+            lines.append(
+                f"`{idx:02d}.` {it.get('emoji', '•')} **{it.get('label', '-')}**{perm_tag} "
+                f"*({m['cat_label']} {m['page_num']}p)*\n"
+                f"　└ {str(it.get('desc', ''))[:70]}"
+            )
+        embed = discord.Embed(
+            title=f"🔍 기능 검색 결과: `{self.keyword}` ({len(self.matches)}건)",
+            description="\n".join(lines)[:4096],
+            color=discord.Color.from_rgb(0, 204, 221),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.set_footer(text="아래 버튼을 누르면 해당 기능이 즉시 실행됩니다.")
+        return embed
 
 
 class HomeShortcutEditView(core.SafeView):
@@ -3004,7 +3167,9 @@ class MasterDashboardView(core.SafeView):
                 custom_id="norosi:Settings:quick_jump_select",
                 row=2,
                 options=[
+                    discord.SelectOption(label="🔍 통합 기능 검색 (키워드 점프)", value="feature_search", description="키워드로 130+ 기능 즉시 실행"),
                     discord.SelectOption(label="⭐ 홈 즐겨찾기 단축바 편집", value="home_shortcuts", description="홈 버튼 5개 커스텀"),
+                    discord.SelectOption(label="🏅 내 업적 & 뱃지 (12종)", value="achievements", description="크로스 기능 업적 달성 현황"),
                     discord.SelectOption(label="📻 무드 음성 라디오", value="mood_radio", description="6대 분위기 BGM"),
                     discord.SelectOption(label="🗓️ 예약 이벤트 신청표", value="guild_events", description="RSVP·대기열·알림"),
                     discord.SelectOption(label="🏆 전 분야 통합 랭킹", value="ranking_hub", description="8대 순위표"),
@@ -3252,7 +3417,9 @@ class MasterDashboardView(core.SafeView):
             await core.safe_defer(interaction, ephemeral=True)
             return
         jump_map = {
+            "feature_search": self._act_feature_search,
             "home_shortcuts": self._act_home_shortcuts,
+            "achievements": self._act_achievements,
             "mood_radio": self._act_mood_radio,
             "guild_events": self._act_guild_events,
             "ranking_hub": self._act_ranking_hub,
@@ -4208,6 +4375,21 @@ class MasterDashboardView(core.SafeView):
             await core.safe_send_response(interaction, embed=embed, view=view, ephemeral=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 후원 안내 열기 실패: {e}", ephemeral=True)
+
+    async def _act_feature_search(self, interaction: discord.Interaction):
+        try:
+            await interaction.response.send_modal(DashboardFeatureSearchModal(self))
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 기능 검색 창 열기 실패: {e}", ephemeral=True)
+
+    async def _act_achievements(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction, ephemeral=True)
+            gid = interaction.guild_id or 0
+            view = routine.ShowcaseView(interaction.user, gid, tab="badges")
+            await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 업적·뱃지 현황 로드 실패: {e}", ephemeral=True)
 
     async def _act_open_help(self, interaction: discord.Interaction):
         try:

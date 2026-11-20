@@ -14,6 +14,7 @@ import discord
 from discord.ext import commands
 
 import core
+import economy_core
 import fishing_core
 import life_core
 import routine_core
@@ -373,9 +374,10 @@ class ShowcaseView(core.SafeView):
         self.user = user
         self.guild_id = int(guild_id or 0)
         self.tab = tab
-        self.sc = routine_core.build_showcase_data(
-            self.guild_id, user.id if user else 0, user.display_name if user else "유저"
-        )
+        uid = user.id if user else 0
+        uname = user.display_name if user else "유저"
+        self.sc = routine_core.build_showcase_data(self.guild_id, uid, uname)
+        self.ach = economy_core.evaluate_user_achievements(core.load_data(), self.guild_id, uid, uname)
         self._sync_tab_styles()
 
     def _sync_tab_styles(self):
@@ -383,24 +385,52 @@ class ShowcaseView(core.SafeView):
         self.btn_sekai.style = discord.ButtonStyle.primary if self.tab == "sekai" else discord.ButtonStyle.secondary
         self.btn_hoyoverse.style = discord.ButtonStyle.primary if self.tab == "hoyoverse" else discord.ButtonStyle.secondary
         self.btn_life.style = discord.ButtonStyle.primary if self.tab == "life" else discord.ButtonStyle.secondary
+        self.btn_badges.style = discord.ButtonStyle.primary if self.tab == "badges" else discord.ButtonStyle.secondary
 
     async def reload(self):
         uid = self.user.id if self.user else 0
         uname = self.user.display_name if self.user else "유저"
-        self.sc = await asyncio.to_thread(routine_core.build_showcase_data, self.guild_id, uid, uname)
+
+        def _load_all():
+            sc = routine_core.build_showcase_data(self.guild_id, uid, uname)
+            ach = economy_core.evaluate_user_achievements(core.load_data(), self.guild_id, uid, uname)
+            return sc, ach
+
+        self.sc, self.ach = await asyncio.to_thread(_load_all)
 
     def build_embed(self) -> discord.Embed:
         self._sync_tab_styles()
         sc = self.sc
+        ach = self.ach
         embed = discord.Embed(
-            title=f"🏆 {sc['user_name']}님의 통합 수집품 쇼케이스",
+            title=f"🏆 {sc['user_name']}님의 통합 수집품 & 업적 쇼케이스",
             color=0xEC4899,
             timestamp=datetime.datetime.now(core.KST),
         )
         if self.user and hasattr(self.user, "display_avatar"):
             embed.set_thumbnail(url=self.user.display_avatar.url)
 
-        if self.tab == "sekai":
+        if self.tab == "badges":
+            unlocked = ach.get("unlocked") or []
+            locked = ach.get("locked") or []
+            pct = ach.get("completion_pct", 0.0)
+            filled = min(10, max(0, int(round(pct / 10))))
+            bar = "█" * filled + "░" * (10 - filled)
+            u_lines = [
+                f"• {b['emoji']} **{b['name']}** — *{b['desc']}*"
+                for b in unlocked
+            ] or ["*(아직 해금된 업적 뱃지가 없습니다 — 출석·뽑기·낚시로 첫 뱃지를 열어보세요!)*"]
+            l_lines = [
+                f"• 🔒 **{b['name']}** (`{b['current']:,}/{b['target']:,}`) — *{b['desc']}*"
+                for b in locked[:8]
+            ] or ["🎉 **모든 크로스 기능 업적 뱃지를 100% 달성했습니다!**"]
+            embed.description = (
+                f"🏅 **업적 달성도:** `{ach['unlocked_count']}/{ach['total_count']}` (`{pct}%`)  `[{bar}]`\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "**✨ 해금 완료 뱃지**\n" + "\n".join(u_lines) + "\n\n"
+                "**🎯 도전 중인 업적**\n" + "\n".join(l_lines)
+            )[:4096]
+        elif self.tab == "sekai":
             deck_lines = [
                 f"`{i}.` **{c.get('rarity_label', '★')} [{c.get('prefix', '-')}] {c.get('char_name', '-')}** "
                 f"(`Lv.{c.get('level', 1)}` · `✦MR.{c.get('master_rank', 0)}` · `⚔️{core.get_card_power(c):,}`)"
@@ -443,8 +473,10 @@ class ShowcaseView(core.SafeView):
                 f"👶 **타인의 삶:** 해금 엔딩 `{sc['ol_endings']:,}종` · 최고 점수 **`{sc['ol_best']:,}점`**"
             )[:4096]
         else:
+            badge_strip = ach.get("badge_strip") or "없음"
             embed.description = (
                 f"💖 **대표 오시:** `{sc['oshi']}`  ·  💎 **`{sc['crystals']:,}💎`**  ·  🪙 **`{sc['gold']:,}🪙`**\n"
+                f"🏅 **업적 뱃지 ({ach['unlocked_count']}/{ach['total_count']}):** {badge_strip}\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"• 🎤 **프로세카:** 보유 `{sc['sekai_total']:,}종` · 5인 덱 종합력 **`{sc['sekai_deck_power']:,}`**\n"
                 f"• 🌠 **원신:** 보유 `{sc['gi_total']:,}종` (★5 `{sc['gi_r5']}종`) · 파티 `{len(sc['gi_party'])}/4`\n"
@@ -453,7 +485,7 @@ class ShowcaseView(core.SafeView):
                 f"• 👶 **타인의 삶:** 엔딩 `{sc['ol_endings']:,}종` · 최고 점수 `{sc['ol_best']:,}점`"
             )[:4096]
 
-        embed.set_footer(text="하단 탭 버튼으로 세부 쇼케이스를 전환할 수 있습니다.")
+        embed.set_footer(text="하단 탭 버튼으로 세부 쇼케이스 및 업적·뱃지 현황을 전환할 수 있습니다.")
         return embed
 
     @discord.ui.button(label="🌟 종합", style=discord.ButtonStyle.primary, row=0)
@@ -478,6 +510,12 @@ class ShowcaseView(core.SafeView):
     async def btn_life(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.tab = "life"
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🏅 업적·뱃지", style=discord.ButtonStyle.secondary, row=1)
+    async def btn_badges(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.tab = "badges"
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=1)

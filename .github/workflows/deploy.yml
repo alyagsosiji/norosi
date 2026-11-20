@@ -8,13 +8,29 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
-    name: Deploy to kami-aio (n.kami.live:29023) via SSH
+  verify:
+    name: Pre-Deploy CI Check (ruff · AST · security)
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+
+      - name: Setup Python & Run CI Verification
+        run: |
+          python3 -m venv .ci_venv
+          .ci_venv/bin/pip install --quiet ruff discord.py pillow requests aiohttp
+          .ci_venv/bin/ruff check --select E9,F63,F7,F82 .
+          .ci_venv/bin/python scripts/ci_check.py
+
+  deploy:
+    name: Deploy to kami-aio (n.kami.live:29023) via SSH
+    needs: verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
 
       - name: Validate GitHub Secrets
         env:
