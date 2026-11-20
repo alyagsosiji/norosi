@@ -756,6 +756,23 @@ def sanitize_webhook_username(display_name: str | None) -> str:
     return name or "User"
 
 
+def resolve_webhook_avatar_url(author: object) -> Optional[str]:
+    """웹훅/임베드에서 기본 프사(Clyde) 폴백을 막기 위해 서버/전역 프로필을 안정적인 PNG(256px) URL로 반환합니다."""
+    av = (
+        getattr(author, "guild_avatar", None)
+        or getattr(author, "avatar", None)
+        or getattr(author, "display_avatar", None)
+    )
+    if av is None:
+        return None
+    if hasattr(av, "replace"):
+        try:
+            return av.replace(format="png", size=256).url
+        except Exception:
+            pass
+    return getattr(av, "url", None)
+
+
 def is_delete_reaction_emoji(emoji: discord.PartialEmoji | discord.Emoji | str | None) -> bool:
     """사용자가 수동으로 단 빨간 엑스(:x:, ❌) 반응인지 판별합니다."""
     if emoji is None:
@@ -1631,7 +1648,7 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
 
         # 4-B. 일반 메시지: 보낸 사람 프로필 사진 & 닉네임으로 웹훅 전송
         sender_name = sanitize_webhook_username(message.author.display_name)
-        sender_avatar = message.author.display_avatar.url if hasattr(message.author, "display_avatar") else None
+        sender_avatar = resolve_webhook_avatar_url(message.author)
         base_kwargs = {
             "username": sender_name,
             "avatar_url": sender_avatar,

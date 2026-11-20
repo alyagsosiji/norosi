@@ -16,6 +16,7 @@ from collections import OrderedDict
 import datetime
 import re
 import time
+import urllib.parse
 from typing import Optional
 
 import discord
@@ -24,9 +25,27 @@ from discord.ext import commands, tasks
 
 import community_core
 import core
-from cogs.emoji_upscale import is_delete_reaction_emoji, sanitize_webhook_username
+from cogs.emoji_upscale import (
+    is_delete_reaction_emoji,
+    resolve_webhook_avatar_url,
+    sanitize_webhook_username,
+)
 
 CLEAN_LINK_WEBHOOK_NAME = "norosi-clean-link"
+
+_MEDIA_UNFURL_HOSTS = frozenset({
+    "youtube.com",
+    "www.youtube.com",
+    "m.youtube.com",
+    "youtu.be",
+    "music.youtube.com",
+    "open.spotify.com",
+    "soundcloud.com",
+    "m.soundcloud.com",
+    "twitch.tv",
+    "www.twitch.tv",
+    "clips.twitch.tv",
+})
 
 
 # ==========================================
@@ -3093,6 +3112,69 @@ class CommunityCog(commands.Cog):
         while len(self._clean_link_messages) > 1000:
             self._clean_link_messages.popitem(last=False)
 
+    @staticmethod
+    def _build_clean_link_open_view(items: list[dict]) -> Optional[discord.ui.View]:
+        view = discord.ui.View(timeout=None)
+        added = 0
+        for it in items[:3]:
+            url = str(it.get("cleaned") or "")
+            if not url.startswith(("http://", "https://")) or len(url) > 512:
+                continue
+            label_base = str(it.get("service") or "링크")[:24]
+            icon = "🔗" if it.get("kind") == "sns" else "🧹"
+            view.add_item(
+                discord.ui.Button(
+                    style=discord.ButtonStyle.link,
+                    label=f"{label_base} 열기",
+                    emoji=icon,
+                    url=url,
+                )
+            )
+            added += 1
+        return view if added > 0 else None
+
+    @staticmethod
+    def _needs_native_media_unfurl(items: list[dict]) -> bool:
+        for it in items:
+            if it.get("kind") == "sns":
+                return True
+            try:
+                host = urllib.parse.urlsplit(str(it.get("cleaned") or "")).netloc.lower()
+            except Exception:
+                host = ""
+            if host in _MEDIA_UNFURL_HOSTS:
+                return True
+        return False
+
+    @staticmethod
+    def _build_tracking_clean_embed(
+        sender_name: str,
+        sender_avatar: Optional[str],
+        replaced_text: str,
+        items: list[dict],
+    ) -> discord.Embed:
+        all_stripped: list[str] = []
+        for it in items:
+            for p in it.get("stripped_params") or []:
+                if p not in all_stripped:
+                    all_stripped.append(p)
+        tag_line = (
+            "\n\n🧹 **제거된 추적 태그:** " + ", ".join(f"`{p}`" for p in all_stripped[:6])
+            if all_stripped
+            else ""
+        )
+        embed = discord.Embed(
+            description=(replaced_text + tag_line)[:4096],
+            color=discord.Color.from_rgb(0, 204, 221),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        if sender_avatar:
+            embed.set_author(name=sender_name, icon_url=sender_avatar)
+        else:
+            embed.set_author(name=sender_name)
+        embed.set_footer(text="클린 링크 변환됨  ·  ❌ 반응으로 삭제 가능")
+        return embed
+
     async def _handle_clean_link_message(self, message: discord.Message, link_cfg: dict):
         replaced_text, items = community_core.replace_urls_with_clean_links(message.content, link_cfg)
         if not items or not self._mark_link_processed(message.id):
@@ -3109,6 +3191,26 @@ class CommunityCog(commands.Cog):
         is_reply = bool(message.reference and message.reference.message_id)
         has_media = bool(message.attachments or message.stickers)
         want_replace = bool(link_cfg.get("suppress_original", True)) and (not has_media) and (len(replaced_text) <= 1900)
+
+        sender_name = sanitize_webhook_username(message.author.display_name)
+        sender_avatar = resolve_webhook_avatar_url(message.author)
+        needs_unfurl = self._needs_native_media_unfurl(items)
+        open_view = self._build_clean_link_open_view(items)
+
+        # 추적 파라미터만 제거된 일반 사이트 링크는 깔끔한 Embed(작성자 프사 포함)로,
+        # SNS·유튜브·스포티파이 등 미디어 링크는 동영상/사진 자동 임베드를 살리기 위해 마스킹 링크 + 바로가기 버튼으로 표시
+        stripped_note = ""
+        if needs_unfurl:
+            stripped_all = [p for it in items for p in (it.get("stripped_params") or [])]
+            if stripped_all:
+                uniq_p = list(dict.fromkeys(stripped_all))[:4]
+                stripped_note = "\n-# 🧹 추적 태그 제거됨 (" + ", ".join(uniq_p) + ")"
+
+        clean_embed = (
+            None
+            if needs_unfurl
+            else self._build_tracking_clean_embed(sender_name, sender_avatar, replaced_text, items)
+        )
 
         # 이모지 업스케일 방식 치환 가능 여부 확인 (답장: 앱 네이티브 답장 / 일반: 작성자 웹훅)
         if want_replace and perms.manage_messages and (
@@ -3136,44 +3238,61 @@ class CommunityCog(commands.Cog):
                         fail_if_not_exists=False,
                     )
                     mention_target = bool(message.mentions)
-                    safe_sender = discord.utils.escape_markdown(
-                        sanitize_webhook_username(message.author.display_name)
-                    )
+                    safe_sender = discord.utils.escape_markdown(sender_name)
                     reply_allowed = discord.AllowedMentions(
                         everyone=False,
                         roles=False,
                         users=False,
                         replied_user=mention_target,
                     )
+                    send_kwargs: dict = {
+                        "reference": reply_ref,
+                        "mention_author": mention_target,
+                        "allowed_mentions": reply_allowed,
+                    }
+                    if clean_embed is not None:
+                        send_kwargs["embed"] = clean_embed
+                    else:
+                        send_kwargs["content"] = f"-# {safe_sender}\n{replaced_text}{stripped_note}"
+                    if open_view is not None:
+                        send_kwargs["view"] = open_view
                     try:
-                        sent_msg = await channel.send(
-                            content=f"-# {safe_sender}\n{replaced_text}",
-                            reference=reply_ref,
-                            mention_author=mention_target,
-                            allowed_mentions=reply_allowed,
-                        )
+                        sent_msg = await channel.send(**send_kwargs)
                     except Exception:
                         pass
                 else:
-                    sender_name = sanitize_webhook_username(message.author.display_name)
-                    sender_avatar = message.author.display_avatar.url if hasattr(message.author, "display_avatar") else None
-                    wh_kwargs = {
-                        "content": replaced_text,
+                    wh_kwargs: dict = {
                         "username": sender_name,
                         "avatar_url": sender_avatar,
                         "allowed_mentions": discord.AllowedMentions.none(),
                         "wait": True,
                     }
+                    if clean_embed is not None:
+                        wh_kwargs["embed"] = clean_embed
+                    else:
+                        wh_kwargs["content"] = f"{replaced_text}{stripped_note}"
+                    if open_view is not None:
+                        wh_kwargs["view"] = open_view
                     if isinstance(channel, discord.Thread):
                         wh_kwargs["thread"] = channel
+
+                    async def _try_wh_send(wh: discord.Webhook):
+                        try:
+                            return await wh.send(**wh_kwargs)
+                        except discord.HTTPException:
+                            if "view" in wh_kwargs:
+                                fallback_kw = {k: v for k, v in wh_kwargs.items() if k != "view"}
+                                return await wh.send(**fallback_kw)
+                            raise
+
                     try:
-                        sent_msg = await webhook.send(**wh_kwargs)
+                        sent_msg = await _try_wh_send(webhook)
                     except discord.NotFound:
                         self._link_webhook_cache.pop(base_channel.id, None)
                         fresh_wh = await self._get_or_create_link_webhook(base_channel)
                         if fresh_wh:
                             try:
-                                sent_msg = await fresh_wh.send(**wh_kwargs)
+                                sent_msg = await _try_wh_send(fresh_wh)
                             except Exception:
                                 pass
                     except Exception:
@@ -3183,19 +3302,26 @@ class CommunityCog(commands.Cog):
                     self._record_clean_link_message(int(sent_msg.id), int(message.author.id))
                 return
 
-        # 폴백 (첨부파일/스티커 포함, 치환 옵션 OFF, 또는 웹훅/삭제 권한 부재 시): 원본 보존 + 깔끔 마스킹 답글
+        # 폴백 (첨부파일/스티커 포함, 치환 옵션 OFF, 또는 웹훅/삭제 권한 부재 시): 원본 보존 + 깔끔 답글
         if link_cfg.get("suppress_original", True) and perms.manage_messages:
             try:
                 await message.edit(suppress=True)
             except Exception:
                 pass
 
+        if clean_embed is not None:
+            try:
+                await message.reply(embed=clean_embed, view=LinkCleanupView(), mention_author=False)
+            except Exception:
+                pass
+            return
+
         link_lines = []
         for it in items:
             icon = "🔗" if it["kind"] == "sns" else "🧹"
             label = str(it["service"]).replace("[", "(").replace("]", ")")
             link_lines.append(f"[{icon} {label}]({it['cleaned']})")
-        body = "\n".join(link_lines)
+        body = "\n".join(link_lines) + stripped_note
         try:
             await message.reply(body, view=LinkCleanupView(), mention_author=False)
         except Exception:
