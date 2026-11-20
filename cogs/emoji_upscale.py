@@ -1506,15 +1506,26 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
 
         channel = message.channel
         base_channel = channel.parent if isinstance(channel, discord.Thread) else channel
-        if base_channel is None or not hasattr(base_channel, "webhooks"):
+        if base_channel is None:
             return
+
+        is_reply = (
+            message.type == discord.MessageType.reply
+            and message.reference is not None
+            and message.reference.message_id is not None
+        )
 
         me = message.guild.me
         if not me:
             return
         perms = channel.permissions_for(me)
-        if not (perms.manage_messages and perms.manage_webhooks):
-            return
+        can_send = perms.send_messages_in_threads if isinstance(channel, discord.Thread) else perms.send_messages
+        if is_reply:
+            if not (perms.manage_messages and can_send):
+                return
+        else:
+            if not hasattr(base_channel, "webhooks") or not (perms.manage_messages and perms.manage_webhooks):
+                return
 
         # 1. emote-cdn-rust 가이드 방식(투명 여백 없음 · 160x160 원본 종횡비 유지 · Lanczos3 · WebP)
         #    200 OK 검증된 마스킹 링크([⠀](url)) 우선 준비 -> 외부 네트워크 차단 시에만 160x160 WebP 직접 전송 폴백
@@ -1530,10 +1541,12 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
             print(f"⚠️ [이모지 업스케일 변환 예외] {e}", flush=True)
             return
 
-        # 2. 웹훅 준비
-        webhook = await self._get_or_create_webhook(base_channel)
-        if not webhook:
-            return
+        # 2. 일반 메시지는 웹훅 사전 준비 (답장 메시지는 앱(봇)이 직접 네이티브 답장으로 전송)
+        webhook = None
+        if not is_reply:
+            webhook = await self._get_or_create_webhook(base_channel)
+            if not webhook:
+                return
 
         # 3. 원본 메시지 삭제 (이모지 업스케일 치환 삭제에 한해 서버 삭제 로그 억제)
         core.mark_suppressed_delete_log(message.id)
@@ -1543,7 +1556,51 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
             core.consume_suppressed_delete_log(message.id)
             return
 
-        # 4. 보낸 사람 프로필 사진 & 닉네임으로 웹훅 전송
+        # 4-A. 답장 메시지: 앱(봇)이 원본 답장 대상(reference)에 네이티브 답장으로 전송
+        sent_msg = None
+        if is_reply:
+            reply_ref = discord.MessageReference(
+                message_id=message.reference.message_id,
+                channel_id=message.reference.channel_id or channel.id,
+                guild_id=message.reference.guild_id or message.guild.id,
+                fail_if_not_exists=False,
+            )
+            mention_target = bool(message.mentions)
+            safe_sender = discord.utils.escape_markdown(
+                sanitize_webhook_username(message.author.display_name)
+            )
+            reply_allowed = discord.AllowedMentions(
+                everyone=False,
+                roles=False,
+                users=False,
+                replied_user=mention_target,
+            )
+            try:
+                if masked_content:
+                    sent_msg = await channel.send(
+                        content=f"-# {safe_sender}\n{masked_content}",
+                        reference=reply_ref,
+                        mention_author=mention_target,
+                        allowed_mentions=reply_allowed,
+                    )
+                else:
+                    assert fallback_payload is not None
+                    out_bytes, filename = fallback_payload
+                    sent_msg = await channel.send(
+                        content=f"-# {safe_sender}",
+                        file=discord.File(io.BytesIO(out_bytes), filename=filename),
+                        reference=reply_ref,
+                        mention_author=mention_target,
+                        allowed_mentions=reply_allowed,
+                    )
+            except Exception as reply_err:
+                print(f"⚠️ [이모지 업스케일 앱 답장 전송 실패] {reply_err}", flush=True)
+
+            if sent_msg and getattr(sent_msg, "id", None):
+                self._record_upscaled_message(int(sent_msg.id), int(message.author.id))
+            return
+
+        # 4-B. 일반 메시지: 보낸 사람 프로필 사진 & 닉네임으로 웹훅 전송
         sender_name = sanitize_webhook_username(message.author.display_name)
         sender_avatar = message.author.display_avatar.url if hasattr(message.author, "display_avatar") else None
         base_kwargs = {
@@ -1565,7 +1622,6 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
                 **base_kwargs,
             )
 
-        sent_msg = None
         try:
             sent_msg = await _send_via_webhook(webhook)
         except discord.NotFound:
