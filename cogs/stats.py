@@ -69,17 +69,19 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
     now_kst = datetime.datetime.now(core.KST)
     today_str = core.get_today_str()
 
-    # 1. 실제 서버 기본 제원
+    # 1. 실제 서버 기본 제원 (유저 vs 봇 비율 분리)
     g_members = getattr(guild, "members", None) or []
     member_count = getattr(guild, "member_count", 0) or len(g_members) or 1
     if g_members:
         bots_count = sum(1 for m in g_members if getattr(m, "bot", False))
         humans_count = max(0, member_count - bots_count)
-        members_desc = f"`{member_count:,}명` (유저 `{humans_count:,}명` · 봇 `{bots_count:,}개`)"
+        human_pct = round((humans_count / max(1, member_count)) * 100, 1)
+        bot_pct = round((bots_count / max(1, member_count)) * 100, 1)
+        members_desc = f"`{member_count:,}명` (👤 유저 `{humans_count:,}명` `{human_pct}%` · 🤖 봇 `{bots_count:,}개` `{bot_pct}%`)"
     else:
         bots_count = 0
         humans_count = member_count
-        members_desc = f"`{member_count:,}명`"
+        members_desc = f"`{member_count:,}명` (👤 유저 `{humans_count:,}명` · 🤖 봇 `0개`)"
 
     text_chs = getattr(guild, "text_channels", None) or []
     voice_chs = getattr(guild, "voice_channels", None) or []
@@ -89,21 +91,32 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
     created_at = getattr(guild, "created_at", None)
     created_str = created_at.astimezone(core.KST).strftime("%Y-%m-%d") if created_at else "-"
 
-    # 2. 실시간 음성 채널 접속 인원 (100% 실시간 사실)
+    # 2. 실시간 음성 채널 접속 인원 (유저 vs 봇 구분)
     active_voice_chs = [vc for vc in voice_chs if hasattr(vc, "members") and len(vc.members) > 0]
-    active_voice_users = sum(len(vc.members) for vc in active_voice_chs)
+    active_voice_humans = sum(sum(1 for m in vc.members if not getattr(m, "bot", False)) for vc in active_voice_chs)
+    active_voice_bots = sum(sum(1 for m in vc.members if getattr(m, "bot", False)) for vc in active_voice_chs)
+    active_voice_users = active_voice_humans + active_voice_bots
     if active_voice_chs:
-        vc_active_str = f"🔊 현재 `{len(active_voice_chs)}개` 채널에서 총 `{active_voice_users:,}명` 실시간 통화 중"
-        vc_ch_names = ", ".join([f"`#{vc.name}` ({len(vc.members)}명)" for vc in active_voice_chs[:3]])
+        vc_active_str = (
+            f"🔊 현재 `{len(active_voice_chs)}개` 채널 · 총 `{active_voice_users:,}명` "
+            f"(👤 유저 `{active_voice_humans:,}명` · 🤖 봇 `{active_voice_bots:,}개`)"
+        )
+        vc_ch_parts = []
+        for vc in active_voice_chs[:3]:
+            vh = sum(1 for m in vc.members if not getattr(m, "bot", False))
+            vb = sum(1 for m in vc.members if getattr(m, "bot", False))
+            vc_ch_parts.append(f"`#{vc.name}` (👤{vh} · 🤖{vb})" if vb > 0 else f"`#{vc.name}` (👤{vh}명)")
+        vc_ch_names = ", ".join(vc_ch_parts)
     else:
-        vc_active_str = "🔇 현재 음성 채널 통화 멤버 없음 (`0명`)"
+        vc_active_str = "🔇 현재 음성 채널 통화 멤버 없음 (`👤 0명` · `🤖 0개`)"
         vc_ch_names = "통화 중인 채널 없음"
 
-    # 3. 실제 서버 출석체크 참여 현황 (data['guild_attendance'][g_key])
+    # 3. 실제 서버 출석체크 참여 현황 (봇 제외한 실제 유저 수 기준 출석률)
     guild_att = core.safe_get_dict(data, "guild_attendance", g_key)
     total_att_registered = len(guild_att)
     today_att_count = sum(1 for u in guild_att.values() if isinstance(u, dict) and u.get("last_date") == today_str)
-    att_rate = round((today_att_count / max(1, member_count)) * 100, 1)
+    att_denom = max(1, humans_count)
+    att_rate = min(100.0, round((today_att_count / att_denom) * 100, 1))
     streak_7_count = sum(1 for u in guild_att.values() if isinstance(u, dict) and u.get("streak", 0) >= 7)
 
     # 서버 출석 연속 1위 유저
@@ -119,7 +132,7 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
     gacha_users_cnt = len(g_gacha_users)
     total_cards_cnt = sum(len(core.as_dict(u.get("cards"))) for u in g_gacha_users.values() if isinstance(u, dict))
 
-    # 5. 실제 메시지 수량 및 채널별 집계 (data['server_stats'][g_key])
+    # 5. 실제 메시지 수량 및 채널별 집계 (유저 vs 봇 메시지 분리)
     s_stats = core.safe_get_dict(data, "server_stats", g_key)
     is_daily = (timeframe == "daily")
     title_time = "일간 (오늘 00:00~현재)" if is_daily else "주간 (최근 7일 누적)"
@@ -128,6 +141,11 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
     weekly_msgs = s_stats.get("weekly_msgs", 0)
     total_msgs = s_stats.get("total_msgs", 0)
     tot_msgs = today_msgs if is_daily else weekly_msgs
+
+    today_bot_msgs = s_stats.get("today_bot_msgs", 0)
+    weekly_bot_msgs = s_stats.get("weekly_bot_msgs", 0)
+    total_bot_msgs = s_stats.get("total_bot_msgs", 0)
+    tot_bot_msgs = today_bot_msgs if is_daily else weekly_bot_msgs
 
     channel_msgs = core.as_dict(s_stats.get("channel_msgs"))
     sorted_channels = sorted(
@@ -151,7 +169,7 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
         if not display_channels:
             display_channels.append({"name": "#채널없음", "count": 0, "percent": 0.0})
 
-    # 6. 시간대별 활동 분포 (실제 수집 데이터)
+    # 6. 시간대별 활동 분포 (실제 수집 데이터 - 유저 채팅 기준)
     hourly_msgs = s_stats.get("hourly_msgs", {})
     h_0_6 = sum(hourly_msgs.get(str(h), 0) for h in range(0, 6))
     h_6_12 = sum(hourly_msgs.get(str(h), 0) for h in range(6, 12))
@@ -180,11 +198,14 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
         p_0_6 = p_6_12 = p_12_18 = p_18_24 = 0.0
         peak_str = "`실시간 메시지 수집 대기 중`"
 
-    # 메시지 표시 문자열
-    if tot_msgs > 0:
-        msg_val_str = f"`{tot_msgs:,}개` (전체 누적 `{total_msgs:,}개`)"
+    # 메시지 표시 문자열 (유저 vs 봇 분리 표기)
+    if tot_msgs > 0 or tot_bot_msgs > 0:
+        msg_val_str = (
+            f"👤 유저 `{tot_msgs:,}개` · 🤖 봇 `{tot_bot_msgs:,}개` "
+            f"*(누적 👤 `{total_msgs:,}` · 🤖 `{total_bot_msgs:,}`)*"
+        )
     else:
-        msg_val_str = "`0개` *(실시간 채팅 수집 대기 중)*"
+        msg_val_str = "`👤 0개 · 🤖 0개` *(실시간 채팅 수집 대기 중)*"
 
     if mode == "summary":
         top_ch_desc = (
@@ -201,9 +222,9 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
                 "──────────────────────\n"
                 f"💬 **채팅 메시지량:** {msg_val_str}\n"
                 f"🔊 **음성채널 실시간 현황:** {vc_active_str}\n"
-                f"📅 **오늘 출석 참여율:** `{att_rate}%` (`{today_att_count:,}` / `{member_count:,}명` 완료 · 누적 등록 `{total_att_registered:,}명`)\n\n"
-                f"🏆 **최다 활성 채널 1위:** {top_ch_desc}\n"
-                f"🔥 **최고 활성 시간대:** {peak_str}\n\n"
+                f"📅 **오늘 출석 참여율:** `{att_rate}%` (`{today_att_count:,}` / 👤 유저 `{humans_count:,}명` · 누적 등록 `{total_att_registered:,}명`)\n\n"
+                f"🏆 **최다 활성 채널 1위 (유저 기준):** {top_ch_desc}\n"
+                f"🔥 **최고 활성 시간대 (유저 기준):** {peak_str}\n\n"
                 f"🤖 **서버 내 봇 기능 활용:** D-Day `{ddays_cnt}개` · 가챠 수집가 `{gacha_users_cnt}명` (카드 `{total_cards_cnt:,}장` 보유)"
             ),
             color=discord.Color.from_rgb(0, 204, 221),
@@ -233,15 +254,16 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
                 f"🏠 **서버 총원:** {members_desc} · **개설일:** `{created_str}`\n"
                 f"📢 **채널 구성:** 텍스트 `{len(text_chs)}개` · 음성 `{len(voice_chs)}개` · 역할 `{roles_cnt}개`\n"
                 f"💎 **서버 부스트:** `레벨 {boost_lvl}` (`{boost_cnt}개` 부스트 활성)\n\n"
-                f"💬 **1. 채널별 실제 메시지 점유율:**\n" + "\n".join(ch_lines) + "\n\n"
+                f"💬 **1. 채팅량 (유저 vs 봇) & 채널별 점유율:**\n"
+                f"• 기간 채팅량: {msg_val_str}\n" + "\n".join(ch_lines) + "\n\n"
                 f"🔊 **2. 음성 세션 실시간 데이터:**\n"
-                f"• 실시간 통화 인원: `{active_voice_users:,}명`\n"
+                f"• 실시간 통화 인원: 총 `{active_voice_users:,}명` (👤 유저 `{active_voice_humans:,}명` · 🤖 봇 `{active_voice_bots:,}개`)\n"
                 f"• 통화 진행 채널: {vc_ch_names}\n\n"
-                f"📅 **3. 출석 마일스톤 참여 현황:**\n"
-                f"• 오늘 출석률: `{att_rate}%` (`{today_att_count:,}`명 출석 완료)\n"
+                f"📅 **3. 출석 마일스톤 참여 현황 (유저 기준):**\n"
+                f"• 오늘 출석률: `{att_rate}%` (`{today_att_count:,}` / 👤 `{humans_count:,}명` 완료)\n"
                 f"• 연속 출석 7일 이상 보유 유저: `{streak_7_count:,}명`\n"
                 f"• 서버 최장 연속 출석자: {streak_leader_str}\n\n"
-                f"🔥 **4. 24시간대별 실제 채팅 분포 타임라인:**\n" + "\n".join([f"`{g}`" for g in graph_lines]) + "\n\n"
+                f"🔥 **4. 24시간대별 실제 유저 채팅 분포 타임라인:**\n" + "\n".join([f"`{g}`" for g in graph_lines]) + "\n\n"
                 f"🤖 **5. norosi 서비스 연동 현황:**\n"
                 f"• 서버 전용 D-Day 일정: `{ddays_cnt}개`\n"
                 f"• 프로세카 가챠 이용 유저: `{gacha_users_cnt}명` (총 `{total_cards_cnt:,}장` 보유)"
@@ -868,6 +890,9 @@ class StatsCog(commands.Cog):
                                 "today_msgs": 0,
                                 "weekly_msgs": 0,
                                 "total_msgs": 0,
+                                "today_bot_msgs": 0,
+                                "weekly_bot_msgs": 0,
+                                "total_bot_msgs": 0,
                                 "channel_msgs": {},
                                 "hourly_msgs": {},
                                 "active_users": {}
@@ -878,17 +903,26 @@ class StatsCog(commands.Cog):
                         if g_stat.get("today_date") != today_str:
                             g_stat["today_date"] = today_str
                             g_stat["today_msgs"] = 0
+                            g_stat["today_bot_msgs"] = 0
                             g_stat["channel_msgs"] = {}
                             g_stat["hourly_msgs"] = {}
 
                         if g_stat.get("week_key") != week_key:
                             g_stat["week_key"] = week_key
                             g_stat["weekly_msgs"] = 0
+                            g_stat["weekly_bot_msgs"] = 0
 
-                        cnt = bucket["count"]
-                        g_stat["today_msgs"] = g_stat.get("today_msgs", 0) + cnt
-                        g_stat["weekly_msgs"] = g_stat.get("weekly_msgs", 0) + cnt
-                        g_stat["total_msgs"] = g_stat.get("total_msgs", 0) + cnt
+                        cnt = bucket.get("count", 0)
+                        if cnt:
+                            g_stat["today_msgs"] = g_stat.get("today_msgs", 0) + cnt
+                            g_stat["weekly_msgs"] = g_stat.get("weekly_msgs", 0) + cnt
+                            g_stat["total_msgs"] = g_stat.get("total_msgs", 0) + cnt
+
+                        bot_cnt = bucket.get("bot_count", 0)
+                        if bot_cnt:
+                            g_stat["today_bot_msgs"] = g_stat.get("today_bot_msgs", 0) + bot_cnt
+                            g_stat["weekly_bot_msgs"] = g_stat.get("weekly_bot_msgs", 0) + bot_cnt
+                            g_stat["total_bot_msgs"] = g_stat.get("total_bot_msgs", 0) + bot_cnt
 
                         ch_map = core.ensure_dict_path(g_stat, "channel_msgs")
                         for ch_id, ch_info in bucket["channels"].items():
@@ -911,33 +945,36 @@ class StatsCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        """실제 서버 채팅 활동량을 백그라운드에서 실시간 집계하여 누적"""
-        if not message.guild or message.author.bot:
+        """실제 서버 채팅 활동량을 유저/봇으로 구분하여 백그라운드에서 실시간 집계"""
+        if not message.guild:
             return
 
         g_key = str(message.guild.id)
-        ch_id = str(message.channel.id)
-        ch_name = f"#{message.channel.name}" if hasattr(message.channel, "name") else "#채널"
         now_kst = datetime.datetime.now(core.KST)
         today_str = now_kst.strftime("%Y-%m-%d")
-        hour_str = str(now_kst.hour)
 
         key = (g_key, today_str)
         bucket = self._msg_buffer.get(key)
         if bucket is None:
-            bucket = {"count": 0, "channels": {}, "hours": {}, "users": {}}
+            bucket = {"count": 0, "bot_count": 0, "channels": {}, "hours": {}, "users": {}}
             self._msg_buffer[key] = bucket
 
-        bucket["count"] += 1
-        ch_entry = bucket["channels"].get(ch_id)
-        if ch_entry is None:
-            bucket["channels"][ch_id] = [ch_name, 1]
+        if message.author.bot or message.webhook_id is not None:
+            bucket["bot_count"] += 1
         else:
-            ch_entry[0] = ch_name
-            ch_entry[1] += 1
-        bucket["hours"][hour_str] = bucket["hours"].get(hour_str, 0) + 1
-        u_id = str(message.author.id)
-        bucket["users"][u_id] = bucket["users"].get(u_id, 0) + 1
+            ch_id = str(message.channel.id)
+            ch_name = f"#{message.channel.name}" if hasattr(message.channel, "name") else "#채널"
+            hour_str = str(now_kst.hour)
+            bucket["count"] += 1
+            ch_entry = bucket["channels"].get(ch_id)
+            if ch_entry is None:
+                bucket["channels"][ch_id] = [ch_name, 1]
+            else:
+                ch_entry[0] = ch_name
+                ch_entry[1] += 1
+            bucket["hours"][hour_str] = bucket["hours"].get(hour_str, 0) + 1
+            u_id = str(message.author.id)
+            bucket["users"][u_id] = bucket["users"].get(u_id, 0) + 1
 
         # 채팅마다 동기식 I/O를 배제하고 25메시지마다 원자적 배치 저장하여 병목 및 덮어쓰기 방지
         self._msg_save_counter += 1
