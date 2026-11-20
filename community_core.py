@@ -180,6 +180,7 @@ def transform_single_url(
     path = parsed.path or ""
     new_host = host
     service_label = None
+    platform_key = "web"
     is_twitter = False
 
     if host in ("x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com", "mobile.x.com"):
@@ -187,10 +188,12 @@ def transform_single_url(
         if sns_preview and re.match(r"^/[^/]+/status/\d+", path):
             new_host = "fxtwitter.com"
             service_label = "X (Twitter)"
-    elif host in ("instagram.com", "www.instagram.com"):
+            platform_key = "x"
+    elif host in ("instagram.com", "www.instagram.com", "m.instagram.com"):
         if sns_preview and re.match(r"^/(p|reel|reels|tv|stories)/", path):
             new_host = "kkinstagram.com"
             service_label = "Instagram"
+            platform_key = "instagram"
     elif host in ("tiktok.com", "www.tiktok.com", "m.tiktok.com", "vt.tiktok.com", "vm.tiktok.com"):
         if sns_preview and path and path != "/":
             if host == "vt.tiktok.com":
@@ -200,22 +203,41 @@ def transform_single_url(
             else:
                 new_host = "vxtiktok.com"
             service_label = "TikTok"
+            platform_key = "tiktok"
     elif host in ("threads.net", "www.threads.net", "threads.com", "www.threads.com"):
         if sns_preview and "/post/" in path:
             new_host = "vxthreads.net"
             service_label = "Threads"
-    elif host in ("reddit.com", "www.reddit.com", "old.reddit.com", "new.reddit.com"):
-        if sns_preview and ("/comments/" in path or "/s/" in path):
-            new_host = "rxddit.com"
+            platform_key = "threads"
+    elif host in ("reddit.com", "www.reddit.com", "old.reddit.com", "new.reddit.com", "m.reddit.com", "redd.it"):
+        if sns_preview and ("/comments/" in path or "/s/" in path or host == "redd.it"):
+            new_host = "rxddit.com" if host != "redd.it" else host
             service_label = "Reddit"
+            platform_key = "reddit"
     elif host in ("pixiv.net", "www.pixiv.net"):
         if sns_preview and "/artworks/" in path:
             new_host = "phixiv.net"
             service_label = "Pixiv"
-    elif host == "bsky.app":
+            platform_key = "pixiv"
+    elif host in ("bsky.app", "www.bsky.app"):
         if sns_preview and "/profile/" in path and "/post/" in path:
             new_host = "bskyx.app"
             service_label = "Bluesky"
+            platform_key = "bluesky"
+    elif host in ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"):
+        if sns_preview and path.startswith("/shorts/"):
+            service_label = "YouTube Shorts"
+            platform_key = "youtube"
+        elif host == "youtu.be" or path.startswith("/watch"):
+            platform_key = "youtube"
+    elif host in ("facebook.com", "www.facebook.com", "m.facebook.com", "fb.watch"):
+        if sns_preview and (host == "fb.watch" or any(seg in path for seg in ("/reel/", "/videos/", "/posts/", "/share/", "/watch", "/photo"))):
+            service_label = "Facebook"
+            platform_key = "facebook"
+    elif host in ("pinterest.com", "www.pinterest.com", "kr.pinterest.com", "pin.it"):
+        if sns_preview and (host == "pin.it" or "/pin/" in path):
+            service_label = "Pinterest"
+            platform_key = "pinterest"
 
     # 추적 파라미터 정리
     new_query = parsed.query
@@ -240,13 +262,16 @@ def transform_single_url(
 
     scheme = "https" if service_label else parsed.scheme
     cleaned_url = urllib.parse.urlunsplit((scheme, new_host, parsed.path, new_query, parsed.fragment))
-    if cleaned_url == url:
+    canonical_url = urllib.parse.urlunsplit((scheme, host, parsed.path, new_query, parsed.fragment))
+    if cleaned_url == url and not service_label:
         return None
 
     return {
         "original": url,
         "cleaned": cleaned_url,
+        "canonical": canonical_url,
         "kind": "sns" if service_label else "tracking",
+        "platform": platform_key,
         "service": service_label or host,
         "stripped_params": stripped_params,
     }
@@ -294,11 +319,14 @@ def replace_urls_with_clean_links(
     text: str,
     cfg: dict,
     max_items: int = 3,
+    *,
+    canonical_plain: bool = False,
 ) -> tuple[str, list[dict]]:
     """
     원본 메시지 본문의 텍스트·코드블록·스포일러·<링크>·기존 마크다운 링크는 그대로 보존하면서,
-    변환 대상 raw URL만 깔끔한 마스킹 링크([🔗 서비스](url) / [🧹 도메인](url))로 인플레이스 치환합니다.
-    Discord는 마스킹 링크의 URL에 대해 긴 원시 URL을 숨기고 풍부한 임베드만 깔끔하게 표시합니다.
+    변환 대상 raw URL만 깔끔하게 치환합니다.
+    - canonical_plain=True: Components V2 상단 표시용으로 추적 파라미터만 제거된 공식 클린 URL로 치환
+    - canonical_plain=False: 폴백용 마스킹 링크([🔗 서비스](프록시url))로 치환
     """
     if not text or not cfg.get("enabled", False):
         return text, []
@@ -322,6 +350,8 @@ def replace_urls_with_clean_links(
             return match.group(0)
         items.append(item)
         trailing = raw_url[len(item["original"]):]
+        if canonical_plain:
+            return f"{item['canonical']}{trailing}"
         icon = "🔗" if item["kind"] == "sns" else "🧹"
         label = str(item["service"]).replace("[", "(").replace("]", ")")
         return f"[{icon} {label}]({item['cleaned']}){trailing}"

@@ -25,6 +25,7 @@ from discord.ext import commands, tasks
 
 import community_core
 import core
+import sns_embed_core
 from cogs.emoji_upscale import (
     is_delete_reaction_emoji,
     resolve_webhook_avatar_url,
@@ -439,8 +440,8 @@ class LinkPreviewConfigView(core.SafeView):
             title=f"🔗 [{gname}] SNS 링크 미리보기 & 추적 제거 설정",
             description=(
                 "• **전체 기능:** " + ("🟢 활성화됨" if c["enabled"] else "🔴 비활성화됨") + "\n"
-                "• **SNS 미리보기 보정:** " + ("🟢 켜짐" if c["sns_preview"] else "⚪ 꺼짐")
-                + " *(X/Twitter, Instagram, TikTok, Threads, Reddit, Pixiv, Bluesky)*\n"
+                "• **SNS 리치 카드 보정:** " + ("🟢 켜짐" if c["sns_preview"] else "⚪ 꺼짐")
+                + " *(X/Twitter, Instagram, TikTok, Threads, Reddit, Pixiv, Bluesky, YouTube Shorts, Facebook, Pinterest)*\n"
                 "• **추적 파라미터 제거:** " + ("🟢 켜짐" if c["strip_tracking"] else "⚪ 꺼짐")
                 + " *(`?si=`, `?igsh=`, `?utm_*`, `?fbclid=`, `?s=&t=` 등)*\n"
                 "• **원본 삭제 · 깔끔 치환:** " + ("🟢 켜짐 *(이모지 업스케일 방식)*" if c["suppress_original"] else "⚪ 꺼짐 *(답글만 표시)*") + "\n"
@@ -3176,9 +3177,14 @@ class CommunityCog(commands.Cog):
         return embed
 
     async def _handle_clean_link_message(self, message: discord.Message, link_cfg: dict):
-        replaced_text, items = community_core.replace_urls_with_clean_links(message.content, link_cfg)
+        replaced_masked, items = community_core.replace_urls_with_clean_links(
+            message.content, link_cfg, canonical_plain=False
+        )
         if not items or not self._mark_link_processed(message.id):
             return
+        replaced_canonical, _ = community_core.replace_urls_with_clean_links(
+            message.content, link_cfg, canonical_plain=True
+        )
 
         channel = message.channel
         base_channel = channel.parent if isinstance(channel, discord.Thread) else channel
@@ -3190,29 +3196,47 @@ class CommunityCog(commands.Cog):
         can_send = perms.send_messages_in_threads if isinstance(channel, discord.Thread) else perms.send_messages
         is_reply = bool(message.reference and message.reference.message_id)
         has_media = bool(message.attachments or message.stickers)
-        want_replace = bool(link_cfg.get("suppress_original", True)) and (not has_media) and (len(replaced_text) <= 1900)
+        want_replace = bool(link_cfg.get("suppress_original", True)) and (not has_media) and (len(replaced_canonical) <= 1800)
 
         sender_name = sanitize_webhook_username(message.author.display_name)
         sender_avatar = resolve_webhook_avatar_url(message.author)
+        safe_sender = discord.utils.escape_markdown(sender_name)
+
+        # 1) Components V2 리치 카드 사전 추출 (원본 삭제 전에 미리 준비해 실패 시 메시지 유실 원천 차단)
+        primary = items[0]
+        primary_url = primary.get("canonical") or primary.get("cleaned") or primary.get("original")
+        primary_platform = primary.get("platform") or sns_embed_core.detect_sns_platform(primary_url) or "web"
+        v2_layout = None
+        v2_files: list[discord.File] = []
+        post_data = None
+        try:
+            post_data = await sns_embed_core.fetch_sns_post_data(primary_url, platform=primary_platform)
+            if post_data is not None:
+                v2_layout, v2_files = await sns_embed_core.build_sns_components_v2_payload(
+                    post_data,
+                    top_text=replaced_canonical,
+                    sender_prefix=f"-# {safe_sender}" if is_reply else "",
+                )
+        except Exception:
+            v2_layout = None
+            v2_files = []
+
+        # 2) 폴백 준비 (API 추출 실패 시 기존 프록시 마스킹 링크 또는 추적제거 임베드 사용)
         needs_unfurl = self._needs_native_media_unfurl(items)
         open_view = self._build_clean_link_open_view(items)
-
-        # 추적 파라미터만 제거된 일반 사이트 링크는 깔끔한 Embed(작성자 프사 포함)로,
-        # SNS·유튜브·스포티파이 등 미디어 링크는 동영상/사진 자동 임베드를 살리기 위해 마스킹 링크 + 바로가기 버튼으로 표시
         stripped_note = ""
         if needs_unfurl:
             stripped_all = [p for it in items for p in (it.get("stripped_params") or [])]
             if stripped_all:
                 uniq_p = list(dict.fromkeys(stripped_all))[:4]
                 stripped_note = "\n-# 🧹 추적 태그 제거됨 (" + ", ".join(uniq_p) + ")"
-
         clean_embed = (
             None
             if needs_unfurl
-            else self._build_tracking_clean_embed(sender_name, sender_avatar, replaced_text, items)
+            else self._build_tracking_clean_embed(sender_name, sender_avatar, replaced_masked, items)
         )
 
-        # 이모지 업스케일 방식 치환 가능 여부 확인 (답장: 앱 네이티브 답장 / 일반: 작성자 웹훅)
+        # 3) 이모지 업스케일 방식 치환 (답장: 앱 네이티브 답장 / 일반: 작성자 웹훅)
         if want_replace and perms.manage_messages and (
             (is_reply and can_send)
             or ((not is_reply) and hasattr(base_channel, "webhooks") and perms.manage_webhooks)
@@ -3238,61 +3262,88 @@ class CommunityCog(commands.Cog):
                         fail_if_not_exists=False,
                     )
                     mention_target = bool(message.mentions)
-                    safe_sender = discord.utils.escape_markdown(sender_name)
                     reply_allowed = discord.AllowedMentions(
                         everyone=False,
                         roles=False,
                         users=False,
                         replied_user=mention_target,
                     )
-                    send_kwargs: dict = {
-                        "reference": reply_ref,
-                        "mention_author": mention_target,
-                        "allowed_mentions": reply_allowed,
-                    }
-                    if clean_embed is not None:
-                        send_kwargs["embed"] = clean_embed
-                    else:
-                        send_kwargs["content"] = f"-# {safe_sender}\n{replaced_text}{stripped_note}"
-                    if open_view is not None:
-                        send_kwargs["view"] = open_view
-                    try:
-                        sent_msg = await channel.send(**send_kwargs)
-                    except Exception:
-                        pass
+                    if v2_layout is not None:
+                        try:
+                            v2_kw: dict = {
+                                "view": v2_layout,
+                                "reference": reply_ref,
+                                "mention_author": mention_target,
+                                "allowed_mentions": reply_allowed,
+                            }
+                            if v2_files:
+                                v2_kw["files"] = v2_files
+                            sent_msg = await channel.send(**v2_kw)
+                        except discord.HTTPException:
+                            sent_msg = None
+                    if sent_msg is None:
+                        send_kwargs: dict = {
+                            "reference": reply_ref,
+                            "mention_author": mention_target,
+                            "allowed_mentions": reply_allowed,
+                        }
+                        if clean_embed is not None:
+                            send_kwargs["embed"] = clean_embed
+                        else:
+                            send_kwargs["content"] = f"-# {safe_sender}\n{replaced_masked}{stripped_note}"
+                        if open_view is not None:
+                            send_kwargs["view"] = open_view
+                        try:
+                            sent_msg = await channel.send(**send_kwargs)
+                        except Exception:
+                            pass
                 else:
-                    wh_kwargs: dict = {
+                    base_wh_kwargs: dict = {
                         "username": sender_name,
                         "avatar_url": sender_avatar,
                         "allowed_mentions": discord.AllowedMentions.none(),
                         "wait": True,
                     }
-                    if clean_embed is not None:
-                        wh_kwargs["embed"] = clean_embed
-                    else:
-                        wh_kwargs["content"] = f"{replaced_text}{stripped_note}"
-                    if open_view is not None:
-                        wh_kwargs["view"] = open_view
                     if isinstance(channel, discord.Thread):
-                        wh_kwargs["thread"] = channel
+                        base_wh_kwargs["thread"] = channel
 
-                    async def _try_wh_send(wh: discord.Webhook):
+                    async def _send_wh_with_retry(wh: discord.Webhook):
+                        # 1순위: Components V2 리치 카드 (스크린샷 동일 포맷)
+                        if v2_layout is not None:
+                            try:
+                                for f in v2_files:
+                                    f.reset()
+                                kw_v2 = dict(base_wh_kwargs)
+                                kw_v2["view"] = v2_layout
+                                if v2_files:
+                                    kw_v2["files"] = v2_files
+                                return await wh.send(**kw_v2)
+                            except discord.HTTPException:
+                                pass
+                        # 2순위: 프록시 마스킹 링크 또는 추적제거 임베드
+                        kw_fb = dict(base_wh_kwargs)
+                        if clean_embed is not None:
+                            kw_fb["embed"] = clean_embed
+                        else:
+                            kw_fb["content"] = f"{replaced_masked}{stripped_note}"
+                        if open_view is not None:
+                            kw_fb["view"] = open_view
                         try:
-                            return await wh.send(**wh_kwargs)
+                            return await wh.send(**kw_fb)
                         except discord.HTTPException:
-                            if "view" in wh_kwargs:
-                                fallback_kw = {k: v for k, v in wh_kwargs.items() if k != "view"}
-                                return await wh.send(**fallback_kw)
+                            if "view" in kw_fb:
+                                kw_fb.pop("view", None)
+                                return await wh.send(**kw_fb)
                             raise
 
                     try:
-                        sent_msg = await _try_wh_send(webhook)
+                        sent_msg = await _send_wh_with_retry(webhook)
                     except discord.NotFound:
                         self._link_webhook_cache.pop(base_channel.id, None)
                         fresh_wh = await self._get_or_create_link_webhook(base_channel)
                         if fresh_wh:
                             try:
-                                sent_msg = await _try_wh_send(fresh_wh)
+                                sent_msg = await _send_wh_with_retry(fresh_wh)
                             except Exception:
                                 pass
                     except Exception:
@@ -3306,6 +3357,18 @@ class CommunityCog(commands.Cog):
         if link_cfg.get("suppress_original", True) and perms.manage_messages:
             try:
                 await message.edit(suppress=True)
+            except Exception:
+                pass
+
+        if v2_layout is not None:
+            try:
+                v2_reply_kw: dict = {"view": v2_layout, "mention_author": False}
+                if v2_files:
+                    v2_reply_kw["files"] = v2_files
+                sent_reply = await message.reply(**v2_reply_kw)
+                if sent_reply and getattr(sent_reply, "id", None):
+                    self._record_clean_link_message(int(sent_reply.id), int(message.author.id))
+                return
             except Exception:
                 pass
 
