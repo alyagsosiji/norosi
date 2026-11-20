@@ -1274,12 +1274,12 @@ class DDayListBoardView(core.SafeView):
             return
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
-        ddays = core.as_dict(data.get("ddays"))
+        ddays = _filter_guild_ddays(data.get("ddays"), interaction.guild)
         if not ddays:
-            await interaction.followup.send("📭 현재 등록된 D-Day 일정이 없습니다.", ephemeral=True)
+            await interaction.followup.send("📭 이 서버에 등록된 D-Day 일정이 없습니다.", ephemeral=True)
             return
-        del_view = DDayDeleteView(ddays, self.bot_instance)
-        await interaction.followup.send("🗑️ 삭제할 D-Day 일정을 아래 메뉴에서 선택하세요 (연결된 전광판 채널도 함께 정리됩니다):", view=del_view, ephemeral=True, wait=True)
+        del_view = DDayDeleteView(ddays, self.bot_instance, guild=interaction.guild)
+        await interaction.followup.send("🗑️ 이 서버에서 삭제할 D-Day 일정을 아래 메뉴에서 선택하세요 (연결된 전광판 채널도 함께 정리됩니다):", view=del_view, ephemeral=True, wait=True)
 
     @discord.ui.button(label="⚙️ /설정", style=discord.ButtonStyle.secondary, row=1)
     async def open_menu_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1738,12 +1738,41 @@ class PartnerAcceptView(core.SafeView):
         await core.safe_edit_response(interaction, content=None, embed=embed, view=None)
 
 
+def _dday_belongs_to_guild(info: dict, guild: discord.Guild | None) -> bool:
+    """해당 D-Day 항목이 지정된 서버(guild)에 속하는지 판별합니다."""
+    if not isinstance(info, dict):
+        return False
+    if guild is None:
+        return True
+    d_guild_id = info.get("guild_id")
+    if d_guild_id is not None and str(d_guild_id).isdigit():
+        return int(d_guild_id) == guild.id
+    # 레거시(guild_id 미기록) 항목은 연결된 채널이 현재 서버에 존재할 때만 해당 서버 소속으로 인정
+    ch_id = info.get("channel_id")
+    if ch_id is not None and str(ch_id).isdigit():
+        return guild.get_channel(int(ch_id)) is not None
+    return False
+
+
+def _filter_guild_ddays(ddays: dict, guild: discord.Guild | None) -> dict:
+    """전체 D-Day 맵에서 현재 서버(guild) 소속 항목만 필터링합니다."""
+    return {
+        k: v
+        for k, v in core.as_dict(ddays).items()
+        if isinstance(v, dict) and _dday_belongs_to_guild(v, guild)
+    }
+
+
 class DDayDeleteSelect(discord.ui.Select):
-    def __init__(self, ddays, bot_instance):
+    def __init__(self, ddays, bot_instance, guild: discord.Guild | None = None):
         self.bot_instance = bot_instance
+        self.guild = guild
         options = []
         seen_vals = set()
-        sorted_ddays = sorted({k: v for k, v in core.as_dict(ddays).items() if isinstance(v, dict)}.items(), key=lambda x: x[1].get("date", "9999-12-31"))
+        scoped_ddays = _filter_guild_ddays(ddays, guild) if guild is not None else {
+            k: v for k, v in core.as_dict(ddays).items() if isinstance(v, dict)
+        }
+        sorted_ddays = sorted(scoped_ddays.items(), key=lambda x: x[1].get("date", "9999-12-31"))
         for name, info in sorted_ddays:
             val = str(name)[:100]
             if not val or val in seen_vals:
@@ -1760,9 +1789,9 @@ class DDayDeleteSelect(discord.ui.Select):
             if len(options) >= 25:
                 break
         if not options:
-            options.append(discord.SelectOption(label="삭제할 일정이 없습니다", value="NONE"))
+            options.append(discord.SelectOption(label="이 서버에 삭제할 일정이 없습니다", value="NONE"))
         super().__init__(
-            placeholder="🗑️ 삭제할 일정을 선택하세요 (연결된 채널도 함께 삭제됩니다)...",
+            placeholder="🗑️ 이 서버에서 삭제할 일정을 선택하세요 (연결된 채널도 함께 삭제됩니다)...",
             min_values=1,
             max_values=1,
             options=options,
@@ -1784,6 +1813,15 @@ class DDayDeleteSelect(discord.ui.Select):
                 selected_name = matched_key
         if selected_name in ddays_map:
             dday_info = core.as_dict(ddays_map.get(selected_name))
+            target_guild = interaction.guild or self.guild
+            if target_guild is not None and not _dday_belongs_to_guild(dday_info, target_guild):
+                await interaction.edit_original_response(
+                    content="❌ 다른 서버에 등록된 D-Day 일정은 이 서버에서 삭제할 수 없습니다.",
+                    embed=None,
+                    view=None,
+                )
+                return
+
             ch_id = dday_info.get("channel_id")
             channel_deleted_msg = ""
 
@@ -1824,9 +1862,9 @@ class DDayDeleteSelect(discord.ui.Select):
 
 
 class DDayDeleteView(core.SafeView):
-    def __init__(self, ddays, bot_instance):
+    def __init__(self, ddays, bot_instance, guild: discord.Guild | None = None):
         super().__init__(timeout=120)
-        self.add_item(DDayDeleteSelect(ddays, bot_instance))
+        self.add_item(DDayDeleteSelect(ddays, bot_instance, guild=guild))
 
 
 class ResetConfirmView(core.SafeView):
@@ -2329,12 +2367,12 @@ class DDayCog(commands.Cog):
     async def delete_dday(self, interaction: discord.Interaction):
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
-        ddays = {k: v for k, v in core.as_dict(data.get("ddays")).items() if isinstance(v, dict)}
+        ddays = _filter_guild_ddays(data.get("ddays"), interaction.guild)
         if not ddays:
-            await core.safe_send_response(interaction, content="📭 삭제할 일정이 없습니다.", ephemeral=True)
+            await core.safe_send_response(interaction, content="📭 이 서버에 삭제할 일정이 없습니다.", ephemeral=True)
             return
-        view = DDayDeleteView(ddays, self.bot)
-        await core.safe_send_response(interaction, content="아래 메뉴에서 삭제할 일정을 선택해 주세요. (연결된 전광판 채널도 자동으로 삭제됩니다)", view=view, ephemeral=True)
+        view = DDayDeleteView(ddays, self.bot, guild=interaction.guild)
+        await core.safe_send_response(interaction, content="아래 메뉴에서 이 서버의 삭제할 일정을 선택해 주세요. (연결된 전광판 채널도 자동으로 삭제됩니다)", view=view, ephemeral=True)
 
     @app_commands.command(name="파트너", description="연인·친구와 파트너를 맺어 공동 D-Day와 우리만의 공유 음악 보관함을 함께 사용합니다.")
     @app_commands.autocomplete(날짜=core.date_autocomplete)
