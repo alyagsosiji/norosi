@@ -833,6 +833,16 @@ async def _get_cdn_shared_session() -> aiohttp.ClientSession:
     return _CDN_SHARED_SESSION
 
 
+def _can_decode_with_pillow(raw: bytes) -> bool:
+    """Pillow(libwebp 등)가 해당 이미지의 첫 프레임을 오류 없이 디코드할 수 있는지 검사합니다."""
+    try:
+        with Image.open(io.BytesIO(raw)) as img:
+            img.load()
+            return True
+    except Exception:
+        return False
+
+
 async def fetch_and_resize_cdn_item(
     session: aiohttp.ClientSession,
     item_id: str,
@@ -889,6 +899,23 @@ async def fetch_and_resize_cdn_item(
     fmt = detect_image_format(body)
     if fmt == DetectedFormat.UNKNOWN:
         return None
+
+    # 일부 디스코드 애니메이션 WebP는 libwebp WebPAnimDecoder 생성 실패("could not create decoder object")가 발생하므로
+    # 이 경우 원본 .gif?size=160 으로 자동 폴백해 깨짐·경고 없이 160x160 애니메이션 WebP로 변환합니다.
+    if content_type == "emoji" and fmt == DetectedFormat.WEBP and is_animated_webp(body):
+        can_decode = await asyncio.to_thread(_can_decode_with_pillow, body)
+        if not can_decode:
+            gif_url = f"https://cdn.discordapp.com/emojis/{clean_id}.gif?size=160"
+            try:
+                async with session.get(gif_url, headers=headers, allow_redirects=False) as gif_resp:
+                    if 200 <= gif_resp.status < 300:
+                        if not gif_resp.content_length or gif_resp.content_length <= MAX_CDN_DOWNLOAD_BYTES:
+                            gif_raw = await gif_resp.content.read(MAX_CDN_DOWNLOAD_BYTES + 1)
+                            if gif_raw and 12 <= len(gif_raw) <= MAX_CDN_DOWNLOAD_BYTES and detect_image_format(gif_raw) == DetectedFormat.GIF:
+                                body = gif_raw
+                                actual_src = gif_url
+            except Exception:
+                pass
 
     try:
         webp_bytes, _ = await asyncio.to_thread(
@@ -1198,18 +1225,17 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         return self._http_session
 
     async def _download_emoji_bytes(self, emoji_id: str, animated: bool = False) -> Optional[bytes]:
-        """emote-cdn-rust와 동일하게 Discord CDN에서 WebP(?size=160&animated=true), PNG 순으로 다운로드합니다."""
+        """Discord CDN에서 WebP(?size=160&animated=true) 우선 다운로드, 디코드 불가 애니메이션 WebP는 GIF로 안전 폴백합니다."""
         clean_id = clean_id_from_path(emoji_id)
         if not validate_id(clean_id):
             return None
         session = await self._get_session()
-        urls = [
-            f"https://cdn.discordapp.com/emojis/{clean_id}.webp?size=160&animated=true",
-            f"https://cdn.discordapp.com/emojis/{clean_id}.png?size=160&animated=true",
-        ]
+        urls = [f"https://cdn.discordapp.com/emojis/{clean_id}.webp?size=160&animated=true"]
         if animated:
             urls.append(f"https://cdn.discordapp.com/emojis/{clean_id}.gif?size=160")
+        urls.append(f"https://cdn.discordapp.com/emojis/{clean_id}.png?size=160&animated=true")
 
+        fallback_raw: Optional[bytes] = None
         for url in urls:
             try:
                 async with session.get(url, allow_redirects=False) as resp:
@@ -1218,10 +1244,13 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
                             continue
                         raw = await resp.content.read(MAX_CDN_DOWNLOAD_BYTES + 1)
                         if raw and 12 <= len(raw) <= MAX_CDN_DOWNLOAD_BYTES:
+                            if is_animated_webp(raw) and not await asyncio.to_thread(_can_decode_with_pillow, raw):
+                                fallback_raw = raw
+                                continue
                             return raw
             except Exception:
                 continue
-        return None
+        return fallback_raw
 
     async def _verify_url_returns_webp(self, url: str) -> bool:
         """해당 URL이 실제로 HTTP 200 OK 및 유효한 이미지(WebP/PNG/GIF)를 반환하는지 검증합니다."""

@@ -1262,7 +1262,8 @@ def build_hsr_10pull_grid_bytes(drawn: list[dict], banner_key: str = "char1", he
         img_area_h = card_h - (54 if cols == 5 else 72)
         if tb:
             try:
-                art = Image.open(io.BytesIO(tb)).convert("RGBA")
+                with Image.open(io.BytesIO(tb)) as _raw_art:
+                    art = _raw_art.convert("RGBA")
                 pad_art = 8 if kind in ("lc", "relic") else 4
                 max_aw = card_w - pad_art * 2
                 max_ah = img_area_h - 12
