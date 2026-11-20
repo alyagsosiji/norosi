@@ -1201,31 +1201,11 @@ class GachaRankingView(core.SafeView):
     async def btn_refresh_rank(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
-        g_key = str(interaction.guild.id) if interaction.guild else "DM"
-        g_users = core.safe_get_dict(data, "gacha_users", g_key)
-        total_db_cards = max(1, len(core.PROSEKA_KR_CARDS) or self.total_db_cards)
-        new_stats = []
-        for u_id_str, u_data in g_users.items():
-            if not isinstance(u_data, dict):
-                continue
-            cards = core.as_dict(u_data.get("cards"))
-            if not cards and u_data.get("total_pulls", 0) == 0:
-                continue
-            uniq = len(cards)
-            s4 = sum(1 for c in cards.values() if isinstance(c, dict) and c.get("rarity_type") == "rarity_4")
-            bd = sum(1 for c in cards.values() if isinstance(c, dict) and c.get("rarity_type") == "rarity_birthday")
-            new_stats.append({
-                "uid": u_id_str,
-                "unique": uniq,
-                "rate": (uniq / total_db_cards) * 100.0,
-                "star4": s4,
-                "bday": bd,
-                "high": s4 + bd,
-                "pulls": int(u_data.get("total_pulls", 0) or 0),
-            })
-        self.total_db_cards = total_db_cards
+        guild_id = interaction.guild_id or 0
+        total_db_cards, new_stats = core.build_proseka_guild_ranking_stats(data, guild_id)
+        self.total_db_cards = max(1, total_db_cards or self.total_db_cards)
         self.stats_list = new_stats
-        self.hall_of_fame = await asyncio.to_thread(lambda: core.as_dict(core.get_gacha_hall_of_fame(interaction.guild_id or 0)))
+        self.hall_of_fame = await asyncio.to_thread(lambda: core.as_dict(core.get_gacha_hall_of_fame(guild_id)))
         self._refresh_buttons()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
@@ -5064,10 +5044,11 @@ class GachaCog(commands.Cog):
 
         grass_bar, _ = core.get_todo_galaxy_grass(profile)
 
-        user_cards_dict = core.safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
+        u_gacha = core.safe_get_dict(data, "gacha_users", g_key, u_key)
+        user_cards_dict = core.as_dict(u_gacha.get("cards"))
         cards = [c for c in user_cards_dict.values() if isinstance(c, dict)]
 
-        total_pulls = sum(c.get("count", 1) for c in cards)
+        total_pulls = core.get_proseka_user_total_pulls(u_gacha)
         total_unique = len(cards)
         total_db_cards = len(core.PROSEKA_KR_CARDS)
         collect_rate = (total_unique / total_db_cards * 100) if total_db_cards > 0 else 0.0
@@ -5204,33 +5185,8 @@ class GachaCog(commands.Cog):
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
         guild_id = interaction.guild_id or 0
-        g_key = str(guild_id)
-        guild_users = core.safe_get_dict(data, "gacha_users", g_key)
         hall_of_fame = core.as_dict(core.get_gacha_hall_of_fame(guild_id))
-
-        total_db_cards = max(1, len(core.PROSEKA_KR_CARDS))
-        stats_list = []
-
-        for uid_str, u_data in guild_users.items():
-            if not isinstance(u_data, dict):
-                continue
-            u_cards = [c for c in core.as_dict(u_data.get("cards")).values() if isinstance(c, dict)]
-            if not u_cards:
-                continue
-            unique_cnt = len(u_cards)
-            high_cnt = sum(c.get("count", 1) for c in u_cards if c.get("star_num", 1) >= 4)
-            star4_cnt = sum(c.get("count", 1) for c in u_cards if c.get("rarity_type") == "rarity_4")
-            bday_cnt = sum(c.get("count", 1) for c in u_cards if c.get("rarity_type") == "rarity_birthday")
-            pull_cnt = sum(c.get("count", 1) for c in u_cards)
-            stats_list.append({
-                "uid": uid_str,
-                "unique": unique_cnt,
-                "rate": (unique_cnt / total_db_cards) * 100,
-                "high": high_cnt,
-                "star4": star4_cnt,
-                "bday": bday_cnt,
-                "pulls": pull_cnt
-            })
+        total_db_cards, stats_list = core.build_proseka_guild_ranking_stats(data, guild_id)
 
         has_hof = bool(hall_of_fame.get("top_records") or hall_of_fame.get("recent_pickup_logs") or hall_of_fame.get("recent_high_logs"))
         if not stats_list and not has_hof:

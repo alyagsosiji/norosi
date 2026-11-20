@@ -1835,6 +1835,9 @@ def upgrade_card_master_rank(guild_id: int, user_id: int, card_id_str: str, use_
             cnt = _safe_card_int(card.get("count"), 1)
             if cnt < 2:
                 return False, "중복 보유 카드가 부족합니다! (최소 2장 보유 시 중복 1장 소모 가능 — 크리스탈 돌파를 이용해 보세요)", {}
+            g_user_obj = ensure_dict_path(data, "gacha_users", g_key, u_key)
+            g_user_obj["total_pulls"] = get_proseka_user_total_pulls(g_user_obj)
+            g_user_obj["mr_consumed_duplicates"] = _safe_card_int(g_user_obj.get("mr_consumed_duplicates"), 0) + 1
             card["count"] = cnt - 1
             consumed_dup = 1
         else:
@@ -3888,6 +3891,9 @@ def normalize_data(data):
                     c_obj.setdefault("locked", False)
                     clean_cards[str(cid_str)] = c_obj
             u_info["cards"] = clean_cards
+            cards_sum = sum(max(1, _safe_card_int(c.get("count"), 1)) for c in clean_cards.values())
+            stored_pulls = max(0, _safe_card_int(u_info.get("total_pulls"), 0))
+            u_info["total_pulls"] = max(stored_pulls, cards_sum)
             for cmap_k in ("equipped_costumes", "equipped_costume_variants", "purchased_costumes"):
                 if cmap_k in u_info and not isinstance(u_info[cmap_k], dict):
                     u_info[cmap_k] = coerce_dict_like(u_info[cmap_k])
@@ -4167,8 +4173,13 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                 rem_u = rem_g.get(u_key)
                 l_cards_cnt = len(as_dict(local_u.get("cards")))
                 r_cards_cnt = len(as_dict(rem_u.get("cards"))) if isinstance(rem_u, dict) else -1
-                if not isinstance(rem_u, dict) or l_cards_cnt > r_cards_cnt:
+                l_pulls = get_proseka_user_total_pulls(local_u)
+                r_pulls = get_proseka_user_total_pulls(rem_u) if isinstance(rem_u, dict) else -1
+                if not isinstance(rem_u, dict) or (l_cards_cnt, l_pulls) > (r_cards_cnt, r_pulls):
                     rem_g[u_key] = copy.deepcopy(local_u)
+                    rem_g[u_key]["total_pulls"] = max(l_pulls, max(0, r_pulls))
+                elif l_pulls > r_pulls:
+                    rem_u["total_pulls"] = l_pulls
 
     for u_root_key in ("genshin_users", "hsr_users"):
         for g_key, local_g_users in as_dict(local_norm.get(u_root_key)).items():
@@ -5249,11 +5260,61 @@ def annotate_drawn_is_new(guild_id: int, user_id: int, drawn_cards: list) -> lis
     return drawn_cards
 
 
+def get_proseka_user_total_pulls(u_data: dict | None) -> int:
+    """
+    유저의 프로세카 누적 뽑기 횟수를 안전하게 반환합니다.
+    - 명시적으로 누적된 total_pulls를 우선 사용하되, 레거시 데이터(보유 카드 총수량)보다 낮아지지 않도록 보정합니다.
+    """
+    if not isinstance(u_data, dict):
+        return 0
+    cards_map = as_dict(u_data.get("cards"))
+    cards_sum = sum(
+        max(1, _safe_card_int(c.get("count"), 1))
+        for c in cards_map.values()
+        if isinstance(c, dict)
+    )
+    stored = max(0, _safe_card_int(u_data.get("total_pulls"), 0))
+    return max(stored, cards_sum)
+
+
+def build_proseka_guild_ranking_stats(data: dict, guild_id: int) -> tuple[int, list[dict]]:
+    """서버별 프로세카 가챠 랭킹 통계를 일관된 기준으로 집계합니다 (초기 조회·새로고침 공용)."""
+    g_key = str(guild_id or 0)
+    guild_users = safe_get_dict(data, "gacha_users", g_key)
+    total_db_cards = max(1, len(PROSEKA_KR_CARDS))
+    stats_list: list[dict] = []
+
+    for uid_str, u_data in guild_users.items():
+        if not isinstance(u_data, dict):
+            continue
+        u_cards = [c for c in as_dict(u_data.get("cards")).values() if isinstance(c, dict)]
+        pull_cnt = get_proseka_user_total_pulls(u_data)
+        if not u_cards and pull_cnt <= 0:
+            continue
+        unique_cnt = len(u_cards)
+        star4_cnt = sum(max(1, _safe_card_int(c.get("count"), 1)) for c in u_cards if c.get("rarity_type") == "rarity_4")
+        bday_cnt = sum(max(1, _safe_card_int(c.get("count"), 1)) for c in u_cards if c.get("rarity_type") == "rarity_birthday")
+        high_cnt = sum(max(1, _safe_card_int(c.get("count"), 1)) for c in u_cards if _safe_card_int(c.get("star_num"), 1) >= 4)
+        stats_list.append({
+            "uid": str(uid_str),
+            "unique": unique_cnt,
+            "rate": (unique_cnt / total_db_cards) * 100.0,
+            "high": high_cnt,
+            "star4": star4_cnt,
+            "bday": bday_cnt,
+            "pulls": pull_cnt,
+        })
+
+    return total_db_cards, stats_list
+
+
 def _save_pulled_cards_in_data(data: dict, guild_id: int, user_id: int, drawn_cards: list) -> dict:
     g_key = str(guild_id or 0)
     u_key = str(user_id)
 
-    user_cards = ensure_dict_path(data, "gacha_users", g_key, u_key, "cards")
+    u_obj = ensure_dict_path(data, "gacha_users", g_key, u_key)
+    prev_total_pulls = get_proseka_user_total_pulls(u_obj)
+    user_cards = ensure_dict_path(u_obj, "cards")
     now_str = get_now_datetime_str()
 
     for c in drawn_cards:
@@ -5292,6 +5353,7 @@ def _save_pulled_cards_in_data(data: dict, guild_id: int, user_id: int, drawn_ca
                 "master_rank": 0,
                 "locked": False
             }
+    u_obj["total_pulls"] = prev_total_pulls + len(drawn_cards)
     return user_cards
 
 
@@ -5615,6 +5677,8 @@ def execute_duplicate_card_conversion(guild_id: int, user_id: int) -> dict:
         g_key = str(guild_id or 0)
         u_key = str(user_id)
         profile = ensure_user_profile(data, u_key)
+        u_obj = ensure_dict_path(data, "gacha_users", g_key, u_key)
+        u_obj["total_pulls"] = get_proseka_user_total_pulls(u_obj)
         user_cards = safe_get_dict(data, "gacha_users", g_key, u_key, "cards")
 
         total_converted = 0
@@ -5638,6 +5702,7 @@ def execute_duplicate_card_conversion(guild_id: int, user_id: int) -> dict:
             details.append(f"`{c['rarity_label']}` [{c['prefix']}] {c['char_name']} (`-{excess}장` ➔ `+{gained}💎`)")
 
         if total_converted > 0:
+            u_obj["converted_duplicates"] = _safe_card_int(u_obj.get("converted_duplicates"), 0) + total_converted
             profile["crystals"] = profile.get("crystals", 0) + total_gained
             save_data(data)
 
@@ -5761,7 +5826,9 @@ def get_card_pokedex_stats(guild_id: int, user_id: int) -> dict:
 
 def _transfer_single_card(g_users: dict, profiles: dict, from_uid: str, to_uid: str, card_id_str: str) -> dict:
     """특정 유저의 보관함에서 카드를 1장 차감하여 대상 유저의 보관함으로 이전"""
-    from_cards = ensure_dict_path(g_users, from_uid, "cards")
+    from_user_obj = ensure_dict_path(g_users, from_uid)
+    from_user_obj["total_pulls"] = get_proseka_user_total_pulls(from_user_obj)
+    from_cards = ensure_dict_path(from_user_obj, "cards")
     to_cards = ensure_dict_path(g_users, to_uid, "cards")
     cid_s = str(card_id_str)
 

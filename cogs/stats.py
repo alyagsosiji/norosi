@@ -1467,7 +1467,7 @@ class StatsCog(commands.Cog):
         bday_str = f"`{bday_info['month']:02d}월 {bday_info['day']:02d}일` 🎂" if isinstance(bday_info, dict) and "month" in bday_info else "미등록 (`/설정` ➔ `🎂 생일 등록`)"
 
         embed_color = target.color if isinstance(target, discord.Member) and target.color != discord.Color.default() else discord.Color.from_rgb(0, 204, 221)
-        bot_badge = " 🤖 `[BOT]`" if target.bot else ""
+        bot_badge = " 🤖 [BOT]" if target.bot else ""
 
         embed = discord.Embed(
             title=f"🪪 {target.display_name}{bot_badge}님의 상세 멤버 프로필",

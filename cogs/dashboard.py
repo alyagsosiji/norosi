@@ -3969,7 +3969,8 @@ class MasterDashboardView(core.SafeView):
                 crystals = int(profile.get("crystals", 0))
                 u_gacha = core.safe_get_dict(self.data, "gacha_users", g_key, u_key)
                 cards_cnt = len(core.as_dict(u_gacha.get("cards")))
-                return f"🎤 크리스탈 `{crystals:,}💎` · 보유 카드 `{cards_cnt}장` · 스탬프 `{u_gacha.get('pity_count', 0)}/100`"
+                sekai_pulls = core.get_proseka_user_total_pulls(u_gacha)
+                return f"🎤 크리스탈 `{crystals:,}💎` · 보유 카드 `{cards_cnt:,}종` · 누적 뽑기 `{sekai_pulls:,}회`"
             if page == 1:
                 gi_u = core.safe_get_dict(self.data, "genshin_users", g_key, u_key)
                 hsr_u = core.safe_get_dict(self.data, "hsr_users", g_key, u_key)

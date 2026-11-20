@@ -63,7 +63,7 @@ async def _send_profile_card(
     embed.add_field(
         name="🎶 프로세카 / 🌠 원신 / 🚄 스타레일",
         value=(
-            f"• **프로세카:** 오시 `{sek['oshi']}` · `{sek['unique_cards']}종` (★4 `{sek['star4_count']}장`) · 덱 `{sek['deck_power']:,}`\n"
+            f"• **프로세카:** 뽑기 `{sek.get('total_pulls', 0):,}회` · `{sek['unique_cards']}종` (★4 `{sek['star4_count']}장`) · 오시 `{sek['oshi']}` · 덱 `{sek['deck_power']:,}`\n"
             f"• **원신:** 기원 `{gen['total_pulls']:,}회` · ★5 `{gen['star5_count']}종` · 성유물 {art_txt}\n"
             f"• **스타레일:** 워프 `{hsr['total_pulls']:,}회` · ★5 `{hsr['star5_count']}종` · 유물 {rel_txt}"
         ),

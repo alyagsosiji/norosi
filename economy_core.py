@@ -188,10 +188,11 @@ def collect_user_unified_stats(
     att_streak = _safe_int(att.get("streak"), 0)
     att_max_streak = _safe_int(att.get("max_streak"), 0)
 
-    # 1. 프로세카 (카드/덱/오시)
+    # 1. 프로세카 (카드/덱/오시/누적뽑기)
     g_user = core.safe_get_dict(data, "gacha_users", g_key, u_key)
     cards_map = core.as_dict(g_user.get("cards"))
     sekai_unique = len(cards_map)
+    sekai_pulls = core.get_proseka_user_total_pulls(g_user)
     sekai_star4 = 0
     for c_obj in cards_map.values():
         if isinstance(c_obj, dict) and _safe_int(c_obj.get("star_num"), 0) >= 4:
@@ -357,6 +358,7 @@ def collect_user_unified_stats(
         "att_max_streak": att_max_streak,
         "sekai": {
             "oshi": oshi,
+            "total_pulls": sekai_pulls,
             "unique_cards": sekai_unique,
             "star4_count": sekai_star4,
             "deck_power": deck_power,
@@ -953,7 +955,7 @@ def render_unified_profile_card_png(
                 "title": "프로세카 (Project SEKAI)",
                 "color": (56, 189, 248),
                 "lines": [
-                    f"최애(오시): {sek['oshi']}",
+                    f"누적 뽑기: {sek.get('total_pulls', 0):,}회  |  최애: {sek['oshi']}",
                     f"보유 카드: {sek['unique_cards']:,}종  |  ★4 카드: {sek['star4_count']:,}장",
                     f"5인 덱 종합력: {sek['deck_power']:,}",
                     "세카이 라이브 & 의상 스튜디오 연동 중",

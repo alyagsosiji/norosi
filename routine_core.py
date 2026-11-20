@@ -171,7 +171,7 @@ def get_daily_routine_status(guild_id: int, user_id: int, user_name: str = "유�
 
     # 5) 프로세카 일일 운명 다시뽑기
     ug = core.safe_get_dict(data, "gacha_users", g_key, u_key)
-    destiny_done = (ug.get("destiny_reroll_date") == today)
+    destiny_done = (ug.get("last_destiny_date") == today or ug.get("destiny_reroll_date") == today)
 
     # 6) 오늘의 목표 잔디
     todo = core.ensure_user_todo_today(prof)
