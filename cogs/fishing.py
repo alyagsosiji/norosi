@@ -283,7 +283,7 @@ class FishingBaitSelect(discord.ui.Select):
         u = core.as_dict(self.parent_view.summary.get("user") if self.parent_view.summary else {})
         if chosen != "dough" and int(core.as_dict(u.get("baits")).get(chosen, 0)) <= 0:
             await interaction.followup.send(
-                f"❌ **{fishing_core.BAITS[chosen]['name']}**을(를) 보유하고 있지 않습니다! **`🛒 낚시 상점`**에서 구매해 보세요.",
+                f"❌ **{fishing_core.BAITS[chosen]['name']}**을(를) 보유하고 있지 않습니다! `🛒 낚시 상점`에서 구매해 보세요.",
                 ephemeral=True,
             )
             return
@@ -878,12 +878,12 @@ class FishingCastView(core.SafeView):
                     await _safe_update_message_or_interaction(
                         interaction,
                         target_msg,
-                        embed=self.build_dashboard_embed(status_banner="🎣 새로운 출조를 준비했습니다! **`[🪝 찌 던지기]`**를 눌러 시작하세요."),
+                        embed=self.build_dashboard_embed(status_banner="🎣 새로운 출조를 준비했습니다! `[🪝 찌 던지기]`를 눌러 시작하세요."),
                         view=self,
                         clear_attachments=True,
                     )
                     await interaction.followup.send(
-                        "💨 이미 입질 시간이 지나갔거나 종료된 출조입니다. **`[🪝 찌 던지기]`**로 다시 던져주세요!",
+                        "💨 이미 입질 시간이 지나갔거나 종료된 출조입니다. `[🪝 찌 던지기]`로 다시 던져주세요!",
                         ephemeral=True,
                     )
                     return
@@ -1431,7 +1431,7 @@ class FishingBagView(core.SafeView):
             sel_uid = target_uids[0]
             sel_item = next((x for x in self.summary["user"].get("bag", []) if isinstance(x, dict) and x.get("uid") == sel_uid), None)
             if sel_item and sel_item.get("locked"):
-                await interaction.followup.send("🔒 잠금 보호 중인 물고기입니다! 먼저 **`[🔓 선택 잠금해제]`**로 잠금을 풀어주세요.", ephemeral=True)
+                await interaction.followup.send("🔒 잠금 보호 중인 물고기입니다! 먼저 `[🔓 선택 잠금해제]`로 잠금을 풀어주세요.", ephemeral=True)
                 return
             ok, msg, _ = await asyncio.to_thread(fishing_core.sell_fish_by_uid, self.guild_id, self.user.id, sel_uid)
             if ok:
@@ -1883,7 +1883,7 @@ class FishingPokedexView(core.SafeView):
         db_badge = (
             f"🌐 글로벌 {self.stats['total_species']:,}종 DB 활성"
             if str(db_src).startswith("json:")
-            else f"⚠️ 폴백 {self.stats['total_species']:,}종 모드 (fish_species_db.json 확인 필요)"
+            else f"⚠️ 폴백 {self.stats['total_species']:,}종 모드 (`fish_species_db.json` 확인 필요)"
         )
 
         embed = discord.Embed(

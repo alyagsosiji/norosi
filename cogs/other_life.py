@@ -1608,7 +1608,7 @@ class OtherLifeGameView(core.SafeView):
                     f"📚 **내 수집 기록:** 해금 엔딩 **`{unlocked_cnt}/{total_endings:,}종`** · "
                     f"완결 생애 `{u.get('lives_completed', 0)}회` · 최고 `{u.get('best_score', 0):,}점`\n"
                     "━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "👇 아래 드롭다운으로 출신과 시간 배율을 고른 뒤 **`🌱 이 설정으로 인생 시작!`**을 눌러주세요!"
+                    "👇 아래 드롭다운으로 출신과 시간 배율을 고른 뒤 `🌱 이 설정으로 인생 시작!`을 눌러주세요!"
                 ),
                 color=0x38BDF8,
                 timestamp=datetime.datetime.now(core.KST),

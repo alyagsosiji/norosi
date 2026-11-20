@@ -1824,7 +1824,7 @@ def upgrade_card_master_rank(guild_id: int, user_id: int, card_id_str: str, use_
 
         cur_mr = max(0, _safe_card_int(card.get("master_rank"), 0))
         if cur_mr >= 5:
-            return False, f"**[{card.get('prefix') or '카드'}] {card.get('char_name') or '캐릭터'}** 카드는 이미 최고 **마스터 랭크 5(✦5/5)**에 도달했습니다!", {}
+            return False, f"**[{card.get('prefix') or '카드'}] {card.get('char_name') or '캐릭터'}** 카드는 이미 최고 **마스터 랭크 5**(✦5/5)에 도달했습니다!", {}
 
         star_num = _safe_card_int(card.get("star_num") if card.get("star_num") is not None else card.get("rarity"), 3)
         old_power = get_card_power(card)
@@ -5071,7 +5071,7 @@ def sync_gacha_pickup_to_live_event() -> tuple[bool, str, dict]:
         data["gacha_pickup"] = copy.deepcopy(pickup_obj)
         save_data(data)
 
-    return True, f"🎯 현재 한섭 이벤트 **[{ev_name}]**에 맞춰 픽업 설정이 자동 연동되었습니다!", pickup_obj
+    return True, f"🎯 현재 한섭 이벤트 [**{ev_name}**]에 맞춰 픽업 설정이 자동 연동되었습니다!", pickup_obj
 
 
 def get_today_birthday_characters(now_dt: datetime.datetime | None = None) -> list[dict]:
@@ -7108,7 +7108,7 @@ def import_playlist_into_profile_sync(
 
         target["updated_at"] = today_s
         dup_text = f" (중복 {skipped_dup}곡 제외)" if skipped_dup > 0 else ""
-        return target, added, f"기존 **`{target['emoji']} {target['name']}`**에 **{added}곡**을 일괄 추가했습니다.{dup_text}"
+        return target, added, f"기존 `{target['emoji']} {target['name']}`에 **{added}곡**을 일괄 추가했습니다.{dup_text}"
 
     if len(pls) >= 20:
         raise ValueError("플레이리스트는 1인당 최대 20개까지만 생성할 수 있습니다.")
@@ -7146,7 +7146,7 @@ def import_playlist_into_profile_sync(
         target_pl["platform"] = clean_plat
         target_pl["tracks"] = capped_tracks
         target_pl["updated_at"] = today_s
-        return target_pl, len(capped_tracks), f"플레이리스트 **`{clean_emoji} {clean_name}`**에 **{len(capped_tracks)}곡**을 담았습니다.{dup_text}"
+        return target_pl, len(capped_tracks), f"플레이리스트 `{clean_emoji} {clean_name}`에 **{len(capped_tracks)}곡**을 담았습니다.{dup_text}"
 
     new_id = f"pl_{int(time.time())}_{random.randint(100, 999)}"
     new_pl = {
@@ -7162,7 +7162,7 @@ def import_playlist_into_profile_sync(
         "updated_at": today_s,
     }
     pls.append(new_pl)
-    return new_pl, len(capped_tracks), f"새 플레이리스트 **`{clean_emoji} {clean_name}`**을(를) 생성하고 **{len(capped_tracks)}곡**을 담았습니다.{dup_text}"
+    return new_pl, len(capped_tracks), f"새 플레이리스트 `{clean_emoji} {clean_name}`을(를) 생성하고 **{len(capped_tracks)}곡**을 담았습니다.{dup_text}"
 
 
 async def user_playlist_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
@@ -8218,7 +8218,7 @@ def check_role_assignable(bot_member: discord.Member, target_role: discord.Role)
             False,
             f"⚠️ **역할 서열(Hierarchy) 오류:**\n"
             f"지정하려는 `{target_role.name}` 역할이 봇의 최고 역할(`{bot_member.top_role.name}`)보다 높거나 같은 위치에 있습니다.\n"
-            f"👉 **해결법:** 서버 설정 → [역할] 메뉴에서 **`{bot_member.top_role.name}`** 역할을 마우스로 끌어올려 **`{target_role.name}`**보다 위에 배치해 주세요!"
+            f"👉 **해결법:** 서버 설정 → [역할] 메뉴에서 **`{bot_member.top_role.name}`** 역할을 마우스로 끌어올려 `{target_role.name}`보다 위에 배치해 주세요!"
         )
 
     # 관리자(Administrator) 권한을 가진 위험한 역할 경고

@@ -104,7 +104,7 @@ async def execute_and_build_attendance_response(interaction: discord.Interaction
 
     quote_info = core.get_random_proseka_quote(preferred_oshi=oshi_name, preferred_card=preferred_card)
     is_oshi_match = (oshi_name and quote_info.get("char_name") == oshi_name)
-    oshi_badge = " 💖**[내 오시 등장!]**" if is_oshi_match else ""
+    oshi_badge = " 💖 **[내 오시 등장!]**" if is_oshi_match else ""
 
     milestone_banner = ""
     if newly_claimed:

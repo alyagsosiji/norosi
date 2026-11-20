@@ -447,7 +447,7 @@ class LinkPreviewConfigView(core.SafeView):
                 "• **원본 삭제 · 깔끔 치환:** " + ("🟢 켜짐 *(이모지 업스케일 방식)*" if c["suppress_original"] else "⚪ 꺼짐 *(답글만 표시)*") + "\n"
                 f"• **제외된 채널:** {ignored_str}\n\n"
                 "💡 일반 메시지는 작성자 프로필·닉네임 웹훅으로, 답장 메시지는 앱 네이티브 답장으로 깔끔 치환됩니다.\n"
-                "💡 치환된 메시지에 ❌(`:x:`) 반응을 달면 작성자/관리자가 즉시 삭제할 수 있으며, `<링크>` · `||스포일러||` · `` `코드` `` 는 자동 제외됩니다."
+                "💡 치환된 메시지에 ❌(`:x:`) 반응을 달면 작성자/관리자가 즉시 삭제할 수 있으며, `<링크>` · `||스포일러||` · `코드블록` 은 자동 제외됩니다."
             ),
             color=discord.Color.blue() if c["enabled"] else discord.Color.dark_grey(),
             timestamp=datetime.datetime.now(core.KST),
@@ -1149,7 +1149,7 @@ def _build_temp_voice_panel_embed(
             f"• **채널 노출:** {'👻 **숨김** (일반 멤버에게 채널 비공개)' if hidden else '👁️ **공개** (채널 목록에 표시)'}\n"
             "──────────────────────\n"
             "💡 **모든 인원이 퇴장하면 이 음성방은 자동으로 깔끔하게 삭제됩니다.**\n"
-            "💡 원래 방장이 퇴장한 상태라면 방 안의 다른 멤버가 **`[👑 방장 인계받기]`**를 누를 수 있어요!"
+            "💡 원래 방장이 퇴장한 상태라면 방 안의 다른 멤버가 `[👑 방장 인계받기]`를 누를 수 있어요!"
         ),
         color=discord.Color.from_rgb(88, 101, 242),
         timestamp=datetime.datetime.now(core.KST),
@@ -1800,7 +1800,7 @@ class TempVoiceSetupView(core.SafeView):
 
         self.cfg = await asyncio.to_thread(_commit_cleanup)
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
-        await interaction.followup.send(f"🧹 빈 임시 음성방 **`{len(cleaned_ids)}개`**를 정리했습니다.", ephemeral=True)
+        await interaction.followup.send(f"🧹 빈 임시 음성방 `{len(cleaned_ids)}개`를 정리했습니다.", ephemeral=True)
 
 
 # ==========================================

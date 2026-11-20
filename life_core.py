@@ -869,7 +869,7 @@ def water_farm_plot(
             return False, "ℹ️ 지금 물을 줄 수 있는 성장 중인 작물이 없습니다."
 
         core.save_data(data)
-        return True, f"💧 작물 **`{watered_cnt}칸`**에 시원한 물을 주었습니다! (남은 성장 시간 `35% 단축`)"
+        return True, f"💧 작물 `{watered_cnt}칸`에 시원한 물을 주었습니다! (남은 성장 시간 `35% 단축`)"
 
 
 def fertilize_plot(
@@ -1009,7 +1009,7 @@ def sell_crops(guild_id: int | str, user_id: int | str, crop_id: str = "all", us
             parts.append(f"`+{gain_gold:,}🪙`")
         if gain_cry > 0:
             parts.append(f"`+{gain_cry:,}💎`")
-        return True, f"💰 수확 작물 **`{sold_cnt}개`**를 시장에 판매했습니다! ({' · '.join(parts)})"
+        return True, f"💰 수확 작물 `{sold_cnt}개`를 시장에 판매했습니다! ({' · '.join(parts)})"
 
 
 def expand_farm_plots(guild_id: int | str, user_id: int | str, user_name: str = "") -> Tuple[bool, str]:
@@ -1027,7 +1027,7 @@ def expand_farm_plots(guild_id: int | str, user_id: int | str, user_name: str = 
         lu["plot_slots"] = cur + 1
         ensure_life_user(data, guild_id, user_id, user_name)
         core.save_data(data)
-        return True, f"🚜 개인 농장 밭이 **`{cur}칸 → {cur + 1}칸`**으로 확장되었습니다! (`-{cost_gold:,}🪙`)"
+        return True, f"🚜 개인 농장 밭이 `{cur}칸 → {cur + 1}칸`으로 확장되었습니다! (`-{cost_gold:,}🪙`)"
 
 
 # ==========================================
@@ -1201,7 +1201,7 @@ def equip_pet(guild_id: int | str, user_id: int | str, pet_id: str, user_name: s
         core.save_data(data)
         pm = PETS[pet_id]
         lvl = lu["pets"][pet_id]["level"]
-        return True, f"{pm['emoji']} **{pm['name']} (Lv.{lvl})**이(가) 출조 & 출석에 동행합니다!"
+        return True, f"{pm['emoji']} **{pm['name']}** (Lv.{lvl})이(가) 출조 & 출석에 동행합니다!"
 
 
 def buy_pet_food(guild_id: int | str, user_id: int | str, qty: int = 5, user_name: str = "") -> Tuple[bool, str]:

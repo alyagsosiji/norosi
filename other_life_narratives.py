@@ -2174,7 +2174,7 @@ def _build_youth_node(beat: int, life: Dict[str, Any], v: Dict[str, Any]) -> Dic
                 "artist": (
                     f"⛈️ {age}세 — 대형 자본의 천문학적 계약 vs 훼손되는 내 원작",
                     f"{bline}{v['age_sal']}을 맞은 [{v['specialty']}] {v['name']}의 **{v['workplace']}**{p_ro(v['workplace'])} 거대 기획사·출판사의 대표가 직접 찾아왔습니다.\n\n"
-                    f"책상 위에 놓인 것은 빚을 다 갚고도 남을 천문학적 계약금. 하지만 조건은 **\"{v['work_obj']}의 핵심 줄기와 아픔은 전부 걷어내고 대중 취향대로 껍데기만 남기라\"**는 것입니다.",
+                    f"책상 위에 놓인 것은 빚을 다 갚고도 남을 천문학적 계약금. 하지만 조건은 \"**{v['work_obj']}의 핵심 줄기와 아픔은 전부 걷어내고 대중 취향대로 껍데기만 남기라**\"는 것입니다.",
                 ),
                 "scholar": (
                     f"⛈️ {age}세 — 거액 스폰서 제의와 은폐해야 하는 치명적 진실",
@@ -2183,7 +2183,7 @@ def _build_youth_node(beat: int, life: Dict[str, Any], v: Dict[str, Any]) -> Dic
                 ),
                 "entrepreneur": (
                     f"⛈️ {age}세 — 도약 직전의 회계 분식 유혹과 동업자의 배신",
-                    f"{bline}청년 사업의 고비에 선 {v['age_sal']}, 연 매출이 크게 치솟은 {v['name']}의 회사에 동업자가 다가와 **\"투자자들 비위 맞추려면 장부랑 세금 서류 좀 건드려야 한다\"**며 법인 인감을 내밉니다.\n\n"
+                    f"{bline}청년 사업의 고비에 선 {v['age_sal']}, 연 매출이 크게 치솟은 {v['name']}의 회사에 동업자가 다가와 \"**투자자들 비위 맞추려면 장부랑 세금 서류 좀 건드려야 한다**\"며 법인 인감을 내밉니다.\n\n"
                     f"거절하면 자금줄이 말라 당장 직원들 월급부터 막힐 절벽 끝입니다.",
                 ),
                 "artisan": (
@@ -3045,7 +3045,7 @@ def _build_elder_node(beat: int, life: Dict[str, Any], v: Dict[str, Any]) -> Dic
             )
         elif "corrupted" in flags and "redeemed" not in flags:
             retire_body = (
-                f"{bline}{partner_scene}치열하게 움켜쥐며 버텨온 **[{v['specialty']}]**의 자리에서 이제 물러설 시간이 다가옵니다.\n\n"
+                f"{bline}{partner_scene}치열하게 움켜쥐며 버텨온 [**{v['specialty']}**]의 자리에서 이제 물러설 시간이 다가옵니다.\n\n"
                 f"자물쇠 채운 이중 금고와 차가운 서류를 하나씩 정리하던 {v['name_eun']}, 화려하지만 적막한 방 안에서 문득 지나온 세월의 허전함을 마주합니다."
             )
         else:
@@ -3059,7 +3059,7 @@ def _build_elder_node(beat: int, life: Dict[str, Any], v: Dict[str, Any]) -> Dic
                 "shadow": "가짜 신분증과 암호 장부들을 난로 불꽃 속으로 하나씩 던져 재로 지워내며,",
             }.get(career, f"오랜 세월 붙잡아 온 {v['tool_eul']} 내려놓으며,")
             retire_body = (
-                f"{bline}{partner_scene}{v['years_since_19']}년 가까이 치열하게 살아온 **[{v['specialty']}]**의 자리가 이제 서서히 뒷모습으로 물러날 때가 왔습니다.\n\n"
+                f"{bline}{partner_scene}{v['years_since_19']}년 가까이 치열하게 살아온 [**{v['specialty']}**]의 자리가 이제 서서히 뒷모습으로 물러날 때가 왔습니다.\n\n"
                 f"{v['name_eun']} {retire_action} 텅 비어가는 오후의 여백을 어떤 마지막 색으로 채울지 가만히 미소 짓습니다."
             )
 
@@ -3269,7 +3269,7 @@ def _build_elder_node(beat: int, life: Dict[str, Any], v: Dict[str, Any]) -> Dic
         "b18_finale",
         f"📖 {age}세 — 인생이라는 두꺼운 책의 마지막 페이지",
         (
-            f"{bline}길고도 찰나 같았던 한 사람의 세월. {v['city']}의 **{v['origin_place']}**에서 시작해 **[{v['specialty']}]**{v['specialty_ro_s']} 살아낸 삶이 이제 마지막 장 앞에 놓여 있습니다.\n\n"
+            f"{bline}길고도 찰나 같았던 한 사람의 세월. {v['city']}의 **{v['origin_place']}**에서 시작해 [**{v['specialty']}**]{v['specialty_ro_s']} 살아낸 삶이 이제 마지막 장 앞에 놓여 있습니다.\n\n"
             f"{last_partner_msg}{v['name_eun']} 창밖을 물들이는 따스한 노을을 바라봅니다. "
             f"서툴렀던 실수도, 눈물 젖은 회한도, 남몰래 건넸던 다정도 모두 한 권의 빛나는 책이 되어 마지막 문장을 기다리고 있습니다."
         ),

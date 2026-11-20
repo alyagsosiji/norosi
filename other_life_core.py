@@ -481,7 +481,7 @@ def start_new_life(
         }
         u["active_life"] = life
         core.save_data(data)
-        return True, f"📖 새로운 타인의 인생 **'{full_name}'**의 이야기가 시작되었습니다!", copy.deepcopy(u)
+        return True, f"📖 새로운 타인의 인생 '**{full_name}**'의 이야기가 시작되었습니다!", copy.deepcopy(u)
 
 
 def get_other_life_state(

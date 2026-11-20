@@ -367,7 +367,7 @@ async def _perform_close_ticket(
         if opener_member and hasattr(opener_member, "send"):
             try:
                 await opener_member.send(
-                    content=f"🔒 **`{guild_name}`**의 문의 티켓 `#{tno:04d}`이(가) 종료되었습니다. 대화 내역 사본을 전달해 드립니다.",
+                    content=f"🔒 `{guild_name}`의 문의 티켓 `#{tno:04d}`이(가) 종료되었습니다. 대화 내역 사본을 전달해 드립니다.",
                     file=discord.File(io.BytesIO(raw_bytes), filename=filename),
                 )
             except Exception:
@@ -941,7 +941,7 @@ class TicketGroupCog(commands.GroupCog, name="티켓", description="🎫 1:1 비
                 if resolved_role is None:
                     safe_q = q_role.replace("`", "")[:60]
                     warn_msg = (
-                        f"⚠️ 입력하신 역할 **`{safe_q}`**을(를) 서버에서 자동으로 찾지 못했습니다.\n"
+                        f"⚠️ 입력하신 역할 `{safe_q}`을(를) 서버에서 자동으로 찾지 못했습니다.\n"
                         "👉 아래 **역할 선택 드롭다운**에서 특수문자 포함 역할을 클릭해 바로 지정해 주세요!"
                     )
                 else:

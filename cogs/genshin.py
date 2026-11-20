@@ -48,7 +48,7 @@ def _build_genshin_intro_embed(result: dict) -> discord.Embed:
             c_const = det.get("constellation") or ""
             c_det = (det.get("detail") or "").strip()
             snippet = (c_det[:95] + "…") if len(c_det) > 95 else c_det
-            meta = f"*{c_title}" + (f" · {c_const}*" if c_const else "*")
+            meta = f"*{c_title} · {c_const}*" if c_const else f"*{c_title}*"
             quote_block = f"\n\n🌠 {meta}" + (f"\n💬 \"{snippet}\"" if snippet else "")
         elif top["kind"] == "artifact":
             b2 = top.get("bonus_2p") or det.get("bonus_2p") or ""
@@ -69,7 +69,7 @@ def _build_genshin_intro_embed(result: dict) -> discord.Embed:
         if top["kind"] == "char" and det.get("title"):
             quote_block = f"\n\n✨ *{det['title']}*의 별빛이 반짝입니다..."
         elif top["kind"] == "artifact":
-            quote_block = f"\n\n🏺 *{top['name']} ({top.get('slot_name', '')})*의 유산이 공명합니다..."
+            quote_block = f"\n\n🏺 *{top['name']}* ({top.get('slot_name', '')})의 유산이 공명합니다..."
     else:
         orb = "🔵 **푸른 유성이 밤하늘을 스쳐 지나갑니다...**"
         tier_txt = "🗡️ **기원이 진행 중입니다...**"
@@ -107,10 +107,10 @@ def _build_genshin_result_embed(result: dict, user: discord.abc.User | None) -> 
 
     lines = []
     for idx, it in enumerate(drawn, start=1):
-        p_mark = "🎯**[픽업]** " if it.get("is_pickup") else ""
-        rad_mark = "🌈**[포착된광휘!]** " if it.get("is_radiance") else ""
-        fate_mark = "🧭**[궤도확정!]** " if it.get("is_fate_guaranteed") else ""
-        new_mark = "✨**[NEW]** " if it.get("is_new") else ""
+        p_mark = "🎯 **[픽업]** " if it.get("is_pickup") else ""
+        rad_mark = "🌈 **[포착된광휘!]** " if it.get("is_radiance") else ""
+        fate_mark = "🧭 **[궤도확정!]** " if it.get("is_fate_guaranteed") else ""
+        new_mark = "✨ **[NEW]** " if it.get("is_new") else ""
 
         if it["kind"] == "char":
             dup_txt = f"C{it.get('new_constellation', 0)}"

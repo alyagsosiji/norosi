@@ -460,7 +460,7 @@ def transfer_crystals(
     if amt < TRANSFER_MIN_AMOUNT:
         return False, f"❌ 최소 송금 금액은 **`{TRANSFER_MIN_AMOUNT:,}💎`** 이상입니다.", {}
     if amt > TRANSFER_DAILY_LIMIT:
-        return False, f"❌ 1회 및 1일 최대 송금 한도는 **`{TRANSFER_DAILY_LIMIT:,}💎`**입니다.", {}
+        return False, f"❌ 1회 및 1일 최대 송금 한도는 `{TRANSFER_DAILY_LIMIT:,}💎`입니다.", {}
 
     today = core.get_today_str()
     with core._DATA_LOCK:
@@ -508,7 +508,7 @@ def transfer_crystals(
         return (
             True,
             (
-                f"💸 **{sender_name}**님이 **{receiver_name}**님께 **`{amt:,}💎`**를 송금했습니다!\n"
+                f"💸 **{sender_name}**님이 **{receiver_name}**님께 `{amt:,}💎`를 송금했습니다!\n"
                 f"• **실제 수령액:** **`+{net_amount:,}💎`** (세금 5%: `{tax:,}💎` · `{lot_contrib:,}💎` 로또 풀 적립)\n"
                 f"• **남은 보유량:** `{s_prof['crystals']:,}💎` (오늘 송금: `{s_log['sent_today']:,} / {TRANSFER_DAILY_LIMIT:,}💎`)"
             ),
@@ -613,7 +613,7 @@ def buy_lottery_tickets(
 
         if cur_user_cnt + qty > LOTTERY_MAX_TICKETS_PER_ROUND:
             rem = max(0, LOTTERY_MAX_TICKETS_PER_ROUND - cur_user_cnt)
-            return False, f"⚠️ 한 회차당 최대 **`{LOTTERY_MAX_TICKETS_PER_ROUND}장`**까지 구매할 수 있습니다! (이번 회차 남은 한도: `{rem}장`)", []
+            return False, f"⚠️ 한 회차당 최대 `{LOTTERY_MAX_TICKETS_PER_ROUND}장`까지 구매할 수 있습니다! (이번 회차 남은 한도: `{rem}장`)", []
 
         cost = qty * LOTTERY_TICKET_PRICE
         have = max(0, _safe_int(prof.get("crystals"), 0))

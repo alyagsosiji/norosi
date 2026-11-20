@@ -2007,7 +2007,7 @@ class AnnouncementPreviewView(core.SafeView):
             f"• 🏷️ **분류 배지:** `{badge_label}`  ·  🎨 **테마 색상:** `{color_label}`\n"
             f"• 🖼️ **배너 첨부:** `{'이미지 등록됨' if self.banner_url else '없음'}`\n\n"
             "👇 **[발송 전 실시간 검수]** 아래 임베드가 실제 채널에 게시될 모습입니다.\n"
-            "수정이 필요하면 **`[✏️ 내용/제목 수정]`**을, 템플릿/색상/채널 변경은 **하단 드롭다운**을 선택하세요!"
+            "수정이 필요하면 `[✏️ 내용/제목 수정]`을, 템플릿/색상/채널 변경은 **하단 드롭다운**을 선택하세요!"
         )
 
     def build_embed(self) -> discord.Embed:

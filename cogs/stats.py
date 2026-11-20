@@ -2332,7 +2332,7 @@ class RussianRouletteView(core.SafeView):
                     await asyncio.to_thread(core.save_data, data)
                 self.last_log = (
                     f"💨 **찰칵! ({self.current_idx}번째 약실 생존!)**\n"
-                    f"🎊 **퍼펙트 서바이벌!** 빈 약실을 모두 찾아내어 {interaction.user.mention}님이 최종 상금 **`+{self.pot_crystals:,} 💎`**를 획득했습니다!"
+                    f"🎊 **퍼펙트 서바이벌!** 빈 약실을 모두 찾아내어 {interaction.user.mention}님이 최종 상금 `+{self.pot_crystals:,} 💎`를 획득했습니다!"
                 )
             else:
                 self.last_log = (
@@ -2370,7 +2370,7 @@ class RussianRouletteView(core.SafeView):
 
         self.last_log = (
             f"💰 **생존 스톱 성공!** {interaction.user.mention}님이 `{self.survivor_streak}연속` 생존 후 멈추어 "
-            f"누적 상금 **`+{self.pot_crystals:,} 💎`**를 안전하게 수령했습니다! (보유: `{prof.get('crystals', 0):,}💎`)"
+            f"누적 상금 `+{self.pot_crystals:,} 💎`를 안전하게 수령했습니다! (보유: `{prof.get('crystals', 0):,}💎`)"
         )
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 

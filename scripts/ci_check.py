@@ -114,10 +114,84 @@ def check_security_guards() -> None:
     print("[CI 3/3] Security guard regression checks passed")
 
 
+def check_discord_markdown_integrity() -> None:
+    import re
+    import unicodedata
+
+    def _is_punct(ch: str) -> bool:
+        return bool(ch) and (unicodedata.category(ch).startswith("P") or ch in "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
+
+    def _is_ws(ch: str) -> bool:
+        return (not ch) or ch.isspace()
+
+    files = sorted(BASE_DIR.glob("*.py")) + sorted((BASE_DIR / "cogs").glob("*.py"))
+    errors: list[str] = []
+
+    for p in files:
+        rel = str(p.relative_to(BASE_DIR))
+        src = p.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=rel)
+        parent_map = {}
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                parent_map[id(child)] = parent
+
+        def _is_str_expr(n):
+            return (
+                (isinstance(n, ast.Constant) and isinstance(n.value, str))
+                or isinstance(n, ast.JoinedStr)
+                or (isinstance(n, ast.BinOp) and isinstance(n.op, ast.Add) and (_is_str_expr(n.left) or _is_str_expr(n.right)))
+            )
+
+        def _flatten(n) -> str:
+            if isinstance(n, ast.Constant) and isinstance(n.value, str):
+                return n.value
+            if isinstance(n, ast.JoinedStr):
+                return "".join(v.value if (isinstance(v, ast.Constant) and isinstance(v.value, str)) else "V" for v in n.values)
+            if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Add):
+                return _flatten(n.left) + _flatten(n.right)
+            return "V"
+
+        for node in ast.walk(tree):
+            if not _is_str_expr(node):
+                continue
+            parent = parent_map.get(id(node))
+            if parent is not None and _is_str_expr(parent):
+                continue
+            if isinstance(parent, ast.Expr) and isinstance(node, ast.Constant):
+                continue
+            if isinstance(parent, ast.Call):
+                fn = parent.func.attr if isinstance(parent.func, ast.Attribute) else (parent.func.id if isinstance(parent.func, ast.Name) else "")
+                if fn in ("compile", "sub", "search", "match", "findall", "finditer", "split", "fullmatch"):
+                    continue
+            s = _flatten(node)
+            if not s or not re.search(r"[가-힣]", s):
+                continue
+            ln = getattr(node, "lineno", 0)
+            nf = re.sub(r"```[\s\S]*?```", " ", s).replace("```", "")
+            if re.search(r"(?<!`)``(?!`)", nf):
+                errors.append(f"DOUBLE_BACKTICK {rel}:{ln}")
+            for m in re.finditer(r"(?<!\*)\*\*([^*\n]+?)\*\*(?!\*)", nf):
+                inner = m.group(1)
+                b = nf[m.start() - 1] if m.start() > 0 else ""
+                a = nf[m.end()] if m.end() < len(nf) else ""
+                if inner[0].isspace() or inner[-1].isspace():
+                    errors.append(f"BOLD_EDGE_SPACE {rel}:{ln} ({m.group(0)[:30]})")
+                if b != "V" and _is_punct(inner[0]) and not (_is_ws(b) or _is_punct(b)):
+                    errors.append(f"BOLD_OPEN_FLANK {rel}:{ln} ({b}{m.group(0)[:30]})")
+                if a != "V" and _is_punct(inner[-1]) and not (_is_ws(a) or _is_punct(a)):
+                    errors.append(f"BOLD_CLOSE_FLANK {rel}:{ln} ({m.group(0)[-30:]}{a})")
+
+    if errors:
+        raise AssertionError("Discord Markdown checks failed:\n  " + "\n  ".join(errors[:25]))
+    print(f"[CI 4/4] Discord Markdown integrity checks passed ({len(files)} files, 0 issues)")
+
+
 def main() -> None:
     check_syntax_and_ast()
     check_cog_list_sync()
     check_security_guards()
+    check_discord_markdown_integrity()
     print("✅ ALL CI CHECKS PASSED!")
 
 

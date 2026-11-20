@@ -575,7 +575,7 @@ class PlaylistCreateEditModal(core.SafeModal):
             except Exception:
                 pass
 
-        action_msg = f"✏️ **`{clean_name}`** 플레이리스트 정보가 수정되었습니다!" if self.is_edit else f"📁 새 플레이리스트 **`{clean_emoji} {clean_name}`**이(가) 생성되었습니다!"
+        action_msg = f"✏️ **`{clean_name}`** 플레이리스트 정보가 수정되었습니다!" if self.is_edit else f"📁 새 플레이리스트 `{clean_emoji} {clean_name}`이(가) 생성되었습니다!"
         await interaction.followup.send(action_msg, ephemeral=True)
 
 
@@ -661,7 +661,7 @@ class PlaylistAddTrackModal(core.SafeModal, title="➕ 플레이리스트에 새
             p_meta = core.PLAYLIST_PLATFORMS.get(target_pl.get("platform", "YouTube"), core.PLAYLIST_PLATFORMS["YouTube"])
             await interaction.followup.send(
                 f"🔗 {p_meta['emoji']} 감지된 **{meta.get('platform')}** 플레이리스트 링크로부터 "
-                f"**`{target_pl['emoji']} {target_pl['name']}`**에 수록곡 **총 {added_cnt}곡**을 일괄 추가했습니다!",
+                f"`{target_pl['emoji']} {target_pl['name']}`에 수록곡 **총 {added_cnt}곡**을 일괄 추가했습니다!",
                 ephemeral=True
             )
             return
@@ -1120,7 +1120,7 @@ class GuildVoicePlaylistPlayer:
         if vc and (vc.is_playing() or vc.is_paused()) and self.current_stream_meta:
             await self.skip_to(self.current_index)
         await self.refresh_control_panel()
-        return True, f"⚡ 재생 속도가 **`{val}배속`**으로 설정되었습니다!"
+        return True, f"⚡ 재생 속도가 `{val}배속`으로 설정되었습니다!"
 
     async def ensure_connected(self, target_vc: discord.abc.Connectable, self_deaf: Optional[bool] = None) -> tuple[bool, str]:
         # libopus 라이브러리 사전 로드 보장
@@ -1810,7 +1810,7 @@ class VoicePlayerControlView(core.SafeView):
         my_pl["updated_at"] = core.get_today_str()
         await asyncio.to_thread(core.save_data, data)
         await interaction.followup.send(
-            f"💿 현재 재생 중인 **{norm_t['title']}** — `{norm_t['artist']}` 곡을 내 **`{my_pl['emoji']} {my_pl['name']}`**에 저장했습니다!",
+            f"💿 현재 재생 중인 **{norm_t['title']}** — `{norm_t['artist']}` 곡을 내 `{my_pl['emoji']} {my_pl['name']}`에 저장했습니다!",
             ephemeral=True
         )
 
@@ -1888,7 +1888,7 @@ async def start_voice_playlist_from_interaction(
     if not tracks:
         await core.safe_send_response(
             interaction,
-            "⚠️ 플레이리스트에 수록된 곡이 없습니다! 먼저 **`[➕ 곡 추가]`**로 곡을 담은 뒤 자동재생을 실행해 주세요.",
+            "⚠️ 플레이리스트에 수록된 곡이 없습니다! 먼저 `[➕ 곡 추가]`로 곡을 담은 뒤 자동재생을 실행해 주세요.",
             ephemeral=True
         )
         return
@@ -2293,7 +2293,7 @@ class PlaylistReorderModal(core.SafeModal, title="🔢 곡 순번 변경 (자동
                 pass
 
         await interaction.followup.send(
-            f"🔢 **{moved_track.get('title')}** 곡의 재생 순번을 **`#{idx_from + 1:02d}번` ➔ `#{idx_to + 1:02d}번`**으로 변경했습니다!",
+            f"🔢 **{moved_track.get('title')}** 곡의 재생 순번을 `#{idx_from + 1:02d}번` ➔ `#{idx_to + 1:02d}번`으로 변경했습니다!",
             ephemeral=True
         )
 
@@ -2363,7 +2363,7 @@ class PlaylistBulkAddModal(core.SafeModal, title="📋 여러 곡 한꺼번에 �
 
         dup_text = f" (중복 {skipped_dup}곡 자동 제외)" if skipped_dup > 0 else ""
         await interaction.followup.send(
-            f"✅ 총 **`{added}곡`**을 순번대로 **`{target_pl['emoji']} {target_pl['name']}`** 플레이리스트에 일괄 추가했습니다!{dup_text}",
+            f"✅ 총 `{added}곡`을 순번대로 **`{target_pl['emoji']} {target_pl['name']}`** 플레이리스트에 일괄 추가했습니다!{dup_text}",
             ephemeral=True
         )
 
@@ -2570,9 +2570,9 @@ class PlaylistTrackDeleteView(core.SafeView):
         n_sel = len(self.selected)
         header = (
             f"🗑️ **곡 골라서 삭제하기** — `{cur_pl.get('emoji', '🎧')} {cur_pl.get('name')}` (총 {len(tracks)}곡)\n"
-            "• 아래 드롭다운에서 지울 곡을 **여러 개 체크**한 뒤 **`[🗑️ 선택한 N곡 삭제]`**를 누르세요.\n"
-            "• 25곡이 넘으면 **`◀ ▶`**로 페이지를 넘겨도 선택이 유지됩니다.\n"
-            "• 번호를 알고 있다면 **`[🔢 번호로 삭제]`**에서 `1, 4, 7-10`처럼 한 번에 지울 수 있어요."
+            "• 아래 드롭다운에서 지울 곡을 **여러 개 체크**한 뒤 `[🗑️ 선택한 N곡 삭제]`를 누르세요.\n"
+            "• 25곡이 넘으면 `◀ ▶`로 페이지를 넘겨도 선택이 유지됩니다.\n"
+            "• 번호를 알고 있다면 `[🔢 번호로 삭제]`에서 `1, 4, 7-10`처럼 한 번에 지울 수 있어요."
         )
         if not n_sel:
             return header + "\n\n📭 **선택된 곡:** 없음"
@@ -2648,7 +2648,7 @@ class PlaylistTrackDeleteView(core.SafeView):
         self.selected.clear()
         await interaction.edit_original_response(
             content=(
-                f"✅ **`{target_pl['emoji']} {target_pl['name']}`**에서 **{len(removed)}곡**을 삭제했습니다! "
+                f"✅ `{target_pl['emoji']} {target_pl['name']}`에서 **{len(removed)}곡**을 삭제했습니다! "
                 f"(남은 곡: {len(target_pl['tracks'])}곡)\n{_format_removed_preview(removed)}"
             ),
             view=None
@@ -2690,7 +2690,7 @@ class PlaylistDeleteByNumberModal(core.SafeModal, title="🔢 번호로 곡 삭�
         target_pl["updated_at"] = core.get_today_str()
         await _commit_and_refresh_studio(self.studio_view, data, self.parent_message)
         await interaction.followup.send(
-            f"✅ **`{target_pl['emoji']} {target_pl['name']}`**에서 **{len(removed)}곡**을 삭제했습니다! "
+            f"✅ `{target_pl['emoji']} {target_pl['name']}`에서 **{len(removed)}곡**을 삭제했습니다! "
             f"(남은 곡: {len(target_pl['tracks'])}곡)\n{_format_removed_preview(removed)}",
             ephemeral=True
         )
@@ -2718,7 +2718,7 @@ class PlaylistSearchModal(core.SafeModal, title="🔍 플레이리스트 곡 검
             if kw in str(t.get("title", "")).lower() or kw in str(t.get("artist", "")).lower() or kw in str(t.get("memo", "")).lower()
         ]
         if not matches:
-            await core.safe_send_response(interaction, f"🔍 **`{self.keyword_input.value}`**와(과) 일치하는 곡이 없습니다.", ephemeral=True)
+            await core.safe_send_response(interaction, f"🔍 `{self.keyword_input.value}`와(과) 일치하는 곡이 없습니다.", ephemeral=True)
             return
         view = PlaylistSearchResultView(self.studio_view, matches, parent_message=self.parent_message)
         await core.safe_send_response(interaction, view.build_content(self.keyword_input.value), view=view, ephemeral=True)
@@ -2804,7 +2804,7 @@ class PlaylistClearConfirmView(core.SafeView):
         target_pl["updated_at"] = core.get_today_str()
         self.studio_view.current_page = 0
         await _commit_and_refresh_studio(self.studio_view, data, self.parent_message)
-        await interaction.edit_original_response(content=f"🧹 **`{target_pl['name']}`**의 수록곡 **{cnt}곡**을 모두 비웠습니다.", view=None)
+        await interaction.edit_original_response(content=f"🧹 `{target_pl['name']}`의 수록곡 **{cnt}곡**을 모두 비웠습니다.", view=None)
 
     @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary, row=0)
     async def cancel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2962,7 +2962,7 @@ class PlaylistConvenienceView(core.SafeView):
         self.studio_view.current_page = 0
         await self._save_and_refresh_parent(data)
         await interaction.edit_original_response(
-            content=f"📄 **`{new_pl['emoji']} {new_pl['name']}`**을(를) 만들었습니다! ({len(new_pl.get('tracks', []))}곡 복제)\n*(스튜디오가 복제된 플레이리스트로 자동 전환되었습니다)*",
+            content=f"📄 `{new_pl['emoji']} {new_pl['name']}`을(를) 만들었습니다! ({len(new_pl.get('tracks', []))}곡 복제)\n*(스튜디오가 복제된 플레이리스트로 자동 전환되었습니다)*",
             view=self
         )
 
@@ -2995,7 +2995,7 @@ class PlaylistConvenienceView(core.SafeView):
             return
         await core.safe_send_response(
             interaction,
-            f"⚠️ 정말 **`{cur_pl.get('name')}`**의 수록곡 **{cnt}곡**을 모두 비우시겠어요? (되돌릴 수 없습니다)",
+            f"⚠️ 정말 `{cur_pl.get('name')}`의 수록곡 **{cnt}곡**을 모두 비우시겠어요? (되돌릴 수 없습니다)",
             view=PlaylistClearConfirmView(self.studio_view, parent_message=self.parent_message),
             ephemeral=True
         )
@@ -3256,7 +3256,7 @@ class ImportLikedMusicView(core.SafeView):
                 pass
 
         await interaction.edit_original_response(
-            content=f"✅ 선택한 곡 중 **`{added_cnt}곡`**을 **`{target_pl['emoji']} {target_pl['name']}`** 플레이리스트에 담았습니다!",
+            content=f"✅ 선택한 곡 중 `{added_cnt}곡`을 **`{target_pl['emoji']} {target_pl['name']}`** 플레이리스트에 담았습니다!",
             view=None
         )
 
@@ -3649,8 +3649,8 @@ class PlaylistStudioView(core.SafeView):
                 name="📭 아직 수록된 곡이 없습니다!",
                 value=(
                     "1️⃣ 상단 **`[🌐 플랫폼]`** 버튼으로 **유튜브 / 스포티파이 / 사운드클라우드** 중 원하는 플랫폼을 고르세요.\n"
-                    "2️⃣ 아래 **`[➕ 곡 추가]`** 또는 **`[🔗 플리 링크 가져오기]`**로 링크를 넣어 수록곡을 한 번에 담으세요!\n"
-                    "3️⃣ 음성채널에 입장한 뒤 **`[🔊 음성채널 순차 자동재생]`**을 누르면 1번 곡부터 자동 실행됩니다!"
+                    "2️⃣ 아래 **`[➕ 곡 추가]`** 또는 `[🔗 플리 링크 가져오기]`로 링크를 넣어 수록곡을 한 번에 담으세요!\n"
+                    "3️⃣ 음성채널에 입장한 뒤 `[🔊 음성채널 순차 자동재생]`을 누르면 1번 곡부터 자동 실행됩니다!"
                 ),
                 inline=False
             )
@@ -3900,7 +3900,7 @@ class PlaylistStudioView(core.SafeView):
 
         if interaction.channel:
             await interaction.channel.send(
-                content=f"🎧 {interaction.user.mention}님이 나만의 커스텀 플레이리스트 **`{cur_pl.get('emoji', '🎧')} {cur_pl.get('name')}`**을(를) 공유했습니다!",
+                content=f"🎧 {interaction.user.mention}님이 나만의 커스텀 플레이리스트 `{cur_pl.get('emoji', '🎧')} {cur_pl.get('name')}`을(를) 공유했습니다!",
                 embed=shared_embed,
                 view=shared_view
             )
@@ -4159,7 +4159,7 @@ class MusicCog(commands.Cog):
         elif mode == "delete_tracks" and target_user.id == interaction.user.id:
             tracks = selected_pl.get("tracks", [])
             if not tracks:
-                await interaction.followup.send(f"📭 **`{selected_pl['emoji']} {selected_pl['name']}`**에 삭제할 곡이 없습니다.", ephemeral=True)
+                await interaction.followup.send(f"📭 `{selected_pl['emoji']} {selected_pl['name']}`에 삭제할 곡이 없습니다.", ephemeral=True)
                 return
             if 곡제목또는링크 and 곡제목또는링크.strip():
                 raw_in = 곡제목또는링크.strip()
@@ -4179,7 +4179,7 @@ class MusicCog(commands.Cog):
                             kept.append(t)
                     if not removed:
                         await interaction.followup.send(
-                            f"❌ **`{selected_pl['name']}`**에서 **`{곡제목또는링크}`**에 해당하는 곡 번호나 제목을 찾지 못했습니다.\n"
+                            f"❌ `{selected_pl['name']}`에서 `{곡제목또는링크}`에 해당하는 곡 번호나 제목을 찾지 못했습니다.\n"
                             f"• 번호 입력 예시: `3`, `1, 4, 7`, `10-15`",
                             ephemeral=True
                         )
@@ -4190,7 +4190,7 @@ class MusicCog(commands.Cog):
                 await asyncio.to_thread(core.save_data, data)
                 studio = PlaylistStudioView(interaction.user, target_user, data, initial_pl_id=selected_pl["id"])
                 await interaction.followup.send(
-                    f"✅ **`{selected_pl['emoji']} {selected_pl['name']}`**에서 **{len(removed)}곡**을 삭제했습니다!\n"
+                    f"✅ `{selected_pl['emoji']} {selected_pl['name']}`에서 **{len(removed)}곡**을 삭제했습니다!\n"
                     f"{_format_removed_preview(removed)}",
                     embed=studio.build_embed(),
                     view=studio, wait=True
@@ -4215,7 +4215,7 @@ class MusicCog(commands.Cog):
             await asyncio.to_thread(core.save_data, data)
             shared_view = SharedPlaylistView(target_user, selected_pl)
             await interaction.followup.send(
-                content=f"🎧 {interaction.user.mention}님이 플레이리스트 **`{selected_pl.get('emoji', '🎧')} {selected_pl.get('name')}`**을(를) 공유했습니다!",
+                content=f"🎧 {interaction.user.mention}님이 플레이리스트 `{selected_pl.get('emoji', '🎧')} {selected_pl.get('name')}`을(를) 공유했습니다!",
                 embed=shared_view.build_embed(),
                 view=shared_view, wait=True
             )
@@ -4323,7 +4323,7 @@ class MusicCog(commands.Cog):
         tracks = target_pl.get("tracks", [])
 
         if not tracks:
-            await interaction.followup.send(f"📭 **`{target_pl['emoji']} {target_pl['name']}`**에 삭제할 곡이 없습니다.", ephemeral=True)
+            await interaction.followup.send(f"📭 `{target_pl['emoji']} {target_pl['name']}`에 삭제할 곡이 없습니다.", ephemeral=True)
             return
 
         studio = PlaylistStudioView(interaction.user, interaction.user, data, initial_pl_id=target_pl["id"])
@@ -4355,7 +4355,7 @@ class MusicCog(commands.Cog):
                         kept.append(t)
                 if not removed:
                     await interaction.followup.send(
-                        f"❌ **`{target_pl['name']}`**에서 **`{곡}`**에 해당하는 곡 번호나 제목을 찾지 못했습니다.\n"
+                        f"❌ `{target_pl['name']}`에서 `{곡}`에 해당하는 곡 번호나 제목을 찾지 못했습니다.\n"
                         f"• 번호 입력 예시: `3`, `1, 4, 7`, `10-15`\n"
                         f"• 곡 제목이나 아티스트명을 입력하거나 자동완성 목록에서 선택해 보세요.",
                         ephemeral=True
@@ -4366,7 +4366,7 @@ class MusicCog(commands.Cog):
         target_pl["updated_at"] = core.get_today_str()
         await _commit_and_refresh_studio(studio, data)
         await interaction.followup.send(
-            f"✅ **`{target_pl['emoji']} {target_pl['name']}`**에서 **{len(removed)}곡**을 삭제했습니다! (남은 곡: {len(target_pl['tracks'])}곡)\n"
+            f"✅ `{target_pl['emoji']} {target_pl['name']}`에서 **{len(removed)}곡**을 삭제했습니다! (남은 곡: {len(target_pl['tracks'])}곡)\n"
             f"{_format_removed_preview(removed)}",
             ephemeral=True
         )
@@ -4484,7 +4484,7 @@ class MusicCog(commands.Cog):
         is_dup = any(_track_matches(resolved, et) for et in existing_tracks)
         if is_dup and not 중복허용:
             await interaction.followup.send(
-                f"⚠️ **`{resolved['title']}`**은(는) 이미 **`{target_pl['emoji']} {target_pl['name']}`**에 등록되어 있습니다!\n"
+                f"⚠️ `{resolved['title']}`은(는) 이미 `{target_pl['emoji']} {target_pl['name']}`에 등록되어 있습니다!\n"
                 f"• 그래도 추가하려면 `/플리곡추가` 실행 시 `중복허용: 참`으로 설정해 주세요.",
                 ephemeral=True
             )
@@ -4500,7 +4500,7 @@ class MusicCog(commands.Cog):
 
         dup_note = " *(중복 곡)*" if is_dup else ""
         await interaction.followup.send(
-            content=f"✅ {p_meta['emoji']} **`{target_pl['emoji']} {target_pl['name']}`**의 **#{len(existing_tracks)}번째 곡**으로 추가되었습니다!{dup_note}\n"
+            content=f"✅ {p_meta['emoji']} `{target_pl['emoji']} {target_pl['name']}`의 **#{len(existing_tracks)}번째 곡**으로 추가되었습니다!{dup_note}\n"
                     f"🎵 **{resolved.get('title', '제목 없음')}** — `{resolved.get('artist', '-')}`",
             embed=studio.build_embed(),
             view=studio, wait=True
@@ -5250,7 +5250,7 @@ class MusicCog(commands.Cog):
                 p_meta = core.PLAYLIST_PLATFORMS.get(target_pl.get("platform", "YouTube"), core.PLAYLIST_PLATFORMS["YouTube"])
                 dup_note = " *(중복 곡)*" if is_dup else ""
                 await status_msg.edit(
-                    content=f"✅ {p_meta['emoji']} **`{target_pl['emoji']} {target_pl['name']}`**의 **#{len(existing_tracks)}번째 곡**으로 추가되었습니다!{dup_note}\n"
+                    content=f"✅ {p_meta['emoji']} `{target_pl['emoji']} {target_pl['name']}`의 **#{len(existing_tracks)}번째 곡**으로 추가되었습니다!{dup_note}\n"
                             f"🎵 **{resolved.get('title', '제목 없음')}** — `{resolved.get('artist', '-')}`",
                     embed=studio.build_embed(),
                     view=studio
@@ -5355,7 +5355,7 @@ class MusicCog(commands.Cog):
         p_meta = core.PLAYLIST_PLATFORMS.get(target_pl.get("platform", "YouTube"), core.PLAYLIST_PLATFORMS["YouTube"])
         dup_note = " *(중복 곡)*" if is_dup else ""
         await status_msg.edit(
-            content=f"✅ {p_meta['emoji']} **`{target_pl['emoji']} {target_pl['name']}`**의 **#{len(existing_tracks)}번째 곡**으로 추가되었습니다!{dup_note}\n"
+            content=f"✅ {p_meta['emoji']} `{target_pl['emoji']} {target_pl['name']}`의 **#{len(existing_tracks)}번째 곡**으로 추가되었습니다!{dup_note}\n"
                     f"🎵 **{resolved.get('title', '제목 없음')}** — `{resolved.get('artist', '-')}`",
             embed=studio.build_embed(),
             view=studio
@@ -5452,7 +5452,7 @@ class MusicCog(commands.Cog):
         tracks = target_pl.get("tracks", [])
 
         if not tracks:
-            await ctx.send(f"📭 **`{target_pl['emoji']} {target_pl['name']}`**에 삭제할 곡이 없습니다.")
+            await ctx.send(f"📭 `{target_pl['emoji']} {target_pl['name']}`에 삭제할 곡이 없습니다.")
             return
 
         studio = PlaylistStudioView(ctx.author, ctx.author, data, initial_pl_id=target_pl["id"])
@@ -5480,7 +5480,7 @@ class MusicCog(commands.Cog):
                     kept.append(t)
             if not removed:
                 await ctx.send(
-                    f"❌ **`{target_pl['name']}`**에서 **`{곡번호또는이름}`**에 해당하는 곡 번호나 제목을 찾지 못했습니다.\n"
+                    f"❌ `{target_pl['name']}`에서 `{곡번호또는이름}`에 해당하는 곡 번호나 제목을 찾지 못했습니다.\n"
                     f"• 번호 예시: `!플리삭제 3` 또는 `!플리삭제 1, 4, 7-10`"
                 )
                 return
@@ -5489,7 +5489,7 @@ class MusicCog(commands.Cog):
         target_pl["updated_at"] = core.get_today_str()
         await _commit_and_refresh_studio(studio, data)
         await ctx.send(
-            f"✅ **`{target_pl['emoji']} {target_pl['name']}`**에서 **{len(removed)}곡**을 삭제했습니다! (남은 곡: {len(target_pl['tracks'])}곡)\n"
+            f"✅ `{target_pl['emoji']} {target_pl['name']}`에서 **{len(removed)}곡**을 삭제했습니다! (남은 곡: {len(target_pl['tracks'])}곡)\n"
             f"{_format_removed_preview(removed)}"
         )
 

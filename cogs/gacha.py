@@ -85,8 +85,8 @@ def build_gacha_pull_embed(
 
     lines = []
     for idx, c in enumerate(drawn, start=1):
-        p_mark = "🎯**[픽업!]** " if c.get("is_pickup") else ""
-        new_mark = "✨**[NEW!]** " if c.get("is_new") else ""
+        p_mark = "🎯 **[픽업!]** " if c.get("is_pickup") else ""
+        new_mark = "✨ **[NEW!]** " if c.get("is_new") else ""
 
         # 성급별 시각적 이모지
         s_num = c.get("star_num", 2)
@@ -453,7 +453,7 @@ class DuplicateConvertConfirmView(core.SafeView):
         done_embed = discord.Embed(
             title="✨ 중복 카드 크리스탈 변환 완료!",
             description=(
-                f"🎉 총 **`{res['converted_count']:,}장`**의 초과 중복 카드를 크리스탈로 변환했습니다!\n"
+                f"🎉 총 `{res['converted_count']:,}장`의 초과 중복 카드를 크리스탈로 변환했습니다!\n"
                 "*(모든 종류의 원본 카드 1장과 🔒잠금 카드는 안전하게 유지되었습니다)*\n\n"
                 f"💎 **획득 크리스탈:** **`+{res['gained_crystals']:,}개`** (현재 총 보유: **`{res['current_crystals']:,}개`**)\n\n"
                 f"📋 **변환 내역 요약**\n{detail_preview}"
@@ -733,8 +733,8 @@ class RerollSimulatorView(core.SafeView):
         b_cfg = core.BANNER_CONFIGS.get(self.banner_type, core.BANNER_CONFIGS["normal"])
         lines = []
         for idx, c in enumerate(self.drawn, start=1):
-            p_mark = "🎯**[픽업!]** " if c.get("is_pickup") else ""
-            new_mark = "✨**[미보유]** " if c.get("is_new") else ""
+            p_mark = "🎯 **[픽업!]** " if c.get("is_pickup") else ""
+            new_mark = "✨ **[미보유]** " if c.get("is_new") else ""
             s_num = int(c.get("star_num", 2))
             badge = "🎂 [Birthday]" if c.get("rarity_type") == "rarity_birthday" else ("🌟 ★★★★" if s_num >= 4 else ("💫 ★★★" if s_num == 3 else f"⭐ ★{s_num}"))
             lines.append(f"**{idx:02d}.** {p_mark}{new_mark}**{badge} [{c.get('prefix', '')}] {c.get('char_name', '')}** (`{c.get('prob', 0):.3f}%`)")
@@ -939,8 +939,8 @@ class DestinyRerollView(core.SafeView):
         cur_cards = self.sets[self.current_idx] if self.sets and 0 <= self.current_idx < len(self.sets) else []
         lines = []
         for idx, c in enumerate(cur_cards, start=1):
-            p_mark = "🎯**[픽업!]** " if c.get("is_pickup") else ""
-            new_mark = "✨**[NEW!]** " if c.get("is_new") else ""
+            p_mark = "🎯 **[픽업!]** " if c.get("is_pickup") else ""
+            new_mark = "✨ **[NEW!]** " if c.get("is_new") else ""
             s_num = int(c.get("star_num", 2))
             badge = "🎂 [Birthday]" if c.get("rarity_type") == "rarity_birthday" else ("🌟 ★★★★" if s_num >= 4 else ("💫 ★★★" if s_num == 3 else f"⭐ ★{s_num}"))
             lines.append(f"**{idx:02d}.** {p_mark}{new_mark}**{badge} [{c.get('prefix', '')}] {c.get('char_name', '')}**")
@@ -1157,7 +1157,7 @@ class GachaRankingView(core.SafeView):
                 cards_preview = ", ".join(r.get("cards", [])[:3])
                 pickup_info = f" · 🎯픽업 `{r.get('pickup_count', 0)}`" if r.get("pickup_count", 0) > 0 else ""
                 hof_lines.append(
-                    f"{medals[i]} <@{r['uid']}> — 10연차 **★4·생일 `{r.get('high_count', 0)}장`**{pickup_info} (`{r.get('banner', '')}` · {r.get('achieved_at', '')[:10]})\n"
+                    f"{medals[i]} <@{r['uid']}> — 10연차 **★4·생일** `{r.get('high_count', 0)}장`{pickup_info} (`{r.get('banner', '')}` · {r.get('achieved_at', '')[:10]})\n"
                     f"   └ {cards_preview}"
                 )
             core.add_chunked_embed_fields(embed, "🌟 단일 10연차 최고 비틱 TOP 5", hof_lines, separator="\n", max_chars=950)
@@ -2201,7 +2201,7 @@ class ProsekaRatePaginationView(core.SafeView):
         else:
             lines = []
             for idx, c in enumerate(page_items, start=start_idx + 1):
-                pickup_badge = "🎯**[픽업]** " if c.get("is_pickup") else ""
+                pickup_badge = "🎯 **[픽업]** " if c.get("is_pickup") else ""
                 unit_str = f"{c['unit']}" + (f" ({c['support_unit']})" if c.get("support_unit") else "")
                 lines.append(
                     f"**{idx}.** {pickup_badge}`[{c['limit_label']}]` **{c['rarity_label']} [{c['prefix']}] {c['char_name']}**\n"

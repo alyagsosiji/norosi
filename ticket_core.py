@@ -110,7 +110,7 @@ def can_open_ticket(guild_id: int | str, user_id: int | str) -> Tuple[bool, str,
         if open_cnt >= limit:
             return (
                 False,
-                f"⚠️ 현재 열려 있는 티켓이 이미 **`{open_cnt}/{limit}개`**입니다. 기존 티켓을 닫은 뒤 새로 열어주세요!",
+                f"⚠️ 현재 열려 있는 티켓이 이미 `{open_cnt}/{limit}개`입니다. 기존 티켓을 닫은 뒤 새로 열어주세요!",
                 cfg,
             )
         return True, "", cfg

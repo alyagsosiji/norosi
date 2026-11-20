@@ -541,7 +541,7 @@ def start_relay_novel(
     ch_key = str(channel_id)
     if ch_key in g_root["active_channels"]:
         existing = g_root["active_channels"][ch_key]
-        return False, f"이미 이 채널에서 **『{existing.get('title', '릴레이 소설')}』**이 진행 중입니다!", None
+        return False, f"이미 이 채널에서 『**{existing.get('title', '릴레이 소설')}**』이 진행 중입니다!", None
 
     clean_title = (title or "").strip()[:80]
     clean_first = " ".join((first_sentence or "").strip().splitlines())[:280]

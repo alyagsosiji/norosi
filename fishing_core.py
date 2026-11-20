@@ -1695,7 +1695,7 @@ def sell_fish_by_uid(guild_id: int | str, user_id: int | str, uid: str) -> Tuple
                         q_tgt = max(1, _safe_int(q.get("target"), 1))
                         q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + gold)
                 core.save_data(data)
-                return True, f"💰 **{name}**을(를) 판매해 **`+{gold:,}🪙`**을 획득했습니다! (보유: `{u['gold']:,}🪙`)", gold
+                return True, f"💰 **{name}**을(를) 판매해 `+{gold:,}🪙`을 획득했습니다! (보유: `{u['gold']:,}🪙`)", gold
         return False, "⚠️ 이미 판매되었거나 가방에 없는 개체입니다.", 0
 
 
@@ -1731,7 +1731,7 @@ def sell_fishes_by_uids(
             if skipped_locked_uids:
                 return (
                     False,
-                    f"🔒 선택한 물고기 **`{len(skipped_locked_uids)}마리`**가 모두 잠금 보호 상태입니다! 먼저 **`[🔓 선택 잠금해제]`**로 잠금을 풀어주세요.",
+                    f"🔒 선택한 물고기 `{len(skipped_locked_uids)}마리`가 모두 잠금 보호 상태입니다! 먼저 `[🔓 선택 잠금해제]`로 잠금을 풀어주세요.",
                     0,
                     0,
                     skipped_locked_uids,
@@ -1747,13 +1747,13 @@ def sell_fishes_by_uids(
         core.save_data(data)
         if skipped_locked_uids:
             msg = (
-                f"💰 선택한 미잠금 물고기 **`{sold_cnt}마리`**를 판매해 **`+{sold_gold:,}🪙`**을 획득했습니다! "
+                f"💰 선택한 미잠금 물고기 `{sold_cnt}마리`를 판매해 `+{sold_gold:,}🪙`을 획득했습니다! "
                 f"(보유: `{u['gold']:,}🪙` · 🔒 잠금 `{len(skipped_locked_uids)}마리` 제외)"
             )
         elif skip_locked:
-            msg = f"💰 선택한 물고기 **`{sold_cnt}마리`**를 일괄 판매해 **`+{sold_gold:,}🪙`**을 획득했습니다! (보유: `{u['gold']:,}🪙`)"
+            msg = f"💰 선택한 물고기 `{sold_cnt}마리`를 일괄 판매해 `+{sold_gold:,}🪙`을 획득했습니다! (보유: `{u['gold']:,}🪙`)"
         else:
-            msg = f"💰 방금 잡은 물고기 **`{sold_cnt}마리`**를 일괄 판매해 **`+{sold_gold:,}🪙`**을 획득했습니다! (보유: `{u['gold']:,}🪙`)"
+            msg = f"💰 방금 잡은 물고기 `{sold_cnt}마리`를 일괄 판매해 `+{sold_gold:,}🪙`을 획득했습니다! (보유: `{u['gold']:,}🪙`)"
         return (
             True,
             msg,
@@ -1796,7 +1796,7 @@ def sell_all_unlocked_bag(
                 q_tgt = max(1, _safe_int(q.get("target"), 1))
                 q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + sold_gold)
         core.save_data(data)
-        return True, f"💰 잠금 해제된 물고기 **`{sold_cnt}마리`**를 일괄 판매해 **`+{sold_gold:,}🪙`**를 벌었습니다! (보유: `{u['gold']:,}🪙`)", sold_cnt, sold_gold
+        return True, f"💰 잠금 해제된 물고기 `{sold_cnt}마리`를 일괄 판매해 `+{sold_gold:,}🪙`를 벌었습니다! (보유: `{u['gold']:,}🪙`)", sold_cnt, sold_gold
 
 
 def toggle_fish_lock(guild_id: int | str, user_id: int | str, uid: str) -> Tuple[bool, str]:
@@ -1887,7 +1887,7 @@ def release_fishes_by_uids(guild_id: int | str, user_id: int | str, uids: List[s
         core.save_data(data)
         return (
             True,
-            f"🌊 방금 잡은 물고기 **`{rel_cnt}마리`**를 자연으로 방생했습니다! (`+{bonus_exp:,} EXP`)",
+            f"🌊 방금 잡은 물고기 `{rel_cnt}마리`를 자연으로 방생했습니다! (`+{bonus_exp:,} EXP`)",
             rel_cnt,
             bonus_exp,
             [],
@@ -1958,7 +1958,7 @@ def move_fishes_to_tank(guild_id: int | str, user_id: int | str, uids: List[str]
         extra = f" (수족관 만석으로 `{len(remaining_uids)}마리` 가방 유지)" if remaining_uids else ""
         return (
             True,
-            f"🐠 **{preview}** 총 **`{len(moved_uids)}마리`**를 개인 수족관에 전시했습니다! (`{len(tank)}/{max_slots}`){extra}",
+            f"🐠 **{preview}** 총 `{len(moved_uids)}마리`를 개인 수족관에 전시했습니다! (`{len(tank)}/{max_slots}`){extra}",
             len(moved_uids),
             remaining_uids,
         )
@@ -1998,7 +1998,7 @@ def harvest_tank_gold(guild_id: int | str, user_id: int | str) -> Tuple[bool, st
         u["gold"] += pending
         u["total_gold_earned"] = int(u.get("total_gold_earned", 0)) + pending
         core.save_data(data)
-        return True, f"🪙 수족관 관람 수익 **`+{pending:,}🪙`**를 수확했습니다! (현재 보유: `{u['gold']:,}🪙`)", pending
+        return True, f"🪙 수족관 관람 수익 `+{pending:,}🪙`를 수확했습니다! (현재 보유: `{u['gold']:,}🪙`)", pending
 
 
 def purchase_shop_item(guild_id: int | str, user_id: int | str, category: str, item_id: str) -> Tuple[bool, str]:
@@ -2087,7 +2087,7 @@ def purchase_shop_item(guild_id: int | str, user_id: int | str, category: str, i
             u["gold"] -= cost
             u["tank_slots"] = cur_slots + 2
             core.save_data(data)
-            return True, f"🐠 수족관 전시 슬롯이 **`{cur_slots} → {u['tank_slots']}칸`**으로 확장되었습니다! (`-{cost:,}🪙`)"
+            return True, f"🐠 수족관 전시 슬롯이 `{cur_slots} → {u['tank_slots']}칸`으로 확장되었습니다! (`-{cost:,}🪙`)"
 
         if category == "bag_expand":
             nxt = get_next_bag_upgrade(u)
@@ -2098,9 +2098,9 @@ def purchase_shop_item(guild_id: int | str, user_id: int | str, category: str, i
             cost = int(nxt["price"])
             if item_id not in ("expand", str(next_cap)):
                 if str(item_id).isdigit() and int(item_id) <= cur_cap:
-                    return False, f"✅ 이미 `{cur_cap:,}칸` 이상으로 확장되어 있습니다! 다음 단계는 **`{next_cap:,}칸 ({cost:,}🪙)`**입니다."
+                    return False, f"✅ 이미 `{cur_cap:,}칸` 이상으로 확장되어 있습니다! 다음 단계는 `{next_cap:,}칸 ({cost:,}🪙)`입니다."
                 req_str = f"{int(item_id):,}칸" if str(item_id).isdigit() else str(item_id)
-                return False, f"⚠️ 가방 확장은 단계별 순차 업그레이드만 가능합니다! 현재 `{cur_cap:,}칸` → 다음 단계 **`{next_cap:,}칸 ({cost:,}🪙)`**을 먼저 구매해 주세요. (선택: {req_str})"
+                return False, f"⚠️ 가방 확장은 단계별 순차 업그레이드만 가능합니다! 현재 `{cur_cap:,}칸` → 다음 단계 `{next_cap:,}칸 ({cost:,}🪙)`을 먼저 구매해 주세요. (선택: {req_str})"
             if gold < cost:
                 return False, f"❌ 가방 확장 골드가 부족합니다! (`{cur_cap:,}→{next_cap:,}칸` 필요: `{cost:,}🪙` / 보유: `{gold:,}🪙`)"
             u["gold"] -= cost
@@ -2108,7 +2108,7 @@ def purchase_shop_item(guild_id: int | str, user_id: int | str, category: str, i
             core.save_data(data)
             return True, (
                 f"{nxt['emoji']} **{nxt['tier_name']}** 구매 완료! "
-                f"낚시 가방 한도가 **`{cur_cap:,} → {next_cap:,}마리`**로 확장되었습니다! (`-{cost:,}🪙` · 잔액 `{u['gold']:,}🪙`)"
+                f"낚시 가방 한도가 `{cur_cap:,} → {next_cap:,}마리`로 확장되었습니다! (`-{cost:,}🪙` · 잔액 `{u['gold']:,}🪙`)"
             )
 
         return False, "❌ 알 수 없는 상점 상품 분류입니다."
@@ -3035,7 +3035,7 @@ def start_fishing_tournament(
                 pass
 
         if isinstance(active, dict) and not active.get("settled") and not active.get("is_auto_weekend"):
-            return False, f"⚠️ 이미 진행 중인 **`{active.get('title', '낚시 대회')}`**가 있습니다! 먼저 종료하거나 정산해 주세요.", copy.deepcopy(active)
+            return False, f"⚠️ 이미 진행 중인 `{active.get('title', '낚시 대회')}`가 있습니다! 먼저 종료하거나 정산해 주세요.", copy.deepcopy(active)
 
         # 주말 자동 대회가 진행 중이었는데 커스텀 대회를 여는 경우 기존 주말 대회 참가 기록 보존 정산
         if isinstance(active, dict) and active.get("is_auto_weekend") and active.get("participants"):
@@ -3081,5 +3081,5 @@ def finish_fishing_tournament(guild_id: int | str) -> Tuple[bool, str, Optional[
             return False, "ℹ️ 현재 진행 중인 낚시 대회가 없습니다.", None
         settled = _settle_tournament_unlocked(data, guild_id, active)
         core.save_data(data)
-        return True, f"🏅 **`{settled.get('title', '낚시 대회')}`**가 종료되어 참가자 전원에게 시상 보상이 지급되었습니다!", copy.deepcopy(settled)
+        return True, f"🏅 `{settled.get('title', '낚시 대회')}`가 종료되어 참가자 전원에게 시상 보상이 지급되었습니다!", copy.deepcopy(settled)
 

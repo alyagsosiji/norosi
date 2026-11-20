@@ -102,8 +102,8 @@ def _build_hsr_result_embed(result: dict, user: discord.abc.User | None) -> tupl
 
     lines = []
     for idx, it in enumerate(drawn, start=1):
-        p_mark = "🎯**[픽업]** " if it.get("is_pickup") else ""
-        new_mark = "✨**[NEW]** " if it.get("is_new") else ""
+        p_mark = "🎯 **[픽업]** " if it.get("is_pickup") else ""
+        new_mark = "✨ **[NEW]** " if it.get("is_new") else ""
         if it["kind"] == "char":
             dup_txt = f"E{it.get('new_eidolon', 0)}"
             tag = f"{it.get('element_emoji', '')}{it.get('element_name', '')} · {it.get('path_emoji', '')}{it.get('path_name', '')}"

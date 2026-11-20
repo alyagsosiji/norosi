@@ -1417,7 +1417,7 @@ class NorosiBot(commands.Bot):
                 title=f"🎂 Happy Birthday! 오늘은 {uname}님의 생일입니다! 🎉",
                 description=(
                     f"🎊 <@{uid}>님, 일 년에 단 한 번뿐인 소중한 생일을 진심으로 축하드립니다!\n"
-                    f"🎁 **세카이 생일 축하 보너스:** **`+500 💎 크리스탈`**이 지급되었습니다! (보유: `{item['crystals']:,}💎`)"
+                    f"🎁 **세카이 생일 축하 보너스:** `+500 💎 크리스탈`이 지급되었습니다! (보유: `{item['crystals']:,}💎`)"
                     + (f"\n💬 **생일 소원:** *\"{item['memo']}\"*" if item.get("memo") else "")
                 ),
                 color=discord.Color.from_rgb(255, 105, 180),
@@ -1794,7 +1794,7 @@ bot = NorosiBot()
 # ==========================================
 async def set_terminal_log_channel_slash(interaction: discord.Interaction, 채널: Optional[discord.TextChannel] = None):
     if not await bot.is_bot_owner_user(interaction.user):
-        await core.safe_send_response(interaction, "❌ 이 명령어는 **봇 소유자(봇주)**만 사용할 수 있습니다.", ephemeral=True)
+        await core.safe_send_response(interaction, "❌ 이 명령어는 **봇 소유자**(봇주)만 사용할 수 있습니다.", ephemeral=True)
         return
 
     await core.safe_defer(interaction, ephemeral=True)
@@ -1840,7 +1840,7 @@ async def set_terminal_log_channel_slash(interaction: discord.Interaction, 채�
 @bot.command(name="터미널로그", aliases=["터미널로그채널", "서버터미널", "vm로그", "콘솔로그"])
 async def set_terminal_log_channel_prefix(ctx: commands.Context, channel: Optional[discord.TextChannel] = None):
     if not await bot.is_bot_owner_user(ctx.author):
-        await ctx.send("❌ 이 명령어는 **봇 소유자(봇주)**만 사용할 수 있습니다.", delete_after=5)
+        await ctx.send("❌ 이 명령어는 **봇 소유자**(봇주)만 사용할 수 있습니다.", delete_after=5)
         return
 
     g_key = str(ctx.guild.id) if ctx.guild else "global"
@@ -1939,7 +1939,7 @@ async def set_bot_banner_slash(
     if not await bot.is_bot_owner_user(interaction.user):
         await core.safe_send_response(
             interaction,
-            "❌ 이 명령어는 **봇 소유자(봇주)**만 사용할 수 있습니다.",
+            "❌ 이 명령어는 **봇 소유자**(봇주)만 사용할 수 있습니다.",
             ephemeral=True
         )
         return
@@ -2031,7 +2031,7 @@ async def set_bot_banner_slash(
 @bot.command(name="봇배너", aliases=["배너", "봇배너변경", "botbanner"])
 async def set_bot_banner_prefix(ctx: commands.Context, arg: Optional[str] = None):
     if not await bot.is_bot_owner_user(ctx.author):
-        await ctx.send("❌ 이 명령어는 **봇 소유자(봇주)**만 사용할 수 있습니다.", delete_after=5)
+        await ctx.send("❌ 이 명령어는 **봇 소유자**(봇주)만 사용할 수 있습니다.", delete_after=5)
         return
 
     if not bot.user:
@@ -2117,7 +2117,7 @@ class SyncControlView(core.SafeView):
     async def _check_permission(self, interaction: discord.Interaction) -> bool:
         if await bot.is_bot_owner_user(interaction.user):
             return True
-        await core.safe_send_response(interaction, "❌ 이 조작은 **봇주(Bot Owner)**만 가능합니다.", ephemeral=True)
+        await core.safe_send_response(interaction, "❌ 이 조작은 **봇주**(Bot Owner)만 가능합니다.", ephemeral=True)
         return False
 
     @discord.ui.button(label="⚡ 현재 서버에 즉시 반영 (0초 반영)", style=discord.ButtonStyle.success, emoji="⚡", row=0)
@@ -2140,8 +2140,8 @@ class SyncControlView(core.SafeView):
             embed = discord.Embed(
                 title="⚡ 슬래시 명령어 현재 서버에 0초 즉시 반영 완료!",
                 description=(
-                    f"✅ **현재 서버({target_guild.name if target_guild else '글로벌'})**에 슬래시 명령어 **`{g_cnt}개`**(`/설정`, `/도움말`)가 0초 만에 즉시 등록되었습니다!\n"
-                    f"👉 글로벌 슬래시 커맨드 총 **`{len(synced_global)}개`**도 전역 등록 완료되었습니다.\n\n"
+                    f"✅ **현재 서버**({target_guild.name if target_guild else '글로벌'})에 슬래시 명령어 `{g_cnt}개`(`/설정`, `/도움말`)가 0초 만에 즉시 등록되었습니다!\n"
+                    f"👉 글로벌 슬래시 커맨드 총 `{len(synced_global)}개`도 전역 등록 완료되었습니다.\n\n"
                     "💡 모든 기능은 `/설정` 통합 허브 안에서 버튼으로 오류 없이 이용하실 수 있습니다!"
                 ),
                 color=discord.Color.green(),
@@ -2264,7 +2264,7 @@ class SyncControlView(core.SafeView):
 @bot.command(name="sync", aliases=["싱크", "동기화", "재동기화", "명령어동기화", "싱크초기화", "동기화초기화", "중복해결", "중복정리"])
 async def sync_guild_command(ctx: commands.Context, *args):
     if not await bot.is_bot_owner_user(ctx.author):
-        await ctx.send("❌ 이 명령어는 **봇주(Bot Owner)**만 사용할 수 있습니다.", delete_after=5)
+        await ctx.send("❌ 이 명령어는 **봇주**(Bot Owner)만 사용할 수 있습니다.", delete_after=5)
         return
 
     mode = " ".join(args).strip().lower() if args else ""

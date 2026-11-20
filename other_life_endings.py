@@ -23,7 +23,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "히든",
         "color": 0xA855F7,
         "base_crystal": 180,
-        "hint": "유년(b1_curious)·학창(b4_study/b6_solo_star)·중년(b14_star)에 별의 씨앗을 품고 지성 58+·공감 54+ 상태로 70세 귀향에서 깨달음(b17_cosmos)→78세 별길(b18_star_walk)을 선택하세요.",
+        "hint": "유년·학창·중년에 별의 씨앗을 품고 지성 58+·공감 54+ 상태로 70세 귀향에서 깨달음을 얻은 뒤 78세에 별길을 선택하세요.",
     },
     "flame_39": {
         "name": "불꽃 같은 서른아홉",
@@ -31,7 +31,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "전설",
         "color": 0xEF4444,
         "base_crystal": 135,
-        "hint": "34~37세까지 무리(과로 플래그)하거나 근성을 38 이하(또는 24 이하)로 소진한 상태에서 39세 대위기(b12_heroic_risk)에 온몸을 던지세요.",
+        "hint": "34~37세까지 무리(과로)하거나 근성을 38 이하(또는 24 이하)로 소진한 상태에서 39세 대위기에 온몸을 던지세요.",
     },
     "old_promise": {
         "name": "오래된 약속의 완성",
@@ -39,7 +39,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "전설",
         "color": 0xF472B6,
         "base_crystal": 140,
-        "hint": "9세에 소꿉친구와 가까워져(b2_close/b2_rival) 18세 약속(b6_comp_promise)을 맺고, 26세 혹은 44세 재회에서 끝내 서로의 손을 지켜내세요(그림자·타락 제외).",
+        "hint": "9세에 소꿉친구와 가까워져 18세 약속을 맺고, 26세 혹은 44세 재회에서 끝내 서로의 손을 지켜내세요(그림자·타락 제외).",
     },
     "redeemed_spring": {
         "name": "회개와 두 번째 봄",
@@ -47,7 +47,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "전설",
         "color": 0xFBBF24,
         "base_crystal": 135,
-        "hint": "16·22·30세에 편법·타협(또는 그림자)에 발을 들였더라도 50세 심판(b14_reckoning) 앞에서 자진 참회(b14_redeem)를 선택하세요.",
+        "hint": "16·22·30세에 편법·타협(또는 그림자)에 발을 들였더라도 50세 심판 앞에서 자진 참회를 선택하세요.",
     },
     "broken_crown": {
         "name": "부서진 왕관",
@@ -55,7 +55,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "희귀",
         "color": 0x64748B,
         "base_crystal": 95,
-        "hint": "편법과 타협(corrupted)을 거듭하거나 그림자 정점 다툼(b14_greed_clash)을 택하고 끝내 뉘우치지 않아 보세요.",
+        "hint": "편법과 타협을 거듭하거나 그림자 정점 다툼을 택하고 끝내 뉘우치지 않아 보세요.",
     },
     "lonely_summit": {
         "name": "고독한 정상",
@@ -63,7 +63,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "희귀",
         "color": 0x4F46E5,
         "base_crystal": 125,
-        "hint": "동반자 없이 홀로 걸으며(b6_comp_cold 또는 b9_stay_solo) 정직히 정상을 지킨 뒤 78세에 [홀로 선 정상(b18_lone_peak)]을 고르세요.",
+        "hint": "동반자 없이 홀로 걸으며 정직히 정상을 지킨 뒤 78세에 [홀로 선 정상]을 고르세요.",
     },
     "horizon_writer": {
         "name": "끝없는 지평선",
@@ -71,7 +71,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "희귀",
         "color": 0x06B6D4,
         "base_crystal": 120,
-        "hint": "방랑·기록가의 길을 걷거나 50세(b14_explore)·63세(b16_journey)에 늦깎이 세계 여행을 떠나 보세요.",
+        "hint": "방랑·기록가의 길을 걷거나 50세·63세에 늦깎이 세계 여행을 떠나 보세요.",
     },
     "master_craft": {
         "name": "시대의 거장",
@@ -79,7 +79,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "전설",
         "color": 0xF59E0B,
         "base_crystal": 145,
-        "hint": "전공 분야에서 정통·심화 선택(masterwork_kept/peak_craft_vow)을 밟고 주력 역량(지성/열정/근성 중 최고 62+)을 극한까지 벼리세요.",
+        "hint": "전공 분야에서 정통·심화 선택을 밟고 주력 역량(지성/열정/근성 중 최고 62+)을 극한까지 벼리세요.",
     },
     "unheard_genius": {
         "name": "미완의 걸작",
@@ -87,7 +87,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "희귀",
         "color": 0x6366F1,
         "base_crystal": 120,
-        "hint": "화려한 부(자산 44 이하) 대신 순수 열정(46+)과 작품·연구에 매진해 78세 마지막 순간까지 혼신(b18_final_work)을 다하세요.",
+        "hint": "화려한 부(자산 44 이하) 대신 순수 열정(46+)과 작품·연구에 매진해 78세 마지막 순간까지 혼신을 다하세요.",
     },
     "healer_hands": {
         "name": "생명을 잇는 손",
@@ -95,7 +95,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "희귀",
         "color": 0x10B981,
         "base_crystal": 125,
-        "hint": "의학·약초다원·국경구호 전공에서 출세 대신 아픈 이를 구하는 맹세(healer_oath)와 공감(44+)을 끝까지 지키세요.",
+        "hint": "의학·약초다원·국경구호 전공에서 출세 대신 아픈 이를 구하는 맹세와 공감(44+)을 끝까지 지키세요.",
     },
     "truth_keeper": {
         "name": "진실을 남긴 이름",
@@ -103,7 +103,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "전설",
         "color": 0x3B82F6,
         "base_crystal": 140,
-        "hint": "사료·언론·수사·변호·다큐 전공에서 고발 사명(whistleblower)을 품고 50세 법정/증언대(b14_truth_final)에서 진실을 세우세요.",
+        "hint": "사료·언론·수사·변호·다큐 전공에서 고발 사명을 품고 50세 법정/증언대에서 진실을 세우세요.",
     },
     "noodle_universe": {
         "name": "국수 한 그릇의 우주",
@@ -111,7 +111,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "희귀",
         "color": 0xFB923C,
         "base_crystal": 130,
-        "hint": "손멸치국수 장인으로서 골목의 온기(d_artn_local)를 지키거나 시장국수집 출신이 30세에 고향 국수집으로 귀환(b10_noodle_pivot)하세요.",
+        "hint": "손멸치국수 장인으로서 골목의 온기를 지키거나 시장국수집 출신이 30세에 고향 국수집으로 귀환하세요.",
     },
     "teacher_bridge": {
         "name": "세대를 잇는 스승",
@@ -119,7 +119,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "희귀",
         "color": 0x38BDF8,
         "base_crystal": 120,
-        "hint": "공감 46+을 유지하며 44세(b13_heir)·50세(b14_teach/b14_teach_law)·56세(b15_pass_torch)에서 후배를 기르는 길을 택하세요.",
+        "hint": "공감 46+을 유지하며 44세·50세·56세에서 후배를 기르는 길을 택하세요.",
     },
     "village_lantern": {
         "name": "작은 마을의 등불",
@@ -127,7 +127,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "일반",
         "color": 0x22C55E,
         "base_crystal": 100,
-        "hint": "공감 46+과 함께 지역·이웃 나눔(b8/b11/b14_share/b16_community)으로 조용하고 따스한 공동체의 불을 밝히세요.",
+        "hint": "공감 46+과 함께 지역·이웃 나눔을 거듭해 조용하고 따스한 공동체의 불을 밝히세요.",
     },
     "empire_builder": {
         "name": "제국의 설계자",
@@ -135,7 +135,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "희귀",
         "color": 0xEAB308,
         "base_crystal": 125,
-        "hint": "사업·상업 확장 적성 전공에서 50세까지 자산을 32+로 키운 뒤 [더 큰 제국(b14_expand)]을 선택해 부를 완성하세요.",
+        "hint": "사업·상업 확장 적성 전공에서 50세까지 자산을 32+로 키운 뒤 [더 큰 제국]을 선택해 부를 완성하세요.",
     },
     "family_hearth": {
         "name": "가정의 온기",
@@ -143,7 +143,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "일반",
         "color": 0xF97316,
         "base_crystal": 105,
-        "hint": "26세에 일터의 인연(b9_commit_new)과 가정을 이루고 34~44세 가정의 온기를 지켜(b11_fam_warm/b13_heal_fam) 화목한 노년을 맞으세요.",
+        "hint": "26세에 일터의 인연과 가정을 이루고 34~44세 가정의 온기를 지켜 화목한 노년을 맞으세요.",
     },
     "quiet_miracle": {
         "name": "일상의 고요한 기적",
@@ -159,7 +159,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "희귀",
         "color": 0x475569,
         "base_crystal": 115,
-        "hint": "그림자 브로커·세탁 설계자 루트에서 50세까지 본명과 정체를 끝내 숨긴 채 어둠 속으로 잠적(b14_hide)하세요.",
+        "hint": "그림자 브로커·세탁 설계자 루트에서 50세까지 본명과 정체를 끝내 숨긴 채 어둠 속으로 잠적하세요.",
     },
     "shadow_whistle": {
         "name": "어둠을 깨운 내부고발",
@@ -167,7 +167,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "전설",
         "color": 0x0EA5E9,
         "base_crystal": 145,
-        "hint": "그림자 루트에서 최소한의 자비(d_shd_leak)나 이탈 결심(b10_stand)을 남긴 뒤 50세에 조직 장부를 폭로(b14_shadow_whistle)하세요.",
+        "hint": "그림자 루트에서 최소한의 자비나 이탈 결심을 남긴 뒤 50세에 조직 장부를 폭로하세요.",
     },
     "shadow_phantom": {
         "name": "이름 없는 밤의 후원자",
@@ -175,7 +175,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "전설",
         "color": 0x10B981,
         "base_crystal": 140,
-        "hint": "그림자 루트에서 양심의 틈(d_shd_leak/b10_stand)을 남긴 뒤 50세에 검은 돈을 약자들에게 돌리는(b14_shadow_robin) 길을 고르세요.",
+        "hint": "그림자 루트에서 양심의 틈을 남긴 뒤 50세에 검은 돈을 약자들에게 돌리는 길을 고르세요.",
     },
     # Group C (Mythic)
     "myth_cosmos_promise": {
@@ -192,7 +192,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "신화",
         "color": 0xF43F5E,
         "base_crystal": 240,
-        "hint": "[신화] 39세 화염 속으로 뛰어들어(b12_heroic_risk) 생존한 뒤 50세 거장/참회를 거쳐 80세+ & 근성 45+으로 전설을 완성하세요.",
+        "hint": "[신화] 39세 화염 속으로 뛰어들어 생존한 뒤 50세 거장/참회를 거쳐 80세+ & 근성 45+으로 전설을 완성하세요.",
     },
     "myth_rival_crown": {
         "name": "같은 하늘의 두 별",
@@ -200,7 +200,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "신화",
         "color": 0xFB7185,
         "base_crystal": 240,
-        "hint": "[신화] 9세 라이벌(b2_rival)과 18·44세 재회에서 화해 혹은 약속을 완성하고, 단일 역량(지성·열정·근성·자산 중 하나) 68+ 정점에 오르세요.",
+        "hint": "[신화] 9세 라이벌과 18·44세 재회에서 화해 혹은 약속을 완성하고, 단일 역량(지성·열정·근성·자산 중 하나) 68+ 정점에 오르세요.",
     },
     "myth_complete_archive": {
         "name": "백 년의 완전한 서사",
@@ -208,7 +208,7 @@ ARCHETYPE_META: Dict[str, Dict[str, Any]] = {
         "rarity": "신화",
         "color": 0x38BDF8,
         "base_crystal": 240,
-        "hint": "[신화] 정직한 길(honest_path)로 지성·열정·공감·근성 모두 42+를 유지하며 회고록(b16_memoir)·화해(b17_forgive)·마침표(b18_final_work)를 모두 이루세요.",
+        "hint": "[신화] 정직한 길로 지성·열정·공감·근성 모두 42+를 유지하며 회고록·화해·마지막 마침표를 모두 이루세요.",
     },
 }
 
@@ -1295,7 +1295,7 @@ def build_rich_ending_epilogue(
     else:
         spec_phrase = SPEC_PHRASES.get(sid, SPEC_PHRASES["artn_craft"]).get(arch, ("삶의 완주", emeta["summary"]))[1]
         p1 = (
-            f"{v['city']}의 **{v['origin_place']}**에서 {v['item_wa']} 함께 첫 발을 뗀 작은 아이는 어느덧 **{v['age_sal']}**의 노년을 맞은 **[{v['specialty']}]**{ol_narratives.p_i(v['specialty'])} 되었습니다. "
+            f"{v['city']}의 **{v['origin_place']}**에서 {v['item_wa']} 함께 첫 발을 뗀 작은 아이는 어느덧 **{v['age_sal']}**의 노년을 맞은 [**{v['specialty']}**]{ol_narratives.p_i(v['specialty'])} 되었습니다. "
             f"{spec_phrase}"
         )
 
@@ -1342,7 +1342,7 @@ def build_rich_ending_epilogue(
     if len(tps) >= 3:
         last_tp = tps[-1].split(":", 1)[-1].strip().rstrip(".")
         p4 = (
-            f"긴 세월의 갈피마다 남은 기억 가운데서도 **「{last_tp}」**{ol_narratives.p_ro(last_tp)} 새겨진 대목은, "
+            f"긴 세월의 갈피마다 남은 기억 가운데서도 「**{last_tp}**」{ol_narratives.p_ro(last_tp)} 새겨진 대목은, "
             f"{v['name']}{name_rano} 한 권의 책을 가장 선명히 빛내며 고요히 다음 세대의 이야기 속으로 이어졌습니다."
         )
     else:
