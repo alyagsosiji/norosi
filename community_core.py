@@ -280,6 +280,56 @@ def extract_and_transform_urls(text: str, cfg: dict, max_items: int = 3) -> list
     return results
 
 
+_LINK_TOKEN_RE = re.compile(
+    r"(?P<code>```.*?```|`[^`\n]+`)"
+    r"|(?P<spoiler>\|\|.*?\|\|)"
+    r"|(?P<angle><https?://[^>\s]+>)"
+    r"|(?P<masked>\[[^\]]+\]\(https?://[^)\s]+\))"
+    r"|(?P<url>https?://[^\s<>()\[\]\"'`|]+)",
+    re.DOTALL,
+)
+
+
+def replace_urls_with_clean_links(
+    text: str,
+    cfg: dict,
+    max_items: int = 3,
+) -> tuple[str, list[dict]]:
+    """
+    원본 메시지 본문의 텍스트·코드블록·스포일러·<링크>·기존 마크다운 링크는 그대로 보존하면서,
+    변환 대상 raw URL만 깔끔한 마스킹 링크([🔗 서비스](url) / [🧹 도메인](url))로 인플레이스 치환합니다.
+    Discord는 마스킹 링크의 URL에 대해 긴 원시 URL을 숨기고 풍부한 임베드만 깔끔하게 표시합니다.
+    """
+    if not text or not cfg.get("enabled", False):
+        return text, []
+    sns_preview = bool(cfg.get("sns_preview", True))
+    strip_tracking = bool(cfg.get("strip_tracking", True))
+    if not sns_preview and not strip_tracking:
+        return text, []
+
+    items: list[dict] = []
+
+    def _repl(match: re.Match) -> str:
+        raw_url = match.group("url")
+        if not raw_url or len(items) >= max_items:
+            return match.group(0)
+        item = transform_single_url(
+            raw_url,
+            sns_preview=sns_preview,
+            strip_tracking=strip_tracking,
+        )
+        if not item:
+            return match.group(0)
+        items.append(item)
+        trailing = raw_url[len(item["original"]):]
+        icon = "🔗" if item["kind"] == "sns" else "🧹"
+        label = str(item["service"]).replace("[", "(").replace("]", ")")
+        return f"[{icon} {label}]({item['cleaned']}){trailing}"
+
+    replaced = _LINK_TOKEN_RE.sub(_repl, text)
+    return replaced, items
+
+
 # ==========================================
 # 3. 🚨 동시 입장(Raid) · 봇 테러 비상 방어 (#42)
 # ==========================================

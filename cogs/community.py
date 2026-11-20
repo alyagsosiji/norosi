@@ -12,6 +12,7 @@ cogs/community.py - 관리자/커뮤니티 편의 & 보안 기능 6종
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 import datetime
 import re
 import time
@@ -23,6 +24,9 @@ from discord.ext import commands, tasks
 
 import community_core
 import core
+from cogs.emoji_upscale import is_delete_reaction_emoji, sanitize_webhook_username
+
+CLEAN_LINK_WEBHOOK_NAME = "norosi-clean-link"
 
 
 # ==========================================
@@ -420,9 +424,10 @@ class LinkPreviewConfigView(core.SafeView):
                 + " *(X/Twitter, Instagram, TikTok, Threads, Reddit, Pixiv, Bluesky)*\n"
                 "• **추적 파라미터 제거:** " + ("🟢 켜짐" if c["strip_tracking"] else "⚪ 꺼짐")
                 + " *(`?si=`, `?igsh=`, `?utm_*`, `?fbclid=`, `?s=&t=` 등)*\n"
-                "• **원본 깨진 임베드 숨김:** " + ("🟢 켜짐" if c["suppress_original"] else "⚪ 꺼짐") + "\n"
+                "• **원본 삭제 · 깔끔 치환:** " + ("🟢 켜짐 *(이모지 업스케일 방식)*" if c["suppress_original"] else "⚪ 꺼짐 *(답글만 표시)*") + "\n"
                 f"• **제외된 채널:** {ignored_str}\n\n"
-                "💡 `<링크>`, `||스포일러||`, `` `코드` `` 안의 링크는 자동으로 건너뜁니다."
+                "💡 일반 메시지는 작성자 프로필·닉네임 웹훅으로, 답장 메시지는 앱 네이티브 답장으로 깔끔 치환됩니다.\n"
+                "💡 치환된 메시지에 ❌(`:x:`) 반응을 달면 작성자/관리자가 즉시 삭제할 수 있으며, `<링크>` · `||스포일러||` · `` `코드` `` 는 자동 제외됩니다."
             ),
             color=discord.Color.blue() if c["enabled"] else discord.Color.dark_grey(),
             timestamp=datetime.datetime.now(core.KST),
@@ -460,7 +465,7 @@ class LinkPreviewConfigView(core.SafeView):
     async def toggle_tracking(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._toggle_key(interaction, "strip_tracking")
 
-    @discord.ui.button(label="원본 임베드 숨김", style=discord.ButtonStyle.secondary, emoji="🙈", row=1)
+    @discord.ui.button(label="원본 삭제·치환", style=discord.ButtonStyle.secondary, emoji="✨", row=1)
     async def toggle_suppress(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._toggle_key(interaction, "suppress_original")
 
@@ -2338,6 +2343,11 @@ class CommunityCog(commands.Cog):
         self._temp_voice_user_cd: dict[tuple[int, int], float] = {}
         self._last_sticky_post_ts: dict[int, float] = {}
         self._last_raid_alert_ts: dict[int, float] = {}
+        self._link_webhook_cache: dict[int, discord.Webhook] = {}
+        self._link_webhook_locks: dict[int, asyncio.Lock] = {}
+        self._processed_link_msgs: OrderedDict[int, float] = OrderedDict()
+        self._clean_link_messages: OrderedDict[int, int] = OrderedDict()
+        self._deleting_clean_link_msgs: set[int] = set()
 
     async def cog_load(self):
         if not self.event_reminder_loop.is_running():
@@ -3036,6 +3046,234 @@ class CommunityCog(commands.Cog):
                 pass
         return "조치 권한 부족(감지 기록만 남김)"
 
+    async def _get_or_create_link_webhook(self, base_channel: discord.abc.GuildChannel) -> Optional[discord.Webhook]:
+        cached = self._link_webhook_cache.get(base_channel.id)
+        if cached is not None:
+            return cached
+
+        if len(self._link_webhook_locks) > 500:
+            for k in list(self._link_webhook_locks.keys())[:100]:
+                if not self._link_webhook_locks[k].locked():
+                    self._link_webhook_locks.pop(k, None)
+        lock = self._link_webhook_locks.setdefault(base_channel.id, asyncio.Lock())
+        async with lock:
+            cached = self._link_webhook_cache.get(base_channel.id)
+            if cached is not None:
+                return cached
+            try:
+                webhooks = await base_channel.webhooks()
+                existing = next((w for w in webhooks if w.name == CLEAN_LINK_WEBHOOK_NAME and w.token), None)
+                if not existing:
+                    existing = next(
+                        (w for w in webhooks if w.user and self.bot.user and w.user.id == self.bot.user.id and w.token),
+                        None,
+                    )
+                if not existing:
+                    existing = await base_channel.create_webhook(
+                        name=CLEAN_LINK_WEBHOOK_NAME,
+                        reason="클린 링크 깔끔 치환 전송용 웹훅",
+                    )
+                if len(self._link_webhook_cache) >= 500:
+                    self._link_webhook_cache.pop(next(iter(self._link_webhook_cache)), None)
+                self._link_webhook_cache[base_channel.id] = existing
+                return existing
+            except Exception:
+                return None
+
+    def _mark_link_processed(self, msg_id: int) -> bool:
+        if msg_id in self._processed_link_msgs:
+            return False
+        self._processed_link_msgs[msg_id] = time.time()
+        while len(self._processed_link_msgs) > 1000:
+            self._processed_link_msgs.popitem(last=False)
+        return True
+
+    def _record_clean_link_message(self, sent_msg_id: int, author_id: int):
+        self._clean_link_messages[sent_msg_id] = author_id
+        while len(self._clean_link_messages) > 1000:
+            self._clean_link_messages.popitem(last=False)
+
+    async def _handle_clean_link_message(self, message: discord.Message, link_cfg: dict):
+        replaced_text, items = community_core.replace_urls_with_clean_links(message.content, link_cfg)
+        if not items or not self._mark_link_processed(message.id):
+            return
+
+        channel = message.channel
+        base_channel = channel.parent if isinstance(channel, discord.Thread) else channel
+        me = message.guild.me
+        if not me or base_channel is None:
+            return
+
+        perms = channel.permissions_for(me)
+        can_send = perms.send_messages_in_threads if isinstance(channel, discord.Thread) else perms.send_messages
+        is_reply = bool(message.reference and message.reference.message_id)
+        has_media = bool(message.attachments or message.stickers)
+        want_replace = bool(link_cfg.get("suppress_original", True)) and (not has_media) and (len(replaced_text) <= 1900)
+
+        # 이모지 업스케일 방식 치환 가능 여부 확인 (답장: 앱 네이티브 답장 / 일반: 작성자 웹훅)
+        if want_replace and perms.manage_messages and (
+            (is_reply and can_send)
+            or ((not is_reply) and hasattr(base_channel, "webhooks") and perms.manage_webhooks)
+        ):
+            webhook = None
+            if not is_reply:
+                webhook = await self._get_or_create_link_webhook(base_channel)
+
+            if is_reply or webhook is not None:
+                core.mark_suppressed_delete_log(message.id)
+                try:
+                    await message.delete()
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    core.consume_suppressed_delete_log(message.id)
+                    return
+
+                sent_msg = None
+                if is_reply:
+                    reply_ref = discord.MessageReference(
+                        message_id=message.reference.message_id,
+                        channel_id=message.reference.channel_id or channel.id,
+                        guild_id=message.reference.guild_id or message.guild.id,
+                        fail_if_not_exists=False,
+                    )
+                    mention_target = bool(message.mentions)
+                    safe_sender = discord.utils.escape_markdown(
+                        sanitize_webhook_username(message.author.display_name)
+                    )
+                    reply_allowed = discord.AllowedMentions(
+                        everyone=False,
+                        roles=False,
+                        users=False,
+                        replied_user=mention_target,
+                    )
+                    try:
+                        sent_msg = await channel.send(
+                            content=f"-# {safe_sender}\n{replaced_text}",
+                            reference=reply_ref,
+                            mention_author=mention_target,
+                            allowed_mentions=reply_allowed,
+                        )
+                    except Exception:
+                        pass
+                else:
+                    sender_name = sanitize_webhook_username(message.author.display_name)
+                    sender_avatar = message.author.display_avatar.url if hasattr(message.author, "display_avatar") else None
+                    wh_kwargs = {
+                        "content": replaced_text,
+                        "username": sender_name,
+                        "avatar_url": sender_avatar,
+                        "allowed_mentions": discord.AllowedMentions.none(),
+                        "wait": True,
+                    }
+                    if isinstance(channel, discord.Thread):
+                        wh_kwargs["thread"] = channel
+                    try:
+                        sent_msg = await webhook.send(**wh_kwargs)
+                    except discord.NotFound:
+                        self._link_webhook_cache.pop(base_channel.id, None)
+                        fresh_wh = await self._get_or_create_link_webhook(base_channel)
+                        if fresh_wh:
+                            try:
+                                sent_msg = await fresh_wh.send(**wh_kwargs)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+
+                if sent_msg and getattr(sent_msg, "id", None):
+                    self._record_clean_link_message(int(sent_msg.id), int(message.author.id))
+                return
+
+        # 폴백 (첨부파일/스티커 포함, 치환 옵션 OFF, 또는 웹훅/삭제 권한 부재 시): 원본 보존 + 깔끔 마스킹 답글
+        if link_cfg.get("suppress_original", True) and perms.manage_messages:
+            try:
+                await message.edit(suppress=True)
+            except Exception:
+                pass
+
+        link_lines = []
+        for it in items:
+            icon = "🔗" if it["kind"] == "sns" else "🧹"
+            label = str(it["service"]).replace("[", "(").replace("]", ")")
+            link_lines.append(f"[{icon} {label}]({it['cleaned']})")
+        body = "\n".join(link_lines)
+        try:
+            await message.reply(body, view=LinkCleanupView(), mention_author=False)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        """치환된 클린 링크 메시지에 작성자/관리자가 ❌(:x:) 반응을 달면 즉시 삭제합니다."""
+        if not payload.guild_id:
+            return
+        if self.bot.user and payload.user_id == self.bot.user.id:
+            return
+        if payload.member and getattr(payload.member, "bot", False):
+            return
+        if not is_delete_reaction_emoji(payload.emoji):
+            return
+        author_id = self._clean_link_messages.get(payload.message_id)
+        if author_id is None or payload.message_id in self._deleting_clean_link_msgs:
+            return
+
+        guild = self.bot.get_guild(payload.guild_id)
+        if not guild:
+            return
+        member = payload.member or guild.get_member(payload.user_id)
+        if member is None:
+            try:
+                member = await guild.fetch_member(payload.user_id)
+            except Exception:
+                member = None
+        if member and getattr(member, "bot", False):
+            return
+
+        is_mod = bool(isinstance(member, discord.Member) and _is_guild_admin(member, perm_attr="manage_messages"))
+        is_owner = False
+        if member and hasattr(self.bot, "is_bot_owner_user"):
+            try:
+                is_owner = await self.bot.is_bot_owner_user(member)
+            except Exception:
+                is_owner = False
+        if not (payload.user_id == author_id or is_mod or is_owner):
+            return
+
+        channel = self.bot.get_channel(payload.channel_id)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(payload.channel_id)
+            except Exception:
+                return
+        if channel is None:
+            return
+        base_channel = channel.parent if isinstance(channel, discord.Thread) else channel
+
+        self._deleting_clean_link_msgs.add(payload.message_id)
+        try:
+            deleted = False
+            try:
+                await channel.get_partial_message(payload.message_id).delete()
+                deleted = True
+            except discord.NotFound:
+                deleted = True
+            except (discord.Forbidden, discord.HTTPException):
+                deleted = False
+
+            if not deleted and base_channel is not None and hasattr(base_channel, "webhooks"):
+                wh = await self._get_or_create_link_webhook(base_channel)
+                if wh:
+                    del_kwargs = {"thread": channel} if isinstance(channel, discord.Thread) else {}
+                    try:
+                        await wh.delete_message(payload.message_id, **del_kwargs)
+                        deleted = True
+                    except Exception:
+                        pass
+
+            if deleted:
+                self._clean_link_messages.pop(payload.message_id, None)
+        finally:
+            self._deleting_clean_link_msgs.discard(payload.message_id)
+
     # ------------------------------------------
     # 리스너 1: on_message (#8 고정메시지 + #12 링크보정)
     # ------------------------------------------
@@ -3051,31 +3289,7 @@ class CommunityCog(commands.Cog):
             try:
                 link_cfg = community_core.get_link_preview_config(cached, message.guild.id)
                 if link_cfg.get("enabled", False) and message.channel.id not in link_cfg.get("ignored_channels", []):
-                    items = community_core.extract_and_transform_urls(message.content, link_cfg)
-                    if items:
-                        if link_cfg.get("suppress_original", True):
-                            me = message.guild.me
-                            if me and message.channel.permissions_for(me).manage_messages:
-                                try:
-                                    await message.edit(suppress=True)
-                                except Exception:
-                                    pass
-
-                        sns_lines = []
-                        track_lines = []
-                        for it in items:
-                            if it["kind"] == "sns":
-                                sns_lines.append(f"🔗 **{it['service']} 미리보기:** {it['cleaned']}")
-                            else:
-                                params_str = ", ".join(f"`{p}`" for p in it.get("stripped_params", [])[:4])
-                                tag_note = f" *(추적 태그 {params_str} 제거)*" if params_str else ""
-                                track_lines.append(f"🧹 **클린 링크:** {it['cleaned']}{tag_note}")
-
-                        body = "\n".join(sns_lines + track_lines)
-                        try:
-                            await message.reply(body, view=LinkCleanupView(), mention_author=False)
-                        except Exception:
-                            pass
+                    await self._handle_clean_link_message(message, link_cfg)
             except Exception:
                 pass
 
