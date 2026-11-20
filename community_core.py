@@ -126,7 +126,7 @@ def get_link_preview_config(data: dict, guild_id: int) -> dict:
     root = core.as_dict(data.get("link_preview_configs"))
     raw = core.as_dict(root.get(str(guild_id)))
     return {
-        "enabled": bool(raw.get("enabled", True)),
+        "enabled": bool(raw.get("enabled", False)),
         "sns_preview": bool(raw.get("sns_preview", True)),
         "strip_tracking": bool(raw.get("strip_tracking", True)),
         "suppress_original": bool(raw.get("suppress_original", True)),
@@ -138,7 +138,7 @@ def get_link_preview_config(data: dict, guild_id: int) -> dict:
 def save_link_preview_config(data: dict, guild_id: int, cfg: dict) -> dict:
     root = core.ensure_dict_path(data, "link_preview_configs")
     entry = {
-        "enabled": bool(cfg.get("enabled", True)),
+        "enabled": bool(cfg.get("enabled", False)),
         "sns_preview": bool(cfg.get("sns_preview", True)),
         "strip_tracking": bool(cfg.get("strip_tracking", True)),
         "suppress_original": bool(cfg.get("suppress_original", True)),
@@ -253,7 +253,7 @@ def transform_single_url(
 
 
 def extract_and_transform_urls(text: str, cfg: dict, max_items: int = 3) -> list[dict]:
-    if not text or not cfg.get("enabled", True):
+    if not text or not cfg.get("enabled", False):
         return []
     sns_preview = bool(cfg.get("sns_preview", True))
     strip_tracking = bool(cfg.get("strip_tracking", True))

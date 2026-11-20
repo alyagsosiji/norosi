@@ -3050,7 +3050,7 @@ class CommunityCog(commands.Cog):
         if message.content and "http" in message.content:
             try:
                 link_cfg = community_core.get_link_preview_config(cached, message.guild.id)
-                if link_cfg.get("enabled", True) and message.channel.id not in link_cfg.get("ignored_channels", []):
+                if link_cfg.get("enabled", False) and message.channel.id not in link_cfg.get("ignored_channels", []):
                     items = community_core.extract_and_transform_urls(message.content, link_cfg)
                     if items:
                         if link_cfg.get("suppress_original", True):
