@@ -1593,6 +1593,7 @@ HOME_SHORTCUT_CATALOG: List[Dict[str, Any]] = [
     {"key": "showcase", "label": "쇼케이스", "emoji": "🌟", "style": discord.ButtonStyle.secondary, "desc": "내 수집품 통합 자랑 카드", "cb_name": "_act_showcase"},
     {"key": "exchange", "label": "화폐 환전", "emoji": "💱", "style": discord.ButtonStyle.secondary, "desc": "골드⇄크리스탈 안전 환전소", "cb_name": "_act_currency_exchange"},
     {"key": "battle", "label": "즉석 대전", "emoji": "🎲", "style": discord.ButtonStyle.success, "desc": "하이로우 주사위 & 초성 퀴즈", "cb_name": "_act_mini_battle_hub"},
+    {"key": "sponsor", "label": "후원하기", "emoji": "💖", "style": discord.ButtonStyle.secondary, "desc": "팀 봉화 (소유주 : 아시) 후원 · 봇 운영 지원", "cb_name": "_act_sponsor"},
 ]
 HOME_SHORTCUT_MAP: Dict[str, Dict[str, Any]] = {item["key"]: item for item in HOME_SHORTCUT_CATALOG}
 HOME_SHORTCUT_KEYS: set[str] = set(HOME_SHORTCUT_MAP.keys())
@@ -3023,6 +3024,7 @@ class MasterDashboardView(core.SafeView):
                     discord.SelectOption(label="🌤️ 실시간 기상청 날씨", value="weather"),
                     discord.SelectOption(label="🔤 끝말잇기 대결", value="wordchain"),
                     discord.SelectOption(label="🔫 러시안 룰렛", value="roulette"),
+                    discord.SelectOption(label="💖 팀 봉화 후원하기", value="sponsor", description="소유주 : 아시 · 봇 운영 지원"),
                 ],
             )
             quick_sel.callback = self._on_home_quick_jump_selected
@@ -3270,6 +3272,7 @@ class MasterDashboardView(core.SafeView):
             "weather": self._act_weather,
             "wordchain": self._act_word_chain,
             "roulette": self._act_roulette,
+            "sponsor": self._act_sponsor,
         }
         handler = jump_map.get(val)
         if handler:
@@ -4195,6 +4198,16 @@ class MasterDashboardView(core.SafeView):
             await core.safe_send_response(interaction, embed=sugg_view.build_overview_embed(), view=sugg_view, ephemeral=True)
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 건의함 열기 실패: {e}", ephemeral=True)
+
+    async def _act_sponsor(self, interaction: discord.Interaction):
+        try:
+            bot_ref = self.bot or interaction.client
+            bot_user = getattr(bot_ref, "user", None) if bot_ref else None
+            embed = stats.build_sponsor_embed(bot_user)
+            view = stats.SponsorView()
+            await core.safe_send_response(interaction, embed=embed, view=view, ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 후원 안내 열기 실패: {e}", ephemeral=True)
 
     async def _act_open_help(self, interaction: discord.Interaction):
         try:

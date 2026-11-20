@@ -469,11 +469,11 @@ class NorosiBot(commands.Bot):
 
     def prune_slash_tree_to_core(self) -> list[str]:
         """
-        슬래시 명령어 트리(self.tree)에서 '/설정'과 '/도움말'만 남기고
+        슬래시 명령어 트리(self.tree)에서 '/설정', '/도움말', '/후원'만 남기고
         나머지 모든 개별 슬래시 명령어를 트리에서 제거합니다.
         (각 Cog 인스턴스와 내부 커맨드 콜백은 그대로 보존되어 '/설정'에서 100% 정상 작동합니다.)
         """
-        allowed_names = {"설정", "도움말"}
+        allowed_names = {"설정", "도움말", "후원"}
         for cmd in list(self.tree.get_commands()):
             if cmd.name not in allowed_names:
                 self.tree.remove_command(cmd.name)
@@ -501,7 +501,7 @@ class NorosiBot(commands.Bot):
         # 글로벌 슬래시 커맨드 에러 핸들러 등록 ("명령어 응답 안함" 3초 타임아웃 차단)
         self.tree.on_error = self.on_app_command_error
 
-        print("🔌 [2/4] Cogs 확장 모듈 등록 중 (전체 18종 Cogs · 슬래시 '/설정', '/도움말' 단일화)...", flush=True)
+        print("🔌 [2/4] Cogs 확장 모듈 등록 중 (전체 18종 Cogs · 슬래시 '/설정', '/도움말', '/후원' 통합)...", flush=True)
         # 서버 배포 파일 뒤바뀜(예: fishing_core.py에 cogs/fishing.py 덮어쓰기, cogs/gacha.py에 cogs/hsr.py 덮어쓰기) 사전 진단
         try:
             base_dir = os.path.dirname(os.path.abspath(__file__))

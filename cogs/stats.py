@@ -751,6 +751,46 @@ class RecruitModal(core.SafeModal, title="🎮 파티 / 팀원 모집 작성"):
             pass
 
 
+SPONSOR_URL = "https://github.com/sponsors/alyagsosiji"
+
+
+def build_sponsor_embed(bot_user: Optional[discord.abc.User] = None) -> discord.Embed:
+    """팀 봉화 (소유주 : 아시) GitHub Sponsors 후원 안내 임베드를 생성합니다."""
+    embed = discord.Embed(
+        title="💖 팀 봉화 (norosi) 후원 안내",
+        description=(
+            "후원은 **팀 봉화 (소유주 : 아시)** 에게 후원되는 것으로, **봇 운영에 도움이 됩니다.**\n"
+            "──────────────────────────\n"
+            "• **후원 대상:** `팀 봉화 (소유주 : 아시)`\n"
+            "• **후원 용도:** 24/7 서버 호스팅 · 유지비 · 신규 기능 개발 및 안정적 운영\n"
+            f"• **후원 페이지:** {SPONSOR_URL}\n\n"
+            "아래 버튼을 누르면 **GitHub Sponsors** 후원 페이지로 바로 이동합니다. 따뜻한 응원 감사합니다! 🙌"
+        ),
+        color=discord.Color.from_rgb(234, 74, 170),
+        timestamp=datetime.datetime.now(core.KST),
+    )
+    if bot_user and getattr(bot_user, "display_avatar", None):
+        embed.set_thumbnail(url=bot_user.display_avatar.url)
+    embed.set_footer(text="팀 봉화 (소유주 : 아시) • GitHub Sponsors")
+    return embed
+
+
+class SponsorView(core.SafeView):
+    """GitHub Sponsors 후원 페이지 바로가기 링크 버튼 뷰"""
+
+    def __init__(self):
+        super().__init__(timeout=300)
+        self.add_item(
+            discord.ui.Button(
+                label="GitHub Sponsors로 후원하기",
+                emoji="💖",
+                style=discord.ButtonStyle.link,
+                url=SPONSOR_URL,
+                row=0,
+            )
+        )
+
+
 class BotStatusRefreshView(core.SafeView):
     """봇 주인 전용 /봇상태 실시간 새로고침 및 메모리 정리 뷰"""
 
@@ -1283,6 +1323,18 @@ class StatsCog(commands.Cog):
         embed = await self._build_detailed_bot_status_embed(interaction.user.display_name)
         view = BotStatusRefreshView(self, interaction.user.id)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+    @app_commands.command(name="후원", description="💖 팀 봉화 (소유주 : 아시) 후원 안내 및 GitHub Sponsors 링크를 확인합니다.")
+    async def sponsor_cmd(self, interaction: discord.Interaction):
+        embed = build_sponsor_embed(self.bot.user)
+        view = SponsorView()
+        await core.safe_send_response(interaction, embed=embed, view=view, ephemeral=False)
+
+    @commands.command(name="후원", aliases=["스폰서", "sponsor"])
+    async def sponsor_prefix_cmd(self, ctx: commands.Context):
+        embed = build_sponsor_embed(self.bot.user)
+        view = SponsorView()
+        await ctx.reply(embed=embed, view=view, mention_author=False)
 
     # ==========================================
     # 카테고리 5 - 4: /유저정보 (멤버 상세 프로필 조회기)

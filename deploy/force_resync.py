@@ -99,7 +99,7 @@ class ForceSyncBot(commands.Bot):
         return await self.is_owner(user)
 
     def prune_slash_tree_to_core(self) -> int:
-        allowed = {"설정", "도움말"}
+        allowed = {"설정", "도움말", "후원"}
         removed = 0
         for cmd in list(self.tree.get_commands()):
             if cmd.name not in allowed:
@@ -115,11 +115,11 @@ class ForceSyncBot(commands.Bot):
             dt_ms = (time.perf_counter() - t0) * 1000.0
             print(f"   ✓ [{idx:02d}/{len(ALL_COG_EXTENSIONS)}] {ext:<18} 로드 완료 ({dt_ms:6.1f}ms)")
         pruned = self.prune_slash_tree_to_core()
-        print(f"   ✂️ 슬래시 명령어 통합 정리 완료: {pruned}개 제거 -> 핵심 {len(self.tree.get_commands())}개(/설정, /도움말) 유지", flush=True)
+        print(f"   ✂️ 슬래시 명령어 통합 정리 완료: {pruned}개 제거 -> 핵심 {len(self.tree.get_commands())}개(/설정, /도움말, /후원) 유지", flush=True)
 
     async def on_ready(self):
         print(f"✅ [2/3] Discord 로그인 성공: {self.user} (ID: {self.user.id})", flush=True)
-        print("🧹 [3/3] 슬래시 명령어 캐시 완전 초기화 및 핵심 명령어(/설정, /도움말) 재등록 시작...", flush=True)
+        print("🧹 [3/3] 슬래시 명령어 캐시 완전 초기화 및 핵심 명령어(/설정, /도움말, /후원) 재등록 시작...", flush=True)
 
         try:
             self.prune_slash_tree_to_core()
