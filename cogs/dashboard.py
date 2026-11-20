@@ -2519,11 +2519,11 @@ class MasterDashboardView(core.SafeView):
                             "cb": self._act_admin_inactive,
                         },
                         {
-                            "label": "서버 D-Day 관리",
+                            "label": "D-Day & 채널 설정",
                             "emoji": "📅",
                             "style": discord.ButtonStyle.primary,
                             "perm": PERM_ADMIN,
-                            "desc": "[🛡️서버관리자] 새 D-Day 추가, 기존 D-Day 삭제, 오전 9시 알림채널 지정",
+                            "desc": "[🛡️서버관리자] 새 D-Day·전광판 채널 추가, 카테고리/9시 알림채널 설정, 삭제",
                             "cb": self._act_admin_dday_hub,
                         },
                         {
@@ -3426,7 +3426,7 @@ class MasterDashboardView(core.SafeView):
             "feature_search": self._act_feature_search,
             "home_shortcuts": self._act_home_shortcuts,
             "achievements": self._act_achievements,
-            "admin_dday": self._act_admin_dday_hub,
+            "admin_dday": self._sub_dday_setup_board,
             "mood_radio": self._act_mood_radio,
             "guild_events": self._act_guild_events,
             "ranking_hub": self._act_ranking_hub,
@@ -3530,15 +3530,15 @@ class MasterDashboardView(core.SafeView):
             },
             "admin_dday": {
                 "title": "📅 [서버 관리자] 서버 공식 D-Day & 전광판 관리",
-                "desc": "서버 D-Day 일정을 등록/삭제하고 상단 상태 전광판 채널, 기본 카테고리, 오전 9시 알림 채널을 설정합니다.",
+                "desc": "서버 D-Day 일정을 등록/삭제하고 전광판 음성채널, 기본 카테고리, 오전 9시 알림 채널을 설정합니다.",
                 "perm": PERM_ADMIN,
                 "buttons": [
-                    ("새 D-Day & 전광판 등록", "➕", discord.ButtonStyle.success, self._act_add_dday_modal),
+                    ("채널·카테고리·알림 설정", "📺", discord.ButtonStyle.success, self._sub_dday_setup_board),
+                    ("새 D-Day & 전광판 등록", "➕", discord.ButtonStyle.primary, self._act_add_dday_modal),
                     ("D-Day 전광판 & 삭제", "📋", discord.ButtonStyle.primary, self._act_dday_list),
                     ("지나간 D-Day 보관소", "🕰️", discord.ButtonStyle.secondary, self._sub_dday_past),
-                    ("현재 채널을 9시 알림채널 지정", "🔔", discord.ButtonStyle.secondary, self._sub_dday_set_alert_ch),
-                    ("상단 상태 전광판 채널 생성", "📺", discord.ButtonStyle.primary, self._sub_dday_setup_board),
-                    ("현재 카테고리를 기본지정", "📁", discord.ButtonStyle.secondary, self._sub_dday_set_default_cat),
+                    ("현재 채널 9시 알림 지정", "🔔", discord.ButtonStyle.secondary, self._sub_dday_set_alert_ch),
+                    ("현재 카테고리 기본지정", "📁", discord.ButtonStyle.secondary, self._sub_dday_set_default_cat),
                 ],
             },
             "admin_music_sched": {
@@ -5679,9 +5679,13 @@ class MasterDashboardView(core.SafeView):
             await core.safe_send_response(interaction, "❌ 커뮤니티 모듈을 찾을 수 없습니다.", ephemeral=True)
 
     async def _sub_dday_setup_board(self, interaction: discord.Interaction):
-        if not await self.check_admin_permission(interaction, action_name="상단 상태 전광판 채널 생성", require_channels_perm=True):
+        if not await self.check_admin_permission(interaction, action_name="D-Day 채널·알림 설정", require_channels_perm=True):
             return
-        await interaction.response.send_modal(DashboardDDayAddModal(self))
+        await core.safe_defer(interaction, ephemeral=True)
+        data = await asyncio.to_thread(core.load_data)
+        view = dday.DDayChannelSetupView(self.bot or interaction.client, interaction.user, interaction.guild, data)
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
+        view.message = msg
 
     async def _sub_dday_set_default_cat(self, interaction: discord.Interaction):
         if not await self.check_admin_permission(interaction, action_name="D-Day 기본 카테고리 지정", require_channels_perm=True):
