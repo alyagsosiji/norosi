@@ -2062,7 +2062,7 @@ class PartnerAcceptView(core.SafeView):
         msg = getattr(interaction, "message", None)
         if not msg:
             return
-        orig_inter = getattr(msg, "interaction_metadata", None) or getattr(msg, "interaction", None)
+        orig_inter = getattr(msg, "interaction_metadata", None)
         orig_user = getattr(orig_inter, "user", None)
         if orig_user:
             self.requester = orig_user

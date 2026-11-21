@@ -847,7 +847,8 @@ def reconstruct_safe_view(view_cls_or_name: type[SafeView] | str, interaction: d
                 cached_data = get_cached_data()
             return cached_data
 
-        orig_inter = getattr(getattr(interaction, "message", None), "interaction_metadata", None) or getattr(getattr(interaction, "message", None), "interaction", None)
+        inter_msg = getattr(interaction, "message", None)
+        orig_inter = getattr(inter_msg, "interaction_metadata", None) if inter_msg is not None else None
         orig_user = getattr(orig_inter, "user", None) or interaction.user
 
         kwargs = {}

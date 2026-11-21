@@ -3335,6 +3335,9 @@ class CommunityCog(commands.Cog):
                             return await wh.send(**kw_fb)
                         raise
 
+                def _cache_updated_link_wh(updated_wh: discord.Webhook) -> None:
+                    self._link_webhook_cache[base_channel.id] = updated_wh
+
                 try:
                     sent_msg = await send_webhook_with_verified_avatar(
                         webhook,
@@ -3342,6 +3345,7 @@ class CommunityCog(commands.Cog):
                         _send_wh_with_retry,
                         guild=message.guild,
                         thread=thread_obj,
+                        on_webhook_updated=_cache_updated_link_wh,
                     )
                 except discord.NotFound:
                     self._link_webhook_cache.pop(base_channel.id, None)
@@ -3354,6 +3358,7 @@ class CommunityCog(commands.Cog):
                                 _send_wh_with_retry,
                                 guild=message.guild,
                                 thread=thread_obj,
+                                on_webhook_updated=_cache_updated_link_wh,
                             )
                         except Exception:
                             pass

@@ -1515,7 +1515,7 @@ class CardIllustToggleView(core.SafeView):
             return
         if not self.guild_id and interaction.guild_id:
             self.guild_id = interaction.guild_id
-        orig_inter = getattr(msg, "interaction_metadata", None) or getattr(msg, "interaction", None)
+        orig_inter = getattr(msg, "interaction_metadata", None)
         orig_user = getattr(orig_inter, "user", None) or interaction.user
         if not self.owner_id and orig_user:
             self.owner_id = orig_user.id
