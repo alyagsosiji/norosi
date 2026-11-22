@@ -2582,10 +2582,10 @@ class MyInventoryView(core.SafeView):
                 lock_icon = "🔒" if c.get("locked", False) else ""
                 mr = int(c.get("master_rank", 0))
                 mr_desc = f"·MR{mr}" if mr > 0 else ""
-                star_num = int(c.get("star_num") or c.get("rarity") or 4)
+                r_short = core.get_card_rarity_short_label(c)
                 raw_cn = str(c.get("char_name") or "")
                 short_cn = raw_cn.split()[-1] if " " in raw_cn else raw_cn
-                label = f"{idx}.{lock_icon}★{star_num} {short_cn} [{c['prefix'][:6]}] ({c.get('count', 1)}{mr_desc})"[:36]
+                label = f"{idx}.{lock_icon}{r_short} {short_cn} [{c['prefix'][:6]}] ({c.get('count', 1)}{mr_desc})"[:36]
                 opts.append(discord.SelectOption(label=label, value=cid_val[:100]))
             self.illust_select.options = opts[:25] or [discord.SelectOption(label="표시할 카드가 없습니다", value="NONE")]
             self.illust_select.disabled = not bool(opts)
@@ -3838,7 +3838,7 @@ class MasterRankView(core.SafeView):
                 dup_txt = f"중{cnt - 1}" if cnt >= 2 else "1"
                 cos = core.get_costume_for_card(c.get("id"))
                 cos_badge = "👗" if cos else ""
-                r_lbl = c.get("rarity_label") or f"★{self._card_star_num(c, 1)}"
+                r_lbl = core.get_card_rarity_label(c)
                 prefix = (c.get("prefix") or "카드")[:8]
                 cname = (c.get("char_name") or "캐릭터").split()[-1]
                 label = f"{cos_badge}[MR{mr}]{r_lbl} {prefix}·{cname}({dup_txt})"[:34]
@@ -3959,7 +3959,7 @@ class MasterRankView(core.SafeView):
         else:
             perk_lines.append("• 💡 이 카드는 3D 의상이 없는 카드지만, 돌파마다 **종합력 +8% (최대 +40%)** 가 영구 상승합니다!")
 
-        r_lbl = selected.get("rarity_label") or f"★{star_num}"
+        r_lbl = core.get_card_rarity_label(selected)
         prefix = selected.get("prefix") or "카드"
         cname = selected.get("char_name") or "알 수 없음"
         cid_disp = selected.get("id", "-")
@@ -4287,7 +4287,7 @@ class SekaiLiveView(core.SafeView):
                     ac_mark = "🎨" if eq_cos.get("color_variant", "orig") != "orig" else "👗"
                     cos_txt = f" · {ac_mark}`[{eq_cos['name']}]`"
                 role = "👑" if idx == 1 else f"**{idx}.**"
-                r_lbl = c.get("rarity_label") or f"★{core._safe_card_int(c.get('star_num') or c.get('rarity'), 3)}"
+                r_lbl = core.get_card_rarity_label(c)
                 pref = c.get("prefix") or "카드"
                 cname = c.get("char_name") or "캐릭터"
                 c_attr = c.get("attr") or "-"

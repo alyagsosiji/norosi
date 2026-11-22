@@ -1144,6 +1144,48 @@ RARITY_INFO = {
     "rarity_1": {"label": "★", "star_num": 1, "base_rate": 0.0}
 }
 
+
+def get_card_rarity_short_label(card: dict | None) -> str:
+    """프로세카 카드의 축약 레어도 표기 반환 (정렬용 star_num=5가 ★5로 잘못 표시되지 않도록 보장)"""
+    if not isinstance(card, dict):
+        return "★4"
+    r_type = str(card.get("rarity_type") or "")
+    r_lbl = str(card.get("rarity_label") or "")
+    if r_type == "rarity_birthday" or "생일" in r_lbl:
+        return "🎀생일"
+    if r_type in RARITY_INFO:
+        star_cnt = 4 if r_type == "rarity_4" else RARITY_INFO[r_type]["star_num"]
+        return f"★{star_cnt}"
+    raw_star = card.get("star_num") if card.get("star_num") is not None else card.get("rarity")
+    try:
+        s_val = int(raw_star)
+    except (TypeError, ValueError):
+        s_val = 4
+    if s_val == 4 and not r_type and r_lbl == "🎀생일":
+        return "🎀생일"
+    return f"★{max(1, min(4, s_val))}"
+
+
+def get_card_rarity_label(card: dict | None) -> str:
+    """프로세카 카드의 전체 레어도 표기(★★★★ / 🎀생일 / ★★★ / ★★ / ★) 반환"""
+    if not isinstance(card, dict):
+        return "★★★★"
+    r_lbl = str(card.get("rarity_label") or "").strip()
+    if r_lbl:
+        return r_lbl
+    r_type = str(card.get("rarity_type") or "")
+    if r_type in RARITY_INFO:
+        return RARITY_INFO[r_type]["label"]
+    short_lbl = get_card_rarity_short_label(card)
+    if short_lbl == "🎀생일":
+        return "🎀생일"
+    try:
+        cnt = int(short_lbl.replace("★", ""))
+    except ValueError:
+        cnt = 3
+    return "★" * max(1, min(4, cnt))
+
+
 SUPPLY_TYPE_MAP = {
     "normal": "통상",
     "term_limited": "한정",
@@ -1671,16 +1713,16 @@ ANOTHER_COLOR_VARIANTS = OrderedDict([
 ANOTHER_COLOR_ORDER = ["orig", "pastel", "dark", "gold"]
 
 PROSEKA_LIVE_SONGS = [
-    {"id": "gunjou", "title": "군청 찬가 (群青讃歌)", "unit": "버추얼 싱어", "attr": "❄️쿨", "level": 28, "bpm": 175},
+    {"id": "gunjou", "title": "군청 찬가 (群青讃歌)", "unit": "버츄얼 싱어", "attr": "❄️쿨", "level": 28, "bpm": 175},
     {"id": "stella", "title": "스텔라 (Stella)", "unit": "Leo/need", "attr": "❄️쿨", "level": 28, "bpm": 178},
     {"id": "more_jump", "title": "모어! 점프! 모어! (MORE! JUMP! MORE!)", "unit": "MORE MORE JUMP!", "attr": "🧡해피", "level": 29, "bpm": 182},
     {"id": "ready_steady", "title": "레디 스테디 (Ready Steady)", "unit": "Vivid BAD SQUAD", "attr": "🌿퓨어", "level": 27, "bpm": 132},
     {"id": "sekai_hajimatte", "title": "세카이는 아직 시작조차 하지 않았어", "unit": "원더랜즈×쇼타임", "attr": "🧡해피", "level": 28, "bpm": 190},
     {"id": "bug", "title": "버그 (Bug)", "unit": "25시, 나이트 코드에서.", "attr": "🌙미스테리어스", "level": 32, "bpm": 185},
     {"id": "idsmile", "title": "아이디스마일 (IDSMILE)", "unit": "25시, 나이트 코드에서.", "attr": "🌸큐트", "level": 28, "bpm": 152},
-    {"id": "senbonzakura", "title": "천본앵 (千本桜)", "unit": "버추얼 싱어", "attr": "🌸큐트", "level": 28, "bpm": 154},
+    {"id": "senbonzakura", "title": "천본앵 (千本桜)", "unit": "버츄얼 싱어", "attr": "🌸큐트", "level": 28, "bpm": 154},
     {"id": "tondemo", "title": "톤데모 원더즈 (Tondemo-Wonderz)", "unit": "원더랜즈×쇼타임", "attr": "🧡해피", "level": 32, "bpm": 178},
-    {"id": "shoushitsu", "title": "하츠네 미쿠의 소실", "unit": "버추얼 싱어", "attr": "🌙미스테리어스", "level": 33, "bpm": 240},
+    {"id": "shoushitsu", "title": "하츠네 미쿠의 소실", "unit": "버츄얼 싱어", "attr": "🌙미스테리어스", "level": 33, "bpm": 240},
 ]
 
 

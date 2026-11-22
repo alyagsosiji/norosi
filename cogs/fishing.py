@@ -207,9 +207,8 @@ class FishingLocationSelect(discord.ui.Select):
                 z_cnt = len(fishing_core.FISH_BY_ZONE.get((h_id, z), []))
                 val_z = f"{h_id}:{z}"
                 opts.append(discord.SelectOption(
-                    label=f"└ {z} ({z_cnt}종·2.2x)"[:95],
+                    label=f"└ {z} ({z_cnt}종)"[:95],
                     value=val_z,
-                    emoji="🎯",
                     default=(val_z == cur_val),
                 ))
         return opts[:25]

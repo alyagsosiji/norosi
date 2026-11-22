@@ -374,8 +374,9 @@ GENSHIN_TIME_ROTATION_ARTIFACT_PAIRS = [
     ("15042", "15041", "달을 엮는 밤노래 & 하늘 경계가 드러난 밤 비경"),
     ("15040", "15039", "깊은 회랑의 피날레 & 긴 밤의 맹세 비경"),
     ("15038", "15037", "흑요석 비전 & 잿더미 성 용사 두루마리 비경"),
-    ("15036", "15035", "그림자 사냥꾼 & 황금 극단 비경"),
-    ("15027", "15026", "절연의 기치 & 청록색 그림자 비경"),
+    ("15036", "15035", "미완의 몽상 & 조화로운 공상의 단편 비경"),
+    ("15031", "15032", "그림자 사냥꾼 & 황금 극단 비경"),
+    ("15020", "15002", "절연의 기치 & 청록색 그림자 비경"),
 ]
 
 # 대표 픽업 프리셋 (봇주인 픽업설정용)
@@ -437,8 +438,8 @@ GENSHIN_BANNER_PRESETS = {
         "char_4_ids": ["10000088", "10000025", "10000031"],  # 샤를로트, 행추, 피슬
         "weapon_1": "11513",  # 고요히 샘솟는 빛
         "weapon_2": "14514",  # 영원히 샘솟는 법전
-        "artifact_1": "15036",
-        "artifact_2": "15035",
+        "artifact_1": "15031",
+        "artifact_2": "15032",
     },
     "natlan_archon": {
         "label": "🔥 나타 불의 신 & 밤바람 (마비카 / 시틀라리)",
@@ -461,8 +462,8 @@ GENSHIN_BANNER_PRESETS = {
         "char_4_ids": ["10000056", "10000090", "10000032"],  # 쿠죠 사라, 슈브르즈, 베넷
         "weapon_1": "13509",  # 예초의 번개
         "weapon_2": "13512",  # 붉은 달의 형상
-        "artifact_1": "15027",
-        "artifact_2": "15036",
+        "artifact_1": "15020",
+        "artifact_2": "15035",
     },
     "sumeru_dendro": {
         "label": "🌿 수메르 풀의 신 & 유랑자 (나히다 / 방랑자)",
@@ -473,7 +474,7 @@ GENSHIN_BANNER_PRESETS = {
         "char_4_ids": ["10000076", "10000074", "10000065"],  # 파루잔, 레일라, 쿠키 시노부
         "weapon_1": "14511",  # 떠오르는 천일 밤의 꿈
         "weapon_2": "14512",  # 툴레이툴라의 기억
-        "artifact_1": "15026",
+        "artifact_1": "15025",
         "artifact_2": "15027",
     },
 }
@@ -534,8 +535,14 @@ GENSHIN_EMBEDDED_FALLBACK_ARTIFACTS = [
     {"id": "15041", "kind": "artifact", "name": "하늘 경계가 드러난 밤", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15041_4", "set_2p": "원소 마스터리+80pt", "set_4p": "달빛 반응 발동 시 치명타 확률 최대 +30% 및 달빛 반응 피해 증가", "pool_type": "축성 비경"},
     {"id": "15038", "kind": "artifact", "name": "흑요석 비전", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15038_4", "set_2p": "밤혼 가호 상태 피해+15%", "set_4p": "밤혼 소모 후 6초간 치명타 확률+40%", "pool_type": "축성 비경"},
     {"id": "15037", "kind": "artifact", "name": "잿더미 성 용사 두루마리", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15037_4", "set_2p": "밤혼 발산 시 원소 에너지 6pt 회복", "set_4p": "관련 원소 반응 발동 시 파티 모든 캐릭터 원소 피해 보너스 최대 +40%", "pool_type": "축성 비경"},
-    {"id": "15036", "kind": "artifact", "name": "그림자 사냥꾼", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15036_4", "set_2p": "일반 공격 및 강공격 피해+15%", "set_4p": "HP 증감 시 치명타 확률+12% (최대 3스택 +36%)", "pool_type": "축성 비경"},
-    {"id": "15035", "kind": "artifact", "name": "황금 극단", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15035_4", "set_2p": "원소전투 스킬 피해+20%", "set_4p": "원소전투 스킬 피해+25% (대기 상태 시 추가 +25%)", "pool_type": "축성 비경"},
+    {"id": "15036", "kind": "artifact", "name": "미완의 몽상", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15036_4", "set_2p": "공격력+18%", "set_4p": "연소 상태의 적 주변에서 가하는 피해 최대 +50%", "pool_type": "축성 비경"},
+    {"id": "15035", "kind": "artifact", "name": "조화로운 공상의 단편", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15035_4", "set_2p": "공격력+18%", "set_4p": "생명의 계약 증감 시 가하는 피해+18% (최대 3스택 +54%)", "pool_type": "축성 비경"},
+    {"id": "15031", "kind": "artifact", "name": "그림자 사냥꾼", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15031_4", "set_2p": "일반 공격 및 강공격 피해+15%", "set_4p": "HP 증감 시 치명타 확률+12% (최대 3스택 +36%)", "pool_type": "축성 비경"},
+    {"id": "15032", "kind": "artifact", "name": "황금 극단", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15032_4", "set_2p": "원소전투 스킬 피해+20%", "set_4p": "원소전투 스킬 피해+25% (대기 상태 시 추가 +25%)", "pool_type": "축성 비경"},
+    {"id": "15027", "kind": "artifact", "name": "모래 위 누각의 역사", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15027_4", "set_2p": "바람 원소 피해+15%", "set_4p": "강공격 명중 후 일반 공격 속도+10%, 일반 공격·강공격·낙하 공격 피해+40%", "pool_type": "축성 비경"},
+    {"id": "15025", "kind": "artifact", "name": "숲의 기억", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15025_4", "set_2p": "풀 원소 피해+15%", "set_4p": "원소전투 스킬 또는 원소폭발 명중 시 적의 풀 원소 내성-30%", "pool_type": "축성 비경"},
+    {"id": "15020", "kind": "artifact", "name": "절연의 기치", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15020_4", "set_2p": "원소 충전 효율+20%", "set_4p": "원소 충전 효율의 25%만큼 원소폭발 피해 증가 (최대 +75%)", "pool_type": "축성 비경"},
+    {"id": "15002", "kind": "artifact", "name": "청록색 그림자", "rank": 5, "level_list": [4, 5], "icon": "UI_RelicIcon_15002_4", "set_2p": "바람 원소 피해+15%", "set_4p": "확산 반응 피해+60%, 확산된 원소 타입에 따라 적의 해당 원소 내성-40%", "pool_type": "축성 비경"},
     {"id": "10007", "kind": "artifact", "name": "교관", "rank": 4, "level_list": [3, 4], "icon": "UI_RelicIcon_10007_4", "set_2p": "원소 마스터리+80pt", "set_4p": "원소 반응 발동 후 파티 원소 마스터리+120pt", "pool_type": "비경/보스"},
     {"id": "10009", "kind": "artifact", "name": "유배자", "rank": 4, "level_list": [3, 4], "icon": "UI_RelicIcon_10009_4", "set_2p": "원소 충전 효율+20%", "set_4p": "원소폭발 발동 후 파티원 원소 에너지 회복", "pool_type": "비경/보스"},
     {"id": "10010", "kind": "artifact", "name": "모험가", "rank": 3, "level_list": [1, 2, 3], "icon": "UI_RelicIcon_10010_4", "set_2p": "HP 최대치+1000pt", "set_4p": "보물상자 오픈 후 5초간 HP 30% 회복", "pool_type": "모험/상자"},

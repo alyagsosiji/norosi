@@ -1005,7 +1005,7 @@ def classify_fish_entry(
 
     seed_int = int(hashlib.md5(sci.encode("utf-8")).hexdigest()[:8], 16)
 
-    if raw.get("len"):
+    if raw.get("len") and float(raw["len"]) <= max_def * 3.5:
         max_cm = round(float(raw["len"]), 1)
         min_cm = round(max(2.0, max_cm * 0.36), 1)
     else:
@@ -1017,6 +1017,8 @@ def classify_fish_entry(
 
     obs = raw.get("obs", 100)
     rarity = base_rar
+    if max_cm >= 100.0:
+        rarity = max(rarity, 3)
     if max_cm >= 180.0:
         rarity = max(rarity, 4)
     if max_cm >= 300.0 or (obs < 35 and max_cm >= 110.0):
@@ -1025,6 +1027,8 @@ def classify_fish_entry(
         rarity = min(4, rarity + 1)
     elif obs > 4500 and rarity == 2 and max_cm < 35.0:
         rarity = 1
+    if rarity == 5 and max_cm < 90.0:
+        rarity = 4
     rarity = max(1, min(5, rarity))
 
     if atime == "all" and (seed_int % 5 == 0):

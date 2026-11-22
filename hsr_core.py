@@ -144,7 +144,7 @@ HSR_SIGNATURE_LCS = {
     "1309": "23026",  # 로빈 -> 찬란하게 빛나는 밤
     "1310": "23025",  # 반디 -> 꿈은 어디로 돌아가야 하는가
     "1308": "23024",  # 아케론 -> 흘러가는 강가를 따라
-    "1307": "23023",  # 블랙 스완 -> 시간의 기억에 대한 재구성
+    "1307": "23022",  # 블랙 스완 -> 시간의 기억에 대한 재구성
     "1306": "23021",  # 스파클 -> 속세에서의 유희
     "1305": "23020",  # Dr. 레이시오 -> 순수 사유의 세례
     "1303": "23019",  # 완•매 -> 거울 속 지난날의 나
@@ -160,11 +160,11 @@ HSR_SIGNATURE_LCS = {
     "1006": "23007",  # 은랑 -> 내리는 비
     "1204": "23010",  # 경원 -> 동트기 전
     "1102": "23001",  # 제레 -> 야경 속에서
-    "1304": "23022",  # 어벤츄린 -> 운명은 언제나 불공평하다
+    "1304": "23023",  # 어벤츄린 -> 언제나 불공평한 운명
     "1315": "23027",  # 부트힐 -> 두 번째 생명을 향해
     "1314": "23028",  # 제이드 -> 희망은 무가치한가
-    "1221": "23029",  # 운리 -> 해 질 녘 시작되는 춤
-    "1218": "23030",  # 초구 -> 무수한 봄날들
+    "1221": "23030",  # 운리 -> 해 질 무렵 시작되는 춤
+    "1218": "23029",  # 초구 -> 그 무수한 봄날
     "1220": "23031",  # 비소 -> 나는 사냥을 떠나리
     "1222": "23032",  # 영사 -> 오직 향만이 변함없이
     "1317": "23033",  # 라파 -> 인법첩•현란한 파마
@@ -416,14 +416,14 @@ HSR_BANNER_PRESETS = {
 HSR_EMBEDDED_FALLBACK_CHARS = [
     {"id": "1511", "name": "에이언즈★아하", "rank": 5, "path": "Elation", "element": "Quantum", "release": 1794387600, "pool_type": "한정"},
     {"id": "1503", "name": "펄", "rank": 5, "path": "Elation", "element": "Ice", "release": 1790586000, "pool_type": "한정"},
-    {"id": "1513", "name": "어벤츄린•웨이브", "rank": 5, "path": "Elation", "element": "Imaginary", "release": 1775500000, "pool_type": "한정"},
-    {"id": "1512", "name": "로빈•서머레토", "rank": 5, "path": "Elation", "element": "Physical", "release": 1775000000, "pool_type": "한정"},
-    {"id": "1509", "name": "길가메시", "rank": 5, "path": "Mage", "element": "Imaginary", "release": 1774500000, "pool_type": "콜라보 한정"},
-    {"id": "1510", "name": "히메코•노바", "rank": 5, "path": "Memory", "element": "Fire", "release": 1774000000, "pool_type": "한정"},
-    {"id": "1508", "name": "토오사카 린", "rank": 5, "path": "Elation", "element": "Fire", "release": 1773500000, "pool_type": "콜라보 한정"},
-    {"id": "1507", "name": "천야•블레이드", "rank": 5, "path": "Elation", "element": "Wind", "release": 1773000000, "pool_type": "한정"},
-    {"id": "1505", "name": "에바네시아", "rank": 5, "path": "Elation", "element": "Ice", "release": 1772500000, "pool_type": "한정"},
-    {"id": "1506", "name": "은랑 LV.999", "rank": 5, "path": "Elation", "element": "Quantum", "release": 1772000000, "pool_type": "한정"},
+    {"id": "1513", "name": "어벤츄린•웨이브", "rank": 5, "path": "Elation", "element": "Quantum", "release": 1775500000, "pool_type": "한정"},
+    {"id": "1512", "name": "로빈•서머레토", "rank": 5, "path": "Memory", "element": "Wind", "release": 1775000000, "pool_type": "한정"},
+    {"id": "1509", "name": "길가메시", "rank": 5, "path": "Warrior", "element": "Thunder", "release": 1774500000, "pool_type": "콜라보 한정"},
+    {"id": "1510", "name": "히메코•노바", "rank": 5, "path": "Mage", "element": "Fire", "release": 1774000000, "pool_type": "한정"},
+    {"id": "1508", "name": "토오사카 린", "rank": 5, "path": "Mage", "element": "Quantum", "release": 1773500000, "pool_type": "콜라보 한정"},
+    {"id": "1507", "name": "천야•블레이드", "rank": 5, "path": "Warlock", "element": "Fire", "release": 1773000000, "pool_type": "한정"},
+    {"id": "1505", "name": "에바네시아", "rank": 5, "path": "Elation", "element": "Physical", "release": 1772500000, "pool_type": "한정"},
+    {"id": "1506", "name": "은랑 LV.999", "rank": 5, "path": "Elation", "element": "Imaginary", "release": 1772000000, "pool_type": "한정"},
     {"id": "1504", "name": "애쉬베일", "rank": 5, "path": "Rogue", "element": "Thunder", "release": 1771500000, "pool_type": "한정"},
     {"id": "1502", "name": "효광", "rank": 5, "path": "Elation", "element": "Physical", "release": 1771000000, "pool_type": "한정"},
     {"id": "1501", "name": "스파키", "rank": 5, "path": "Elation", "element": "Fire", "release": 1770500000, "pool_type": "한정"},
@@ -454,16 +454,16 @@ HSR_EMBEDDED_FALLBACK_CHARS = [
 HSR_EMBEDDED_FALLBACK_LCS = [
     {"id": "23065", "name": "「아하」가 처음 울리는 순간", "rank": 5, "path": "Elation", "warp_source": "limited", "pool_type": "광추한정"},
     {"id": "23064", "name": "파도에 내던진 한여름", "rank": 5, "path": "Elation", "warp_source": "limited", "pool_type": "광추한정"},
-    {"id": "23063", "name": "그대는 나아가 노래하리니", "rank": 5, "path": "Elation", "warp_source": "limited", "pool_type": "광추한정"},
-    {"id": "23062", "name": "보이는 것이 곧 나", "rank": 5, "path": "Rogue", "warp_source": "limited", "pool_type": "광추한정"},
-    {"id": "23061", "name": "고요히 빛나는 불티", "rank": 5, "path": "Rogue", "warp_source": "limited", "pool_type": "광추한정"},
-    {"id": "23060", "name": "별이 밤하늘을 밝힐 때", "rank": 5, "path": "Warrior", "warp_source": "limited", "pool_type": "광추한정"},
-    {"id": "23059", "name": "연옥을 불사른 새로운 몸", "rank": 5, "path": "Warrior", "warp_source": "limited", "pool_type": "광추한정"},
-    {"id": "23058", "name": "다음 꽃피는 계절의 만남", "rank": 5, "path": "Memory", "warp_source": "limited", "pool_type": "광추한정"},
-    {"id": "23057", "name": "갤럭시 시티에 오신 것을 환영합니다", "rank": 5, "path": "Mage", "warp_source": "limited", "pool_type": "광추한정"},
-    {"id": "23056", "name": "거짓말의 종막", "rank": 5, "path": "Warlock", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23063", "name": "그대는 나아가 노래하리니", "rank": 5, "path": "Memory", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23062", "name": "보이는 것이 곧 나", "rank": 5, "path": "Warrior", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23061", "name": "고요히 빛나는 불티", "rank": 5, "path": "Mage", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23060", "name": "별이 밤하늘을 밝힐 때", "rank": 5, "path": "Mage", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23059", "name": "연옥을 불사른 새로운 몸", "rank": 5, "path": "Warlock", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23058", "name": "다음 꽃피는 계절의 만남", "rank": 5, "path": "Elation", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23057", "name": "갤럭시 시티에 오신 것을 환영합니다", "rank": 5, "path": "Elation", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23056", "name": "거짓말의 종막", "rank": 5, "path": "Rogue", "warp_source": "limited", "pool_type": "광추한정"},
     {"id": "23055", "name": "내일에 바치는 색채", "rank": 5, "path": "Elation", "warp_source": "limited", "pool_type": "광추한정"},
-    {"id": "23054", "name": "그녀가 보기로 결심했을 때", "rank": 5, "path": "Shaman", "warp_source": "limited", "pool_type": "광추한정"},
+    {"id": "23054", "name": "그녀가 보기로 결심했을 때", "rank": 5, "path": "Elation", "warp_source": "limited", "pool_type": "광추한정"},
     {"id": "23053", "name": "눈부신 파키의 세상", "rank": 5, "path": "Elation", "warp_source": "limited", "pool_type": "광추한정"},
     {"id": "23052", "name": "이 순간처럼 영원한 사랑", "rank": 5, "path": "Memory", "warp_source": "limited", "pool_type": "광추한정"},
     {"id": "23051", "name": "끝없는 산과 강을 거치더라도", "rank": 5, "path": "Knight", "warp_source": "limited", "pool_type": "광추한정"},
