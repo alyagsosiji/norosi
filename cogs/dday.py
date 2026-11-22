@@ -2721,14 +2721,14 @@ class DDayCog(commands.Cog):
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         view.message = msg
 
-    @commands.command(name="디데이목록", aliases=["디데이", "디데이보드", "dday"])
+    @commands.command(name="디데이목록")
     async def list_dday_prefix(self, ctx: commands.Context):
         data = await asyncio.to_thread(core.load_data)
         view = DDayListBoardView(self.bot, ctx.author, data, guild=ctx.guild)
         msg = await ctx.send(embed=view.build_embed(), view=view)
         view.message = msg
 
-    @commands.command(name="지나간디데이", aliases=["지난디데이", "추억보관소", "pastdday"])
+    @commands.command(name="지나간디데이")
     async def past_dday_prefix(self, ctx: commands.Context):
         data = await asyncio.to_thread(core.load_data)
         view = DDayListBoardView(self.bot, ctx.author, data, guild=ctx.guild, initial_filter="past")
