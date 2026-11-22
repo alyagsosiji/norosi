@@ -2796,12 +2796,12 @@ def build_10pull_grid_image_bytes(
 
         s_num = int(c.get("star_num", 2))
         r_type = c.get("rarity_type", "")
-        is_rainbow_4 = (s_num >= 4 and r_type != "rarity_birthday")
+        is_rainbow_4 = False  # ★4는 분홍 테두리로 통일 (★3 노랑과 대비)
         if r_type == "rarity_birthday":
             outer_col, inner_col, label_bg = (255, 118, 185, 255), (255, 212, 235, 255), (74, 26, 56, 255)
             star_str = "♥BD"
-        elif is_rainbow_4:
-            outer_col, inner_col, label_bg = (190, 145, 255, 255), (235, 245, 255, 210), (46, 32, 74, 255)
+        elif s_num >= 4:
+            outer_col, inner_col, label_bg = (255, 105, 180, 255), (255, 190, 225, 255), (70, 24, 52, 255)
             star_str = "★4"
         elif s_num == 3:
             outer_col, inner_col, label_bg = (242, 184, 48, 255), (255, 232, 140, 255), (50, 42, 26, 255)
@@ -2822,7 +2822,7 @@ def build_10pull_grid_image_bytes(
             draw.rounded_rectangle([x + 5, y + 5, x + tile_w - 5, y + tile_h - 5], radius=8, outline=inner_col, width=1)
         else:
             draw.rounded_rectangle([x, y, x + tile_w, y + tile_h], radius=12, fill=(25, 30, 52, 255), outline=outer_col, width=4)
-            if r_type == "rarity_birthday":
+            if s_num >= 4:
                 draw.rounded_rectangle([x + 4, y + 4, x + tile_w - 4, y + tile_h - 4], radius=9, outline=inner_col, width=2)
 
         art_size = 176

@@ -281,7 +281,13 @@ def build_gacha_pull_embed(
     has_4star = any(c["star_num"] >= 4 for c in drawn)
     b_cfg = core.get_banner_meta(banner_type)
     default_rgb = b_cfg.get("color", (0, 204, 221))
-    embed_color = discord.Color.from_rgb(255, 105, 180) if has_4star else discord.Color.from_rgb(*default_rgb)
+    # 테두리 색: ★4/생일 = 분홍, 최고 ★3 = 노랑, 그 외 = 배너 기본색
+    if has_4star:
+        embed_color = discord.Color.from_rgb(255, 105, 180)
+    elif any(c.get("star_num", 0) == 3 for c in drawn):
+        embed_color = discord.Color.from_rgb(242, 184, 48)
+    else:
+        embed_color = discord.Color.from_rgb(*default_rgb)
 
     pickup_summary = "직접 선택한 ★4 10장 확정" if banner_type == "select_list" else core.format_pickup_summary(pickup_cfg)
     is_single = len(drawn) == 1
@@ -323,17 +329,17 @@ def build_gacha_pull_embed(
             cos_part = f" · 👗 `{cos['name']}`" if cos else ""
             lim_part = f"`{limit_lbl}` · " if limit_lbl else ""
             row = (
-                f"**{idx:02d}.** {rarity_badge} **{c['char_name']}** [{c['prefix']}]{chips_str}\n"
+                f"`{idx:02d}.` {rarity_badge} **{c['char_name']}** [{c['prefix']}]{chips_str}\n"
                 f"└ {lim_part}`{unit_str}` · {c['attr']}{cos_part} · `{c.get('prob', 0.0):.4f}%`"
             )
             lines.append(row)
         elif s_num == 3:
             lines.append(
-                f"**{idx:02d}.** {rarity_badge} **{c['char_name']}** [{c['prefix']}]{chips_str} · `{c['unit']}`"
+                f"`{idx:02d}.` {rarity_badge} **{c['char_name']}** [{c['prefix']}]{chips_str} · `{c['unit']}` · {c['attr']}"
             )
         else:
             lines.append(
-                f"`{idx:02d}.` {rarity_badge} {c['char_name']} [{c['prefix']}]{chips_str}"
+                f"`{idx:02d}.` {rarity_badge} {c['char_name']} [{c['prefix']}]{chips_str} · `{c['unit']}` · {c['attr']}"
             )
 
     r4_cnt = sum(1 for c in drawn if c["rarity_type"] == "rarity_4")
@@ -589,7 +595,7 @@ async def send_gacha_pull_result(
         card_embed = discord.Embed(
             title=card_title[:256],
             description="\n\n".join(desc_parts),
-            color=discord.Color.from_rgb(255, 105, 180) if is_bday_card else discord.Color.from_rgb(138, 128, 255),
+            color=discord.Color.from_rgb(255, 105, 180),
             timestamp=datetime.datetime.now(core.KST)
         )
         card_embed.add_field(name="🏷️ 유닛", value=f"`{unit_str}`", inline=True)
