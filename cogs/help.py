@@ -118,7 +118,7 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "name": "/이모지업스케일",
         "perm": "admin",
         "settings_path": "⚙️ 고급 2p > 🔍 이모지 업스케일 설정",
-        "desc": "[서버 관리자] 커스텀 이모지(1~3개) 전송 시 emote-cdn-rust(160x160 Lanczos3 WebP · 24h 캐시) 방식으로 자동 확대 ON/OFF",
+        "desc": "[서버 관리자] 순수 커스텀 이모지(1~3개) 또는 커스텀 이모지 1개+채팅 전송 시 채팅 내역 표기 + 160x160 Lanczos3 WebP 자동 확대 ON/OFF",
         "params": "동작: [켜기(ON)/끄기(OFF)/상태확인(선택)]",
         "example": "/이모지업스케일 동작:🟢 켜기 (ON)",
         "source": "cogs/emoji_upscale.py",

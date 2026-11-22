@@ -744,6 +744,154 @@ def extract_pure_custom_emojis(content: str, max_count: int = MAX_EMOJIS_PER_MES
     return result
 
 
+_PROTECTED_SPAN_RE = re.compile(
+    r"```[\s\S]*?```|`[^`\n]+`|\|\|[\s\S]*?\|\|"
+)
+_URL_OR_INVITE_RE = re.compile(
+    r"(?:https?://|(?:^|\s)(?:discord\.gg|discord\.com/invite|discordapp\.com/invite)/)",
+    re.IGNORECASE,
+)
+_PREFIX_CMD_RE = re.compile(r"^\s*![A-Za-z0-9가-힣_]")
+_ROLE_OR_EVERYONE_MENTION_RE = re.compile(r"(?:@everyone|@here|<@&\d+>)")
+_EMPTY_MARKDOWN_WRAPPER_RE = re.compile(r"^(?:\*{1,3}|_{1,2}|~~|\|\|){2}$")
+_HORIZ_WS_CHARS = " \t\u200b\u200c\u200d\u2060\ufeff\ufe0e\ufe0f\u00a0\u2800"
+
+
+def _has_odd_preceding_backslashes(text: str, pos: int) -> bool:
+    count = 0
+    idx = pos - 1
+    while idx >= 0 and text[idx] == "\\":
+        count += 1
+        idx -= 1
+    return (count % 2) == 1
+
+
+def _strip_single_emoji_from_chat(content: str, start: int, end: int) -> str:
+    """단일 커스텀 이모지 토큰을 제거하고 주변 공백·개행을 자연스럽게 정리한 채팅 본문을 반환합니다."""
+    before = content[:start].replace("\r\n", "\n").replace("\r", "\n")
+    after = content[end:].replace("\r\n", "\n").replace("\r", "\n")
+
+    before_line = before.rsplit("\n", 1)[-1]
+    after_line = after.split("\n", 1)[0]
+    before_line_empty = (before_line.strip(_HORIZ_WS_CHARS) == "")
+    after_line_empty = (after_line.strip(_HORIZ_WS_CHARS) == "")
+
+    if before_line_empty and after_line_empty:
+        before_trimmed = before.rstrip(_HORIZ_WS_CHARS)
+        after_trimmed = after.lstrip(_HORIZ_WS_CHARS)
+        if before_trimmed.endswith("\n") and after_trimmed.startswith("\n"):
+            joined = before_trimmed + after_trimmed[1:]
+        elif before_trimmed.endswith("\n") and not after_trimmed:
+            joined = before_trimmed[:-1]
+        elif not before_trimmed and after_trimmed.startswith("\n"):
+            joined = after_trimmed[1:]
+        else:
+            joined = before_trimmed + after_trimmed
+    elif before_line_empty:
+        joined = before.rstrip(_HORIZ_WS_CHARS) + after.lstrip(_HORIZ_WS_CHARS)
+    elif after_line_empty:
+        joined = before.rstrip(_HORIZ_WS_CHARS) + after.lstrip(_HORIZ_WS_CHARS)
+    else:
+        b_has_space = bool(before) and before[-1] in (" ", "\t")
+        a_has_space = bool(after) and after[0] in (" ", "\t")
+        if b_has_space and a_has_space:
+            joined = before.rstrip(" \t") + " " + after.lstrip(" \t")
+        elif a_has_space and before.endswith(("**", "*", "__", "~~", "_")):
+            joined = before + after.lstrip(" \t")
+        elif b_has_space and after.startswith(("**", "*", "__", "~~", "_")):
+            joined = before.rstrip(" \t") + after
+        else:
+            joined = before + after
+
+    cleaned = joined.strip()
+    if not cleaned or not INVISIBLE_CHARS_RE.sub("", cleaned):
+        return ""
+    return cleaned
+
+
+def extract_upscale_payload(
+    content: str,
+    max_pure_count: int = MAX_EMOJIS_PER_MESSAGE,
+) -> tuple[list[dict], str]:
+    """
+    업스케일 대상 커스텀 이모지 목록과 함께 표기할 채팅 본문(chat_text)을 추출합니다.
+    - 순수 커스텀 이모지(1~max_pure_count개)만 있는 경우: ([이모지...], "") 반환
+    - 일반 채팅 텍스트와 함께 커스텀 이모지를 정확히 1개만 사용한 경우: ([이모지], 정리된 채팅 본문) 반환
+    - 2개 이상 커스텀 이모지 + 텍스트, URL/초대링크, 프리픽스 명령어(!...), 코드블록·스포일러·이스케이프 내부 이모지는 제외
+    """
+    if not content:
+        return [], ""
+    stripped = content.strip()
+    if not stripped:
+        return [], ""
+
+    # 1) 순수 커스텀 이모지(1~3개) 메시지 우선 처리 (기존 동작 유지)
+    pure = extract_pure_custom_emojis(content, max_count=max_pure_count)
+    if pure:
+        return pure, ""
+
+    # 2) 다른 기능(프리픽스 명령어, SNS 링크 미리보기·초대링크, @everyone/@here/역할 멘션)과 충돌 방지
+    if _PREFIX_CMD_RE.match(content):
+        return [], ""
+    if _URL_OR_INVITE_RE.search(content):
+        return [], ""
+    if _ROLE_OR_EVERYONE_MENTION_RE.search(content):
+        return [], ""
+
+    # 3) 텍스트가 섞인 채팅은 커스텀 이모지가 정확히 1개일 때만 감지
+    all_matches = list(CUSTOM_EMOJI_RE.finditer(content))
+    if len(all_matches) != 1:
+        return [], ""
+
+    m = all_matches[0]
+    if _has_odd_preceding_backslashes(content, m.start()):
+        return [], ""
+
+    # 닫히지 않은 펜스 코드블록(```) 내부 제외
+    if content[: m.start()].count("```") % 2 == 1:
+        return [], ""
+
+    # 코드블록 / 인라인 코드 / 스포일러(||...||) 내부 이모지 제외
+    for span in _PROTECTED_SPAN_RE.finditer(content):
+        if span.start() <= m.start() and m.end() <= span.end():
+            return [], ""
+
+    chat_text = _strip_single_emoji_from_chat(content, m.start(), m.end())
+    if chat_text and _EMPTY_MARKDOWN_WRAPPER_RE.match(chat_text):
+        return [], ""
+
+    emoji_info = {
+        "animated": (m.group(1) == "a"),
+        "name": m.group(2),
+        "id": m.group(3),
+    }
+    return [emoji_info], chat_text
+
+
+def compose_upscaled_content(
+    chat_text: str,
+    masked_content: Optional[str],
+    *,
+    header: str = "",
+) -> Optional[str]:
+    """답장/발신자 헤더, 채팅 본문, 마스킹 이모지 링크([⠀](url))를 디스코드 마크다운에 맞게 결합합니다."""
+    body = ""
+    if chat_text and masked_content:
+        last_line = chat_text.rsplit("\n", 1)[-1]
+        sep = "\n" if last_line.rstrip().endswith("```") else " "
+        body = f"{chat_text}{sep}{masked_content}"
+    elif chat_text:
+        body = chat_text
+    elif masked_content:
+        body = masked_content
+
+    if header and body:
+        return f"{header}\n{body}"
+    if header:
+        return header
+    return body or None
+
+
 def sanitize_webhook_username(display_name: str | None) -> str:
     """
     디스코드 웹훅 username 제약(1~80자, 'discord'/'clyde' 금지어 회피)을 안전하게 준수합니다.
@@ -1210,8 +1358,10 @@ def _clean_reply_preview_text(raw_text: str, max_len: int = 38) -> str:
     """답장 원문 텍스트를 한 줄의 안전한 미리보기 문자열로 정리합니다."""
     if not raw_text:
         return ""
+    # 이전 웹훅 답장 인용 헤더(-# ↩️ ...) 제거
+    cleaned = re.sub(r"^-#\s*↩️[^\n]*(?:\n|$)", "", raw_text)
     # 마스킹 점자 링크([⠀](url)) 제거
-    cleaned = re.sub(r"\[\u2800\]\([^)]+\)", "", raw_text)
+    cleaned = re.sub(r"\[\u2800\]\([^)]+\)", "", cleaned)
     # 커스텀 이모지 <a:name:id> -> :name:
     cleaned = CUSTOM_EMOJI_RE.sub(lambda m: f":{m.group(2)}:", cleaned)
     # 마크다운 특수문자 및 개행 정리
@@ -1552,8 +1702,8 @@ def build_emoji_upscale_embed(
     has_sig = bool(get_emote_cdn_signing_key())
     sig_badge = "🔐 HMAC-SHA256 서명 활성" if has_sig else "⚡ 자동 WebP CDN 폴백 활성"
     desc_lines = [
-        "커스텀 디스코드 이모지(1~3개)만 포함된 채팅을 보내면 원본 메시지를 삭제한 뒤,",
-        "투명 여백 패딩 없이 **원본 종횡비를 100% 유지한 `160×160` WebP** (`emote-cdn-rust` · Lanczos3 · 24시간 캐시)로 변환하여",
+        "커스텀 디스코드 이모지(1~3개)만 포함된 채팅이나 **커스텀 이모지 1개 + 일반 채팅**을 보내면 원본 메시지를 삭제한 뒤,",
+        "채팅 내역을 그대로 표기하면서 투명 여백 패딩 없이 **원본 종횡비를 100% 유지한 `160×160` WebP** (`emote-cdn-rust` · Lanczos3 · 24시간 캐시)로 변환하여",
         "**보낸 사람의 프로필 사진과 서버 닉네임**으로 즉시 전송합니다.",
         "• **📱 모바일 & 데스크탑 완벽 호환:** 투명 캔버스 없이 `160×160` 박스 내 원본 비율(`compute_aspect_dimensions` · Lanczos3)로 리사이징된 WebP CDN 언펄을 사용하여 **모바일과 데스크탑 모두에서 화면이 가득 차지 않고 스티커 크기(`160×160`)와 원본 종횡비·애니메이션이 그대로 유지**됩니다.",
         "• **🗑️ 삭제 방법:** 전송된 이모지 메시지에 직접 `:x:`(❌) 반응을 추가하면 즉시 삭제됩니다.",
@@ -2068,7 +2218,7 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        # 봇, 웹훅, DM, 시스템 메시지, 첨부파일·스티커 포함 메시지 즉시 무시
+        # 봇, 웹훅, DM, 시스템 메시지, 첨부파일·스티커·투표·전달 메시지 즉시 무시
         if message.author.bot or message.webhook_id is not None:
             return
         if not message.guild:
@@ -2076,6 +2226,8 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         if message.type not in (discord.MessageType.default, discord.MessageType.reply):
             return
         if message.attachments or message.stickers:
+            return
+        if getattr(message, "poll", None) or getattr(message, "message_snapshots", None) or getattr(message, "components", None):
             return
 
         if not message.content or "<" not in message.content or ":" not in message.content:
@@ -2085,9 +2237,11 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         if not core.is_emoji_upscale_enabled(message.guild.id):
             return
 
-        # 순수 커스텀 이모지 메시지(1~3개, 모바일 제로폭 문자 허용)인지 검사
-        emojis = extract_pure_custom_emojis(message.content)
+        # 순수 커스텀 이모지(1~3개) 또는 일반 채팅 + 커스텀 이모지 1개 감지
+        emojis, chat_text = extract_upscale_payload(message.content)
         if not emojis:
+            return
+        if chat_text and (getattr(message, "mention_everyone", False) or getattr(message, "role_mentions", None)):
             return
 
         # 중복 이벤트 방어
@@ -2147,6 +2301,29 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         if is_reply and webhook is not None:
             reply_quote_header, reply_quote_allowed = await build_reply_quote_header(message, channel)
 
+        safe_sender = discord.utils.escape_markdown(
+            sanitize_webhook_username(
+                getattr(fresh_author, "display_name", None) or message.author.display_name
+            )
+        )
+        is_silent = bool(getattr(getattr(message, "flags", None), "silent", False))
+
+        # 삭제 전 최종 전송 문자열 구성 및 Discord 2,000자 제한 사전 검증 (원본 채팅 유실 원천 차단)
+        if webhook is not None:
+            content_to_send = compose_upscaled_content(
+                chat_text,
+                masked_content,
+                header=(reply_quote_header if (is_reply and reply_quote_header) else ""),
+            )
+        else:
+            content_to_send = compose_upscaled_content(
+                chat_text,
+                masked_content,
+                header=f"-# {safe_sender}",
+            )
+        if content_to_send and len(content_to_send) > 2000:
+            return
+
         # 3. 원본 메시지 삭제 (이모지 업스케일 치환 삭제에 한해 서버 삭제 로그 억제)
         core.mark_suppressed_delete_log(message.id)
         try:
@@ -2164,15 +2341,6 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
             )
             thread_obj = channel if isinstance(channel, discord.Thread) else None
             wh_allowed = reply_quote_allowed if is_reply else discord.AllowedMentions.none()
-            content_to_send: Optional[str] = None
-            if masked_content:
-                content_to_send = (
-                    f"{reply_quote_header}\n{masked_content}"
-                    if (is_reply and reply_quote_header)
-                    else masked_content
-                )
-            elif is_reply and reply_quote_header:
-                content_to_send = reply_quote_header
 
             async def _send_via_webhook(wh: discord.Webhook, avatar_url: Optional[str]):
                 kw: dict = {
@@ -2184,6 +2352,8 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
                     kw["avatar_url"] = avatar_url
                 if thread_obj is not None:
                     kw["thread"] = thread_obj
+                if is_silent:
+                    kw["silent"] = True
                 if masked_content:
                     return await wh.send(content=content_to_send, **kw)
                 assert fallback_payload is not None
@@ -2229,6 +2399,30 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
             except Exception as send_err:
                 print(f"⚠️ [이모지 업스케일 웹훅 전송 실패] {send_err}", flush=True)
 
+            # 웹훅 일시 장애로 전송 실패 시 일반 채팅 본문 유실 방지 안전 복구
+            if sent_msg is None and chat_text and can_send:
+                try:
+                    fb_text = compose_upscaled_content(
+                        chat_text,
+                        masked_content,
+                        header=f"-# {safe_sender}",
+                    )
+                    if fb_text and len(fb_text) <= 2000:
+                        fb_kw: dict = {"allowed_mentions": discord.AllowedMentions.none()}
+                        if is_silent:
+                            fb_kw["silent"] = True
+                        if masked_content:
+                            sent_msg = await channel.send(content=fb_text, **fb_kw)
+                        elif fallback_payload is not None:
+                            out_bytes, filename = fallback_payload
+                            sent_msg = await channel.send(
+                                content=fb_text,
+                                file=discord.File(io.BytesIO(out_bytes), filename=filename),
+                                **fb_kw,
+                            )
+                except Exception as fb_err:
+                    print(f"⚠️ [이모지 업스케일 채팅 복구 전송 실패] {fb_err}", flush=True)
+
             if sent_msg and getattr(sent_msg, "id", None):
                 self._record_upscaled_message(int(sent_msg.id), int(message.author.id))
             return
@@ -2241,33 +2435,40 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
                 guild_id=message.reference.guild_id or message.guild.id,
                 fail_if_not_exists=False,
             )
-            mention_target = bool(message.mentions)
-            safe_sender = discord.utils.escape_markdown(
-                sanitize_webhook_username(message.author.display_name)
+            resolved_ref = getattr(message.reference, "resolved", None)
+            ref_author_id = (
+                getattr(getattr(resolved_ref, "author", None), "id", None)
+                if isinstance(resolved_ref, discord.Message)
+                else None
             )
+            mentioned_ids = {getattr(u, "id", None) for u in (getattr(message, "mentions", None) or ())}
+            if ref_author_id is not None:
+                mention_target = ref_author_id in mentioned_ids
+            else:
+                mention_target = bool(message.mentions) and not chat_text
             reply_allowed = discord.AllowedMentions(
                 everyone=False,
                 roles=False,
                 users=False,
                 replied_user=mention_target,
             )
+            send_kw: dict = {
+                "content": content_to_send or f"-# {safe_sender}",
+                "reference": reply_ref,
+                "mention_author": mention_target,
+                "allowed_mentions": reply_allowed,
+            }
+            if is_silent:
+                send_kw["silent"] = True
             try:
                 if masked_content:
-                    sent_msg = await channel.send(
-                        content=f"-# {safe_sender}\n{masked_content}",
-                        reference=reply_ref,
-                        mention_author=mention_target,
-                        allowed_mentions=reply_allowed,
-                    )
+                    sent_msg = await channel.send(**send_kw)
                 else:
                     assert fallback_payload is not None
                     out_bytes, filename = fallback_payload
                     sent_msg = await channel.send(
-                        content=f"-# {safe_sender}",
                         file=discord.File(io.BytesIO(out_bytes), filename=filename),
-                        reference=reply_ref,
-                        mention_author=mention_target,
-                        allowed_mentions=reply_allowed,
+                        **send_kw,
                     )
             except Exception as reply_err:
                 print(f"⚠️ [이모지 업스케일 앱 답장 전송 실패] {reply_err}", flush=True)
