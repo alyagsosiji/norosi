@@ -1281,7 +1281,7 @@ class GachaCeilingExchangeView(core.SafeView):
             cele_embed = discord.Embed(
                 title=f"🏅 천장 교환 완료! {new_tag}[{card.get('prefix')}] {card.get('char_name')}",
                 description=(
-                    f"🎉 {interaction.user.mention}님이 **가챠 배지 `{core.GACHA_CEILING_BADGE_COST}개`**로 원하는 최고 등급 카드를 확정 영입했습니다!\n\n"
+                    f"🎉 {interaction.user.mention}님이 **가챠 배지** `{core.GACHA_CEILING_BADGE_COST}개`로 원하는 최고 등급 카드를 확정 영입했습니다!\n\n"
                     f"• 🏷️ **유닛:** `{card.get('unit')}` · **속성:** {card.get('attr')} · `{card.get('limit_label', '통상')}`{cos_line}\n"
                     f"• 💬 **대사:** *\"{raw_q}\"*\n"
                     f"• 🏅 **남은 가챠 배지:** **`{info['remaining_badges']:,}개`** (누적 천장 교환 `{info['ceiling_count']}회`)"
@@ -1523,7 +1523,7 @@ class SelectListGachaView(core.SafeView):
             random.shuffle(owned_cand)
             picks = (unowned_cand + owned_cand)[:need]
             self.selected_ids.extend(picks)
-            self.status_note = f"🎲 미보유 ★4 우선으로 **`{len(picks)}장`**을 자동 채웠습니다! (`{len(self.selected_ids)}/{req}`)"
+            self.status_note = f"🎲 미보유 ★4 우선으로 **{len(picks)}장**을 자동 채웠습니다! (`{len(self.selected_ids)}/{req}`)"
         self._refresh_components()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
