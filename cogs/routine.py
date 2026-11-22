@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import random
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import discord
 from discord.ext import commands

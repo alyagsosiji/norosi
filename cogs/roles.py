@@ -12,7 +12,7 @@ norosi Bot - 이모지 반응 역할 (Reaction Roles) 종합 관리 Cog
 import asyncio
 import datetime
 import re
-from typing import Optional, Union
+from typing import Optional
 
 import discord
 from discord import app_commands
@@ -191,10 +191,11 @@ class PersistentRoleButton(discord.ui.Button):
                 await core.safe_send_response(interaction, "🚨 봇에게 역할을 지급할 권한이 없습니다.", ephemeral=True)
 
 
-class PersistentReactionRoleView(discord.ui.View):
+class PersistentReactionRoleView(core.SafeView):
     """메시지 하단에 표시되는 역할 토글 버튼 뷰"""
-    def __init__(self, roles_list: list[dict]):
+    def __init__(self, roles_list: Optional[list[dict]] = None):
         super().__init__(timeout=None)
+        roles_list = roles_list or []
         style_map = {
             "primary": discord.ButtonStyle.primary,
             "blurple": discord.ButtonStyle.primary,
@@ -649,7 +650,7 @@ class ReactionRoleBuilderView(core.SafeView):
         if not self.roles_list:
             await core.safe_send_response(interaction, "ℹ️ 삭제할 매핑이 없습니다.", ephemeral=True)
             return
-        removed = self.roles_list.pop()
+        self.roles_list.pop()
         await core.safe_edit_response(interaction, 
             embed=self.build_builder_embed(),
             view=self
@@ -1031,7 +1032,7 @@ class ReactionRoleListView(core.SafeView):
 
     @discord.ui.button(label="📄 1 / 1", style=discord.ButtonStyle.secondary, disabled=True, row=1)
     async def page_indicator(self, interaction: discord.Interaction, button: discord.ui.Button):
-        pass
+        await core.safe_defer(interaction)
 
     @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.secondary, row=1)
     async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1123,7 +1124,7 @@ class ReactionRoleStudioView(core.SafeView):
             title="🛡️ 봇 역할 관리 권한 자가진단",
             description=(
                 f"• **'역할 관리' 권한 여부:** {status_icon}\n"
-                f"• **봇의 최고 역할 위치:** {top_role.mention} (`{top_role.name}` / 서열 `{top_role.position}`)\n\n"
+                f"• **봇의 최고 역할 위치:** {getattr(top_role, 'mention', '@everyone')} (`{getattr(top_role, 'name', '@everyone')}` / 서열 `{getattr(top_role, 'position', 0)}`)\n\n"
                 "💡 **반응 역할이 작동하지 않을 때 체크리스트:**\n"
                 "1. 서버 설정 → [역할]에서 봇 역할이 부여하려는 역할보다 **반드시 위에** 위치해야 합니다.\n"
                 "2. 봇에게 '메시지에 반응 추가하기' 및 '외부 이모지 사용' 권한이 켜져 있는지 확인해 주세요."

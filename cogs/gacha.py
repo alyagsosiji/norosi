@@ -1,6 +1,5 @@
 import io
 import copy
-import time
 import random
 import asyncio
 import datetime
@@ -2232,7 +2231,7 @@ class ProsekaRatePaginationView(core.SafeView):
 
     @discord.ui.button(label="📄 1 / 1", style=discord.ButtonStyle.secondary, disabled=True, row=0)
     async def page_indicator(self, interaction: discord.Interaction, button: discord.ui.Button):
-        pass
+        await core.safe_defer(interaction)
 
     @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.primary, row=0)
     async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -4147,7 +4146,7 @@ class MasterRankView(core.SafeView):
 
     @discord.ui.button(label="📄 1 / 1", style=discord.ButtonStyle.secondary, disabled=True, row=4)
     async def list_page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        pass
+        await core.safe_defer(interaction)
 
     @discord.ui.button(label="카드 목록 ▶", style=discord.ButtonStyle.secondary, row=4)
     async def next_list_btn(self, interaction: discord.Interaction, button: discord.ui.Button):

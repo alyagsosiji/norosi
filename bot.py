@@ -928,13 +928,11 @@ class NorosiBot(commands.Bot):
                 embed_text = f"{emb.title or ''} {emb.description or ''}"
 
             clicked_label = ""
-            clicked_emoji = ""
             component_type = interaction.data.get("component_type", 2)
             for row in getattr(msg, "components", []):
                 for child in getattr(row, "children", []):
                     if child.custom_id == custom_id:
                         clicked_label = getattr(child, "label", "") or ""
-                        clicked_emoji = getattr(child, "emoji", "") or ""
                         break
 
             # 3-1. 음성채널 자동재생 대시보드 (리모컨)
@@ -2140,7 +2138,7 @@ class SyncControlView(core.SafeView):
             embed = discord.Embed(
                 title="⚡ 슬래시 명령어 현재 서버에 0초 즉시 반영 완료!",
                 description=(
-                    f"✅ **현재 서버**({target_guild.name if target_guild else '글로벌'})에 슬래시 명령어 `{g_cnt}개`(`/설정`, `/도움말`)가 0초 만에 즉시 등록되었습니다!\n"
+                    f"✅ **현재 서버**({target_guild.name if target_guild else '글로벌'})에 슬래시 명령어 `{g_cnt}개`(`/설정`, `/도움말`, `/후원`)가 0초 만에 즉시 등록되었습니다!\n"
                     f"👉 글로벌 슬래시 커맨드 총 `{len(synced_global)}개`도 전역 등록 완료되었습니다.\n\n"
                     "💡 모든 기능은 `/설정` 통합 허브 안에서 버튼으로 오류 없이 이용하실 수 있습니다!"
                 ),
@@ -2164,7 +2162,7 @@ class SyncControlView(core.SafeView):
             embed = discord.Embed(
                 title="🌐 글로벌 슬래시 명령어 전역 동기화 완료!",
                 description=(
-                    f"✅ **총 `{len(synced)}개`**(`/설정`, `/도움말`)의 슬래시 명령어가 Discord API에 글로벌 등록되었습니다.\n"
+                    f"✅ **총 `{len(synced)}개`**(`/설정`, `/도움말`, `/후원`)의 슬래시 명령어가 Discord API에 글로벌 등록되었습니다.\n"
                     "나머지 모든 기능은 `/설정` 통합 허브에서 이용 가능합니다."
                 ),
                 color=discord.Color.blue(),
@@ -2200,7 +2198,7 @@ class SyncControlView(core.SafeView):
             embed = discord.Embed(
                 title="✨ 슬래시 명령어 중복 정리 완료!",
                 description=(
-                    "✅ 현재 서버의 길드 전용 캐시를 비우고 글로벌 단일 세트(`/설정`, `/도움말`)로 정돈했습니다.\n"
+                    "✅ 현재 서버의 길드 전용 캐시를 비우고 글로벌 단일 세트(`/설정`, `/도움말`, `/후원`)로 정돈했습니다.\n"
                     f"👉 글로벌 슬래시 명령어: **`{len(synced_global)}개`**"
                 ),
                 color=discord.Color.green(),
@@ -2235,7 +2233,7 @@ class SyncControlView(core.SafeView):
                 except Exception:
                     pass
             synced = await bot.tree.sync()
-            sync_ok = f"글로벌 `{len(synced)}개` (`/설정`, `/도움말`) 갱신 완료"
+            sync_ok = f"글로벌 `{len(synced)}개` (`/설정`, `/도움말`, `/후원`) 갱신 완료"
         except Exception as e:
             sync_ok = f"동기화 오류: {e}"
 

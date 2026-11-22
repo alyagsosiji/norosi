@@ -16,7 +16,6 @@ from cogs.gacha import (
     CardPokedexView,
     EventForecastView,
     EventInfoView,
-    MySekaiHubView,
     CharacterCostumeWardrobeView,
     MasterRankView,
     SekaiLiveView
@@ -365,12 +364,12 @@ class CommandRemoteSelect(discord.ui.Select):
             discord.SelectOption(label="📅 일일 출석체크 & 달력", value="attendance", description="자정 기준 하루 1회 출석하고 +100💎 및 월간 마일스톤 받기"),
             discord.SelectOption(label="🌱 오늘의 목표 & 잔디", value="todo", description="오늘의 To-Do 체크 및 7일 은하수 잔디 심기"),
             discord.SelectOption(label="🎰 프로세카 뽑기 (10회)", value="pull_10", description="프로세카 10회 연속 뽑기 (★3 이상 확정 / 시각별 유닛 픽업)"),
-            discord.SelectOption(label="🌠 /원신기원 (10회)", value="genshin_10", description="원신 10회 기원 (캐릭터·신의 주조 무기·성유물 시각별 로테이션)"),
-            discord.SelectOption(label="🚆 /스타레일워프 (10회)", value="hsr_10", description="붕괴: 스타레일 10회 워프 (캐릭터·광추·유물 시각별 로테이션)"),
+            discord.SelectOption(label="🌠 원신 기원 (10회)", value="genshin_10", description="원신 10회 기원 (캐릭터·신의 주조 무기·성유물 시각별 로테이션)"),
+            discord.SelectOption(label="🚆 스타레일 워프 (10회)", value="hsr_10", description="붕괴: 스타레일 10회 워프 (캐릭터·광추·유물 시각별 로테이션)"),
             discord.SelectOption(label="🎣 세카이 낚시 출조 (호수·강·바다)", value="fishing_cast", description="글로벌 실제 어종 36,700종 낚시·세부 수역 탐사·수족관·최대어 랭킹"),
             discord.SelectOption(label="🏆 낚시 랭킹 (대물 보드)", value="fishing_rank", description="서버 내 물고기 최대 크기(cm)·무게(kg) 순위 & 랭커 정보"),
-            discord.SelectOption(label="📅 /미래시", value="forecast", description="프로세카 한섭 이벤트 미래시 달력 & 일섭 비교 상세 타임라인"),
-            discord.SelectOption(label="🎶 /이벤트", value="event_info", description="한섭/일섭 실시간 이벤트 및 가챠 배너 정보"),
+            discord.SelectOption(label="📅 프로세카 미래시", value="forecast", description="프로세카 한섭 이벤트 미래시 달력 & 일섭 비교 상세 타임라인"),
+            discord.SelectOption(label="🎶 실시간 이벤트 정보", value="event_info", description="한섭/일섭 실시간 이벤트 및 가챠 배너 정보"),
             discord.SelectOption(label="🎒 프로세카 카드 보관함", value="my_chars", description="뽑은 캐릭터 보관함 & 잠금(🔒) 관리"),
             discord.SelectOption(label="👗 캐릭터 3D 의상실", value="wardrobe", description="캐릭터 3D 의상 착용·어나더 컬러 및 타 캐릭터 의상 제작"),
             discord.SelectOption(label="⚔️ 세카이 라이브", value="sekai_live", description="5인 유닛 덱 & 3D 의상 시너지 세카이 라이브 + 스탬프 랠리"),
@@ -383,7 +382,7 @@ class CommandRemoteSelect(discord.ui.Select):
             discord.SelectOption(label="💑 파트너 스튜디오", value="partner", description="연인·친구 파트너 맺기 및 공동 D-Day 관리"),
             discord.SelectOption(label="🎂 멤버 생일 전광판 & 등록", value="birthday", description="멤버 생일 전광판 조회 및 내 생일 등록 (+500💎 축하)"),
             discord.SelectOption(label="⏰ 스마트 개인 알림 예약", value="reminder", description="잊지 않게 챙겨주는 스마트 개인 알리미 예약/관리"),
-            discord.SelectOption(label="🎮 /모집", value="recruit", description="프로세카·원신·스타레일 등 모든 게임 파티/팀원 자유 모집"),
+            discord.SelectOption(label="🎮 게임 파티·팀원 모집", value="recruit", description="프로세카·원신·스타레일 등 모든 게임 파티/팀원 자유 모집"),
             discord.SelectOption(label="🌤️ 실시간 기상청 날씨", value="weather", description="기상청/ECMWF 초정밀 실시간 날씨·미세먼지·강수확률"),
             discord.SelectOption(label="🔤 실시간 끝말잇기", value="word_chain", description="표준 두음법칙 적용 실시간 끝말잇기 대결 (+150💎)"),
             discord.SelectOption(label="❓ /도움말", value="help", description="norosi 봇 전체 명령어 카테고리별 상세 도움말"),
@@ -401,7 +400,7 @@ class CommandRemoteSelect(discord.ui.Select):
         val = self.values[0]
         if val == "recruit":
             if not interaction.guild:
-                await core.safe_send_response(interaction, "❌ `/모집` 기능은 디스코드 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
+                await core.safe_send_response(interaction, "❌ **파티·팀원 모집** 기능은 디스코드 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
                 return
             await interaction.response.send_modal(RecruitModal())
             return
@@ -1025,7 +1024,7 @@ class AttendanceRankingView(core.SafeView):
 
     @discord.ui.button(label="📄 1 / 1", style=discord.ButtonStyle.secondary, disabled=True, row=1)
     async def page_indicator_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        pass
+        await core.safe_defer(interaction)
 
     @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.secondary, row=1)
     async def next_page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1096,7 +1095,7 @@ class DDayQuickAddModal(core.SafeModal, title="📅 새 D-Day & 전광판 채널
         want_channel = ch_raw not in ("아니오", "n", "no", "false", "0", "끄기", "안함")
 
         try:
-            target_dt = datetime.datetime.strptime(target_val, "%Y-%m-%d").date()
+            datetime.datetime.strptime(target_val, "%Y-%m-%d")
         except ValueError:
             await core.safe_send_response(interaction, "❌ 날짜 형식은 `YYYY-MM-DD` (예: `2026-12-25`)로 입력해 주세요.", ephemeral=True)
             return
@@ -2122,7 +2121,7 @@ class PartnerAcceptView(core.SafeView):
             description=(
                 f"🎉 {self.requester.mention}님과 {self.target.mention}님이 **파트너**가 되었습니다!\n\n"
                 "• `/설정` (`👤 개인` ➔ `💑 파트너 스튜디오`)에서 두 사람만의 공동 D-Day와 공유 음악 보관함을 바로 열어보세요.\n"
-                "• `/카드선물`로 파트너에게 보유 카드를 선물(50 크리스탈)할 수 있습니다."
+                "• `/설정` (`👤 개인` ➔ `🎁 카드 선물`) 또는 `!카드선물`로 파트너에게 보유 카드를 선물(50 크리스탈)할 수 있습니다."
             ),
             color=discord.Color.from_rgb(255, 105, 180),
             timestamp=datetime.datetime.now(core.KST)

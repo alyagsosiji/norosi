@@ -11,7 +11,7 @@ import asyncio
 import datetime
 import threading
 from collections import OrderedDict
-from typing import Any, Optional
+from typing import Any
 
 try:
     from PIL import Image, ImageDraw, ImageFilter
@@ -2289,7 +2289,7 @@ def levelup_genshin_char(guild_id: int, user_id: int, item_key: str) -> tuple[bo
             return False, f"**{c['name']}** 캐릭터는 이미 최고 레벨(`Lv.90`)입니다!", copy.deepcopy(u_data)
         wit = int(u_data.get("hero_wit", 0))
         if wit < 2:
-            return False, f"📘 **영웅의 경험**이 부족합니다! (`/원신 상점`에서 스타더스트 40으로 5권 구매 가능 · 보유 `{wit}권`)", copy.deepcopy(u_data)
+            return False, f"📘 **영웅의 경험**이 부족합니다! (`/설정` → **원신 상점** 또는 `!원신상점`에서 스타더스트 40으로 5권 구매 가능 · 보유 `{wit}권`)", copy.deepcopy(u_data)
         u_data["hero_wit"] = wit - 2
         new_lv = min(90, cur_lv + 10)
         c["level"] = new_lv
@@ -2491,7 +2491,6 @@ def apply_genshin_pickup_preset(preset_key: str) -> tuple[bool, str, dict]:
 
 
 async def genshin_5star_char_autocomplete(interaction, current: str):
-    import asyncio
     from discord import app_commands
     if not GENSHIN_CHARS:
         await asyncio.to_thread(load_genshin_kr_db)
@@ -2505,7 +2504,6 @@ async def genshin_5star_char_autocomplete(interaction, current: str):
 
 
 async def genshin_4star_char_autocomplete(interaction, current: str):
-    import asyncio
     from discord import app_commands
     if not GENSHIN_CHARS:
         await asyncio.to_thread(load_genshin_kr_db)
@@ -2519,7 +2517,6 @@ async def genshin_4star_char_autocomplete(interaction, current: str):
 
 
 async def genshin_5star_weapon_autocomplete(interaction, current: str):
-    import asyncio
     from discord import app_commands
     if not GENSHIN_WEAPONS:
         await asyncio.to_thread(load_genshin_kr_db)
@@ -2533,7 +2530,6 @@ async def genshin_5star_weapon_autocomplete(interaction, current: str):
 
 
 async def genshin_artifact_autocomplete(interaction, current: str):
-    import asyncio
     from discord import app_commands
     if not GENSHIN_ARTIFACTS:
         await asyncio.to_thread(load_genshin_kr_db)

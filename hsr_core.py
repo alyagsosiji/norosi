@@ -20,7 +20,7 @@ import re
 import threading
 import time
 from collections import OrderedDict
-from typing import Any, Optional
+from typing import Any
 
 try:
     from PIL import Image, ImageDraw
@@ -2347,7 +2347,7 @@ def levelup_hsr_char(guild_id: int, user_id: int, item_key: str) -> tuple[bool, 
             return False, f"**{c['name']}** 캐릭터는 이미 최고 레벨(`Lv.80`)입니다!", copy.deepcopy(u_data)
         guides = int(u_data.get("traveler_guide", 0))
         if guides < 2:
-            return False, f"📘 **여행 가이드**가 부족합니다! (`/스타레일 상점`에서 불멸의 잔재 60으로 5권 구매 · 보유 `{guides}권`)", copy.deepcopy(u_data)
+            return False, f"📘 **여행 가이드**가 부족합니다! (`/설정` → **스타레일 상점** 또는 `!붕스상점`에서 불멸의 잔재 60으로 5권 구매 · 보유 `{guides}권`)", copy.deepcopy(u_data)
         u_data["traveler_guide"] = guides - 2
         new_lv = min(80, cur_lv + 10)
         c["level"] = new_lv

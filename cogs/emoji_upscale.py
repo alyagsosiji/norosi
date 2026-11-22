@@ -2397,7 +2397,7 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         if not await _can_manage_upscale(self.bot, interaction):
             await core.safe_send_response(
                 interaction,
-                "🚨 **권한 부족:** `/이모지업스케일` 명령어는 **서버 관리자**(`Administrator` / `서버 관리`)만 사용할 수 있습니다.",
+                "🚨 **권한 부족:** 이모지 업스케일 설정(`/설정` → **⚙️ 고급** · `!이모지업스케일`)은 **서버 관리자**(`Administrator` / `서버 관리`)만 사용할 수 있습니다.",
                 ephemeral=True,
             )
             return

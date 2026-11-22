@@ -937,17 +937,17 @@ def render_unified_profile_card_png(
         art_line = (
             f"최고 성유물: {gen['best_art']['name']} ({gen['best_art']['grade']}, CV {gen['best_art']['cv']})"
             if gen.get("best_art")
-            else "최고 성유물: 미보유 (/원신 성유물)"
+            else "최고 성유물: 미보유 (/설정 · !원신비경)"
         )
         rel_line = (
             f"최고 유물: {hsr['best_relic']['name']} ({hsr['best_relic']['grade']}, RV {hsr['best_relic']['rv']})"
             if hsr.get("best_relic")
-            else "최고 유물: 미보유 (/스타레일 유물)"
+            else "최고 유물: 미보유 (/설정 · !붕스유물)"
         )
         best_fish_line = (
             f"최장 기록: {fl['best_fish_name']} ({fl['best_fish_cm']:.1f} cm)"
             if fl.get("best_fish_cm", 0) > 0
-            else "최장 기록: 출조 대기 중 (/낚시 출조)"
+            else "최장 기록: 출조 대기 중 (/설정 · !낚시)"
         )
 
         panels = [

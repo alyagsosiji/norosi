@@ -4,8 +4,7 @@ import re
 import copy
 import asyncio
 import datetime
-import urllib.request
-from typing import Optional, Union, List, Dict, Any, Tuple
+from typing import Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -1988,6 +1987,24 @@ class AnnouncementPreviewView(core.SafeView):
 
         self._refresh_components()
 
+    def _restore_from_message(self, interaction: discord.Interaction):
+        if self.target_channel is None and isinstance(interaction.channel, discord.TextChannel):
+            self.target_channel = interaction.channel
+        msg = getattr(interaction, "message", None)
+        if not msg:
+            return
+        embeds = getattr(msg, "embeds", None) or []
+        if embeds:
+            emb = embeds[0]
+            if emb.title:
+                self.title = re.sub(r"^[^\w가-힣]+\s*", "", emb.title).strip() or self.title
+            if emb.description:
+                parts = emb.description.split("━━━━━━━━━━━━━━━━━━━━━━")
+                if len(parts) >= 3:
+                    self.content = parts[1].strip() or self.content
+            if emb.image and emb.image.url:
+                self.banner_url = emb.image.url
+
     def build_preview_content(self) -> str:
         mention_labels = {
             "everyone": "🔔 @everyone (서버 전체 멘션)",
@@ -1997,12 +2014,13 @@ class AnnouncementPreviewView(core.SafeView):
         m_label = mention_labels.get(self.mention_mode, "🔕 멘션 없음")
         badge_label = ANNOUNCEMENT_BADGES.get(self.badge_key, ANNOUNCEMENT_BADGES["normal"])[2]
         color_label = ANNOUNCEMENT_COLORS.get(self.color_key, ANNOUNCEMENT_COLORS["cyan"])[1]
+        ch_mention = getattr(self.target_channel, "mention", None) or "현재 채널"
 
         return (
             "┏━━━━━━━━━━━━━━━━━━━━━━┓\n"
             "   📢 **norosi 공지사항 프리미엄 스튜디오 (미리보기)**\n"
             "┗━━━━━━━━━━━━━━━━━━━━━━┛\n"
-            f"• 📢 **발송 채널:** {self.target_channel.mention}\n"
+            f"• 📢 **발송 채널:** {ch_mention}\n"
             f"• 🔔 **멘션 모드:** `{m_label}`\n"
             f"• 🏷️ **분류 배지:** `{badge_label}`  ·  🎨 **테마 색상:** `{color_label}`\n"
             f"• 🖼️ **배너 첨부:** `{'이미지 등록됨' if self.banner_url else '없음'}`\n\n"
@@ -2139,6 +2157,11 @@ class AnnouncementPreviewView(core.SafeView):
     async def on_send_click(self, interaction: discord.Interaction):
         if not await self._check_admin(interaction):
             return
+        target_ch = self.target_channel or (interaction.channel if isinstance(interaction.channel, discord.TextChannel) else None)
+        if not target_ch:
+            await core.safe_send_response(interaction, content="❌ 공지를 발송할 텍스트 채널을 찾을 수 없습니다.", ephemeral=True)
+            return
+        self.target_channel = target_ch
         await core.safe_defer(interaction, ephemeral=True)
 
         mention_content = None
@@ -2149,13 +2172,13 @@ class AnnouncementPreviewView(core.SafeView):
 
         embed = self.build_embed()
         try:
-            sent_msg = await self.target_channel.send(content=mention_content, embed=embed)
+            sent_msg = await target_ch.send(content=mention_content, embed=embed)
             for item in self.children:
                 item.disabled = True
             await interaction.edit_original_response(
                 content=(
                     f"🎉 **공지사항 발송 완료!**\n"
-                    f"• **게시 채널:** {self.target_channel.mention}\n"
+                    f"• **게시 채널:** {target_ch.mention}\n"
                     f"• **적용 멘션:** `{self.mention_mode}`\n"
                     f"👉 **[공지글 바로가기]({sent_msg.jump_url})**"
                 ),
@@ -2164,7 +2187,7 @@ class AnnouncementPreviewView(core.SafeView):
             )
         except discord.Forbidden:
             await interaction.followup.send(
-                f"❌ 봇에게 {self.target_channel.mention} 채널의 메시지 전송(Send Messages) 또는 임베드 링크(Embed Links) 권한이 없습니다.",
+                f"❌ 봇에게 {target_ch.mention} 채널의 메시지 전송(Send Messages) 또는 임베드 링크(Embed Links) 권한이 없습니다.",
                 ephemeral=True
             )
         except Exception as e:
@@ -2339,12 +2362,12 @@ class InactiveUserListView(core.SafeView):
             return
         if self.page > 0:
             self.page -= 1
-            self._update_buttons()
-            await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+        self._update_buttons()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="📄 1 / 1", style=discord.ButtonStyle.secondary, disabled=True, row=0)
     async def page_indicator_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        pass
+        await core.safe_defer(interaction)
 
     @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.secondary, row=0)
     async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2353,8 +2376,8 @@ class InactiveUserListView(core.SafeView):
             return
         if self.page < self.max_page:
             self.page += 1
-            self._update_buttons()
-            await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+        self._update_buttons()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="명단 TXT 다운로드", style=discord.ButtonStyle.primary, emoji="💾", row=0)
     async def download_btn(self, interaction: discord.Interaction, button: discord.ui.Button):

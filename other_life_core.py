@@ -14,20 +14,15 @@ import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 import core
-import other_life_endings as ol_endings
 import other_life_narratives as ol_narratives
 from other_life_endings import (
-    ARCHETYPE_META,
     ENDINGS,
-    LEGACY_ENDING_MAP,
     migrate_legacy_ending_id,
     resolve_ending,
 )
 from other_life_narratives import (
     BEAT_AGE_WINDOWS,
     CAREER_SPECIALTIES,
-    EMPIRE_ELIGIBLE_SPECIALTIES,
-    HOMETOWN_META,
     SPECIALTY_CATALOG,
     get_role_context,
 )

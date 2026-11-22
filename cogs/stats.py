@@ -59,7 +59,7 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
     if not guild:
         embed = discord.Embed(
             title="📊 서버 활성도 통계 안내",
-            description="❌ `/서버통계` 명령어는 디스코드 서버(길드) 채널 내에서만 사용할 수 있습니다.",
+            description="❌ **서버 통계** 기능(`/설정` · `!서버통계`)은 디스코드 서버(길드) 채널 내에서만 사용할 수 있습니다.",
             color=discord.Color.red()
         )
         return embed
@@ -397,7 +397,7 @@ class RecruitEditModal(core.SafeModal, title="✏️ 파티 모집 정보 수정
         lv = self.lobby_view
         m_num = re.search(r"\d+", self.capacity_input.value or "")
         raw_cap = int(m_num.group(0)) if m_num else lv.capacity
-        new_cap = max(len(lv.members), max(2, min(20, raw_cap)))
+        new_cap = max(len(lv.members), 2, min(20, raw_cap))
 
         lv.game = self.game_input.value.strip() or lv.game
         lv.capacity = new_cap
@@ -1205,7 +1205,7 @@ class StatsCog(commands.Cog):
 
         # 6. 업타임 & 런타임 카운트
         bot_start = getattr(self.bot, "start_time", None)
-        if bot_start:
+        if isinstance(bot_start, datetime.datetime):
             uptime_td = datetime.datetime.now(core.KST) - bot_start
             up_days = uptime_td.days
             up_hours, rem_s = divmod(uptime_td.seconds, 3600)
@@ -1388,7 +1388,8 @@ class StatsCog(commands.Cog):
         data = await asyncio.to_thread(core.load_data)
 
         now_kst = datetime.datetime.now(core.KST)
-        created_kst = target.created_at.astimezone(core.KST) if getattr(target, "created_at", None) else now_kst
+        raw_created = getattr(target, "created_at", None)
+        created_kst = raw_created.astimezone(core.KST) if isinstance(raw_created, datetime.datetime) else now_kst
         created_days = max(0, (now_kst.date() - created_kst.date()).days)
         created_str = f"`{created_kst.strftime('%Y-%m-%d %H:%M')}` (`D+{created_days:,}일`)"
 
@@ -1400,14 +1401,14 @@ class StatsCog(commands.Cog):
         perm_badges = []
 
         if interaction.guild and isinstance(target, discord.Member):
-            if target.joined_at:
+            if isinstance(getattr(target, "joined_at", None), datetime.datetime):
                 joined_kst = target.joined_at.astimezone(core.KST)
                 joined_days = max(0, (now_kst.date() - joined_kst.date()).days)
                 joined_str = f"`{joined_kst.strftime('%Y-%m-%d %H:%M')}` (`D+{joined_days:,}일`)"
 
                 # 서버 입장 순번 계산
                 sorted_members = sorted(
-                    [m for m in interaction.guild.members if m.joined_at is not None],
+                    [m for m in interaction.guild.members if isinstance(getattr(m, "joined_at", None), datetime.datetime)],
                     key=lambda m: m.joined_at
                 )
                 try:
@@ -1424,7 +1425,7 @@ class StatsCog(commands.Cog):
                 rem_cnt = len(member_roles) - len(shown_roles)
                 roles_str = " ".join(shown_roles) + (f" 외 `{rem_cnt}개`" if rem_cnt > 0 else "")
 
-            if target.premium_since:
+            if isinstance(getattr(target, "premium_since", None), datetime.datetime):
                 b_kst = target.premium_since.astimezone(core.KST)
                 boost_str = f"💎 부스트 중 (`{b_kst.strftime('%Y-%m-%d')}~`)"
 
@@ -1466,8 +1467,9 @@ class StatsCog(commands.Cog):
         bday_info = core.as_dict(data.get("birthdays")).get(u_key)
         bday_str = f"`{bday_info['month']:02d}월 {bday_info['day']:02d}일` 🎂" if isinstance(bday_info, dict) and "month" in bday_info else "미등록 (`/설정` ➔ `🎂 생일 등록`)"
 
-        embed_color = target.color if isinstance(target, discord.Member) and target.color != discord.Color.default() else discord.Color.from_rgb(0, 204, 221)
-        bot_badge = " 🤖 [BOT]" if target.bot else ""
+        t_color = getattr(target, "color", None)
+        embed_color = t_color if isinstance(t_color, discord.Colour) and t_color != discord.Color.default() else discord.Color.from_rgb(0, 204, 221)
+        bot_badge = " 🤖 [BOT]" if getattr(target, "bot", False) else ""
 
         embed = discord.Embed(
             title=f"🪪 {target.display_name}{bot_badge}님의 상세 멤버 프로필",
@@ -1558,7 +1560,6 @@ class StatsCog(commands.Cog):
         await core.safe_defer(interaction, ephemeral=False)
         first_word = (시작단어 or "").strip()
         if not first_word or not (2 <= len(first_word) <= 10) or not all("가" <= ch <= "힣" for ch in first_word):
-            import random
             first_word = random.choice(["세카이", "음악", "별자리", "피아노", "출석", "콘서트", "하늘", "무지개", "기차", "바다"])
 
         view = WordChainGameView(interaction.user, 상대유저, first_word)
@@ -1677,7 +1678,7 @@ class StatsCog(commands.Cog):
         is_owner = (interaction.user.id == core.BOT_OWNER_ID) or (await self.bot.is_bot_owner_user(interaction.user) if hasattr(self.bot, 'is_bot_owner_user') else False)
         if not is_owner:
             await interaction.followup.send(
-                "❌ **권한 부족:** `/서버백업` 명령어는 봇 소유자(Bot Owner)만 실행할 수 있습니다.",
+                "❌ **권한 부족:** **서버 백업** 기능(`/설정` · `!서버백업`)은 봇 소유자(Bot Owner)만 실행할 수 있습니다.",
                 ephemeral=True
             )
             return
@@ -1975,20 +1976,20 @@ class WeatherRegionSearchModal(core.SafeModal, title="🌏 실시간 기상 & �
 # 끝말잇기 모달 & 게임 뷰 (두음법칙 완벽 지원)
 # ==========================================
 class WordChainInputModal(core.SafeModal, title="✏️ 끝말잇기 단어 입력"):
-    word_input = discord.ui.TextInput(
-        label="이어갈 한글 단어를 입력하세요 (2글자 이상)",
-        placeholder="두음법칙 자동 적용! (예: 사과 -> 과일)",
-        required=True,
-        min_length=2,
-        max_length=15
-    )
-
     def __init__(self, game_view: "WordChainGameView"):
         super().__init__()
         self.game_view = game_view
         valid_chars = core.get_dueum_chars((game_view.current_word or "세카이")[-1])
         char_hint = " 또는 ".join([f"'{c}'" for c in valid_chars])
-        self.word_input.label = f"{char_hint}(으)로 시작하는 단어 입력"
+        particle = core.josa(valid_chars[-1], "으로/로") if valid_chars else "로"
+        self.word_input = discord.ui.TextInput(
+            label=f"{char_hint}{particle} 시작하는 단어 입력 (2글자 이상)"[:45],
+            placeholder="두음법칙 자동 적용! (예: 사과 -> 과일)",
+            required=True,
+            min_length=2,
+            max_length=15,
+        )
+        self.add_item(self.word_input)
 
     async def on_submit(self, interaction: discord.Interaction):
         await self.game_view.process_turn(interaction, self.word_input.value.strip())
@@ -2179,7 +2180,6 @@ class WordChainCustomSetupModal(core.SafeModal, title="⚙️ 끝말잇기 맞�
         self.game_view = game_view
 
     async def on_submit(self, interaction: discord.Interaction):
-        import random
         opp_raw = (self.opp_input.value or "").strip()
         w_raw = (self.word_input.value or "").strip()
 
@@ -2235,7 +2235,6 @@ ROULETTE_PENALTIES = [
 class RussianRouletteView(core.SafeView):
     def __init__(self, host_user: discord.User, bullets: int = 1, bet_crystals: int = 50):
         super().__init__(timeout=300)
-        import random
         self.host_user = host_user
         self.bullets = bullets
         self.bet_crystals = bet_crystals
@@ -2293,7 +2292,6 @@ class RussianRouletteView(core.SafeView):
             return
 
         await core.safe_defer(interaction)
-        import random
         is_bullet = self.chambers[self.current_idx]
 
         if is_bullet:
@@ -2344,6 +2342,7 @@ class RussianRouletteView(core.SafeView):
     @discord.ui.button(label="💰 스톱 & 상금", style=discord.ButtonStyle.success, row=0)
     async def cashout_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.finished:
+            await core.safe_send_response(interaction, content="ℹ️ 이미 종료된 게임입니다.", ephemeral=True)
             return
         if self.survivor_streak < 1 or not self.last_survivor_user:
             await core.safe_send_response(interaction, content="⚠️ 최소 1번 이상 방아쇠를 당겨 생존한 후에만 상금을 수령할 수 있습니다!", ephemeral=True)
@@ -2377,12 +2376,12 @@ class RussianRouletteView(core.SafeView):
     @discord.ui.button(label="🔄 실린더 돌리기", style=discord.ButtonStyle.secondary, row=1)
     async def spin_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.finished:
+            await core.safe_send_response(interaction, content="ℹ️ 이미 종료된 게임입니다.", ephemeral=True)
             return
         if self.bet_crystals > 0 and self.host_user and interaction.user.id != self.host_user.id:
             await core.safe_send_response(interaction, content="❌ 유료 러시안룰렛에서는 개설자만 실린더를 다시 돌릴 수 있습니다.", ephemeral=True)
             return
         await core.safe_defer(interaction)
-        import random
         random.shuffle(self.chambers)
         self.current_idx = 0
         self.survivor_streak = 0

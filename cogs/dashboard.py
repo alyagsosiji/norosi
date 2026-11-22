@@ -7,9 +7,7 @@ cogs/dashboard.py - norosi 통합 설정 (/설정) 컨트롤 허브 (Component V
 """
 
 import os
-import io
 import re
-import json
 import copy
 import random
 import asyncio
@@ -26,7 +24,6 @@ import fishing_core
 import economy_core
 import life_core
 import other_life_core
-import ticket_core
 import community_core
 import routine_core
 
@@ -38,7 +35,6 @@ from cogs import (
     economy,
     life,
     other_life,
-    tickets,
     community,
     dday,
     music,
@@ -3219,6 +3215,7 @@ class MasterDashboardView(core.SafeView):
                 row=3,
                 custom_id="norosi:Settings:nav_ind",
             )
+            ind_btn.callback = core.safe_defer
             self.add_item(ind_btn)
 
             next_btn = discord.ui.Button(
@@ -3875,7 +3872,6 @@ class MasterDashboardView(core.SafeView):
 
         guild_att = core.safe_get_dict(self.data, "guild_attendance", g_key, u_key) if self.guild else core.as_dict(profile.get("attendance"))
         is_attended = (guild_att.get("last_date") == today_str)
-        att_badge = f"✅ 출석 완료 (연속 `{guild_att.get('streak', 0)}일`)" if is_attended else "⏳ **오늘 미출석** (`[📅 즉시 출석체크]` 클릭!)"
 
         sekai_cards = len(core.safe_get_dict(self.data, "gacha_users", g_key, u_key, "cards"))
         gi_items = len(core.as_dict(core.safe_get_dict(self.data, "genshin_users", g_key, u_key).get("items")))

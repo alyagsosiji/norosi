@@ -1,5 +1,4 @@
 import os
-import sys
 import re
 import copy
 import time
@@ -3376,7 +3375,7 @@ class SharedPlaylistView(core.SafeView):
 
     @discord.ui.button(label="📄 1 / 1", style=discord.ButtonStyle.secondary, disabled=True, row=0)
     async def page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        pass
+        await core.safe_defer(interaction)
 
     @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.secondary, row=0)
     async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -3692,7 +3691,7 @@ class PlaylistStudioView(core.SafeView):
 
     @discord.ui.button(label="📄 1 / 1", style=discord.ButtonStyle.secondary, disabled=True, row=0)
     async def page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        pass
+        await core.safe_defer(interaction)
 
     @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.secondary, row=0)
     async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -4485,7 +4484,7 @@ class MusicCog(commands.Cog):
         if is_dup and not 중복허용:
             await interaction.followup.send(
                 f"⚠️ `{resolved['title']}`은(는) 이미 `{target_pl['emoji']} {target_pl['name']}`에 등록되어 있습니다!\n"
-                f"• 그래도 추가하려면 `/플리곡추가` 실행 시 `중복허용: 참`으로 설정해 주세요.",
+                f"• `/설정` (`💿 플레이리스트 스튜디오`) 또는 `!플리`에서 수록곡을 자유롭게 추가·관리할 수 있습니다.",
                 ephemeral=True
             )
             return
@@ -4751,7 +4750,7 @@ class MusicCog(commands.Cog):
 
         # 시스템 환경 진단
         opus_ok = core.ensure_opus_loaded()
-        ffmpeg_path = core.get_ffmpeg_executable()
+        core.get_ffmpeg_executable()
         has_dave_flag = getattr(discord.voice_client, "has_dave", False)
         has_nacl_flag = getattr(discord.voice_client, "has_nacl", False)
 
@@ -5017,7 +5016,6 @@ class MusicCog(commands.Cog):
         status_msg = await ctx.send("⏳ **[오디오 진단]** 음성채널 연결 및 5초 비프음 재생 준비 중...")
 
         opus_ok = core.ensure_opus_loaded()
-        ffmpeg_path = core.get_ffmpeg_executable()
         has_dave_flag = getattr(discord.voice_client, "has_dave", False)
         has_nacl_flag = getattr(discord.voice_client, "has_nacl", False)
 

@@ -15,7 +15,7 @@ import datetime
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
-from typing import Optional, List, Dict, Any, Callable, Awaitable
+from typing import Optional, Any, Callable, Awaitable
 import inspect
 import urllib.request
 import urllib.parse
@@ -871,10 +871,14 @@ def reconstruct_safe_view(view_cls_or_name: type[SafeView] | str, interaction: d
                 kwargs[name] = interaction.guild
             elif name in ("guild_id",):
                 kwargs[name] = interaction.guild.id if interaction.guild else 0
-            elif name in ("channel",):
+            elif name in ("channel", "target_channel", "default_channel"):
                 kwargs[name] = interaction.channel
             elif name in ("channel_id",):
                 kwargs[name] = getattr(interaction, "channel_id", None)
+            elif name == "title" and view_cls.__name__ == "AnnouncementPreviewView":
+                kwargs[name] = "공지사항 안내"
+            elif name == "content" and view_cls.__name__ == "AnnouncementPreviewView":
+                kwargs[name] = "내용을 입력해 주세요."
             elif name in ("data",):
                 kwargs[name] = _data()
             elif name == "summary":
@@ -3646,7 +3650,7 @@ def ensure_user_profile(data: dict, u_key: str | int, user_name: str = "") -> di
     if "equipped_costume_variants" in p_val and not isinstance(p_val.get("equipped_costume_variants"), dict):
         p_val["equipped_costume_variants"] = coerce_dict_like(p_val.get("equipped_costume_variants"))
     if "purchased_costumes" in p_val and not isinstance(p_val.get("purchased_costumes"), dict):
-        p_val["purchased_costumes"] = coerce_dict_like(p_purchased := p_val.get("purchased_costumes"))
+        p_val["purchased_costumes"] = coerce_dict_like(p_val.get("purchased_costumes"))
     ensure_my_sekai(p_val)
     ensure_user_playlists(p_val, user_name)
 
@@ -4178,7 +4182,7 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                 r_pulls = get_proseka_user_total_pulls(rem_u) if isinstance(rem_u, dict) else -1
                 if not isinstance(rem_u, dict) or (l_cards_cnt, l_pulls) > (r_cards_cnt, r_pulls):
                     rem_g[u_key] = copy.deepcopy(local_u)
-                    rem_g[u_key]["total_pulls"] = max(l_pulls, max(0, r_pulls))
+                    rem_g[u_key]["total_pulls"] = max(l_pulls, 0, r_pulls)
                 elif l_pulls > r_pulls:
                     rem_u["total_pulls"] = l_pulls
 
@@ -8002,6 +8006,25 @@ DUEUM_MAP = {
     "랴": "야", "려": "여", "례": "예", "료": "요", "류": "유", "리": "이",
     "라": "나", "래": "내", "로": "노", "뢰": "뇌", "루": "누", "르": "느",
 }
+
+
+def josa(word: str, pair: str = "을/를") -> str:
+    """받침 유무(및 'ㄹ' 받침 예외)에 따라 자연스러운 한국어 조사를 반환합니다."""
+    parts = pair.split("/") if "/" in pair else [pair, pair]
+    with_batchim = parts[0]
+    without_batchim = parts[1] if len(parts) > 1 else parts[0]
+    s = str(word or "").strip()
+    if not s:
+        return without_batchim
+    last_ch = s[-1]
+    code = ord(last_ch)
+    if 0xAC00 <= code <= 0xD7A3:
+        jong = (code - 0xAC00) % 28
+        if with_batchim in ("으로", "로") or without_batchim == "로":
+            # 받침이 없거나 'ㄹ'(jong == 8) 받침이면 '로', 그 외 받침이면 '으로'
+            return "로" if jong in (0, 8) else "으로"
+        return with_batchim if jong > 0 else without_batchim
+    return without_batchim
 
 
 def get_dueum_chars(last_char: str) -> list[str]:
