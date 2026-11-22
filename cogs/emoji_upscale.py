@@ -909,19 +909,106 @@ _FRESH_AUTHOR_CACHE: OrderedDict[tuple[int, int], tuple[float, object]] = Ordere
 _FRESH_AUTHOR_TTL_SECONDS = 180.0
 _FRESH_AUTHOR_MAX_ENTRIES = 2000
 _PREFER_EXTERNAL_AVATAR_PROXY = False
+_WEBHOOK_AVATAR_STRATEGY: Optional[str] = None  # None(미로드) | "clean_cdn" | "wsrv" | "direct_upload"
+_WEBHOOK_AVATAR_STRATEGY_TTL_SECONDS = 24 * 3600.0
+_USER_AVATAR_STRATEGY: OrderedDict[tuple[int, str], tuple[float, str]] = OrderedDict()
+_USER_AVATAR_STRATEGY_TTL_SECONDS = 1800.0
+_AVATAR_PNG_CACHE: OrderedDict[str, tuple[float, bytes]] = OrderedDict()
+_AVATAR_PNG_CACHE_TTL_SECONDS = 1800.0
+_AVATAR_PNG_CACHE_MAX_ENTRIES = 500
+_VERIFIED_WEBHOOK_AVATAR_URLS: OrderedDict[str, float] = OrderedDict()
+_VERIFIED_WEBHOOK_AVATAR_TTL_SECONDS = 1800.0
 _WEBHOOK_AVATAR_EDIT_LOCKS: dict[int, asyncio.Lock] = {}
-_WEBHOOK_UPLOADED_AVATAR_STATE: dict[int, tuple[int, str]] = {}
+_WEBHOOK_UPLOADED_AVATAR_STATE: dict[int, tuple[int, str, str]] = {}
 _MAX_AVATAR_DOWNLOAD_BYTES = 2 * 1024 * 1024
 
 
 def invalidate_fresh_author_cache(user_id: int, guild_id: Optional[int] = None) -> None:
-    """멤버/유저 프로필이 변경되었을 때 캐시된 최신 Member 정보를 즉시 무효화합니다."""
-    if guild_id is not None:
-        _FRESH_AUTHOR_CACHE.pop((int(guild_id), int(user_id)), None)
-        return
+    """멤버/유저 프로필이 변경되었을 때 캐시된 최신 Member·아바타 전략 상태를 즉시 무효화합니다."""
     uid = int(user_id)
-    for k in [key for key in _FRESH_AUTHOR_CACHE.keys() if key[1] == uid]:
-        _FRESH_AUTHOR_CACHE.pop(k, None)
+    if guild_id is not None:
+        _FRESH_AUTHOR_CACHE.pop((int(guild_id), uid), None)
+    else:
+        for k in [key for key in _FRESH_AUTHOR_CACHE.keys() if key[1] == uid]:
+            _FRESH_AUTHOR_CACHE.pop(k, None)
+    for k in [key for key in _USER_AVATAR_STRATEGY.keys() if key[0] == uid]:
+        _USER_AVATAR_STRATEGY.pop(k, None)
+    for wh_id in [wid for wid, st in _WEBHOOK_UPLOADED_AVATAR_STATE.items() if st[0] == uid]:
+        _WEBHOOK_UPLOADED_AVATAR_STATE.pop(wh_id, None)
+
+
+def _get_global_avatar_strategy() -> str:
+    """전역 학습된 웹훅 아바타 전송 전략('clean_cdn' | 'wsrv' | 'direct_upload')을 반환합니다."""
+    global _WEBHOOK_AVATAR_STRATEGY, _PREFER_EXTERNAL_AVATAR_PROXY
+    if _WEBHOOK_AVATAR_STRATEGY is None:
+        loaded = "clean_cdn"
+        try:
+            data = core.get_cached_data_ro()
+            cfg = core.as_dict(core.as_dict(data.get("settings")).get("webhook_avatar_strategy"))
+            mode = str(cfg.get("mode") or "").strip()
+            ts = float(cfg.get("ts") or 0.0)
+            if mode in ("clean_cdn", "wsrv", "direct_upload") and (time.time() - ts) < _WEBHOOK_AVATAR_STRATEGY_TTL_SECONDS:
+                loaded = mode
+        except Exception:
+            loaded = "clean_cdn"
+        _WEBHOOK_AVATAR_STRATEGY = loaded
+        if loaded == "wsrv":
+            _PREFER_EXTERNAL_AVATAR_PROXY = True
+    if _PREFER_EXTERNAL_AVATAR_PROXY and _WEBHOOK_AVATAR_STRATEGY == "clean_cdn":
+        return "wsrv"
+    return _WEBHOOK_AVATAR_STRATEGY
+
+
+def _get_preferred_avatar_strategy(author_id: Optional[int], avatar_sig: str) -> str:
+    """특정 유저·아바타에 학습된 전략이 있으면 우선 반환하고, 없으면 전역 전략을 반환합니다."""
+    if author_id is not None and avatar_sig:
+        key = (int(author_id), avatar_sig)
+        entry = _USER_AVATAR_STRATEGY.get(key)
+        if entry is not None:
+            exp_mono, mode = entry
+            if time.monotonic() < exp_mono:
+                _USER_AVATAR_STRATEGY.move_to_end(key)
+                return mode
+            _USER_AVATAR_STRATEGY.pop(key, None)
+    return _get_global_avatar_strategy()
+
+
+def _record_avatar_strategy(
+    mode: str,
+    author_id: Optional[int] = None,
+    avatar_sig: str = "",
+    *,
+    promote_global: bool = False,
+) -> None:
+    """검증된 웹훅 아바타 전략을 메모리 및 설정 DB(24시간 TTL)에 기록해 재시도·깜빡임을 제거합니다."""
+    global _WEBHOOK_AVATAR_STRATEGY, _PREFER_EXTERNAL_AVATAR_PROXY
+    if mode not in ("clean_cdn", "wsrv", "direct_upload"):
+        return
+    if author_id is not None and avatar_sig:
+        key = (int(author_id), avatar_sig)
+        _USER_AVATAR_STRATEGY[key] = (time.monotonic() + _USER_AVATAR_STRATEGY_TTL_SECONDS, mode)
+        _USER_AVATAR_STRATEGY.move_to_end(key)
+        while len(_USER_AVATAR_STRATEGY) > 2000:
+            _USER_AVATAR_STRATEGY.popitem(last=False)
+    if promote_global and _WEBHOOK_AVATAR_STRATEGY != mode:
+        _WEBHOOK_AVATAR_STRATEGY = mode
+        _PREFER_EXTERNAL_AVATAR_PROXY = (mode == "wsrv")
+
+        def _persist_strategy() -> None:
+            try:
+                with core._DATA_LOCK:
+                    data = core.load_data()
+                    settings_d = core.ensure_dict_path(data, "settings")
+                    settings_d["webhook_avatar_strategy"] = {"mode": mode, "ts": time.time()}
+                    core.save_data(data)
+            except Exception:
+                pass
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(asyncio.to_thread(_persist_strategy))
+        except RuntimeError:
+            pass
 
 
 async def resolve_fresh_author(
@@ -997,16 +1084,10 @@ def _build_wsrv_avatar_url(cdn_png_url: str) -> str:
     return f"https://wsrv.nl/av_{tag}.png?url={encoded}&w=256&h=256&fit=cover&output=png"
 
 
-def build_webhook_avatar_candidates(author: object) -> tuple[list[str], bool]:
-    """
-    웹훅 대리 전송용 아바타 후보 URL 목록과 커스텀 아바타 보유 여부를 반환합니다.
-    - 1024px 초과 아바타의 무음 드롭을 막기 위해 `?size=256` 정적 PNG와 `wsrv.nl/av_{tag}.png` 프록시를 함께 제공합니다.
-    - 이전에 Discord가 cdn.discordapp.com 직호출을 드롭/404 처리한 적이 있으면 wsrv PNG를 최우선으로 배치합니다.
-    """
+def _get_author_custom_avatar_assets(author: object) -> list[object]:
     guild_av = getattr(author, "guild_avatar", None)
     global_av = getattr(author, "avatar", None)
     display_av = getattr(author, "display_avatar", None)
-    default_av = getattr(author, "default_avatar", None)
 
     custom_assets: list[object] = []
     if guild_av is not None:
@@ -1017,6 +1098,27 @@ def build_webhook_avatar_candidates(author: object) -> tuple[list[str], bool]:
         disp_clean = _clean_discord_avatar_url(display_av)
         if disp_clean and "/embed/avatars/" not in disp_clean:
             custom_assets.append(display_av)
+    return custom_assets
+
+
+def _get_author_avatar_sig(author: object) -> str:
+    """작성자의 대표 커스텀 아바타(서버 프사 우선 -> 전역 프사) 정규화 PNG URL을 반환합니다."""
+    for asset in _get_author_custom_avatar_assets(author):
+        clean_png = _clean_discord_avatar_url(asset)
+        if clean_png and "/embed/avatars/" not in clean_png:
+            return clean_png
+    return ""
+
+
+def build_webhook_avatar_candidates(author: object) -> tuple[list[str], bool]:
+    """
+    웹훅 대리 전송용 아바타 후보 URL 목록과 커스텀 아바타 보유 여부를 반환합니다.
+    - Discord 공식 규격에 맞춰 `?size=...` 쿼리가 없는 순수 정적 `.png` CDN URL을 사용합니다.
+    - 커스텀 아바타 보유 유저의 후보에는 기본 아바타(Clyde/embed)를 섞지 않아 불필요한 재전송을 방지합니다.
+    """
+    custom_assets = _get_author_custom_avatar_assets(author)
+    display_av = getattr(author, "display_avatar", None)
+    default_av = getattr(author, "default_avatar", None)
 
     has_custom_avatar = bool(custom_assets)
     candidates: list[str] = []
@@ -1025,24 +1127,23 @@ def build_webhook_avatar_candidates(author: object) -> tuple[list[str], bool]:
         if url and url not in candidates:
             candidates.append(url)
 
+    prefer_wsrv = (_get_global_avatar_strategy() == "wsrv")
     for asset in custom_assets:
         clean_png = _clean_discord_avatar_url(asset)
         if not clean_png:
             continue
-        sized_png = f"{clean_png}?size=256" if "/embed/avatars/" not in clean_png else clean_png
         wsrv_png = _build_wsrv_avatar_url(clean_png)
-        if _PREFER_EXTERNAL_AVATAR_PROXY:
+        if prefer_wsrv:
             _add(wsrv_png)
-            _add(sized_png)
             _add(clean_png)
         else:
-            _add(sized_png)
-            _add(wsrv_png)
             _add(clean_png)
+            _add(wsrv_png)
 
-    _add(_clean_discord_avatar_url(default_av))
-    if not candidates:
-        _add(_clean_discord_avatar_url(display_av))
+    if not has_custom_avatar:
+        _add(_clean_discord_avatar_url(default_av))
+        if not candidates:
+            _add(_clean_discord_avatar_url(display_av))
     return candidates, has_custom_avatar
 
 
@@ -1074,7 +1175,7 @@ async def _download_avatar_png_bytes(
     *,
     session: Optional[aiohttp.ClientSession] = None,
 ) -> Optional[bytes]:
-    """최후 폴백(webhook.edit(avatar=bytes))을 위해 작성자 아바타를 정적 PNG 바이트로 다운로드합니다."""
+    """직접 업로드(webhook.edit(avatar=bytes))용으로 작성자 아바타를 정적 PNG 바이트로 다운로드합니다."""
     guild_av = getattr(author, "guild_avatar", None)
     global_av = getattr(author, "avatar", None)
     display_av = getattr(author, "display_avatar", None)
@@ -1148,6 +1249,52 @@ async def _download_avatar_png_bytes(
     return None
 
 
+async def _get_cached_avatar_png_bytes(
+    author: object,
+    avatar_sig: str,
+    *,
+    session: Optional[aiohttp.ClientSession] = None,
+) -> Optional[bytes]:
+    """작성자 아바타 PNG 바이트를 30분 TTL 인메모리 캐시에서 조회하거나 다운로드 후 캐싱합니다."""
+    if avatar_sig:
+        cached = _AVATAR_PNG_CACHE.get(avatar_sig)
+        if cached is not None:
+            exp_mono, png_bytes = cached
+            if time.monotonic() < exp_mono:
+                _AVATAR_PNG_CACHE.move_to_end(avatar_sig)
+                return png_bytes
+            _AVATAR_PNG_CACHE.pop(avatar_sig, None)
+
+    png_bytes = await _download_avatar_png_bytes(author, session=session)
+    if png_bytes and avatar_sig:
+        _AVATAR_PNG_CACHE[avatar_sig] = (time.monotonic() + _AVATAR_PNG_CACHE_TTL_SECONDS, png_bytes)
+        _AVATAR_PNG_CACHE.move_to_end(avatar_sig)
+        while len(_AVATAR_PNG_CACHE) > _AVATAR_PNG_CACHE_MAX_ENTRIES:
+            _AVATAR_PNG_CACHE.popitem(last=False)
+    return png_bytes
+
+
+async def prewarm_webhook_avatar_cache(
+    author: object,
+    *,
+    session: Optional[aiohttp.ClientSession] = None,
+) -> None:
+    """직접 업로드 전략이 활성화된 경우 원본 메시지 삭제 전에 아바타 PNG를 미리 예열해 지연/깜빡임을 없앱니다."""
+    avatar_sig = _get_author_avatar_sig(author)
+    if not avatar_sig:
+        return
+    author_id = getattr(author, "id", None)
+    if _get_preferred_avatar_strategy(author_id, avatar_sig) != "direct_upload":
+        return
+    cached = _AVATAR_PNG_CACHE.get(avatar_sig)
+    if cached is not None and time.monotonic() < cached[0]:
+        return
+    try:
+        await _get_cached_avatar_png_bytes(author, avatar_sig, session=session)
+    except Exception:
+        pass
+
+
 def _is_webhook_avatar_dropped(
     sent_msg: object,
     webhook: discord.Webhook,
@@ -1169,7 +1316,7 @@ def _is_webhook_avatar_dropped(
     if wh_id is not None and author_id is not None:
         prev = _WEBHOOK_UPLOADED_AVATAR_STATE.get(int(wh_id))
         if prev is not None:
-            prev_uid, prev_key = prev
+            prev_uid, _prev_sig, prev_key = prev
             if prev_uid != int(author_id) and cur_key == prev_key:
                 return True
     return False
@@ -1182,12 +1329,19 @@ async def _check_webhook_avatar_cdn_ok(
 ) -> bool:
     """
     Discord가 반환한 웹훅 메시지 아바타 URL이 실제로 CDN에서 HTTP 200 이미지로 서빙되는지 검증합니다.
-    (콜드 캐시/변환 실패 시 Discord가 non-null 해시를 반환하고 CDN은 404를 내려 회색 Clyde가 뜨는 현상 방지)
-    네트워크 일시 오류/타임아웃 시에는 오탐 삭제를 막기 위해 True를 반환합니다.
+    검증 성공 URL은 30분 캐싱하고, 신규 해시의 엣지 전파 지연 오탐을 막기 위해 404 시 1회 짧게 재확인합니다.
     """
     if not avatar_url or not avatar_url.startswith("https://cdn.discordapp.com/"):
         return True
-    check_url = avatar_url.split("?", 1)[0] + "?size=64"
+    base_url = avatar_url.split("?", 1)[0]
+    exp_mono = _VERIFIED_WEBHOOK_AVATAR_URLS.get(base_url)
+    if exp_mono is not None:
+        if time.monotonic() < exp_mono:
+            _VERIFIED_WEBHOOK_AVATAR_URLS.move_to_end(base_url)
+            return True
+        _VERIFIED_WEBHOOK_AVATAR_URLS.pop(base_url, None)
+
+    check_url = base_url + "?size=64"
     own_session = session is None or session.closed
     if own_session:
         timeout = aiohttp.ClientTimeout(total=4)
@@ -1196,15 +1350,53 @@ async def _check_webhook_avatar_cdn_ok(
     else:
         http = session
     try:
-        async with http.get(check_url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=3)) as resp:
+        for attempt in range(2):
+            async with http.get(check_url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=3)) as resp:
+                if resp.status < 400:
+                    ctype = (resp.headers.get("Content-Type") or "").lower()
+                    if ctype and not ctype.startswith("image/"):
+                        return False
+                    _VERIFIED_WEBHOOK_AVATAR_URLS[base_url] = time.monotonic() + _VERIFIED_WEBHOOK_AVATAR_TTL_SECONDS
+                    _VERIFIED_WEBHOOK_AVATAR_URLS.move_to_end(base_url)
+                    while len(_VERIFIED_WEBHOOK_AVATAR_URLS) > 2000:
+                        _VERIFIED_WEBHOOK_AVATAR_URLS.popitem(last=False)
+                    return True
+                if attempt == 0:
+                    await asyncio.sleep(0.25)
+        return False
+    except Exception:
+        return True
+    finally:
+        if own_session:
+            try:
+                await http.close()
+            except Exception:
+                pass
+
+
+async def _check_external_image_url_ok(
+    url: str,
+    *,
+    session: Optional[aiohttp.ClientSession] = None,
+) -> bool:
+    """외부 프록시 URL(wsrv.nl 등)이 실제로 HTTP 200 이미지를 반환하는지 채널 전송 전에 사전 확인합니다."""
+    if not url or not url.startswith("https://"):
+        return False
+    own_session = session is None or session.closed
+    if own_session:
+        timeout = aiohttp.ClientTimeout(total=4)
+        connector = aiohttp.TCPConnector(family=socket.AF_INET, limit=4)
+        http = aiohttp.ClientSession(timeout=timeout, connector=connector, headers={"User-Agent": USER_AGENT})
+    else:
+        http = session
+    try:
+        async with http.get(url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=3)) as resp:
             if resp.status >= 400:
                 return False
             ctype = (resp.headers.get("Content-Type") or "").lower()
-            if ctype and not ctype.startswith("image/"):
-                return False
-            return True
+            return (not ctype) or ctype.startswith("image/")
     except Exception:
-        return True
+        return False
     finally:
         if own_session:
             try:
@@ -1233,6 +1425,78 @@ async def _is_webhook_avatar_broken_live(
     return False, "ok"
 
 
+async def _send_via_direct_upload(
+    webhook: discord.Webhook,
+    author: object,
+    author_id: Optional[int],
+    avatar_sig: str,
+    send_fn: Callable[[discord.Webhook, Optional[str]], Awaitable[Optional[discord.Message]]],
+    *,
+    session: Optional[aiohttp.ClientSession] = None,
+    on_webhook_updated: Optional[Callable[[discord.Webhook], None]] = None,
+) -> Optional[discord.Message]:
+    """
+    웹훅 자체 아바타를 작성자 PNG로 동기화한 뒤 avatar_url=None으로 단 1회 전송합니다.
+    동일 채널에서 같은 유저가 연속 전송하면 webhook.edit 호출 없이 즉시 1회 전송하며,
+    채널별 락으로 동시 전송 시 타 유저 아바타와 섞이지 않도록 보장합니다.
+    """
+    if not hasattr(webhook, "edit"):
+        return None
+    wh_id = int(getattr(webhook, "id", 0) or 0)
+    if len(_WEBHOOK_AVATAR_EDIT_LOCKS) > 500:
+        for k in list(_WEBHOOK_AVATAR_EDIT_LOCKS.keys())[:100]:
+            if not _WEBHOOK_AVATAR_EDIT_LOCKS[k].locked():
+                _WEBHOOK_AVATAR_EDIT_LOCKS.pop(k, None)
+    lock = _WEBHOOK_AVATAR_EDIT_LOCKS.setdefault(wh_id, asyncio.Lock())
+
+    # 락 획득 전에 캐시/다운로드 완료해 대기 시간을 최소화
+    need_upload = True
+    if wh_id and author_id is not None and avatar_sig:
+        prev = _WEBHOOK_UPLOADED_AVATAR_STATE.get(wh_id)
+        if prev is not None and prev[0] == int(author_id) and prev[1] == avatar_sig:
+            need_upload = False
+
+    png_bytes: Optional[bytes] = None
+    if need_upload:
+        png_bytes = await _get_cached_avatar_png_bytes(author, avatar_sig, session=session)
+        if not png_bytes:
+            return None
+
+    async with lock:
+        active_wh = webhook
+        already_matching = False
+        if wh_id and author_id is not None and avatar_sig:
+            prev = _WEBHOOK_UPLOADED_AVATAR_STATE.get(wh_id)
+            if prev is not None and prev[0] == int(author_id) and prev[1] == avatar_sig:
+                already_matching = True
+
+        if not already_matching:
+            if png_bytes is None:
+                png_bytes = await _get_cached_avatar_png_bytes(author, avatar_sig, session=session)
+                if not png_bytes:
+                    return None
+            try:
+                edited_wh = await webhook.edit(avatar=png_bytes)
+                active_wh = edited_wh if edited_wh is not None else webhook
+                if on_webhook_updated is not None and edited_wh is not None:
+                    try:
+                        on_webhook_updated(edited_wh)
+                    except Exception:
+                        pass
+                edited_key = str(getattr(getattr(active_wh, "avatar", None), "key", "") or "")
+                if wh_id and author_id is not None and avatar_sig:
+                    _WEBHOOK_UPLOADED_AVATAR_STATE[wh_id] = (int(author_id), avatar_sig, edited_key)
+            except discord.NotFound:
+                if wh_id:
+                    _WEBHOOK_UPLOADED_AVATAR_STATE.pop(wh_id, None)
+                raise
+            except Exception as edit_err:
+                print(f"⚠️ [webhook_avatar] webhook.edit 직접 업로드 실패: {edit_err}", flush=True)
+                return None
+
+        return await send_fn(active_wh, None)
+
+
 async def send_webhook_with_verified_avatar(
     webhook: discord.Webhook,
     author: object,
@@ -1244,22 +1508,47 @@ async def send_webhook_with_verified_avatar(
     on_webhook_updated: Optional[Callable[[discord.Webhook], None]] = None,
 ) -> Optional[discord.Message]:
     """
-    웹훅 전송 결과의 sent_msg.author.avatar 메타데이터 + 실제 Discord CDN 200 응답을 즉시 검증합니다.
-    커스텀 프사가 있는 유저인데 Discord가 avatar_url을 드롭하거나 404 해시(회색 Clyde)를 내려준 경우:
-      1) guild.fetch_member()로 최신 guild_avatar/avatar 해시 강제 갱신
-      2) 대체 후보 URL(wsrv.nl 256x256 .png 프록시 -> 전역 프사 등)로 자동 재전송 후 Clyde 메시지 삭제
-         (wsrv.nl이 성공하면 이후 요청도 첫 시도부터 wsrv.nl을 우선 사용하도록 자동 학습)
-      3) 모든 URL 후보가 드롭되면 최후 폴백으로 작성자 PNG 바이트를 webhook.edit(avatar=bytes)로 업로드 후 전송
+    웹훅 전송 시 Clyde/깨진 프사 및 다중 재전송 깜빡임을 방지합니다.
+      - 기본 URL은 Discord 공식 규격에 맞는 쿼리 없는 정적 `.png` CDN URL을 사용합니다.
+      - 이전에 `wsrv` 또는 `direct_upload`가 성공한 경우 즉시 해당 전략으로 단 1회 전송해
+        메시지가 삭제·재전송되며 왔다갔다하는 현상을 완전히 없앱니다.
+      - 최초 1회 드롭 감지 시에도 채널에 여러 후보를 연달아 쏘지 않고 즉시 확실한 복구 경로
+        (변경된 해시 1회 -> 사전 검증된 wsrv 1회 -> webhook.edit 직접 업로드)로 전환 후 전략을 학습·저장합니다.
     """
-    global _PREFER_EXTERNAL_AVATAR_PROXY
-
     candidates, has_custom_avatar = build_webhook_avatar_candidates(author)
-    first_url = candidates[0] if candidates else None
-    sent_msg = await send_fn(webhook, first_url)
-    if sent_msg is None or not has_custom_avatar:
-        return sent_msg
+    if not has_custom_avatar:
+        return await send_fn(webhook, candidates[0] if candidates else None)
 
     author_id = getattr(author, "id", None)
+    avatar_sig = _get_author_avatar_sig(author)
+    strategy = _get_preferred_avatar_strategy(author_id, avatar_sig)
+
+    # 0단계 빠른 경로: 이미 직접 업로드 전략이 학습된 경우 단 1회 전송으로 즉시 완료 (깜빡임 0)
+    if strategy == "direct_upload" and avatar_sig and hasattr(webhook, "edit"):
+        direct_msg = await _send_via_direct_upload(
+            webhook,
+            author,
+            author_id,
+            avatar_sig,
+            send_fn,
+            session=session,
+            on_webhook_updated=on_webhook_updated,
+        )
+        if direct_msg is not None:
+            return direct_msg
+
+    # 1단계: 현재 전략에 맞는 최적 URL 1개로 최초 전송
+    clean_url = avatar_sig or (candidates[0] if candidates else None)
+    wsrv_url = _build_wsrv_avatar_url(clean_url) if (clean_url and "/embed/avatars/" not in clean_url) else None
+    if strategy == "wsrv" and wsrv_url:
+        first_url = wsrv_url
+    else:
+        first_url = clean_url or (candidates[0] if candidates else None)
+
+    sent_msg = await send_fn(webhook, first_url)
+    if sent_msg is None:
+        return None
+
     broken, reason = await _is_webhook_avatar_broken_live(
         sent_msg, webhook, author_id, session=session
     )
@@ -1290,66 +1579,61 @@ async def send_webhook_with_verified_avatar(
         except Exception:
             pass
 
-    # 1단계: 최신 서버/전역 아바타 해시 강제 갱신 후 미시도 후보 URL 재시도
+    # 2단계: 최신 서버/전역 아바타 해시 강제 갱신
     fresh_author = await resolve_fresh_author(guild, author, force_refresh=True) if guild is not None else author
-    fresh_candidates, still_custom = build_webhook_avatar_candidates(fresh_author)
-    if not still_custom:
+    fresh_sig = _get_author_avatar_sig(fresh_author)
+    if not fresh_sig:
         return sent_msg
 
-    tried = {first_url} if first_url else set()
-    retry_urls = [u for u in fresh_candidates if u not in tried]
-
-    for cand_url in retry_urls[:3]:
-        tried.add(cand_url)
+    # 2-A. 아바타 해시가 실제로 바뀐 경우에만 새 순수 PNG URL을 1회 시도
+    if fresh_sig != avatar_sig:
         try:
-            retry_msg = await send_fn(webhook, cand_url)
-        except Exception:
-            continue
-        if retry_msg is None:
-            continue
-        await _delete_bad_msg(sent_msg)
-        sent_msg = retry_msg
-        retry_broken, _ = await _is_webhook_avatar_broken_live(
-            sent_msg, webhook, author_id, session=session
-        )
-        if not retry_broken:
-            if (
-                cand_url.startswith("https://wsrv.nl/")
-                and first_url
-                and first_url.startswith("https://cdn.discordapp.com/")
-            ):
-                _PREFER_EXTERNAL_AVATAR_PROXY = True
-            print(f"✅ [webhook_avatar] 대체 URL 복구 성공 (user={author_id}, url={cand_url})", flush=True)
-            return sent_msg
-
-    # 2단계 최후 폴백: 아바타 PNG 바이트 직접 다운로드 -> webhook.edit(avatar=bytes) -> avatar_url 미지정 전송
-    png_bytes = await _download_avatar_png_bytes(fresh_author, session=session)
-    if png_bytes and hasattr(webhook, "edit"):
-        wh_id = int(getattr(webhook, "id", 0) or 0)
-        if len(_WEBHOOK_AVATAR_EDIT_LOCKS) > 500:
-            for k in list(_WEBHOOK_AVATAR_EDIT_LOCKS.keys())[:100]:
-                if not _WEBHOOK_AVATAR_EDIT_LOCKS[k].locked():
-                    _WEBHOOK_AVATAR_EDIT_LOCKS.pop(k, None)
-        lock = _WEBHOOK_AVATAR_EDIT_LOCKS.setdefault(wh_id, asyncio.Lock())
-        async with lock:
-            try:
-                edited_wh = await webhook.edit(avatar=png_bytes)
-                active_wh = edited_wh if edited_wh is not None else webhook
-                if on_webhook_updated is not None and edited_wh is not None:
-                    try:
-                        on_webhook_updated(edited_wh)
-                    except Exception:
-                        pass
-                edited_key = getattr(getattr(active_wh, "avatar", None), "key", None)
-                if wh_id and author_id is not None and edited_key:
-                    _WEBHOOK_UPLOADED_AVATAR_STATE[wh_id] = (int(author_id), str(edited_key))
-                retry_msg = await send_fn(active_wh, None)
-                if retry_msg is not None:
+            retry_msg = await send_fn(webhook, fresh_sig)
+            if retry_msg is not None:
+                retry_broken, _ = await _is_webhook_avatar_broken_live(
+                    retry_msg, webhook, author_id, session=session
+                )
+                if not retry_broken:
                     await _delete_bad_msg(sent_msg)
-                    print(f"✅ [webhook_avatar] webhook.edit 직접 업로드 복구 성공 (user={author_id})", flush=True)
+                    print(f"✅ [webhook_avatar] 갱신 아바타 복구 성공 (user={author_id}, url={fresh_sig})", flush=True)
                     return retry_msg
-            except Exception as edit_err:
-                print(f"⚠️ [webhook_avatar] webhook.edit 최후 폴백 실패: {edit_err}", flush=True)
+                await _delete_bad_msg(retry_msg)
+        except Exception:
+            pass
+
+    # 2-B. 기존 시도가 wsrv가 아니었고 wsrv 프록시가 200 OK를 반환하는 경우 1회만 시도
+    fresh_wsrv = _build_wsrv_avatar_url(fresh_sig)
+    if first_url != fresh_wsrv and await _check_external_image_url_ok(fresh_wsrv, session=session):
+        try:
+            retry_msg = await send_fn(webhook, fresh_wsrv)
+            if retry_msg is not None:
+                retry_broken, _ = await _is_webhook_avatar_broken_live(
+                    retry_msg, webhook, author_id, session=session
+                )
+                if not retry_broken:
+                    await _delete_bad_msg(sent_msg)
+                    _record_avatar_strategy("wsrv", author_id, fresh_sig, promote_global=True)
+                    print(f"✅ [webhook_avatar] 대체 URL 복구 성공 및 기본 전략 전환 (user={author_id}, mode=wsrv)", flush=True)
+                    return retry_msg
+                await _delete_bad_msg(retry_msg)
+        except Exception:
+            pass
+
+    # 2-C. 최종 보장 복구: 작성자 PNG 바이트 직접 업로드(webhook.edit) -> avatar_url=None 전송 후 전략 영구 학습
+    direct_msg = await _send_via_direct_upload(
+        webhook,
+        fresh_author,
+        author_id,
+        fresh_sig,
+        send_fn,
+        session=session,
+        on_webhook_updated=on_webhook_updated,
+    )
+    if direct_msg is not None:
+        await _delete_bad_msg(sent_msg)
+        _record_avatar_strategy("direct_upload", author_id, fresh_sig, promote_global=True)
+        print(f"✅ [webhook_avatar] webhook.edit 직접 업로드 복구 성공 및 기본 전략 전환 (user={author_id}, mode=direct_upload)", flush=True)
+        return direct_msg
 
     return sent_msg
 
@@ -2324,6 +2608,10 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         if content_to_send and len(content_to_send) > 2000:
             return
 
+        http_session = await self._get_session() if webhook is not None else None
+        if webhook is not None:
+            await prewarm_webhook_avatar_cache(fresh_author, session=http_session)
+
         # 3. 원본 메시지 삭제 (이모지 업스케일 치환 삭제에 한해 서버 삭제 로그 억제)
         core.mark_suppressed_delete_log(message.id)
         try:
@@ -2364,8 +2652,6 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
                     file=discord.File(io.BytesIO(out_bytes), filename=filename),
                     **kw,
                 )
-
-            http_session = await self._get_session()
 
             def _cache_updated_wh(updated_wh: discord.Webhook) -> None:
                 self._webhook_cache[base_channel.id] = updated_wh

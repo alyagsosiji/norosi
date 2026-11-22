@@ -29,6 +29,7 @@ import sns_embed_core
 from cogs.emoji_upscale import (
     build_reply_quote_header,
     is_delete_reaction_emoji,
+    prewarm_webhook_avatar_cache,
     resolve_fresh_author,
     resolve_webhook_avatar_url,
     sanitize_webhook_username,
@@ -3262,6 +3263,8 @@ class CommunityCog(commands.Cog):
 
         # 3) 이모지 업스케일 방식 치환 (일반·답장 모두 작성자 웹훅 우선, 웹훅 권한 없을 때만 앱 네이티브 답장 폴백)
         if can_replace_now and (use_webhook or (is_reply and can_send)):
+            if use_webhook and webhook is not None:
+                await prewarm_webhook_avatar_cache(fresh_author)
             core.mark_suppressed_delete_log(message.id)
             try:
                 await message.delete()
