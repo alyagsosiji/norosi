@@ -6187,7 +6187,7 @@ def get_galaxy_progress_bar(start_str, target_str):
     return f"{info['grass_bar']} **{info['percent']}%** ({info['badge']})"
 
 
-def dday_belongs_to_guild(info: dict, guild: Any) -> bool:
+def dday_belongs_to_guild(info: dict, guild: Any, bot: Any = None) -> bool:
     """해당 D-Day 항목이 지정된 서버(guild)에 속하는지 판별합니다."""
     if not isinstance(info, dict):
         return False
@@ -6195,21 +6195,40 @@ def dday_belongs_to_guild(info: dict, guild: Any) -> bool:
         return True
     gid = getattr(guild, "id", guild)
     d_guild_id = info.get("guild_id")
-    if d_guild_id is not None and str(d_guild_id).isdigit():
+    if d_guild_id is not None and str(d_guild_id).isdigit() and int(d_guild_id) > 0:
         return int(d_guild_id) == int(gid)
-    # 레거시(guild_id 미기록) 항목은 연결된 채널이 현재 서버에 존재할 때만 해당 서버 소속으로 인정
+    # 레거시(guild_id 미기록/0) 항목: 연결된 채널이나 카테고리가 현재 서버에 있으면 인정
     ch_id = info.get("channel_id")
-    if ch_id is not None and str(ch_id).isdigit() and hasattr(guild, "get_channel"):
-        return guild.get_channel(int(ch_id)) is not None
-    return False
+    if ch_id is not None and str(ch_id).isdigit():
+        ch_int = int(ch_id)
+        if hasattr(guild, "get_channel") and guild.get_channel(ch_int) is not None:
+            return True
+        # 다른 서버에 실제로 존재하는 채널이면 타 서버 일정이므로 제외
+        if bot is not None and hasattr(bot, "get_channel"):
+            other_ch = bot.get_channel(ch_int)
+            other_gid = getattr(getattr(other_ch, "guild", None), "id", None)
+            if other_gid is not None and int(other_gid) != int(gid):
+                return False
+    cat_id = info.get("category_id")
+    if cat_id is not None and str(cat_id).isdigit():
+        cat_int = int(cat_id)
+        if hasattr(guild, "get_channel") and guild.get_channel(cat_int) is not None:
+            return True
+        if bot is not None and hasattr(bot, "get_channel"):
+            other_cat = bot.get_channel(cat_int)
+            other_gid = getattr(getattr(other_cat, "guild", None), "id", None)
+            if other_gid is not None and int(other_gid) != int(gid):
+                return False
+    # 채널이 이미 삭제되었거나 채널 없이 등록된 구버전 레거시 일정은 유실되지 않도록 표시
+    return True
 
 
-def filter_guild_ddays(ddays: dict, guild: Any) -> dict:
+def filter_guild_ddays(ddays: dict, guild: Any, bot: Any = None) -> dict:
     """전체 D-Day 맵에서 현재 서버(guild) 소속 항목만 필터링합니다."""
     return {
         k: v
         for k, v in as_dict(ddays).items()
-        if isinstance(v, dict) and dday_belongs_to_guild(v, guild)
+        if isinstance(v, dict) and dday_belongs_to_guild(v, guild, bot=bot)
     }
 
 

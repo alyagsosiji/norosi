@@ -224,11 +224,16 @@ class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 & 전�
             with core._DATA_LOCK:
                 data = core.load_data()
                 ddays_dict = core.ensure_dict_path(data, "ddays")
-                ddays_dict[name_val] = {
+                s_key = core.resolve_dday_storage_key(ddays_dict, name_val, interaction.guild_id)
+                existing = core.as_dict(ddays_dict.get(s_key))
+                ddays_dict[s_key] = {
+                    "display_name": name_val,
                     "date": date_val,
-                    "start_date": core.get_today_str(),
+                    "start_date": existing.get("start_date") or min(core.get_today_str(), date_val),
                     "emoji": emoji_val,
-                    "channel_id": None,
+                    "channel_id": existing.get("channel_id"),
+                    "category_id": existing.get("category_id"),
+                    "guild_id": interaction.guild_id or existing.get("guild_id"),
                     "repeat": use_repeat,
                     "plus_one": use_plus_one,
                 }
@@ -1587,6 +1592,7 @@ HOME_SHORTCUT_CATALOG: List[Dict[str, Any]] = [
     {"key": "pomo", "label": "뽀모도로", "emoji": "⏳", "style": discord.ButtonStyle.secondary, "desc": "집중/휴식 스터디 타이머 실행", "cb_name": "_act_pomodoro"},
     {"key": "weather", "label": "실시간날씨", "emoji": "🌤️", "style": discord.ButtonStyle.secondary, "desc": "기상청 기온·미세먼지 조회", "cb_name": "_act_weather"},
     {"key": "dday", "label": "D-Day보드", "emoji": "📋", "style": discord.ButtonStyle.secondary, "desc": "서버 D-Day 일정 전광판", "cb_name": "_act_dday_list"},
+    {"key": "dday_past", "label": "지나간D-Day", "emoji": "🕰️", "style": discord.ButtonStyle.secondary, "desc": "지나간 D-Day 추억 보관소 전체 조회", "cb_name": "_sub_dday_past"},
     {"key": "showcase", "label": "쇼케이스", "emoji": "🌟", "style": discord.ButtonStyle.secondary, "desc": "내 수집품 통합 자랑 카드", "cb_name": "_act_showcase"},
     {"key": "exchange", "label": "화폐 환전", "emoji": "💱", "style": discord.ButtonStyle.secondary, "desc": "골드⇄크리스탈 안전 환전소", "cb_name": "_act_currency_exchange"},
     {"key": "battle", "label": "즉석 대전", "emoji": "🎲", "style": discord.ButtonStyle.success, "desc": "하이로우 주사위 & 초성 퀴즈", "cb_name": "_act_mini_battle_hub"},
@@ -2249,7 +2255,7 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "📋",
                             "style": discord.ButtonStyle.primary,
                             "perm": PERM_USER,
-                            "desc": "등록된 모든 D-Day 은하수 잔디 진행률 보드 및 지난 디데이",
+                            "desc": "등록된 모든 D-Day 은하수 잔디 진행률 보드 · 지나간 디데이(추억 보관소)",
                             "cb": self._act_dday_list,
                         },
                         {
@@ -3172,6 +3178,7 @@ class MasterDashboardView(core.SafeView):
                     discord.SelectOption(label="⭐ 홈 즐겨찾기 단축바 편집", value="home_shortcuts", description="홈 버튼 5개 커스텀"),
                     discord.SelectOption(label="🏅 내 업적 & 뱃지 (12종)", value="achievements", description="크로스 기능 업적 달성 현황"),
                     discord.SelectOption(label="📅 D-Day 채널·알림 설정", value="admin_dday", description="전광판 채널·카테고리·9시 알림"),
+                    discord.SelectOption(label="🕰️ 지나간 D-Day 보관소", value="dday_past"),
                     discord.SelectOption(label="📻 무드 음성 라디오", value="mood_radio", description="6대 분위기 BGM"),
                     discord.SelectOption(label="🗓️ 예약 이벤트 신청표", value="guild_events", description="RSVP·대기열·알림"),
                     discord.SelectOption(label="🏆 전 분야 통합 랭킹", value="ranking_hub", description="8대 순위표"),
@@ -3424,6 +3431,7 @@ class MasterDashboardView(core.SafeView):
             "home_shortcuts": self._act_home_shortcuts,
             "achievements": self._act_achievements,
             "admin_dday": self._sub_dday_setup_board,
+            "dday_past": self._sub_dday_past,
             "mood_radio": self._act_mood_radio,
             "guild_events": self._act_guild_events,
             "ranking_hub": self._act_ranking_hub,

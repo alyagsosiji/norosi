@@ -1509,7 +1509,7 @@ class DDayListBoardView(core.SafeView):
     등록된 모든 D-Day 일정의 진행 상황을 남은 기간(diff)에 따라 색상이 동적으로 변하는
     '은하수 잔디 막대 그래프'로 시각화하는 인터랙티브 대시보드 뷰 (/디데이목록)
     """
-    def __init__(self, bot_instance, user: discord.User, data: dict, guild: discord.Guild | None = None):
+    def __init__(self, bot_instance, user: discord.User, data: dict, guild: discord.Guild | None = None, initial_filter: str = "all"):
         super().__init__(timeout=600)
         self.bot_instance = bot_instance
         self.user = user
@@ -1517,17 +1517,46 @@ class DDayListBoardView(core.SafeView):
         self.guild = guild
         self.message = None
         self.sort_mode = "diff"      # "diff" (남은 기간 임박순) | "percent" (진행률 높은순)
-        self.filter_mode = "all"     # "all" (전체) | "urgent" (7일 이내 임박/주의만)
+        self.filter_mode = initial_filter if initial_filter in ("all", "urgent", "past") else "all"
+        self._sync_sort_styles()
 
     def build_embed(self):
-        ddays = core.filter_guild_ddays(self.data.get("ddays"), self.guild)
+        ddays = core.filter_guild_ddays(self.data.get("ddays"), self.guild, bot=self.bot_instance)
         summary = core.build_dday_grass_board_summary(ddays)
         all_items = summary["items"]
         counts = summary["counts"]
 
         upcoming = [it for it in all_items if it["diff"] >= 0]
-        recent_past = [it for it in all_items if -7 <= it["diff"] < 0]
-        archived_count = sum(1 for it in all_items if it["diff"] < -7)
+        all_past = sorted([it for it in all_items if it["diff"] < 0], key=lambda x: x["diff"], reverse=True)
+        recent_past = [it for it in all_past if -7 <= it["diff"] < 0]
+        archived_past = [it for it in all_past if it["diff"] < -7]
+        archived_count = len(archived_past)
+
+        if self.filter_mode == "past":
+            embed = discord.Embed(
+                title="📦 추억 보관소 (지나간 D-Day 전체 목록)",
+                description=(
+                    f"목표일이 지나간 서버 D-Day 일정은 총 **`{len(all_past)}개`** 입니다.\n"
+                    "*(다시 진행 중 일정으로 돌아가려면 아래 `[🌠 진행중 보기]` 또는 `[📅 임박순]` 버튼을 눌러주세요)*"
+                ),
+                color=discord.Color.dark_grey(),
+                timestamp=datetime.datetime.now(core.KST)
+            )
+            past_lines = [
+                f"• {it['emoji']} **{it['name']}** (`{it['date']}`) — **`{it['dday_text']}`** 경과"
+                f"{' `(+1일 계산)`' if it.get('plus_one') else ''}{' 🔊' if it.get('channel_id') else ''}\n"
+                f"  └ {it['grass_bar']} `100% 완료`"
+                for it in all_past
+            ]
+            core.add_chunked_embed_fields(
+                embed,
+                base_name=f"🕰️ 지나간 D-Day 일정 ({len(all_past)}개)",
+                lines=past_lines,
+                empty_text="아직 지나간 디데이 일정이 없습니다.",
+                separator="\n\n"
+            )
+            embed.set_footer(text=f"전체 지나간 D-Day: {len(all_past)}개 (최근 7일 이내 {len(recent_past)}개 · 7일 이상 경과 {archived_count}개)")
+            return embed
 
         if self.filter_mode == "urgent":
             filtered_upcoming = [it for it in upcoming if it["diff"] <= 7]
@@ -1547,7 +1576,7 @@ class DDayListBoardView(core.SafeView):
             description=(
                 "남은 기간에 따라 **은하수 잔디 막대 그래프의 색상**이 자동으로 변화합니다!\n"
                 "• **색상 범례:** `🟨 D-Day(당일)` · `🟥 임박(D-1~3)` · `🟧 주의(D-4~7)` · `🟦 순항(D-8~30)` · `🟩 여유(D-31+)`\n"
-                f"• **일정 분포:** 당일 `{counts['dday']}개` · 임박 `{counts['urgent']}개` · 주의 `{counts['soon']}개` · 순항 `{counts['normal']}개` · 여유 `{counts['relaxed']}개`"
+                f"• **일정 분포:** 당일 `{counts['dday']}개` · 임박 `{counts['urgent']}개` · 주의 `{counts['soon']}개` · 순항 `{counts['normal']}개` · 여유 `{counts['relaxed']}개` · 지나간 일정 `{len(all_past)}개`"
             ),
             color=discord.Color.from_rgb(*theme_rgb),
             timestamp=datetime.datetime.now(core.KST)
@@ -1585,15 +1614,18 @@ class DDayListBoardView(core.SafeView):
             separator="\n\n"
         )
 
-        if recent_past and self.filter_mode == "all":
+        if all_past and self.filter_mode == "all":
+            shown_past = all_past[:10]
             past_lines = [
                 f"• ~~{it['emoji']} {it['name']} ({it['date']})~~ — `{it['dday_text']}` 경과"
                 f"{' `(+1일 계산)`' if it.get('plus_one') else ''}\n  └ {it['grass_bar']} `100% 완료`"
-                for it in recent_past
+                for it in shown_past
             ]
+            if len(all_past) > 10:
+                past_lines.append(f"*(외 `{len(all_past) - 10}개` — 상단 **`[📦 지나간 D-Day]`** 버튼을 누르면 전체 목록을 볼 수 있습니다)*")
             core.add_chunked_embed_fields(
                 embed,
-                base_name="🕒 최근 지난 일정 (7일 이내)",
+                base_name=f"📦 지나간 D-Day 일정 ({len(all_past)}개)",
                 lines=past_lines,
                 separator="\n"
             )
@@ -1602,20 +1634,25 @@ class DDayListBoardView(core.SafeView):
             f"정렬: {'남은 기간 임박순' if self.sort_mode == 'diff' else '진행률 높은순'}",
             f"필터: {'7일 이내 임박만' if self.filter_mode == 'urgent' else '전체 일정'}"
         ]
-        if archived_count > 0:
-            footer_parts.append(f"7일 이상 지난 일정 {archived_count}개는 /설정 (지나간 D-Day 보관소)에서 확인 가능")
+        if all_past:
+            footer_parts.append(f"[📦 지나간 D-Day] 버튼으로 지난 일정 {len(all_past)}개 전체 보기 가능")
         embed.set_footer(text=" • ".join(footer_parts))
         return embed
 
     def _sync_sort_styles(self):
-        self.sort_diff_btn.style = discord.ButtonStyle.primary if self.sort_mode == "diff" else discord.ButtonStyle.secondary
-        self.sort_pct_btn.style = discord.ButtonStyle.primary if self.sort_mode == "percent" else discord.ButtonStyle.secondary
+        self.sort_diff_btn.style = discord.ButtonStyle.primary if (self.sort_mode == "diff" and self.filter_mode != "past") else discord.ButtonStyle.secondary
+        self.sort_pct_btn.style = discord.ButtonStyle.primary if (self.sort_mode == "percent" and self.filter_mode != "past") else discord.ButtonStyle.secondary
+        self.toggle_urgent_btn.label = "🌈 전체보기" if self.filter_mode == "urgent" else "🔥 7일이내"
+        self.past_dday_btn.style = discord.ButtonStyle.primary if self.filter_mode == "past" else discord.ButtonStyle.secondary
+        self.past_dday_btn.label = "🌠 진행중 보기" if self.filter_mode == "past" else "📦 지나간 D-Day"
 
     @discord.ui.button(label="📅 임박순", style=discord.ButtonStyle.primary, row=0)
     async def sort_diff_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.data = await asyncio.to_thread(core.load_data)
         self.sort_mode = "diff"
+        if self.filter_mode == "past":
+            self.filter_mode = "all"
         self._sync_sort_styles()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
@@ -1624,6 +1661,8 @@ class DDayListBoardView(core.SafeView):
         await core.safe_defer(interaction)
         self.data = await asyncio.to_thread(core.load_data)
         self.sort_mode = "percent"
+        if self.filter_mode == "past":
+            self.filter_mode = "all"
         self._sync_sort_styles()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
@@ -1632,7 +1671,14 @@ class DDayListBoardView(core.SafeView):
         await core.safe_defer(interaction)
         self.data = await asyncio.to_thread(core.load_data)
         self.filter_mode = "all" if self.filter_mode == "urgent" else "urgent"
-        button.label = "🌈 전체보기" if self.filter_mode == "urgent" else "🔥 7일이내"
+        self._sync_sort_styles()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="📦 지나간 D-Day", style=discord.ButtonStyle.secondary, row=0)
+    async def past_dday_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.data = await asyncio.to_thread(core.load_data)
+        self.filter_mode = "all" if self.filter_mode == "past" else "past"
         self._sync_sort_styles()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
@@ -2671,30 +2717,23 @@ class DDayCog(commands.Cog):
             await core.safe_defer(interaction)
 
         data = await asyncio.to_thread(core.load_data)
-        ddays = core.filter_guild_ddays(data.get("ddays"), interaction.guild)
-        past_lines = []
+        view = DDayListBoardView(self.bot, interaction.user, data, guild=interaction.guild, initial_filter="past")
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        view.message = msg
 
-        for name, info in sorted(ddays.items(), key=lambda x: x[1].get("date", "9999-12-31"), reverse=True):
-            date_str = info.get("date")
-            if not date_str:
-                continue
-            plus_one = bool(info.get("plus_one", False))
-            try:
-                diff, text = core.get_dday_info(date_str, plus_one=plus_one)
-            except Exception:
-                continue
-            if diff < 0:
-                display_name = core.get_dday_display_name(name, info)
-                plus_badge = " `(+1일 계산)`" if plus_one else ""
-                past_lines.append(f"• **{display_name}** (`{date_str}`) — `{text}` 경과{plus_badge}")
+    @commands.command(name="디데이목록", aliases=["디데이", "디데이보드", "dday"])
+    async def list_dday_prefix(self, ctx: commands.Context):
+        data = await asyncio.to_thread(core.load_data)
+        view = DDayListBoardView(self.bot, ctx.author, data, guild=ctx.guild)
+        msg = await ctx.send(embed=view.build_embed(), view=view)
+        view.message = msg
 
-        embed = discord.Embed(
-            title="📦 추억 보관소 (지나간 D-Day 목록)",
-            description=("\n".join(past_lines)[:4000] if past_lines else "아직 지나간 디데이 일정이 없습니다."),
-            color=discord.Color.dark_grey(),
-            timestamp=datetime.datetime.now(core.KST)
-        )
-        await interaction.followup.send(embed=embed)
+    @commands.command(name="지나간디데이", aliases=["지난디데이", "추억보관소", "pastdday"])
+    async def past_dday_prefix(self, ctx: commands.Context):
+        data = await asyncio.to_thread(core.load_data)
+        view = DDayListBoardView(self.bot, ctx.author, data, guild=ctx.guild, initial_filter="past")
+        msg = await ctx.send(embed=view.build_embed(), view=view)
+        view.message = msg
 
     @app_commands.command(name="비밀디데이", description="나만 볼 수 있는 비밀 디데이와 타임캡슐(목표일 오전 9시 DM 발송)을 관리합니다.")
     @app_commands.autocomplete(이름=core.secret_dday_name_autocomplete, 날짜=core.date_autocomplete)

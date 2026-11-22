@@ -1015,10 +1015,10 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "cat_label": "📅 D-Day & 생일 & 라이프",
         "name": "/디데이목록",
         "perm": "user",
-        "settings_path": "🌐 일반 1p > 📆 서버 디데이 보드",
-        "desc": "등록된 모든 D-Day 일정의 진행 상황을 은하수 잔디 막대 그래프로 확인 (`!디데이목록` · 종료된 D-Day 조회 포함)",
+        "settings_path": "🌐 일반 1p > 📋 D-Day 전광판",
+        "desc": "등록된 모든 D-Day 일정의 진행 상황을 은하수 잔디 막대 그래프로 확인 (`!디데이목록` · `!지나간디데이` · `[📦 지나간 D-Day]` 추억 보관소 포함)",
         "params": "없음",
-        "example": "/디데이목록",
+        "example": "!디데이목록 / !지나간디데이",
         "source": "cogs/dday.py",
     },
     {
