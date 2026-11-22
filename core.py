@@ -5637,21 +5637,102 @@ def list_select_ticket_holders(data: dict | None = None) -> list[dict]:
     return holders
 
 
-def format_gacha_bonus_gauge_bar(gauge: int) -> str:
-    """0~100pt 가챠 보너스 게이지를 시각적 10칸 진행 바로 변환합니다 (50pt: ★4 / 100pt: 픽업 ★4)."""
-    g = max(0, min(GACHA_BONUS_MAX_PT, _safe_card_int(gauge, 0)))
-    filled = g // 10
+def _render_segment_bar(value: int, seg_max: int = 50, slots: int = 5) -> str:
+    """단일 구간의 진행률을 고정폭 유니코드 블록(█/▓/▒/░)으로 렌더링합니다."""
+    v = max(0, min(seg_max, int(value)))
+    step = seg_max / max(1, slots)
     chars = []
-    for i in range(10):
-        if i < filled:
-            chars.append("🟪" if i >= 5 else "🟦")
-        elif i == 4:
-            chars.append("⭐")
-        elif i == 9:
-            chars.append("🎯")
+    for i in range(slots):
+        rem = v - (i * step)
+        if rem >= step:
+            chars.append("█")
+        elif rem >= step * 0.5:
+            chars.append("▓")
+        elif rem > 0:
+            chars.append("▒")
         else:
-            chars.append("⬛")
+            chars.append("░")
     return "".join(chars)
+
+
+def format_gacha_bonus_gauge_bar(gauge: int) -> str:
+    """
+    0~100pt 가챠 보너스 게이지를 전반(0~50pt ★4 확정) · 후반(50~100pt 픽업 ★4 확정)
+    2구간 고정폭 프로그레스 바로 렌더링합니다.
+    예: `[████░]` ⭐50 ▸ `[░░░░░]` 🎯100
+    """
+    g = max(0, min(GACHA_BONUS_MAX_PT, _safe_card_int(gauge, 0)))
+    first_half = min(GACHA_BONUS_HALF_PT, g)
+    second_half = max(0, g - GACHA_BONUS_HALF_PT)
+    bar1 = _render_segment_bar(first_half, GACHA_BONUS_HALF_PT, slots=5)
+    bar2 = _render_segment_bar(second_half, GACHA_BONUS_MAX_PT - GACHA_BONUS_HALF_PT, slots=5)
+    mid_mark = "✅50" if g >= GACHA_BONUS_HALF_PT else "⭐50"
+    end_mark = "✅100" if g >= GACHA_BONUS_MAX_PT else "🎯100"
+    return f"`[{bar1}]` {mid_mark} ▸ `[{bar2}]` {end_mark}"
+
+
+def format_gacha_badge_bar(badges: int, cost: int = GACHA_CEILING_BADGE_COST) -> str:
+    """가챠 배지(0~200) 천장 진행도를 10칸 고정폭 프로그레스 바로 렌더링합니다."""
+    b = max(0, _safe_card_int(badges, 0))
+    c = max(1, _safe_card_int(cost, GACHA_CEILING_BADGE_COST))
+    mark = "✅" if b >= c else "🏅"
+    return f"`[{_render_segment_bar(min(b, c), c, slots=10)}]` {mark}{c}"
+
+
+def format_gacha_pity_display(
+    pity_info: dict,
+    *,
+    show_zero_tickets: bool = False,
+) -> tuple[str, str]:
+    """
+    가챠 보너스 게이지 & 200배지 천장 현황을 디스코드 임베드(PC·모바일) 가독성에
+    최적화된 3줄 구조(수치 헤더 / 고정폭 바 / 다음 목표)의 (gauge_text, badge_text)로 반환합니다.
+    """
+    g_val = max(0, _safe_card_int(pity_info.get("bonus_gauge"), 0)) % GACHA_BONUS_MAX_PT
+    g_bar = format_gacha_bonus_gauge_bar(g_val)
+    added_g = max(0, _safe_card_int(pity_info.get("added_gauge"), 0))
+    g_delta = f" (`+{added_g}pt`)" if added_g > 0 else ""
+
+    if pity_info.get("hit_100"):
+        hit_label = "100pt 픽업 ★4 확정 달성! (리셋)" if pity_info.get("had_pickup_pool", True) else "100pt ★4 확정 달성! (리셋)"
+        g_status = f" · 🔥 **{hit_label}**"
+    elif pity_info.get("hit_50"):
+        g_status = " · ⚡ **50pt ★4 확정 달성!**"
+    else:
+        g_status = ""
+
+    if g_val < GACHA_BONUS_HALF_PT:
+        next_rem = GACHA_BONUS_HALF_PT - g_val
+        next_line = f"└ 다음 확정: **🌟 50pt ★4 확정**까지 `{next_rem}pt` 남음"
+    else:
+        next_rem = GACHA_BONUS_MAX_PT - g_val
+        next_line = f"└ 다음 확정: **🎯 100pt 픽업 ★4 확정**까지 `{next_rem}pt` 남음"
+
+    gauge_text = f"**{g_val} / {GACHA_BONUS_MAX_PT}pt**{g_delta}{g_status}\n{g_bar}\n{next_line}"
+
+    badges = max(0, _safe_card_int(pity_info.get("badges"), 0))
+    ceil_cost = max(1, _safe_card_int(pity_info.get("ceiling_cost"), GACHA_CEILING_BADGE_COST))
+    added_b = max(0, _safe_card_int(pity_info.get("added_badges"), 0))
+    b_bar = format_gacha_badge_bar(badges, ceil_cost)
+    b_delta = f" (`+{added_b}`)" if added_b > 0 else ""
+
+    if badges >= ceil_cost:
+        b_status = " · ✨ **천장 교환 가능!**"
+        ceil_sub = f"└ 원하는 ★4/생일 카드 `{badges // ceil_cost}회` 즉시 확정 교환 가능!"
+    else:
+        pct = min(99, int(badges * 100 // ceil_cost))
+        b_status = f" · `{pct}%`"
+        ceil_sub = f"└ 천장 교환까지 `{ceil_cost - badges:,}개` 남음"
+
+    t_cnt = max(0, _safe_card_int(pity_info.get("select_tickets"), 0))
+    ticket_line = (
+        f"\n└ 🎟️ 셀렉트 리스트 특수 티켓: **{t_cnt:,}장** 보유 중"
+        if (t_cnt > 0 or show_zero_tickets)
+        else ""
+    )
+
+    badge_text = f"**{badges:,} / {ceil_cost:,}개**{b_delta}{b_status}\n{b_bar}\n{ceil_sub}{ticket_line}"
+    return gauge_text, badge_text
 
 
 def get_user_gacha_pity_state(guild_id: int, user_id: int, data: dict | None = None) -> dict:
@@ -5674,6 +5755,7 @@ def get_user_gacha_pity_state(guild_id: int, user_id: int, data: dict | None = N
     return {
         "bonus_gauge": gauge,
         "gauge_bar": format_gacha_bonus_gauge_bar(gauge),
+        "badge_bar": format_gacha_badge_bar(badges, GACHA_CEILING_BADGE_COST),
         "next_bonus_target": next_target,
         "next_bonus_remaining": max(0, next_target - gauge),
         "next_bonus_label": next_label,

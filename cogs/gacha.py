@@ -366,32 +366,8 @@ def build_gacha_pull_embed(
         bday_names = ", ".join(b["char_name"] for b in today_bdays)
         header_lines.append(f"🎂 **오늘의 생일 픽업:** `{bday_names}` (하단 무료 단차 / 생일 배너 픽업 강조!)")
 
-    pity_lines = []
-    if pity_info:
-        g_val = int(pity_info.get("bonus_gauge", 0))
-        g_bar = pity_info.get("gauge_bar") or core.format_gacha_bonus_gauge_bar(g_val)
-        next_rem = int(pity_info.get("next_bonus_remaining", max(0, 50 - g_val)))
-        next_lbl = pity_info.get("next_bonus_label") or ("50pt ★4 확정" if g_val < 50 else "100pt 픽업 ★4 확정")
-        badges = int(pity_info.get("badges", 0))
-        ceil_cost = int(pity_info.get("ceiling_cost", core.GACHA_CEILING_BADGE_COST))
-        added_b = int(pity_info.get("added_badges", 0))
-        add_b_txt = f" (`+{added_b}`)" if added_b > 0 else ""
-        if badges >= ceil_cost:
-            ceil_status = f"✨ **천장 교환 가능! (`{badges // ceil_cost}회`)**"
-        else:
-            ceil_status = f"천장까지 `{ceil_cost - badges}개` 남음"
-        pity_lines.append(
-            f"⚡ **보너스 게이지:** {g_bar} **`{g_val} / 100pt`** *(다음 `{next_lbl}`까지 `{next_rem}pt`)*"
-        )
-        t_cnt = int(pity_info.get("select_tickets", 0))
-        t_suffix = f"  ·  🎟️ 셀렉트 티켓 `{t_cnt}장`" if t_cnt > 0 else ""
-        pity_lines.append(
-            f"🏅 **가챠 배지 (200 천장):** **`{badges:,} / {ceil_cost}`**{add_b_txt} · {ceil_status}{t_suffix}"
-        )
-
     banner_line = "\n".join(header_lines) + "\n\n"
-    pity_block = ("\n" + "\n".join(pity_lines)) if pity_lines else ""
-    footer_summary = f"\n\n━━━━━━━━━━━━━━━━━━━━━━\n{summary_line}{pity_block}"
+    footer_summary = f"\n\n━━━━━━━━━━━━━━━━━━━━━━\n{summary_line}"
     body_text = "\n\n".join(lines)
     max_body = max(200, 4050 - len(banner_line) - len(footer_summary))
     if len(body_text) > max_body:
@@ -403,6 +379,19 @@ def build_gacha_pull_embed(
         color=embed_color,
         timestamp=datetime.datetime.now(core.KST)
     )
+
+    if pity_info:
+        gauge_text, badge_text = core.format_gacha_pity_display(pity_info)
+        embed.add_field(
+            name="⚡ 가챠 보너스 게이지 (50pt ★4 · 100pt 픽업 ★4)",
+            value=gauge_text,
+            inline=False,
+        )
+        embed.add_field(
+            name=f"🏅 가챠 배지 천장 ({int(pity_info.get('ceiling_cost', core.GACHA_CEILING_BADGE_COST))}개)",
+            value=badge_text,
+            inline=False,
+        )
 
     if user:
         author_icon = user.display_avatar.url if hasattr(user, "display_avatar") else None
@@ -1143,9 +1132,6 @@ class GachaCeilingExchangeView(core.SafeView):
     def build_embed(self) -> discord.Embed:
         badges = int(self.pity_state.get("badges", 0))
         cost = int(self.pity_state.get("ceiling_cost", core.GACHA_CEILING_BADGE_COST))
-        gauge = int(self.pity_state.get("bonus_gauge", 0))
-        g_bar = self.pity_state.get("gauge_bar") or core.format_gacha_bonus_gauge_bar(gauge)
-        ex_times = badges // cost
         u_name = self.user.display_name if self.user else "유저"
 
         selected_card = (
@@ -1155,10 +1141,7 @@ class GachaCeilingExchangeView(core.SafeView):
         )
 
         lines = [
-            f"• **보유 가챠 배지:** **`{badges:,} / {cost:,}개`** "
-            + (f"(✨ **즉시 교환 가능 `{ex_times}회`**)" if ex_times > 0 else f"(천장까지 `{cost - badges:,}개` 남음)"),
-            f"• **가챠 보너스 게이지:** {g_bar} **`{gauge} / 100pt`** *(50pt ★4 / 100pt 픽업 ★4)*",
-            f"• **누적 천장 교환 횟수:** `{self.pity_state.get('ceiling_count', 0):,}회`  ·  **필터 결과:** `{len(self.filtered_cards):,}종`",
+            f"• **누적 천장 교환:** `{self.pity_state.get('ceiling_count', 0):,}회`  ·  **필터 결과:** `{len(self.filtered_cards):,}종`",
         ]
         if self.status_note:
             lines.append(f"\n> {self.status_note}")
@@ -1181,11 +1164,14 @@ class GachaCeilingExchangeView(core.SafeView):
             lines.append("\n📭 조건에 맞는 교환 대상 카드가 없습니다. 필터를 변경해 주세요.")
 
         embed = discord.Embed(
-            title=f"🏅 {u_name}님의 프로세카 가챠 배지 천장 교환소 (200배지)",
+            title=f"🏅 {u_name}님의 프로세카 가챠 배지 천장 교환소 ({cost}배지)",
             description="\n".join(lines),
             color=discord.Color.gold() if badges >= cost else discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST),
         )
+        gauge_text, badge_text = core.format_gacha_pity_display(self.pity_state)
+        embed.add_field(name=f"🏅 가챠 배지 천장 ({cost}개)", value=badge_text, inline=False)
+        embed.add_field(name="⚡ 가챠 보너스 게이지 (50pt ★4 · 100pt 픽업 ★4)", value=gauge_text, inline=False)
         if selected_card:
             embed.set_thumbnail(url=core.get_proseka_card_image_url(selected_card, "auto"))
         embed.set_footer(text="1회 뽑기당 가챠 배지 +1개 적립 · 200배지로 원하는 ★4/생일 카드 1장을 확정 교환!")
@@ -6544,14 +6530,15 @@ class GachaCog(commands.Cog):
             flags_val = "미장착 (`/설정` ➔ `🚩 캐릭터 랭크 & 칭호 깃발`에서 Rank 5+ 깃발 장착!)"
         embed.add_field(name="🚩 장착 중인 캐랭 칭호 깃발", value=flags_val, inline=False)
 
+        gauge_text, badge_text = core.format_gacha_pity_display(pity_state, show_zero_tickets=True)
         embed.add_field(
-            name="⚡ 가챠 보너스 · 🏅 천장 배지 · 🎟️ 셀렉트 티켓",
-            value=(
-                f"⚡ 보너스 게이지: {pity_state['gauge_bar']} **`{pity_state['bonus_gauge']}/100pt`** *(다음 `{pity_state['next_bonus_label']}`)*\n"
-                f"🏅 가챠 배지: **`{pity_state['badges']:,} / {pity_state['ceiling_cost']}`** "
-                + (f"(✨ **천장 교환 가능!**)" if pity_state["can_exchange_ceiling"] else f"(천장까지 `{pity_state['ceiling_remaining']}개`)")
-                + f"  ·  🎟️ 셀렉트 티켓: **`{pity_state['select_tickets']:,}장`**"
-            ),
+            name="⚡ 가챠 보너스 게이지 (50pt ★4 · 100pt 픽업 ★4)",
+            value=gauge_text,
+            inline=False,
+        )
+        embed.add_field(
+            name=f"🏅 가챠 배지 천장 ({pity_state['ceiling_cost']}개)",
+            value=badge_text,
             inline=False,
         )
 
