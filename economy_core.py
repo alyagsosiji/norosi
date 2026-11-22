@@ -204,6 +204,8 @@ def collect_user_unified_stats(
         if isinstance(c_obj, dict):
             deck_power += core.get_card_power(c_obj)
     oshi = prof.get("oshi") or "미설정"
+    sekai_pity = core.get_user_gacha_pity_state(guild_id, user_id, data=data)
+    sekai_rank_flags = core.get_user_equipped_rank_flags(guild_id, user_id, data=data)
 
     # 2. 원신 (기원/★5/최고 성유물)
     gen_user = core.safe_get_dict(data, "genshin_users", g_key, u_key)
@@ -362,6 +364,10 @@ def collect_user_unified_stats(
             "unique_cards": sekai_unique,
             "star4_count": sekai_star4,
             "deck_power": deck_power,
+            "gacha_badges": sekai_pity.get("badges", 0),
+            "bonus_gauge": sekai_pity.get("bonus_gauge", 0),
+            "rank_flags": sekai_rank_flags,
+            "rank_flag_line": " · ".join(f"[{f['title']}]" for f in sekai_rank_flags[:2]) if sekai_rank_flags else "",
         },
         "genshin": {
             "total_pulls": gen_pulls,
@@ -950,6 +956,11 @@ def render_unified_profile_card_png(
             else "최장 기록: 출조 대기 중 (/설정 · !낚시)"
         )
 
+        sekai_flag_line = (
+            f"캐랭 깃발: {sek['rank_flag_line']}"
+            if sek.get("rank_flag_line")
+            else f"가챠 배지: {sek.get('gacha_badges', 0):,}/200  |  보너스 {sek.get('bonus_gauge', 0)}/100pt"
+        )
         panels = [
             {
                 "title": "프로세카 (Project SEKAI)",
@@ -958,7 +969,7 @@ def render_unified_profile_card_png(
                     f"누적 뽑기: {sek.get('total_pulls', 0):,}회  |  최애: {sek['oshi']}",
                     f"보유 카드: {sek['unique_cards']:,}종  |  ★4 카드: {sek['star4_count']:,}장",
                     f"5인 덱 종합력: {sek['deck_power']:,}",
-                    "세카이 라이브 & 의상 스튜디오 연동 중",
+                    sekai_flag_line,
                 ],
             },
             {

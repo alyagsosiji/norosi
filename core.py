@@ -1703,6 +1703,60 @@ BANNER_CONFIGS = {
     },
 }
 
+SELECT_LIST_BANNER_META = {
+    "key": "select_list",
+    "name": "🎟️ 셀렉트 리스트 가챠 (선택 ★4 확정!)",
+    "short_name": "🎟️ 셀렉트 리스트",
+    "desc": "직접 고른 ★4 10장 중 최소 1장 100% 확정 출현! (봇주 지급 특수 티켓 1장 소모)",
+    "top_rate": 3.0,
+    "mid_rate": 8.5,
+    "low_rate": 88.5,
+    "color": (255, 205, 86),
+}
+
+GACHA_BONUS_HALF_PT = 50
+GACHA_BONUS_MAX_PT = 100
+GACHA_CEILING_BADGE_COST = 200
+SELECT_LIST_REQUIRED_COUNT = 10
+MAX_EQUIPPED_RANK_FLAGS = 3
+
+UNIT_EMOJIS = {
+    "Leo/need": "🎸",
+    "MORE MORE JUMP!": "🍀",
+    "Vivid BAD SQUAD": "🎧",
+    "원더랜즈×쇼타임": "🎪",
+    "25시, 나이트 코드에서.": "🌙",
+    "버츄얼 싱어": "🎤",
+}
+
+UNIT_THEME_COLORS = {
+    "Leo/need": (68, 85, 221),
+    "MORE MORE JUMP!": (136, 221, 68),
+    "Vivid BAD SQUAD": (238, 17, 102),
+    "원더랜즈×쇼타임": (255, 153, 0),
+    "25시, 나이트 코드에서.": (136, 68, 153),
+    "버츄얼 싱어": (51, 204, 187),
+}
+
+# 프로세카 원작 감성 캐릭터 랭크(캐랭) 칭호 깃발 티어 정의
+CHARACTER_RANK_FLAG_TIERS = [
+    {"rank": 5, "key": "bronze", "grade": "브론즈 깃발", "emoji": "🚩", "suffix_mode": "fan", "color": (205, 127, 50), "accent": (255, 205, 155)},
+    {"rank": 10, "key": "silver", "grade": "실버 깃발", "emoji": "🏳️", "suffix_mode": "together", "color": (192, 204, 224), "accent": (238, 244, 255)},
+    {"rank": 20, "key": "gold", "grade": "골드 깃발", "emoji": "🎗️", "suffix_mode": "bestie", "color": (245, 194, 48), "accent": (255, 240, 170)},
+    {"rank": 30, "key": "diamond", "grade": "다이아 깃발", "emoji": "💠", "suffix_mode": "bond", "color": (72, 208, 255), "accent": (200, 245, 255)},
+    {"rank": 40, "key": "flower", "grade": "플라워 깃발", "emoji": "🏵️", "suffix_mode": "miracle", "color": (255, 118, 188), "accent": (255, 214, 236)},
+    {"rank": 50, "key": "rainbow", "grade": "레인보우 깃발", "emoji": "🌈", "suffix_mode": "eternal", "color": (176, 124, 255), "accent": (255, 224, 255)},
+    {"rank": 65, "key": "master", "grade": "마스터 깃발", "emoji": "👑", "suffix_mode": "sekai", "color": (255, 215, 92), "accent": (255, 248, 210)},
+]
+
+
+def get_banner_meta(banner_type: str | None) -> dict:
+    """일반/페스/생일 및 특수 배너(셀렉트 리스트 등) 메타데이터를 안전하게 반환합니다."""
+    if banner_type == "select_list":
+        return SELECT_LIST_BANNER_META
+    return BANNER_CONFIGS.get(banner_type or "normal", BANNER_CONFIGS["normal"])
+
+
 ANOTHER_COLOR_VARIANTS = OrderedDict([
     ("orig", {"key": "orig", "name": "기본 오리지널 컬러", "emoji": "🎨"}),
     ("pastel", {"key": "pastel", "name": "🌸 어나더 컬러 1 (파스텔/화이트)", "emoji": "🌸"}),
@@ -2044,6 +2098,16 @@ def execute_sekai_live(guild_id: int, user_id: int, song_id: str | None = None, 
         is_new_best = (score > prev_best)
         if is_new_best:
             live_stats["best_score"] = score
+
+        # 캐릭터 랭크(캐랭) 산출용 캐릭터별 라이브 출전 횟수 누적
+        char_live_plays = ensure_dict_path(g_user, "char_live_plays")
+        played_cids = set()
+        for dc in deck_cards:
+            dc_cid = dc.get("char_id")
+            if dc_cid and dc_cid not in played_cids:
+                played_cids.add(dc_cid)
+                cid_k = str(dc_cid)
+                char_live_plays[cid_k] = _safe_card_int(char_live_plays.get(cid_k), 0) + 1
 
         save_data(data)
 
@@ -2677,7 +2741,7 @@ def build_10pull_grid_image_bytes(
     canvas = Image.new("RGBA", (width, height), (19, 22, 41, 255))
     draw = ImageDraw.Draw(canvas)
 
-    b_cfg = BANNER_CONFIGS.get(banner_type, BANNER_CONFIGS["normal"])
+    b_cfg = get_banner_meta(banner_type)
     accent_rgb = tuple(b_cfg.get("color", (0, 204, 221)))
     draw.rectangle([0, 0, width, 46], fill=(28, 34, 64, 255))
     draw.rectangle([0, 46, width, 49], fill=(*accent_rgb, 255))
@@ -5355,7 +5419,13 @@ def build_proseka_guild_ranking_stats(data: dict, guild_id: int) -> tuple[int, l
     return total_db_cards, stats_list
 
 
-def _save_pulled_cards_in_data(data: dict, guild_id: int, user_id: int, drawn_cards: list) -> dict:
+def _save_pulled_cards_in_data(
+    data: dict,
+    guild_id: int,
+    user_id: int,
+    drawn_cards: list,
+    increment_pulls: bool = True,
+) -> dict:
     g_key = str(guild_id or 0)
     u_key = str(user_id)
 
@@ -5400,7 +5470,8 @@ def _save_pulled_cards_in_data(data: dict, guild_id: int, user_id: int, drawn_ca
                 "master_rank": 0,
                 "locked": False
             }
-    u_obj["total_pulls"] = prev_total_pulls + len(drawn_cards)
+    if increment_pulls:
+        u_obj["total_pulls"] = prev_total_pulls + len(drawn_cards)
     return user_cards
 
 
@@ -5420,7 +5491,7 @@ def _record_hall_of_fame_in_data(data: dict, guild_id: int, user_id: int, drawn_
     recent_high = g_hof["recent_high_logs"]
 
     now_str = get_now_datetime_str()
-    b_short = BANNER_CONFIGS.get(banner_type, BANNER_CONFIGS["normal"]).get("short_name", banner_type)
+    b_short = get_banner_meta(banner_type).get("short_name", banner_type)
 
     high_cards = [c for c in drawn_cards if isinstance(c, dict) and int(c.get("star_num", 0)) >= 4]
     if len(drawn_cards) >= 10 and high_cards:
@@ -5479,14 +5550,903 @@ def save_pulled_cards_to_user(guild_id: int, user_id: int, drawn_cards: list):
         return user_cards
 
 
-def save_real_pull_and_records(guild_id: int, user_id: int, drawn_cards: list, banner_type: str = "normal"):
-    """실제 뽑기 결과를 보관함에 저장하고 서버 명예의 전당·픽업 로그를 원자적으로 갱신합니다."""
+def save_real_pull_and_records(
+    guild_id: int,
+    user_id: int,
+    drawn_cards: list,
+    banner_type: str = "normal",
+    add_badges: bool = True,
+):
+    """실제 뽑기 결과를 보관함에 저장하고 서버 명예의 전당·픽업 로그·가챠 배지를 원자적으로 갱신합니다."""
     with _DATA_LOCK:
         data = load_data()
         user_cards = _save_pulled_cards_in_data(data, guild_id, user_id, drawn_cards)
+        if add_badges and drawn_cards:
+            g_key = str(guild_id or 0)
+            u_key = str(user_id)
+            u_obj = ensure_dict_path(data, "gacha_users", g_key, u_key)
+            u_obj["gacha_badges"] = max(0, _safe_card_int(u_obj.get("gacha_badges"), 0)) + len(drawn_cards)
         _record_hall_of_fame_in_data(data, guild_id, user_id, drawn_cards, banner_type=banner_type)
         save_data(data)
         return user_cards
+
+
+def get_user_select_tickets(user_id: int, data: dict | None = None) -> int:
+    """유저가 보유한 셀렉트 리스트 가챠 특수 티켓 수량을 반환합니다."""
+    d = data if isinstance(data, dict) else load_data()
+    prof = safe_get_dict(d, "user_profiles", str(user_id))
+    return max(0, _safe_card_int(prof.get("select_list_tickets"), 0))
+
+
+def adjust_user_select_tickets(
+    user_id: int,
+    delta: int,
+    user_name: str = "",
+    granted_by: int | None = None,
+    reason: str = "",
+) -> tuple[bool, str, int]:
+    """[봇주인 전용] 특정 유저의 셀렉트 리스트 특수 티켓을 지급(+)하거나 회수(-)합니다."""
+    delta_int = _safe_card_int(delta, 0)
+    with _DATA_LOCK:
+        data = load_data()
+        u_key = str(user_id)
+        prof = ensure_user_profile(data, u_key, user_name)
+        cur = max(0, _safe_card_int(prof.get("select_list_tickets"), 0))
+        if delta_int == 0:
+            return True, f"현재 보유 중인 셀렉트 리스트 특수 티켓: **`{cur:,}장`**", cur
+        new_val = max(0, cur + delta_int)
+        actual_delta = new_val - cur
+        prof["select_list_tickets"] = new_val
+        logs = prof.get("select_ticket_logs")
+        if not isinstance(logs, list):
+            logs = []
+            prof["select_ticket_logs"] = logs
+        logs.insert(0, {
+            "delta": actual_delta,
+            "after": new_val,
+            "by": str(granted_by or ""),
+            "reason": (reason or "").strip()[:100],
+            "at": get_now_datetime_str(),
+        })
+        del logs[20:]
+        save_data(data)
+
+    if actual_delta > 0:
+        return True, f"🎟️ 셀렉트 리스트 특수 티켓 **`+{actual_delta:,}장`** 지급 완료! (현재 보유: **`{new_val:,}장`**)", new_val
+    elif actual_delta < 0:
+        return True, f"🎟️ 셀렉트 리스트 특수 티켓 **`{actual_delta:,}장`** 회수 완료! (현재 보유: **`{new_val:,}장`**)", new_val
+    return True, f"ℹ️ 보유 티켓 변화 없음 (현재 보유: **`{new_val:,}장`**)", new_val
+
+
+def list_select_ticket_holders(data: dict | None = None) -> list[dict]:
+    """셀렉트 리스트 특수 티켓을 1장 이상 보유한 유저 목록을 반환합니다."""
+    d = data if isinstance(data, dict) else load_data()
+    profiles = as_dict(d.get("user_profiles"))
+    holders = []
+    for uid_str, prof in profiles.items():
+        if not isinstance(prof, dict):
+            continue
+        t_cnt = max(0, _safe_card_int(prof.get("select_list_tickets"), 0))
+        if t_cnt > 0:
+            holders.append({
+                "uid": str(uid_str),
+                "name": str(prof.get("name") or f"User-{uid_str}"),
+                "tickets": t_cnt,
+            })
+    holders.sort(key=lambda x: (-x["tickets"], x["name"]))
+    return holders
+
+
+def format_gacha_bonus_gauge_bar(gauge: int) -> str:
+    """0~100pt 가챠 보너스 게이지를 시각적 10칸 진행 바로 변환합니다 (50pt: ★4 / 100pt: 픽업 ★4)."""
+    g = max(0, min(GACHA_BONUS_MAX_PT, _safe_card_int(gauge, 0)))
+    filled = g // 10
+    chars = []
+    for i in range(10):
+        if i < filled:
+            chars.append("🟪" if i >= 5 else "🟦")
+        elif i == 4:
+            chars.append("⭐")
+        elif i == 9:
+            chars.append("🎯")
+        else:
+            chars.append("⬛")
+    return "".join(chars)
+
+
+def get_user_gacha_pity_state(guild_id: int, user_id: int, data: dict | None = None) -> dict:
+    """유저의 프로세카 가챠 보너스 게이지(0~99), 천장 배지(0~), 셀렉트 티켓 상태를 조회합니다."""
+    d = data if isinstance(data, dict) else load_data()
+    g_key = str(guild_id or 0)
+    u_key = str(user_id)
+    u_obj = safe_get_dict(d, "gacha_users", g_key, u_key)
+    gauge = max(0, _safe_card_int(u_obj.get("gacha_bonus_gauge"), 0)) % GACHA_BONUS_MAX_PT
+    badges = max(0, _safe_card_int(u_obj.get("gacha_badges"), 0))
+    ceiling_count = max(0, _safe_card_int(u_obj.get("gacha_ceiling_count"), 0))
+    tickets = get_user_select_tickets(user_id, data=d)
+
+    if gauge < GACHA_BONUS_HALF_PT:
+        next_target = GACHA_BONUS_HALF_PT
+        next_label = "50pt ★4 확정"
+    else:
+        next_target = GACHA_BONUS_MAX_PT
+        next_label = "100pt 픽업 ★4 확정"
+    return {
+        "bonus_gauge": gauge,
+        "gauge_bar": format_gacha_bonus_gauge_bar(gauge),
+        "next_bonus_target": next_target,
+        "next_bonus_remaining": max(0, next_target - gauge),
+        "next_bonus_label": next_label,
+        "badges": badges,
+        "ceiling_cost": GACHA_CEILING_BADGE_COST,
+        "ceiling_remaining": max(0, GACHA_CEILING_BADGE_COST - badges),
+        "can_exchange_ceiling": badges >= GACHA_CEILING_BADGE_COST,
+        "exchangeable_times": badges // GACHA_CEILING_BADGE_COST,
+        "ceiling_count": ceiling_count,
+        "select_tickets": tickets,
+    }
+
+
+def _attach_costume_meta(card: dict) -> dict:
+    cid_str = str(card.get("id"))
+    if cid_str in PROSEKA_KR_COSTUMES:
+        card["costume"] = dict(PROSEKA_KR_COSTUMES[cid_str])
+    return card
+
+
+def execute_real_proseka_pull(
+    guild_id: int,
+    user_id: int,
+    pickup_cfg: dict,
+    count: int = 1,
+    banner_type: str = "normal",
+) -> tuple[list[dict], dict]:
+    """
+    실제 프로세카 뽑기를 원자적으로 실행합니다:
+    - 확률표 기반 카드 추첨 (10연차 ★3 이상 확정)
+    - 가챠 보너스 게이지 적용 (50pt ★4 확정 / 100pt 픽업 ★4 확정 후 리셋)
+    - 가챠 배지 적립 (1회당 +1배지, 200배지 천장 교환용)
+    - 보관함 저장 & 명예의 전당 갱신
+    """
+    prob_cards = calculate_card_probabilities(pickup_cfg, banner_type=banner_type)
+    if not prob_cards:
+        return [], {}
+
+    weights = [c["prob"] for c in prob_cards]
+    drawn = [dict(c) for c in random.choices(prob_cards, weights=weights, k=count)]
+
+    if count >= 10 and not any(c["star_num"] >= 3 for c in drawn):
+        high_pool = [c for c in prob_cards if c["star_num"] >= 3]
+        if high_pool:
+            high_weights = [c["prob"] for c in high_pool]
+            drawn[-1] = dict(random.choices(high_pool, weights=high_weights, k=1)[0])
+
+    top_pool = [c for c in prob_cards if c.get("star_num", 0) >= 4]
+    pickup_top_pool = [c for c in top_pool if c.get("is_pickup")]
+
+    with _DATA_LOCK:
+        data = load_data()
+        g_key = str(guild_id or 0)
+        u_key = str(user_id)
+        u_obj = ensure_dict_path(data, "gacha_users", g_key, u_key)
+        prev_gauge = max(0, _safe_card_int(u_obj.get("gacha_bonus_gauge"), 0)) % GACHA_BONUS_MAX_PT
+        new_total = prev_gauge + len(drawn)
+
+        hit_50 = (prev_gauge < GACHA_BONUS_HALF_PT <= new_total)
+        hit_100 = (prev_gauge < GACHA_BONUS_MAX_PT <= new_total)
+
+        if hit_50 and top_pool:
+            slot_50 = min(len(drawn) - 1, max(0, GACHA_BONUS_HALF_PT - prev_gauge - 1))
+            if drawn[slot_50].get("star_num", 0) < 4:
+                t_weights = [c["prob"] for c in top_pool]
+                drawn[slot_50] = dict(random.choices(top_pool, weights=t_weights, k=1)[0])
+            drawn[slot_50]["bonus_trigger"] = "50pt"
+
+        if hit_100 and (pickup_top_pool or top_pool):
+            slot_100 = min(len(drawn) - 1, max(0, GACHA_BONUS_MAX_PT - prev_gauge - 1))
+            target_pool = pickup_top_pool if pickup_top_pool else top_pool
+            already_ok = (
+                drawn[slot_100].get("star_num", 0) >= 4
+                and (not pickup_top_pool or bool(drawn[slot_100].get("is_pickup")))
+            )
+            if not already_ok:
+                p_weights = [c["prob"] for c in target_pool]
+                drawn[slot_100] = dict(random.choices(target_pool, weights=p_weights, k=1)[0])
+            drawn[slot_100]["bonus_trigger"] = "100pt"
+
+        for c in drawn:
+            _attach_costume_meta(c)
+
+        new_gauge = new_total % GACHA_BONUS_MAX_PT
+        u_obj["gacha_bonus_gauge"] = new_gauge
+        u_obj["gacha_badges"] = max(0, _safe_card_int(u_obj.get("gacha_badges"), 0)) + len(drawn)
+
+        _save_pulled_cards_in_data(data, guild_id, user_id, drawn)
+        _record_hall_of_fame_in_data(data, guild_id, user_id, drawn, banner_type=banner_type)
+        save_data(data)
+
+        pity_meta = get_user_gacha_pity_state(guild_id, user_id, data=data)
+        pity_meta.update({
+            "prev_gauge": prev_gauge,
+            "added_gauge": len(drawn),
+            "hit_50": hit_50,
+            "hit_100": hit_100,
+            "had_pickup_pool": bool(pickup_top_pool),
+            "added_badges": len(drawn),
+        })
+
+    return drawn, pity_meta
+
+
+def get_ceiling_exchange_pool(
+    pickup_cfg: dict,
+    banner_type: str = "normal",
+    unit_filter: str = "ALL",
+) -> tuple[list[dict], list[dict]]:
+    """배지 200 천장 교환 가능한 카드 목록(현재 픽업 ★4/생일, 전체 ★4/생일)을 반환합니다."""
+    prob_cards = calculate_card_probabilities(pickup_cfg, banner_type=banner_type)
+    top_cards = [c for c in prob_cards if c.get("star_num", 0) >= 4]
+    if not top_cards:
+        top_cards = [dict(c, is_pickup=False, prob=0.0) for c in PROSEKA_KR_CARDS if c.get("star_num", 0) >= 4]
+
+    pickup_cards = [c for c in top_cards if c.get("is_pickup")]
+    if unit_filter == "PICKUP":
+        filtered = pickup_cards if pickup_cards else top_cards
+    elif unit_filter in UNIT_ORDER:
+        filtered = [c for c in top_cards if c.get("unit") == unit_filter]
+    else:
+        filtered = top_cards
+
+    filtered.sort(key=lambda x: (not x.get("is_pickup", False), -x.get("star_num", 0), x.get("char_id", 99), -x.get("id", 0)))
+    return pickup_cards, filtered
+
+
+def exchange_gacha_ceiling_badge(guild_id: int, user_id: int, card_id: int | str) -> tuple[bool, str, dict]:
+    """가챠 배지 200개를 소모해 선택한 ★4/🎀생일 카드 1장을 확정 교환합니다."""
+    target_card = get_proseka_card_by_id(card_id)
+    if not target_card or int(target_card.get("star_num", 0)) < 4:
+        return False, "천장 교환은 ★4 또는 🎀생일 카드만 선택할 수 있습니다.", {}
+
+    with _DATA_LOCK:
+        data = load_data()
+        g_key = str(guild_id or 0)
+        u_key = str(user_id)
+        u_obj = ensure_dict_path(data, "gacha_users", g_key, u_key)
+        badges = max(0, _safe_card_int(u_obj.get("gacha_badges"), 0))
+        if badges < GACHA_CEILING_BADGE_COST:
+            return (
+                False,
+                f"가챠 배지가 부족합니다! (필요: `{GACHA_CEILING_BADGE_COST:,}개` / 보유: `{badges:,}개`)",
+                {"badges": badges},
+            )
+
+        card_copy = _attach_costume_meta(dict(target_card))
+        card_copy["is_pickup"] = True
+        u_obj["gacha_badges"] = badges - GACHA_CEILING_BADGE_COST
+        u_obj["gacha_ceiling_count"] = max(0, _safe_card_int(u_obj.get("gacha_ceiling_count"), 0)) + 1
+        _save_pulled_cards_in_data(data, guild_id, user_id, [card_copy], increment_pulls=False)
+        save_data(data)
+
+        pity_state = get_user_gacha_pity_state(guild_id, user_id, data=data)
+        return (
+            True,
+            f"🏅 **가챠 배지 {GACHA_CEILING_BADGE_COST}개 천장 교환 완료!** [{card_copy.get('prefix')}] **{card_copy.get('char_name')}** 획득!",
+            {
+                "card": card_copy,
+                "is_new": bool(card_copy.get("is_new")),
+                "remaining_badges": pity_state["badges"],
+                "ceiling_count": pity_state["ceiling_count"],
+                "pity_state": pity_state,
+            },
+        )
+
+
+def execute_select_list_gacha_pull(
+    guild_id: int,
+    user_id: int,
+    selected_card_ids: list[int | str],
+) -> tuple[bool, str, list[dict], dict]:
+    """
+    봇주가 지급한 셀렉트 리스트 특수 티켓 1장을 소모하여 10연차를 실행합니다.
+    - 유저가 직접 선택한 ★4 10장 중 최소 1장은 10번째 슬롯에 100% 확정 출현!
+    - 1~9번째 슬롯에서도 ★4 당첨 시 선택 10장 확률 50% 집중 픽업 적용!
+    - 뽑기 완료 시 가챠 배지 +10 적립!
+    """
+    unique_ids: list[int] = []
+    seen_ids: set[int] = set()
+    selected_cards: list[dict] = []
+    for raw_id in (selected_card_ids or []):
+        c = get_proseka_card_by_id(raw_id)
+        if not c or c.get("rarity_type") != "rarity_4":
+            continue
+        cid_int = int(c["id"])
+        if cid_int not in seen_ids:
+            seen_ids.add(cid_int)
+            unique_ids.append(cid_int)
+            selected_cards.append(dict(c))
+
+    if len(selected_cards) != SELECT_LIST_REQUIRED_COUNT:
+        return (
+            False,
+            f"셀렉트 리스트는 서로 다른 **★4 카드 {SELECT_LIST_REQUIRED_COUNT}장**을 정확히 선택해야 합니다. (현재 `{len(selected_cards)}장`)",
+            [],
+            {},
+        )
+
+    all_star4 = [c for c in PROSEKA_KR_CARDS if c.get("rarity_type") == "rarity_4"]
+    non_selected_star4 = [c for c in all_star4 if int(c["id"]) not in seen_ids]
+    mid_cards = [c for c in PROSEKA_KR_CARDS if c.get("rarity_type") == "rarity_3"]
+    low_cards = [c for c in PROSEKA_KR_CARDS if c.get("rarity_type") not in ("rarity_4", "rarity_birthday", "rarity_3")]
+
+    weighted_pool: list[dict] = []
+    if non_selected_star4:
+        sel_each = (3.0 * 0.50) / len(selected_cards)
+        oth_each = (3.0 * 0.50) / len(non_selected_star4)
+        for c in selected_cards:
+            item = dict(c); item["prob"] = sel_each; item["is_pickup"] = True; weighted_pool.append(item)
+        for c in non_selected_star4:
+            item = dict(c); item["prob"] = oth_each; item["is_pickup"] = False; weighted_pool.append(item)
+    else:
+        sel_each = 3.0 / len(selected_cards)
+        for c in selected_cards:
+            item = dict(c); item["prob"] = sel_each; item["is_pickup"] = True; weighted_pool.append(item)
+
+    if mid_cards:
+        m_each = 8.5 / len(mid_cards)
+        for c in mid_cards:
+            item = dict(c); item["prob"] = m_each; item["is_pickup"] = False; weighted_pool.append(item)
+    if low_cards:
+        l_each = 88.5 / len(low_cards)
+        for c in low_cards:
+            item = dict(c); item["prob"] = l_each; item["is_pickup"] = False; weighted_pool.append(item)
+
+    if not weighted_pool:
+        return False, "한국 서버 캐릭터 DB를 불러오지 못했습니다.", [], {}
+
+    with _DATA_LOCK:
+        data = load_data()
+        u_key = str(user_id)
+        g_key = str(guild_id or 0)
+        prof = ensure_user_profile(data, u_key)
+        cur_tickets = max(0, _safe_card_int(prof.get("select_list_tickets"), 0))
+        if cur_tickets < 1:
+            return (
+                False,
+                "보유 중인 **🎟️ 셀렉트 리스트 특수 티켓**이 없습니다!\n봇주인에게 특수 티켓을 지급받은 후 이용해 주세요.",
+                [],
+                {"select_tickets": 0},
+            )
+
+        prof["select_list_tickets"] = cur_tickets - 1
+
+        weights = [c["prob"] for c in weighted_pool]
+        drawn = [dict(c) for c in random.choices(weighted_pool, weights=weights, k=9)]
+
+        # 10번째 슬롯: 유저가 선택한 10장의 ★4 중 1장 100% 확정!
+        guaranteed_card = dict(random.choice(selected_cards))
+        guaranteed_card["prob"] = 10.0
+        guaranteed_card["is_pickup"] = True
+        guaranteed_card["bonus_trigger"] = "select_list"
+        drawn.append(guaranteed_card)
+
+        for c in drawn:
+            _attach_costume_meta(c)
+
+        u_obj = ensure_dict_path(data, "gacha_users", g_key, u_key)
+        u_obj["gacha_badges"] = max(0, _safe_card_int(u_obj.get("gacha_badges"), 0)) + len(drawn)
+        _save_pulled_cards_in_data(data, guild_id, user_id, drawn)
+        _record_hall_of_fame_in_data(data, guild_id, user_id, drawn, banner_type="select_list")
+        save_data(data)
+
+        pity_meta = get_user_gacha_pity_state(guild_id, user_id, data=data)
+        pity_meta.update({
+            "added_badges": len(drawn),
+            "select_list_guaranteed": True,
+            "remaining_tickets": prof["select_list_tickets"],
+        })
+
+    return True, "🎟️ 셀렉트 리스트 가챠 10연차 완료! (선택 ★4 확정 출현)", drawn, pity_meta
+
+
+# ==========================================
+# 캐릭터 랭크(캐랭) & 칭호 깃발 시스템
+# ==========================================
+def _kr_particle_wa_gwa(text: str) -> str:
+    """한글 마지막 글자 받침 여부에 따라 '과'/'와'를 반환합니다."""
+    s = (text or "").strip()
+    if not s:
+        return "와"
+    ch = s[-1]
+    code = ord(ch)
+    if 0xAC00 <= code <= 0xD7A3:
+        return "과" if ((code - 0xAC00) % 28) != 0 else "와"
+    return "와"
+
+
+def get_char_rank_flag_meta(char_id: int, tier_rank: int) -> dict | None:
+    """특정 캐릭터와 티어 랭크(5/10/20/30/40/50/65)에 해당하는 칭호 깃발 정보를 생성합니다."""
+    c_info = CHARACTER_MAP.get(int(char_id))
+    tier = next((t for t in CHARACTER_RANK_FLAG_TIERS if t["rank"] == int(tier_rank)), None)
+    if not c_info or not tier:
+        return None
+    full_name = c_info["name"]
+    short_name = full_name.split()[-1] if " " in full_name else full_name
+    mode = tier["suffix_mode"]
+    if mode == "fan":
+        title_text = f"{full_name} 팬"
+    elif mode == "together":
+        title_text = f"{full_name}{_kr_particle_wa_gwa(full_name)} 함께"
+    elif mode == "bestie":
+        title_text = f"{full_name}의 절친"
+    elif mode == "bond":
+        title_text = f"{full_name}의 인연"
+    elif mode == "miracle":
+        title_text = f"{full_name}의 기적"
+    elif mode == "eternal":
+        title_text = f"{full_name}의 영원한 빛"
+    else:
+        title_text = f"{full_name}의 세카이"
+
+    return {
+        "char_id": int(char_id),
+        "char_name": full_name,
+        "short_name": short_name,
+        "unit": c_info["unit"],
+        "unit_emoji": UNIT_EMOJIS.get(c_info["unit"], "🎵"),
+        "unit_color": UNIT_THEME_COLORS.get(c_info["unit"], (0, 204, 221)),
+        "tier_rank": tier["rank"],
+        "tier_key": tier["key"],
+        "grade": tier["grade"],
+        "emoji": tier["emoji"],
+        "title": title_text,
+        "color": tier["color"],
+        "accent": tier["accent"],
+    }
+
+
+def _exp_needed_for_next_char_rank(rank_num: int) -> int:
+    if rank_num < 10:
+        return 3
+    if rank_num < 20:
+        return 5
+    if rank_num < 35:
+        return 8
+    if rank_num < 50:
+        return 12
+    return 15
+
+
+def get_char_rank_level_from_exp(total_exp: int) -> tuple[int, int, int]:
+    """누적 캐랭 EXP로부터 (현재 랭크, 현재 랭크 내 EXP, 다음 랭크 필요 EXP)를 산출합니다."""
+    rem = max(0, int(total_exp))
+    rank = 1
+    while True:
+        need = _exp_needed_for_next_char_rank(rank)
+        if rem < need:
+            return rank, rem, need
+        rem -= need
+        rank += 1
+        if rank >= 200:
+            return 200, rem, need
+
+
+def get_char_rank_milestone_reward(rank_num: int) -> int:
+    """해당 캐릭터 랭크 도달 시 지급되는 크리스탈 보상을 반환합니다."""
+    r = int(rank_num)
+    if r <= 1:
+        return 0
+    if r % 10 == 0:
+        return 300
+    if r % 5 == 0:
+        return 150
+    return 50
+
+
+def calculate_character_rank(data: dict, guild_id: int, user_id: int, char_id: int) -> dict:
+    """보유 카드, 마스터 랭크, 레벨 강화, 3D 의상, 세카이 라이브 출전, 오시 보너스를 종합해 캐릭터 랭크를 계산합니다."""
+    cid = int(char_id)
+    c_info = CHARACTER_MAP.get(cid, {"name": f"캐릭터 #{cid}", "unit": "기타"})
+    g_key = str(guild_id or 0)
+    u_key = str(user_id)
+
+    g_user = safe_get_dict(data, "gacha_users", g_key, u_key)
+    prof = safe_get_dict(data, "user_profiles", u_key)
+    u_cards = as_dict(g_user.get("cards"))
+
+    char_cards = [
+        c for c in u_cards.values()
+        if isinstance(c, dict) and _safe_card_int(c.get("char_id"), 0) == cid
+    ]
+
+    card_exp = 0
+    mr_exp = 0
+    lvl_exp = 0
+    mr_sum = 0
+    star4_owned = 0
+    for c in char_cards:
+        s_num = _safe_card_int(c.get("star_num"), 2)
+        if s_num >= 4:
+            star4_owned += 1
+            card_exp += 3
+            mr_mult = 3
+        elif s_num == 3:
+            card_exp += 2
+            mr_mult = 2
+        else:
+            card_exp += 1
+            mr_mult = 1
+        mr_val = max(0, _safe_card_int(c.get("master_rank"), 0))
+        mr_sum += mr_val
+        mr_exp += mr_val * mr_mult
+        lvl_val = max(1, _safe_card_int(c.get("level"), 1))
+        if lvl_val >= 10:
+            lvl_exp += 1
+        if lvl_val >= 30:
+            lvl_exp += 1
+        if lvl_val >= 50:
+            lvl_exp += 1
+
+    # 3D 의상 수집 (카드 자동 해금 + 제작 구매 의상, 기본 의상 제외)
+    unlocked_cos_ids: set[str] = set()
+    for c in char_cards:
+        cos = get_costume_for_card(c.get("id"))
+        if cos and cos.get("costume_id"):
+            unlocked_cos_ids.add(str(cos["costume_id"]))
+    g_purchased = as_dict(g_user.get("purchased_costumes")).get(str(cid)) or []
+    p_purchased = as_dict(prof.get("purchased_costumes")).get(str(cid)) or []
+    for cos_id in list(g_purchased) + list(p_purchased):
+        if cos_id:
+            unlocked_cos_ids.add(str(cos_id))
+    costume_count = len(unlocked_cos_ids)
+    costume_exp = costume_count * 2
+
+    # 세카이 라이브 출전 횟수
+    live_plays = max(0, _safe_card_int(as_dict(g_user.get("char_live_plays")).get(str(cid)), 0))
+    live_exp = (1 + min(60, live_plays // 2)) if live_plays > 0 else 0
+
+    # 오시(최애) 설정 보너스
+    is_oshi = (prof.get("oshi") == c_info["name"])
+    oshi_exp = 2 if is_oshi else 0
+
+    total_exp = card_exp + mr_exp + lvl_exp + costume_exp + live_exp + oshi_exp
+    rank, cur_exp, need_exp = get_char_rank_level_from_exp(total_exp)
+
+    unlocked_flags = []
+    next_flag = None
+    for t in CHARACTER_RANK_FLAG_TIERS:
+        f_meta = get_char_rank_flag_meta(cid, t["rank"])
+        if not f_meta:
+            continue
+        if rank >= t["rank"]:
+            unlocked_flags.append(f_meta)
+        elif next_flag is None:
+            next_flag = f_meta
+
+    highest_flag = unlocked_flags[-1] if unlocked_flags else None
+
+    claimed_map = as_dict(g_user.get("char_rank_claimed"))
+    claimed_rank = max(1, _safe_card_int(claimed_map.get(str(cid)), 1))
+    unclaimed_ranks = max(0, rank - claimed_rank)
+    unclaimed_crystals = sum(get_char_rank_milestone_reward(r) for r in range(claimed_rank + 1, rank + 1))
+
+    return {
+        "char_id": cid,
+        "char_name": c_info["name"],
+        "unit": c_info["unit"],
+        "unit_emoji": UNIT_EMOJIS.get(c_info["unit"], "🎵"),
+        "unit_color": UNIT_THEME_COLORS.get(c_info["unit"], (0, 204, 221)),
+        "rank": rank,
+        "total_exp": total_exp,
+        "cur_exp": cur_exp,
+        "need_exp": need_exp,
+        "is_oshi": is_oshi,
+        "owned_cards": len(char_cards),
+        "star4_owned": star4_owned,
+        "mr_sum": mr_sum,
+        "costume_count": costume_count,
+        "live_plays": live_plays,
+        "breakdown": {
+            "card_exp": card_exp,
+            "mr_exp": mr_exp,
+            "lvl_exp": lvl_exp,
+            "costume_exp": costume_exp,
+            "live_exp": live_exp,
+            "oshi_exp": oshi_exp,
+        },
+        "unlocked_flags": unlocked_flags,
+        "highest_flag": highest_flag,
+        "next_flag": next_flag,
+        "claimed_rank": claimed_rank,
+        "unclaimed_ranks": unclaimed_ranks,
+        "unclaimed_crystals": unclaimed_crystals,
+    }
+
+
+def calculate_all_character_ranks(data: dict, guild_id: int, user_id: int) -> list[dict]:
+    """26명 전체 프로세카 캐릭터의 캐랭 정보를 반환합니다."""
+    return [calculate_character_rank(data, guild_id, user_id, cid) for cid in sorted(CHARACTER_MAP.keys())]
+
+
+def claim_character_rank_rewards(
+    guild_id: int,
+    user_id: int,
+    char_id: int | None = None,
+    user_name: str = "",
+) -> tuple[bool, str, dict]:
+    """미수령 캐릭터 랭크업 보상(💎)을 수령합니다 (char_id=None이면 26명 전체 일괄 수령)."""
+    with _DATA_LOCK:
+        data = load_data()
+        g_key = str(guild_id or 0)
+        u_key = str(user_id)
+        prof = ensure_user_profile(data, u_key, user_name)
+        g_user = ensure_dict_path(data, "gacha_users", g_key, u_key)
+        claimed_map = ensure_dict_path(g_user, "char_rank_claimed")
+
+        target_cids = [int(char_id)] if char_id is not None else sorted(CHARACTER_MAP.keys())
+        total_gained = 0
+        total_rankups = 0
+        claimed_details: list[str] = []
+
+        for cid in target_cids:
+            info = calculate_character_rank(data, guild_id, user_id, cid)
+            if info["unclaimed_ranks"] > 0 and info["unclaimed_crystals"] > 0:
+                total_gained += info["unclaimed_crystals"]
+                total_rankups += info["unclaimed_ranks"]
+                claimed_map[str(cid)] = info["rank"]
+                claimed_details.append(
+                    f"• {info['unit_emoji']} **{info['char_name']}** (`Rank {info['claimed_rank']} ➔ {info['rank']}`) : **`+{info['unclaimed_crystals']:,}💎`**"
+                )
+
+        if total_gained <= 0:
+            return False, "수령 가능한 캐릭터 랭크 보상이 없습니다!", {"gained_crystals": 0, "current_crystals": _safe_card_int(prof.get("crystals"), 0)}
+
+        prof["crystals"] = max(0, _safe_card_int(prof.get("crystals"), 0)) + total_gained
+        save_data(data)
+
+        return True, f"🎉 캐릭터 랭크 보상 **`+{total_gained:,}💎`** 수령 완료! (`{total_rankups}랭크` 달성분)", {
+            "gained_crystals": total_gained,
+            "total_rankups": total_rankups,
+            "details": claimed_details,
+            "current_crystals": prof["crystals"],
+        }
+
+
+def get_user_equipped_rank_flags(guild_id: int, user_id: int, data: dict | None = None) -> list[dict]:
+    """유저가 프로필에 장착 중인 캐릭터 랭크 칭호 깃발 목록(최대 3개)을 유효성 검증 후 반환합니다."""
+    d = data if isinstance(data, dict) else load_data()
+    g_key = str(guild_id or 0)
+    u_key = str(user_id)
+    g_user = safe_get_dict(d, "gacha_users", g_key, u_key)
+    prof = safe_get_dict(d, "user_profiles", u_key)
+
+    raw_flags = g_user.get("equipped_rank_flags")
+    if not isinstance(raw_flags, list):
+        raw_flags = prof.get("equipped_rank_flags")
+    if not isinstance(raw_flags, list):
+        return []
+
+    result: list[dict] = []
+    seen_pairs: set[tuple[int, int]] = set()
+    for entry in raw_flags:
+        if not isinstance(entry, dict):
+            continue
+        cid = _safe_card_int(entry.get("char_id"), 0)
+        tier_rank = _safe_card_int(entry.get("tier_rank"), 0)
+        if cid not in CHARACTER_MAP:
+            continue
+        info = calculate_character_rank(d, guild_id, user_id, cid)
+        if info["rank"] < tier_rank:
+            # 랭크 조건 미달 시 해금된 최고 티어로 폴백하거나 제외
+            if not info["highest_flag"]:
+                continue
+            tier_rank = info["highest_flag"]["tier_rank"]
+        pair = (cid, tier_rank)
+        if pair in seen_pairs:
+            continue
+        f_meta = get_char_rank_flag_meta(cid, tier_rank)
+        if not f_meta:
+            continue
+        f_meta["current_rank"] = info["rank"]
+        result.append(f_meta)
+        seen_pairs.add(pair)
+        if len(result) >= MAX_EQUIPPED_RANK_FLAGS:
+            break
+    return result
+
+
+def toggle_user_equipped_rank_flag(
+    guild_id: int,
+    user_id: int,
+    char_id: int,
+    tier_rank: int | None = None,
+) -> tuple[bool, str, list[dict]]:
+    """프로필 캐랭 칭호 깃발(최대 3슬롯)을 장착/교체/해제합니다."""
+    cid = int(char_id)
+    if cid not in CHARACTER_MAP:
+        return False, "유효하지 않은 캐릭터입니다.", []
+
+    with _DATA_LOCK:
+        data = load_data()
+        g_key = str(guild_id or 0)
+        u_key = str(user_id)
+        info = calculate_character_rank(data, guild_id, user_id, cid)
+        if not info["unlocked_flags"]:
+            return (
+                False,
+                f"🔒 **{info['char_name']}**의 칭호 깃발은 **캐릭터 랭크 5**부터 해금됩니다! (현재: `Rank {info['rank']}`)",
+                get_user_equipped_rank_flags(guild_id, user_id, data=data),
+            )
+
+        if tier_rank is None:
+            chosen_tier = info["highest_flag"]["tier_rank"]
+        else:
+            chosen_tier = int(tier_rank)
+            if info["rank"] < chosen_tier:
+                return (
+                    False,
+                    f"🔒 해당 등급 깃발은 **Rank {chosen_tier}** 달성 시 해금됩니다! (현재: `Rank {info['rank']}`)",
+                    get_user_equipped_rank_flags(guild_id, user_id, data=data),
+                )
+
+        f_meta = get_char_rank_flag_meta(cid, chosen_tier)
+        if not f_meta:
+            return False, "존재하지 않는 깃발 티어입니다.", get_user_equipped_rank_flags(guild_id, user_id, data=data)
+
+        g_user = ensure_dict_path(data, "gacha_users", g_key, u_key)
+        prof = ensure_user_profile(data, u_key)
+        cur_list = g_user.get("equipped_rank_flags")
+        if not isinstance(cur_list, list):
+            cur_list = list(prof.get("equipped_rank_flags")) if isinstance(prof.get("equipped_rank_flags"), list) else []
+
+        # 동일 캐릭터+티어면 장착 해제, 동일 캐릭터의 다른 티어면 티어 교체
+        same_idx = next(
+            (i for i, e in enumerate(cur_list) if isinstance(e, dict) and _safe_card_int(e.get("char_id")) == cid and _safe_card_int(e.get("tier_rank")) == chosen_tier),
+            None,
+        )
+        same_char_idx = next(
+            (i for i, e in enumerate(cur_list) if isinstance(e, dict) and _safe_card_int(e.get("char_id")) == cid),
+            None,
+        )
+
+        if same_idx is not None:
+            cur_list.pop(same_idx)
+            action_msg = f"🏷️ {f_meta['emoji']} **`[{f_meta['title']}]`** 칭호 깃발을 프로필에서 해제했습니다."
+        elif same_char_idx is not None:
+            cur_list[same_char_idx] = {"char_id": cid, "tier_rank": chosen_tier}
+            action_msg = f"🚩 {f_meta['emoji']} **`[{f_meta['title']}]`** ({f_meta['grade']}) 깃발로 교체 장착했습니다!"
+        else:
+            if len(cur_list) >= MAX_EQUIPPED_RANK_FLAGS:
+                cur_list.pop(0)
+            cur_list.append({"char_id": cid, "tier_rank": chosen_tier})
+            action_msg = f"🚩 {f_meta['emoji']} **`[{f_meta['title']}]`** ({f_meta['grade']}) 깃발을 프로필에 장착했습니다! (`{len(cur_list)}/{MAX_EQUIPPED_RANK_FLAGS}`)"
+
+        g_user["equipped_rank_flags"] = cur_list
+        prof["equipped_rank_flags"] = copy.deepcopy(cur_list)
+        save_data(data)
+        updated = get_user_equipped_rank_flags(guild_id, user_id, data=data)
+        return True, action_msg, updated
+
+
+def clear_user_equipped_rank_flags(guild_id: int, user_id: int) -> tuple[bool, str]:
+    """프로필에 장착 중인 모든 캐릭터 랭크 칭호 깃발을 해제합니다."""
+    with _DATA_LOCK:
+        data = load_data()
+        g_key = str(guild_id or 0)
+        u_key = str(user_id)
+        g_user = ensure_dict_path(data, "gacha_users", g_key, u_key)
+        prof = ensure_user_profile(data, u_key)
+        g_user["equipped_rank_flags"] = []
+        prof["equipped_rank_flags"] = []
+        save_data(data)
+    return True, "🧹 장착 중인 모든 캐릭터 랭크 칭호 깃발을 해제했습니다."
+
+
+def build_character_rank_flag_image_bytes(
+    rank_info: dict,
+    equipped_flags: list[dict] | None = None,
+) -> tuple[bytes | None, str | None]:
+    """프로세카 인게임 스타일의 캐릭터 랭크 칭호 깃발(리본 배너) PNG 이미지를 생성합니다."""
+    if Image is None or ImageDraw is None or not isinstance(rank_info, dict):
+        return None, None
+
+    width, height = 920, 310
+    canvas = Image.new("RGBA", (width, height), (16, 20, 38, 255))
+    draw = ImageDraw.Draw(canvas)
+
+    u_col = tuple(rank_info.get("unit_color") or (0, 204, 221))
+    highest = rank_info.get("highest_flag")
+    tier_col = tuple(highest["color"]) if highest else (110, 125, 160)
+    accent_col = tuple(highest["accent"]) if highest else (190, 205, 235)
+
+    # 상단 유닛 컬러 바 & 배경 카드
+    draw.rounded_rectangle([14, 14, width - 14, height - 14], radius=22, fill=(23, 28, 52, 255), outline=(*tier_col, 235), width=3)
+    draw.rounded_rectangle([24, 24, width - 24, 72], radius=14, fill=(32, 40, 74, 255))
+    draw.rectangle([24, 68, width - 24, 72], fill=(*u_col, 255))
+
+    f_title = _get_grid_font(22, bold=True)
+    f_flag = _get_grid_font(28, bold=True)
+    f_sub = _get_grid_font(16, bold=True)
+    f_sm = _get_grid_font(14, bold=False)
+
+    char_name = _sanitize_grid_text(rank_info.get("char_name", "캐릭터"))
+    unit_name = _sanitize_grid_text(rank_info.get("unit", ""))
+    rank_num = int(rank_info.get("rank", 1))
+    header_txt = _sanitize_grid_text(f"CHARACTER RANK  |  {char_name} ({unit_name})")
+    draw.text((40, 35), header_txt, fill=(242, 246, 255, 255), font=f_title)
+
+    rank_pill = f"RANK {rank_num}"
+    if f_title:
+        rb = draw.textbbox((0, 0), rank_pill, font=f_title)
+        rw = rb[2] - rb[0]
+    else:
+        rw = 110
+    draw.rounded_rectangle([width - rw - 66, 30, width - 34, 64], radius=14, fill=(*u_col, 245))
+    draw.text((width - rw - 50, 34), rank_pill, fill=(255, 255, 255, 255), font=f_title)
+
+    # 프로세카 스타일 가로 깃발(리본) 배너 그리기
+    fx1, fy1, fx2, fy2 = 42, 92, width - 42, 194
+    notch = 28
+    mid_y = (fy1 + fy2) // 2
+    ribbon_pts = [
+        (fx1, fy1),
+        (fx2, fy1),
+        (fx2 - notch, mid_y),
+        (fx2, fy2),
+        (fx1, fy2),
+        (fx1 + notch, mid_y),
+    ]
+    draw.polygon(ribbon_pts, fill=(36, 44, 78, 255))
+    # 좌측 등급 포인트 스트라이프
+    stripe_pts = [
+        (fx1, fy1),
+        (fx1 + 135, fy1),
+        (fx1 + 115, fy2),
+        (fx1, fy2),
+        (fx1 + notch, mid_y),
+    ]
+    draw.polygon(stripe_pts, fill=(*tier_col, 255))
+    # 리본 테두리
+    draw.line(ribbon_pts + [ribbon_pts[0]], fill=(*accent_col, 255), width=4)
+
+    grade_txt = _sanitize_grid_text(highest["grade"] if highest else "미해금 (Rank 5)")
+    flag_title = _sanitize_grid_text(f"[ {highest['title']} ]" if highest else f"[ {char_name} — Rank 5에서 첫 깃발 해금 ]")
+    draw.text((fx1 + 36, fy1 + 26), _sanitize_grid_text(f"Lv.{highest['tier_rank']}" if highest else "LOCK"), fill=(18, 22, 40, 255), font=f_title)
+    draw.text((fx1 + 36, fy1 + 58), grade_txt[:10], fill=(24, 28, 48, 255), font=f_sm)
+
+    draw.text((fx1 + 158, fy1 + 22), flag_title, fill=(255, 255, 255, 255), font=f_flag)
+    # 해금된 티어 별(피프) 표시
+    unlocked_cnt = len(rank_info.get("unlocked_flags") or [])
+    total_tiers = len(CHARACTER_RANK_FLAG_TIERS)
+    pips_txt = "★" * unlocked_cnt + "☆" * max(0, total_tiers - unlocked_cnt)
+    draw.text((fx1 + 160, fy1 + 64), _sanitize_grid_text(f"깃발 등급: {grade_txt}   {pips_txt} ({unlocked_cnt}/{total_tiers})"), fill=(*accent_col, 255), font=f_sub)
+
+    # 하단 EXP 게이지 바 & 장착 중인 프로필 깃발 요약
+    cur_exp = int(rank_info.get("cur_exp", 0))
+    need_exp = max(1, int(rank_info.get("need_exp", 3)))
+    pct = min(1.0, max(0.0, cur_exp / need_exp))
+    bx1, by1, bx2, by2 = 42, 214, width - 42, 238
+    draw.rounded_rectangle([bx1, by1, bx2, by2], radius=10, fill=(32, 38, 66, 255), outline=(80, 95, 138, 200), width=1)
+    fill_w = int((bx2 - bx1) * pct)
+    if fill_w > 12:
+        draw.rounded_rectangle([bx1, by1, bx1 + fill_w, by2], radius=10, fill=(*u_col, 255))
+    draw.text(
+        (bx1 + 12, by1 + 3),
+        _sanitize_grid_text(f"NEXT RANK EXP: {cur_exp} / {need_exp}   (누적 EXP: {rank_info.get('total_exp', 0):,})"),
+        fill=(250, 252, 255, 255),
+        font=f_sm,
+    )
+
+    eq_list = equipped_flags or []
+    if eq_list:
+        eq_str = "  |  ".join(_sanitize_grid_text(f"[{f['title']}]") for f in eq_list[:3])
+        footer_line = f"프로필 장착 깃발 ({len(eq_list)}/{MAX_EQUIPPED_RANK_FLAGS}): {eq_str}"
+    else:
+        footer_line = "프로필 장착 깃발 없음 — 아래 버튼으로 해금된 깃발을 내 프로필에 장착해 보세요!"
+    draw.text((42, 254), _sanitize_grid_text(footer_line)[:95], fill=(196, 212, 242, 235), font=f_sm)
+
+    buf = io.BytesIO()
+    canvas.save(buf, format="PNG")
+    return buf.getvalue(), f"proseka_rank_flag_{rank_info.get('char_id', 1)}.png"
 
 
 def get_gacha_hall_of_fame(guild_id: int) -> dict:
@@ -5527,7 +6487,7 @@ def can_use_daily_birthday_free_pull(guild_id: int, user_id: int, now_dt: dateti
 
 
 def draw_birthday_free_pull(guild_id: int, user_id: int, now_dt: datetime.datetime | None = None) -> tuple[bool, str, list[dict], list[dict]]:
-    """오늘 생일인 캐릭터의 생일 축하 무료 단차 1회를 실행하고 보관함 및 명예의 전당에 반영합니다."""
+    """오늘 생일인 캐릭터의 생일 축하 무료 단차 1회를 실행하고 보관함·가챠 배지·명예의 전당에 반영합니다."""
     now = now_dt or datetime.datetime.now(KST)
     bday_chars = get_today_birthday_characters(now)
     if not bday_chars:
@@ -5587,11 +6547,10 @@ def draw_birthday_free_pull(guild_id: int, user_id: int, now_dt: datetime.dateti
         weights = [c["prob"] for c in weighted_pool]
         drawn = [dict(random.choices(weighted_pool, weights=weights, k=1)[0])]
         for c in drawn:
-            cid_str = str(c.get("id"))
-            if cid_str in PROSEKA_KR_COSTUMES:
-                c["costume"] = dict(PROSEKA_KR_COSTUMES[cid_str])
+            _attach_costume_meta(c)
 
         u_obj["last_bday_free_date"] = today_str
+        u_obj["gacha_badges"] = max(0, _safe_card_int(u_obj.get("gacha_badges"), 0)) + len(drawn)
         _save_pulled_cards_in_data(data, guild_id, user_id, drawn)
         _record_hall_of_fame_in_data(data, guild_id, user_id, drawn, banner_type="birthday")
         save_data(data)

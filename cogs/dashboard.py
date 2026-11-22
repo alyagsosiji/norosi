@@ -2801,15 +2801,15 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "🌈",
                             "style": discord.ButtonStyle.success,
                             "perm": PERM_USER,
-                            "desc": "한섭 프로세카 10회 연속 뽑기 (★3 이상 최소 1장 확정)",
+                            "desc": "한섭 10연차 (50/100pt 보너스 게이지 · 200배지 천장 · 승격/대사 연출)",
                             "cb": self._act_sekai_pull_10,
                         },
                         {
-                            "label": "1회·운명·연습·생일뽑기",
+                            "label": "특수뽑기·천장·셀렉트",
                             "emoji": "🔮",
                             "style": discord.ButtonStyle.primary,
                             "perm": PERM_USER,
-                            "desc": "1회 단차 · 일일 운명 다시뽑기(3세트 택1) · 리세마라 연습 · 생일 무료단차",
+                            "desc": "1회 단차 · 200배지 천장 · 셀렉트리스트(특수티켓) · 캐랭 깃발 · 운명 · 연습 · 생일",
                             "cb": self._act_sekai_pull_hub,
                         },
                         {
@@ -3769,13 +3769,14 @@ class MasterDashboardView(core.SafeView):
                 ],
             },
             "owner_sekai_pickup": {
-                "title": "🎯 [봇 주인 전용] 프로세카 글로벌 픽업 배너 제어판",
-                "desc": "프로세카 한섭 실시간 이벤트 자동 연동, 페스(★4 2배)/생일/일반 전환 및 수동 캐릭터·한정 픽업을 설정합니다.",
+                "title": "🎯 [봇 주인 전용] 프로세카 글로벌 픽업 & 셀렉트 티켓 제어판",
+                "desc": "프로세카 한섭 실시간 이벤트 자동 연동, 페스/생일 전환, 수동 픽업 및 유저별 셀렉트 리스트 특수 티켓을 지급·관리합니다.",
                 "perm": PERM_OWNER,
                 "buttons": [
                     ("한섭 실시간 이벤트 자동맞춤", "🎯", discord.ButtonStyle.success, self._sub_owner_sekai_auto),
                     ("컬러풀 페스 (★4 6% 2배)", "🎊", discord.ButtonStyle.primary, self._sub_owner_sekai_fes),
                     ("생일 기념 배너 전환", "🎂", discord.ButtonStyle.primary, self._sub_owner_sekai_bday),
+                    ("셀렉트 티켓 지급·관리", "🎟️", discord.ButtonStyle.success, self._sub_owner_sekai_select_tickets),
                     ("수동 유닛·캐릭터·한정 설정", "🎛️", discord.ButtonStyle.secondary, self._sub_owner_sekai_custom_modal),
                     ("기본 상시 픽업으로 초기화", "🔄", discord.ButtonStyle.secondary, self._sub_owner_sekai_reset),
                     ("현재 배너 확률표 확인", "📊", discord.ButtonStyle.secondary, self._sub_sekai_rates),
@@ -3856,12 +3857,15 @@ class MasterDashboardView(core.SafeView):
                 ],
             },
             "sekai_pull_hub": {
-                "title": "🔮 프로세카 뽑기 & 특수 시뮬레이터 허브",
-                "desc": "1회 단차 · 10회 연차 · 일일 운명 다시뽑기(1일 1회, 3세트 중 택1) · 리세마라 연습모드 · 생일 무료단차를 실행합니다.",
+                "title": "🔮 프로세카 뽑기 · 천장 교환 · 셀렉트 리스트 · 캐랭 깃발 허브",
+                "desc": "10연차/단차(50·100pt 보너스 게이지) · 200배지 천장교환 · 셀렉트 리스트(특수 티켓) · 캐랭 깃발 · 운명 · 연습 · 생일 무료단차를 실행합니다.",
                 "perm": PERM_USER,
                 "buttons": [
                     ("프로세카 10회 연속뽑기", "🌈", discord.ButtonStyle.success, self._act_sekai_pull_10),
                     ("프로세카 1회 단차뽑기", "🎵", discord.ButtonStyle.primary, self._act_sekai_pull_1),
+                    ("200배지 천장 교환소", "🏅", discord.ButtonStyle.success, self._sub_sekai_ceiling_exchange),
+                    ("셀렉트 리스트 가챠 (티켓)", "🎟️", discord.ButtonStyle.primary, self._sub_sekai_select_list),
+                    ("캐릭터 랭크 & 칭호 깃발", "🚩", discord.ButtonStyle.primary, self._act_sekai_char_rank),
                     ("일일 운명 다시뽑기 (3세트 택1)", "🔮", discord.ButtonStyle.primary, self._sub_sekai_destiny_reroll),
                     ("리세마라 연습 시뮬레이터", "🧪", discord.ButtonStyle.secondary, self._sub_sekai_reroll_sim),
                     ("오늘의 생일 무료 단차", "🎂", discord.ButtonStyle.secondary, self._sub_sekai_bday_free),
@@ -3913,18 +3917,19 @@ class MasterDashboardView(core.SafeView):
                 ],
             },
             "sekai_deck": {
-                "title": "🎴 프로세카 5인 유닛 덱 & 카드 강화 · 검색 · 교환 · 선물",
-                "desc": "내 5인 덱 구성을 확인·편성(자동/직접)하고 보유 카드를 검색·강화·마스터랭크 돌파하거나 1:1 교환·선물합니다.",
+                "title": "🎴 프로세카 5인 유닛 덱 & 카드 강화 · 캐랭 깃발 · 교환 · 선물",
+                "desc": "내 5인 덱 구성을 확인·편성(자동/직접)하고 보유 카드를 검색·강화·마스터랭크·캐랭 깃발 관리하거나 1:1 교환·선물합니다.",
                 "perm": PERM_USER,
                 "buttons": [
                     ("내 5인 덱 현황 & 편성", "🎴", discord.ButtonStyle.primary, self._sub_sekai_deck_view),
                     ("보유 카드 레벨업 강화", "🔨", discord.ButtonStyle.success, self._sub_sekai_card_enhance),
                     ("마스터 랭크(✦MR) 돌파", "🏆", discord.ButtonStyle.secondary, self._act_sekai_master_rank),
+                    ("캐릭터 랭크 & 칭호 깃발", "🚩", discord.ButtonStyle.primary, self._act_sekai_char_rank),
                     ("중복 카드 크리스탈 환전", "💎", discord.ButtonStyle.secondary, self._act_sekai_dup_convert),
                     ("1:1 카드 교환 장터 (100💎)", "🔄", discord.ButtonStyle.primary, self._sub_sekai_card_trade),
                     ("파트너 카드 선물 (50💎)", "🎁", discord.ButtonStyle.secondary, self._sub_sekai_card_gift),
                     ("내 보유 카드 키워드 검색", "🔍", discord.ButtonStyle.secondary, self._sub_sekai_card_search),
-                    ("특수 뽑기 (연습·운명·생일)", "🔮", discord.ButtonStyle.secondary, self._act_sekai_pull_hub),
+                    ("특수 뽑기·천장·셀렉트", "🔮", discord.ButtonStyle.secondary, self._act_sekai_pull_hub),
                 ],
             },
             "gi_personal": {
@@ -5196,6 +5201,18 @@ class MasterDashboardView(core.SafeView):
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 마스터 랭크 창 열기 오류: {e}", ephemeral=True)
 
+    async def _act_sekai_char_rank(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            view = gacha.CharacterRankView(interaction.user, guild_id=interaction.guild_id or 0)
+            embed, file_obj = await view.build_embed_and_file()
+            if file_obj:
+                await interaction.followup.send(embed=embed, file=file_obj, view=view, wait=True)
+            else:
+                await interaction.followup.send(embed=embed, view=view, wait=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 캐릭터 랭크 창 열기 오류: {e}", ephemeral=True)
+
     async def _act_sekai_wardrobe(self, interaction: discord.Interaction):
         try:
             await core.safe_defer(interaction)
@@ -5959,6 +5976,17 @@ class MasterDashboardView(core.SafeView):
             return
         await interaction.response.send_modal(DashboardSekaiOwnerPickupModal(self.bot or interaction.client))
 
+    async def _sub_owner_sekai_select_tickets(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="셀렉트 리스트 특수 티켓 지급·관리"):
+            return
+        try:
+            await core.safe_defer(interaction, ephemeral=True)
+            view = gacha.OwnerSelectTicketGrantView(interaction.user)
+            msg_obj = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
+            view.message = msg_obj
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 셀렉트 티켓 제어판 열기 오류: {e}", ephemeral=True)
+
     async def _sub_owner_gi_custom_modal(self, interaction: discord.Interaction):
         if not await self.check_bot_owner_permission(interaction, action_name="원신 수동 픽업 설정"):
             return
@@ -5971,6 +5999,22 @@ class MasterDashboardView(core.SafeView):
 
     async def _act_sekai_pull_hub(self, interaction: discord.Interaction):
         await self._enter_sub_mode(interaction, "sekai_pull_hub")
+
+    async def _sub_sekai_ceiling_exchange(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            view = gacha.GachaCeilingExchangeView(interaction.user, guild_id=interaction.guild_id or 0)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 천장 교환소 열기 오류: {e}", ephemeral=True)
+
+    async def _sub_sekai_select_list(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            view = gacha.SelectListGachaView(interaction.user, guild_id=interaction.guild_id or 0)
+            await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 셀렉트 리스트 가챠 열기 오류: {e}", ephemeral=True)
 
     async def _sub_sekai_destiny_reroll(self, interaction: discord.Interaction):
         gacha_cog = self._find_cog_with_attr("proseka_pull_cmd")

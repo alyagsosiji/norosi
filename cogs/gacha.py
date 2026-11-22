@@ -28,9 +28,40 @@ async def _is_interaction_bot_owner(interaction: discord.Interaction, bot_instan
     return False
 
 
+def _pick_spotlight_card(drawn: list) -> dict | None:
+    """대사 선공개 연출에 사용할 가장 돋보이는 카드 1장을 선택합니다."""
+    if not drawn:
+        return None
+    high_cards = [c for c in drawn if c.get("star_num", 0) >= 4]
+    pool = high_cards if high_cards else [c for c in drawn if c.get("star_num", 0) == 3]
+    if not pool:
+        return drawn[-1]
+
+    def _score(c: dict):
+        trig = c.get("bonus_trigger")
+        trig_rank = 3 if trig == "select_list" else (2 if trig == "100pt" else (1 if trig == "50pt" else 0))
+        return (
+            trig_rank,
+            int(bool(c.get("is_pickup"))),
+            int(bool(c.get("is_new"))),
+            int(c.get("star_num", 0)),
+        )
+
+    return max(pool, key=_score)
+
+
+def _get_card_preview_quote(card: dict) -> str:
+    """카드의 공식 가챠 대사(gachaPhrase) 또는 캐릭터 대표 대사를 반환합니다."""
+    raw_quote = (card.get("gachaPhrase") or "").strip()
+    if raw_quote and raw_quote != "-":
+        return raw_quote
+    char_id = int(card.get("char_id") or 1)
+    return core.DEFAULT_CHARACTER_QUOTES.get(char_id, "세카이의 새로운 소리가 울려 퍼집니다!")
+
+
 def build_gacha_intro_embed(drawn: list, banner_type: str = "normal", pull_count: int = 1) -> discord.Embed:
-    """뽑기 결과 공개 직전 오브 승격 연출 및 ★4·생일 대사(gachaPhrase) 선공개 임베드"""
-    b_cfg = core.BANNER_CONFIGS.get(banner_type, core.BANNER_CONFIGS["normal"])
+    """뽑기 결과 공개 직전 오브 승격 연출 및 ★4·생일 대사(gachaPhrase) 선공개 임베드 (단일 프레임 호환용)"""
+    b_cfg = core.get_banner_meta(banner_type)
     high_cards = [c for c in drawn if c.get("star_num", 0) >= 4]
     has_4star = len(high_cards) > 0
     has_3star = any(c.get("star_num", 0) == 3 for c in drawn)
@@ -39,11 +70,8 @@ def build_gacha_intro_embed(drawn: list, banner_type: str = "normal", pull_count
         orb_line = "🔵 파란 빛 ➔ 🟡 황금 빛 ➔ 🌈 **무지개 빛으로 승격!!**"
         tier_msg = "✨ **최고 등급(★★★★ / 🎀생일) 카드 출현 확정!!**"
         color = discord.Color.from_rgb(255, 105, 180)
-        # ★4/생일 카드 중 대사 선공개
-        top_card = sorted(high_cards, key=lambda x: (-x.get("star_num", 0), not x.get("is_pickup")))[0]
-        raw_quote = (top_card.get("gachaPhrase") or "").strip()
-        if not raw_quote or raw_quote == "-":
-            raw_quote = core.DEFAULT_CHARACTER_QUOTES.get(top_card.get("char_id", 1), "세카이의 새로운 소리가 울려 퍼집니다!")
+        top_card = _pick_spotlight_card(drawn) or high_cards[0]
+        raw_quote = _get_card_preview_quote(top_card)
         quote_block = f"\n\n💬 **\"{raw_quote}\"**\n└ *— 어디선가 익숙한 목소리가 들려옵니다...*"
     elif has_3star:
         orb_line = "🔵 파란 빛 ➔ 🟡 **황금 빛 반짝임!!**"
@@ -67,6 +95,178 @@ def build_gacha_intro_embed(drawn: list, banner_type: str = "normal", pull_count
     return embed
 
 
+def build_gacha_animation_stages(
+    drawn: list,
+    banner_type: str = "normal",
+    pull_count: int = 1,
+    pity_info: dict | None = None,
+) -> list[tuple[discord.Embed, float]]:
+    """
+    다단계 리얼타임 가챠 연출 시퀀스를 생성합니다:
+    1) 오브 등장 (★4 시 약 48% 확률로 황금/파란 오브 페이크 시작!)
+    2) 승격 반전 연출 (🟡/🔵 ➔ 💥 🌈 무지개 빛으로 대폭발 승격!)
+    3) ★4/🎀생일 대사 선공개 스포트라이트 컷신 (실루엣 `???` + 유닛/속성/NEW·픽업 힌트!)
+    """
+    b_cfg = core.get_banner_meta(banner_type)
+    high_cards = [c for c in drawn if c.get("star_num", 0) >= 4]
+    has_4star = len(high_cards) > 0
+    has_3star = any(c.get("star_num", 0) == 3 for c in drawn)
+    base_title = f"🎰 {b_cfg['short_name']} ({pull_count}회 뽑기)"
+    now_ts = datetime.datetime.now(core.KST)
+    stages: list[tuple[discord.Embed, float]] = []
+
+    if has_4star:
+        pity = pity_info or {}
+        top_card = _pick_spotlight_card(drawn) or high_cards[0]
+        do_promotion = (random.random() < 0.48)
+
+        if do_promotion:
+            super_fake = (random.random() < 0.25)
+            if super_fake:
+                s1 = discord.Embed(
+                    title=base_title,
+                    description=(
+                        "🔵 **잔잔한 푸른 빛의 오브가 내려옵니다...**\n"
+                        "🎵 *세카이의 문이 열리고 있습니다...*\n\n"
+                        "⚡ *...어라? 푸른 오브가 미세하게 진동하기 시작했습니다?!*"
+                    ),
+                    color=discord.Color.from_rgb(0, 188, 224),
+                    timestamp=now_ts,
+                )
+            else:
+                s1 = discord.Embed(
+                    title=base_title,
+                    description=(
+                        "🔵 파란 빛 ➔ 🟡 **황금 빛 오브 출현!**\n"
+                        "💫 **★★★ 이상 카드 등장...?**\n\n"
+                        "⚡ *...잠깐?! 황금 오브 표면이 눈부시게 빛나며 균열이 생기고 있습니다!!*"
+                    ),
+                    color=discord.Color.gold(),
+                    timestamp=now_ts,
+                )
+            s1.set_footer(text="✨ 세카이의 빛을 확인하는 중...")
+            stages.append((s1, 1.15))
+
+            promo_arrow = (
+                "🔵 파란 오브 ➔ ⚡ 🟡 ➔ 💥 🌈 **무지개 빛으로 2단 대역전 승격!!**"
+                if super_fake
+                else "🟡 황금 오브 ➔ ⚡ 균열 돌파! ➔ 💥 🌈 **무지개 빛으로 역전 승격!!**"
+            )
+            bonus_callout = ""
+            if banner_type == "select_list":
+                bonus_callout = "\n🎟️ **셀렉트 리스트 확정 슬롯 발동!!**"
+            elif pity.get("hit_100"):
+                bonus_callout = "\n🔥 **100pt 가챠 보너스 발동! 픽업 최고 등급 확정!!**"
+            elif pity.get("hit_50"):
+                bonus_callout = "\n⚡ **50pt 가챠 보너스 발동! ★4 확정!!**"
+
+            s2 = discord.Embed(
+                title="⚡ 승격 연출 발동!! (PROMOTION!!)",
+                description=(
+                    f"{promo_arrow}\n"
+                    f"✨ **최고 등급(★★★★ / 🎀생일) 카드 출현 확정!!**{bonus_callout}\n\n"
+                    "🌟 *눈부신 레인보우 섬광 너머로 누군가의 목소리가 들려옵니다...*"
+                ),
+                color=discord.Color.from_rgb(255, 64, 168),
+                timestamp=now_ts,
+            )
+            s2.set_footer(text="🌈 역전 승격 성공! 곧 캐릭터 대사가 선공개됩니다...")
+            stages.append((s2, 1.15))
+        else:
+            bonus_callout = ""
+            if banner_type == "select_list":
+                bonus_callout = "\n🎟️ **셀렉트 리스트 확정 빛 감지!!**"
+            elif pity.get("hit_100"):
+                bonus_callout = "\n🔥 **100pt 가챠 보너스! 픽업 최고 등급 확정!!**"
+            elif pity.get("hit_50"):
+                bonus_callout = "\n⚡ **50pt 가챠 보너스! ★4 확정!!**"
+            s1 = discord.Embed(
+                title=f"🌈 {b_cfg['short_name']} — 무지개 오브 출현!!",
+                description=(
+                    "🔵 파란 빛 ➔ 🟡 황금 빛 ➔ 🌈 **찬란한 무지개 빛 폭발!!**\n"
+                    f"✨ **최고 등급(★★★★ / 🎀생일) 카드 출현 확정!!**{bonus_callout}\n\n"
+                    "🌟 *세카이의 문 너머에서 특별한 목소리가 울려 퍼집니다...*"
+                ),
+                color=discord.Color.from_rgb(255, 105, 180),
+                timestamp=now_ts,
+            )
+            s1.set_footer(text="🌈 최고 등급 확정! 곧 캐릭터 대사가 선공개됩니다...")
+            stages.append((s1, 1.35))
+
+        # 마지막 컷신: 대사 선공개 스포트라이트 (이름은 ??? 실루엣 처리 + 유닛/속성/NEW·픽업 힌트!)
+        raw_quote = _get_card_preview_quote(top_card)
+        unit_name = top_card.get("unit") or "세카이"
+        unit_emoji = core.UNIT_EMOJIS.get(unit_name, "🎵")
+        attr_txt = top_card.get("attr") or "✨"
+        hint_parts = [f"{unit_emoji} `{unit_name}`", f"{attr_txt}"]
+        if top_card.get("rarity_type") == "rarity_birthday":
+            hint_parts.append("🎂 `생일 한정`")
+        elif top_card.get("bonus_trigger") == "select_list":
+            hint_parts.append("🎟️ `셀렉트 확정`")
+        elif top_card.get("bonus_trigger") == "100pt":
+            hint_parts.append("🔥 `100pt 픽업확정`")
+        elif top_card.get("bonus_trigger") == "50pt":
+            hint_parts.append("⚡ `50pt 보너스`")
+        elif top_card.get("is_pickup"):
+            hint_parts.append("🎯 `픽업 예감!`")
+        if top_card.get("is_new"):
+            hint_parts.append("✨ `NEW! 처음 만나는 목소리`")
+
+        extra_line = (
+            f"\n\n🌈 *이 외에도 빛나는 최고 등급 카드가 **`+{len(high_cards) - 1}장`** 더 기다리고 있습니다!!*"
+            if len(high_cards) > 1
+            else ""
+        )
+        u_rgb = core.UNIT_THEME_COLORS.get(unit_name, (255, 105, 180))
+        s_quote = discord.Embed(
+            title="💬 ✦ 대사 선공개 (VOICE PREVIEW) ✦",
+            description=(
+                "🌈 ────────────────────────── 🌈\n\n"
+                f"### 💬 *\"{raw_quote}\"*\n\n"
+                f"└ — **???**  ({' · '.join(hint_parts)})"
+                f"{extra_line}"
+            ),
+            color=discord.Color.from_rgb(*u_rgb),
+            timestamp=now_ts,
+        )
+        s_quote.set_footer(text="잠시 후 전체 카드 결과와 고화질 일러스트가 공개됩니다!")
+        stages.append((s_quote, 1.75))
+        return stages
+
+    if has_3star:
+        s1 = discord.Embed(
+            title=base_title,
+            description="🔵 **푸른 오브가 천천히 빛나고 있습니다...**\n🎵 *세카이의 문이 열리는 중...*",
+            color=discord.Color.from_rgb(0, 188, 224),
+            timestamp=now_ts,
+        )
+        s1.set_footer(text="✨ 세카이의 빛을 확인하는 중...")
+        stages.append((s1, 0.95))
+
+        top3 = _pick_spotlight_card(drawn)
+        q3 = _get_card_preview_quote(top3) if top3 else ""
+        q3_block = f"\n\n💬 *\"{q3}\"*\n└ — **???** (`{top3.get('unit', '')}`)" if q3 else ""
+        s2 = discord.Embed(
+            title=f"🟡 {b_cfg['short_name']} — 황금 빛 승격!",
+            description=f"🔵 파란 빛 ➔ 🟡 **황금 빛 반짝임!!**\n💫 **★★★ 이상 카드 등장!**{q3_block}",
+            color=discord.Color.gold(),
+            timestamp=now_ts,
+        )
+        s2.set_footer(text="잠시 후 전체 카드 결과가 공개됩니다!")
+        stages.append((s2, 1.25))
+        return stages
+
+    s1 = discord.Embed(
+        title=base_title,
+        description="🔵 **잔잔한 푸른 빛이 감돕니다...**\n🎵 **프로세카 스카우트 진행 중!**\n\n✨ *카드가 도착하고 있습니다...*",
+        color=discord.Color.from_rgb(0, 204, 221),
+        timestamp=now_ts,
+    )
+    s1.set_footer(text="잠시 후 결과가 공개됩니다!")
+    stages.append((s1, 1.25))
+    return stages
+
+
 def build_gacha_pull_embed(
     drawn: list,
     pickup_cfg: dict,
@@ -74,17 +274,26 @@ def build_gacha_pull_embed(
     user: discord.User = None,
     banner_type: str = "normal",
     mode_note: str | None = None,
+    pity_info: dict | None = None,
 ):
     has_4star = any(c["star_num"] >= 4 for c in drawn)
-    b_cfg = core.BANNER_CONFIGS.get(banner_type, core.BANNER_CONFIGS["normal"])
+    b_cfg = core.get_banner_meta(banner_type)
     default_rgb = b_cfg.get("color", (0, 204, 221))
     embed_color = discord.Color.from_rgb(255, 105, 180) if has_4star else discord.Color.from_rgb(*default_rgb)
 
-    pickup_summary = core.format_pickup_summary(pickup_cfg)
+    pickup_summary = "직접 선택한 ★4 10장 확정" if banner_type == "select_list" else core.format_pickup_summary(pickup_cfg)
 
     lines = []
     for idx, c in enumerate(drawn, start=1):
-        p_mark = "🎯 **[픽업!]** " if c.get("is_pickup") else ""
+        trig = c.get("bonus_trigger")
+        trig_mark = ""
+        if trig == "select_list":
+            trig_mark = "🎟️ **[셀렉트확정!]** "
+        elif trig == "100pt":
+            trig_mark = "🔥 **[100pt픽업확정!]** "
+        elif trig == "50pt":
+            trig_mark = "⚡ **[50pt보너스!]** "
+        p_mark = "🎯 **[픽업!]** " if (c.get("is_pickup") and not trig_mark) else ""
         new_mark = "✨ **[NEW!]** " if c.get("is_new") else ""
 
         # 성급별 시각적 이모지
@@ -106,7 +315,7 @@ def build_gacha_pull_embed(
 
         cos = core.get_costume_for_card(c.get("id"))
         cos_badge = f" · 👗`[{cos['name']}]`" if cos else ""
-        card_title = f"{p_mark}{new_mark}{limit_badge}**{rarity_badge} [{c['prefix']}] {c['char_name']}**"
+        card_title = f"{trig_mark}{p_mark}{new_mark}{limit_badge}**{rarity_badge} [{c['prefix']}] {c['char_name']}**"
         card_sub = f"   └ 🏷️ `{unit_str}` · `{c['attr']}` · 확률 `{c.get('prob', 0.0):.4f}%`{cos_badge}"
         lines.append(f"**{idx:02d}.** {card_title}\n{card_sub}")
 
@@ -134,7 +343,9 @@ def build_gacha_pull_embed(
     summary_line = f"📊 **뽑기 통계:** {' · '.join(summary_parts)}"
 
     title_str = "🌈 프로세카 10회 뽑기 (10연차) 결과!" if pull_count == 10 else "🎵 프로세카 1회 뽑기 (단차) 결과!"
-    if banner_type == "fes":
+    if banner_type == "select_list":
+        title_str = "🎟️ [셀렉트 리스트 확정!] 프로세카 10회 뽑기 결과!"
+    elif banner_type == "fes":
         title_str = "🎊 [페스티벌 ★4 2배!] " + title_str
     elif banner_type == "birthday":
         title_str = "🎂 [생일 스페셜] " + title_str
@@ -144,13 +355,43 @@ def build_gacha_pull_embed(
     header_lines = [f"🎰 **선택 배너:** `{b_cfg['name']}`"]
     if mode_note:
         header_lines.append(mode_note)
+    if pity_info:
+        if pity_info.get("hit_100"):
+            p_txt = "픽업 ★4 카드 확정 출현!" if pity_info.get("had_pickup_pool") else "★4 카드 확정 출현!"
+            header_lines.append(f"🔥 **[100pt 가챠 보너스 발동!]** 🎯 {p_txt} *(게이지 리셋 완료)*")
+        elif pity_info.get("hit_50"):
+            header_lines.append("⚡ **[50pt 가챠 보너스 발동!]** 🌟 ★4 최고 등급 카드 1장 확정 출현!")
     today_bdays = core.get_today_birthday_characters()
     if today_bdays:
         bday_names = ", ".join(b["char_name"] for b in today_bdays)
         header_lines.append(f"🎂 **오늘의 생일 픽업:** `{bday_names}` (하단 무료 단차 / 생일 배너 픽업 강조!)")
 
+    pity_lines = []
+    if pity_info:
+        g_val = int(pity_info.get("bonus_gauge", 0))
+        g_bar = pity_info.get("gauge_bar") or core.format_gacha_bonus_gauge_bar(g_val)
+        next_rem = int(pity_info.get("next_bonus_remaining", max(0, 50 - g_val)))
+        next_lbl = pity_info.get("next_bonus_label") or ("50pt ★4 확정" if g_val < 50 else "100pt 픽업 ★4 확정")
+        badges = int(pity_info.get("badges", 0))
+        ceil_cost = int(pity_info.get("ceiling_cost", core.GACHA_CEILING_BADGE_COST))
+        added_b = int(pity_info.get("added_badges", 0))
+        add_b_txt = f" (`+{added_b}`)" if added_b > 0 else ""
+        if badges >= ceil_cost:
+            ceil_status = f"✨ **천장 교환 가능! (`{badges // ceil_cost}회`)**"
+        else:
+            ceil_status = f"천장까지 `{ceil_cost - badges}개` 남음"
+        pity_lines.append(
+            f"⚡ **보너스 게이지:** {g_bar} **`{g_val} / 100pt`** *(다음 `{next_lbl}`까지 `{next_rem}pt`)*"
+        )
+        t_cnt = int(pity_info.get("select_tickets", 0))
+        t_suffix = f"  ·  🎟️ 셀렉트 티켓 `{t_cnt}장`" if t_cnt > 0 else ""
+        pity_lines.append(
+            f"🏅 **가챠 배지 (200 천장):** **`{badges:,} / {ceil_cost}`**{add_b_txt} · {ceil_status}{t_suffix}"
+        )
+
     banner_line = "\n".join(header_lines) + "\n\n"
-    footer_summary = f"\n\n━━━━━━━━━━━━━━━━━━━━━━\n{summary_line}"
+    pity_block = ("\n" + "\n".join(pity_lines)) if pity_lines else ""
+    footer_summary = f"\n\n━━━━━━━━━━━━━━━━━━━━━━\n{summary_line}{pity_block}"
     body_text = "\n\n".join(lines)
     max_body = max(200, 4050 - len(banner_line) - len(footer_summary))
     if len(body_text) > max_body:
@@ -167,7 +408,7 @@ def build_gacha_pull_embed(
         author_icon = user.display_avatar.url if hasattr(user, "display_avatar") else None
         embed.set_author(name=f"{user.display_name}님의 가챠 결과", icon_url=author_icon)
 
-    embed.set_footer(text=f"배너: {b_cfg['short_name']} • 적용 픽업: {pickup_summary} • 배너 변경은 봇주 전용 / 연출 스킵 가능")
+    embed.set_footer(text=f"배너: {b_cfg['short_name']} • 적용 픽업: {pickup_summary} • 50/100pt 보너스 · 200배지 천장 지원")
     return embed, has_4star
 
 
@@ -181,10 +422,17 @@ async def send_gacha_pull_result(
     skip_anim: bool = False,
     mode_note: str | None = None,
     grid_tag: str = "",
+    pity_info: dict | None = None,
 ):
-    """뽑기 결과 전송: 연출 보기 시 3.5초 승격 연출+대사 선공개 후 5x2 결과판 & 일러스트와 함께 결과를 표시합니다."""
+    """뽑기 결과 전송: 연출 보기 시 다단계 승격(역전)+대사 선공개 컷신 후 5x2 결과판 & 일러스트와 함께 결과를 표시합니다."""
     embed, has_4star = build_gacha_pull_embed(
-        drawn, pickup_cfg, pull_count, user=interaction.user, banner_type=banner_type, mode_note=mode_note
+        drawn,
+        pickup_cfg,
+        pull_count,
+        user=interaction.user,
+        banner_type=banner_type,
+        mode_note=mode_note,
+        pity_info=pity_info,
     )
     high_cards = [c for c in drawn if c.get("star_num", 0) >= 4] if has_4star else []
     total_high = len(high_cards)
@@ -195,31 +443,45 @@ async def send_gacha_pull_result(
         return None, None
 
     if high_cards:
-        img_coro = asyncio.gather(
-            *(asyncio.to_thread(core.fetch_proseka_card_image_bytes, c, "auto") for c in high_cards[:9])
+        img_task = asyncio.create_task(
+            asyncio.gather(
+                *(asyncio.to_thread(core.fetch_proseka_card_image_bytes, c, "auto") for c in high_cards[:9])
+            )
         )
     elif want_single_img:
-        img_coro = asyncio.gather(
-            asyncio.to_thread(core.fetch_proseka_card_image_bytes, drawn[0], "auto")
+        img_task = asyncio.create_task(
+            asyncio.gather(
+                asyncio.to_thread(core.fetch_proseka_card_image_bytes, drawn[0], "auto")
+            )
         )
     else:
-        img_coro = asyncio.sleep(0, result=[])
+        img_task = asyncio.create_task(asyncio.sleep(0, result=[]))
 
-    grid_coro = (
+    grid_task = asyncio.create_task(
         asyncio.to_thread(core.build_10pull_grid_image_bytes, drawn, banner_type, grid_tag)
         if want_grid else _empty_grid()
     )
 
     intro_msg = None
     if not skip_anim:
-        intro_embed = build_gacha_intro_embed(drawn, banner_type=banner_type, pull_count=pull_count)
-        try:
-            intro_msg = await interaction.followup.send(embed=intro_embed, wait=True)
-        except Exception:
-            intro_msg = None
-        results, (grid_bytes, grid_fn), _ = await asyncio.gather(img_coro, grid_coro, asyncio.sleep(3.5))
+        stages = build_gacha_animation_stages(
+            drawn, banner_type=banner_type, pull_count=pull_count, pity_info=pity_info
+        )
+        for s_idx, (stage_embed, wait_sec) in enumerate(stages):
+            if s_idx == 0:
+                try:
+                    intro_msg = await interaction.followup.send(embed=stage_embed, wait=True)
+                except Exception:
+                    intro_msg = None
+            elif intro_msg is not None:
+                try:
+                    await intro_msg.edit(embed=stage_embed)
+                except Exception:
+                    pass
+            await asyncio.sleep(wait_sec)
+        results, (grid_bytes, grid_fn) = await asyncio.gather(img_task, grid_task)
     else:
-        results, (grid_bytes, grid_fn) = await asyncio.gather(img_coro, grid_coro)
+        results, (grid_bytes, grid_fn) = await asyncio.gather(img_task, grid_task)
 
     MAX_FILES = 10
     MAX_TOTAL_BYTES = 7_800_000
@@ -273,13 +535,19 @@ async def send_gacha_pull_result(
 
     for idx, (c, (img_bytes, filename)) in enumerate(zip(high_cards[:9], results), start=1):
         card_badge = "🎂 [Birthday]" if c.get("rarity_type") == "rarity_birthday" else "🌟 ★4"
-        pickup_txt = "🎯 **[픽업!]** " if c.get("is_pickup") else ""
+        trig = c.get("bonus_trigger")
+        trig_txt = (
+            "🎟️ **[셀렉트확정!]** " if trig == "select_list"
+            else ("🔥 **[100pt픽업확정!]** " if trig == "100pt"
+                  else ("⚡ **[50pt보너스!]** " if trig == "50pt" else ""))
+        )
+        pickup_txt = "🎯 **[픽업!]** " if (c.get("is_pickup") and not trig_txt) else ""
         new_txt = "✨ **[NEW!]** " if c.get("is_new") else ""
         limit_txt = f"`[{c.get('limit_label', '통상')}]` " if c.get("limit_label") else ""
         order_txt = f"({idx}/{total_high}) " if total_high > 1 else ""
         unit_str = f"{c.get('unit', '')}" + (f" ({c.get('support_unit')})" if c.get("support_unit") else "")
 
-        card_title = f"{pickup_txt}{new_txt}{card_badge} {order_txt}{limit_txt}[{c.get('prefix', '')}] {c.get('char_name', '')}"
+        card_title = f"{trig_txt}{pickup_txt}{new_txt}{card_badge} {order_txt}{limit_txt}[{c.get('prefix', '')}] {c.get('char_name', '')}"
         desc_lines = [
             f"• 🏷️ **유닛:** `{unit_str}`  ·  ✨ **속성:** {c.get('attr', '✨')}  ·  📊 **확률:** `{c.get('prob', 0):.4f}%`"
         ]
@@ -482,22 +750,52 @@ check_and_update_gacha_cooldown = core.check_and_update_gacha_cooldown
 
 
 class GachaPullAgainView(core.SafeView):
-    """가챠 결과 화면에서 배너 전환, 연출 스킵, 재뽑기, 생일 무료 단차, 마스터랭크, 라이브 등을 바로 여는 뷰"""
+    """가챠 결과 화면에서 배너 전환, 연출 스킵, 재뽑기, 천장 교환(200배지), 셀렉트 리스트, 캐랭 깃발, 생일 단차 등을 여는 뷰"""
 
-    def __init__(self, user: discord.User | None = None, banner_type: str | None = None, skip_anim: bool = False):
+    def __init__(
+        self,
+        user: discord.User | None = None,
+        banner_type: str | None = None,
+        skip_anim: bool = False,
+        guild_id: int = 0,
+        pity_info: dict | None = None,
+    ):
         super().__init__(timeout=600)
         self.user = user
+        self.guild_id = guild_id
         self.banner_type = banner_type if banner_type in core.BANNER_CONFIGS else core.get_active_proseka_banner()
         self.skip_anim = bool(skip_anim)
+        self.pity_info = pity_info or {}
         self._refresh_components()
 
     def _refresh_components(self):
         if self.skip_anim:
-            self.toggle_skip_anim.label = "⏭️ 연출 스킵: ON"
+            self.toggle_skip_anim.label = "⏭️ 스킵: ON"
             self.toggle_skip_anim.style = discord.ButtonStyle.success
         else:
-            self.toggle_skip_anim.label = "✨ 연출 스킵: OFF"
+            self.toggle_skip_anim.label = "✨ 스킵: OFF"
             self.toggle_skip_anim.style = discord.ButtonStyle.secondary
+
+        badges = int(self.pity_info.get("badges", 0)) if self.pity_info else None
+        ceil_cost = int(self.pity_info.get("ceiling_cost", core.GACHA_CEILING_BADGE_COST))
+        if badges is not None:
+            self.open_ceiling_exchange.label = f"🏅 천장({badges}/{ceil_cost})"[:80]
+            self.open_ceiling_exchange.style = (
+                discord.ButtonStyle.success if badges >= ceil_cost else discord.ButtonStyle.secondary
+            )
+        else:
+            self.open_ceiling_exchange.label = "🏅 천장교환(200)"
+            self.open_ceiling_exchange.style = discord.ButtonStyle.secondary
+
+        tickets = int(self.pity_info.get("select_tickets", 0)) if self.pity_info else None
+        if tickets is not None:
+            self.open_select_list.label = f"🎟️ 셀렉트({tickets})"[:80]
+            self.open_select_list.style = (
+                discord.ButtonStyle.success if tickets > 0 else discord.ButtonStyle.secondary
+            )
+        else:
+            self.open_select_list.label = "🎟️ 셀렉트리스트"
+            self.open_select_list.style = discord.ButtonStyle.secondary
 
         bday_chars = core.get_today_birthday_characters()
         if bday_chars:
@@ -553,14 +851,22 @@ class GachaPullAgainView(core.SafeView):
         active_banner = core.get_active_proseka_banner(pickup_cfg)
         is_owner = await _is_interaction_bot_owner(interaction)
         effective_banner = self.banner_type if is_owner else active_banner
-        drawn = await asyncio.to_thread(core.draw_proseka_cards, pickup_cfg, pull_count, effective_banner)
+        guild_id = interaction.guild_id or self.guild_id or 0
+
+        drawn, pity_info = await asyncio.to_thread(
+            core.execute_real_proseka_pull, guild_id, interaction.user.id, pickup_cfg, pull_count, effective_banner
+        )
         if not drawn:
             await interaction.followup.send("❌ 한국 서버 캐릭터 DB를 불러오지 못했습니다.", ephemeral=True)
             return
 
-        guild_id = interaction.guild_id or 0
-        await asyncio.to_thread(core.save_real_pull_and_records, guild_id, interaction.user.id, drawn, effective_banner)
-        new_view = GachaPullAgainView(interaction.user, banner_type=effective_banner, skip_anim=self.skip_anim)
+        new_view = GachaPullAgainView(
+            interaction.user,
+            banner_type=effective_banner,
+            skip_anim=self.skip_anim,
+            guild_id=guild_id,
+            pity_info=pity_info,
+        )
         await send_gacha_pull_result(
             interaction,
             drawn,
@@ -569,6 +875,7 @@ class GachaPullAgainView(core.SafeView):
             new_view,
             banner_type=effective_banner,
             skip_anim=self.skip_anim,
+            pity_info=pity_info,
         )
 
     @discord.ui.button(label="🎵 1회 뽑기", style=discord.ButtonStyle.primary, row=0)
@@ -589,13 +896,21 @@ class GachaPullAgainView(core.SafeView):
         self.skip_anim = not self.skip_anim
         self._refresh_components()
         await core.safe_edit_response(interaction, view=self)
-        state_txt = "**ON (결과 즉시 표시)**" if self.skip_anim else "**OFF (무지개 승격 & 대사 연출 보기)**"
+        state_txt = "**ON (결과 즉시 표시)**" if self.skip_anim else "**OFF (다단계 승격 & 대사 선공개 연출 보기)**"
         await core.safe_send_response(interaction, f"⚙️ 뽑기 연출 스킵 설정이 {state_txt}(으)로 변경되었습니다.", ephemeral=True)
 
-    @discord.ui.button(label="⚔️ 라이브", style=discord.ButtonStyle.primary, row=0)
-    async def open_sekai_live(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="🏅 천장교환(200)", style=discord.ButtonStyle.secondary, row=0)
+    async def open_ceiling_exchange(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
-        view = SekaiLiveView(interaction.user, guild_id=interaction.guild_id or 0)
+        guild_id = interaction.guild_id or 0
+        view = GachaCeilingExchangeView(interaction.user, guild_id=guild_id)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+
+    @discord.ui.button(label="🎟️ 셀렉트리스트", style=discord.ButtonStyle.secondary, row=0)
+    async def open_select_list(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        guild_id = interaction.guild_id or 0
+        view = SelectListGachaView(interaction.user, guild_id=guild_id, skip_anim=self.skip_anim)
         await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @discord.ui.button(label="🎒 보관함", style=discord.ButtonStyle.secondary, row=1)
@@ -624,11 +939,16 @@ class GachaPullAgainView(core.SafeView):
         view = CardPokedexView(interaction.user, stats, guild_id=guild_id)
         await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
-    @discord.ui.button(label="👗 의상실", style=discord.ButtonStyle.secondary, row=1)
-    async def open_wardrobe(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="🚩 캐랭·깃발", style=discord.ButtonStyle.secondary, row=1)
+    async def open_character_rank(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
-        view = CharacterCostumeWardrobeView(interaction.user, guild_id=interaction.guild_id or 0)
-        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        guild_id = interaction.guild_id or 0
+        view = CharacterRankView(interaction.user, guild_id=guild_id)
+        embed, file_obj = await view.build_embed_and_file()
+        if file_obj:
+            await interaction.followup.send(embed=embed, file=file_obj, view=view, wait=True)
+        else:
+            await interaction.followup.send(embed=embed, view=view, wait=True)
 
     @discord.ui.button(label="🏆 MR돌파", style=discord.ButtonStyle.secondary, row=1)
     async def open_master_rank(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -665,6 +985,18 @@ class GachaPullAgainView(core.SafeView):
             ephemeral=True
         )
 
+    @discord.ui.button(label="⚔️ 라이브", style=discord.ButtonStyle.primary, row=3)
+    async def open_sekai_live(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        view = SekaiLiveView(interaction.user, guild_id=interaction.guild_id or 0)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+
+    @discord.ui.button(label="👗 의상실", style=discord.ButtonStyle.secondary, row=3)
+    async def open_wardrobe(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        view = CharacterCostumeWardrobeView(interaction.user, guild_id=interaction.guild_id or 0)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+
     @discord.ui.button(label="🎂 생일 무료 단차!", style=discord.ButtonStyle.danger, row=3)
     async def birthday_free_pull(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
@@ -677,9 +1009,17 @@ class GachaPullAgainView(core.SafeView):
             return
         data = await asyncio.to_thread(core.load_data)
         pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
+        pity_info = core.get_user_gacha_pity_state(guild_id, interaction.user.id, data=data)
+        pity_info["added_badges"] = len(drawn)
         is_owner = await _is_interaction_bot_owner(interaction)
         next_banner = self.banner_type if is_owner else core.get_active_proseka_banner(pickup_cfg)
-        new_view = GachaPullAgainView(interaction.user, banner_type=next_banner, skip_anim=self.skip_anim)
+        new_view = GachaPullAgainView(
+            interaction.user,
+            banner_type=next_banner,
+            skip_anim=self.skip_anim,
+            guild_id=guild_id,
+            pity_info=pity_info,
+        )
         await send_gacha_pull_result(
             interaction,
             drawn,
@@ -689,7 +1029,1070 @@ class GachaPullAgainView(core.SafeView):
             banner_type="birthday",
             skip_anim=self.skip_anim,
             mode_note=f"🎂 **[생일 당일 무료 1회!]** {msg}",
+            pity_info=pity_info,
         )
+
+
+class GachaCeilingExchangeView(core.SafeView):
+    """가챠 배지 200개로 원하는 ★4 / 🎀생일 카드를 확정 교환하는 천장 교환소 뷰"""
+
+    def __init__(self, user: discord.User | None = None, guild_id: int = 0):
+        super().__init__(timeout=300)
+        self.user = user
+        self.guild_id = guild_id
+        self.unit_filter = "PICKUP"
+        self.unowned_only = False
+        self.page = 0
+        self.per_page = 15
+        self.selected_card_id: str | None = None
+        self.status_note: str = ""
+        self._lock = asyncio.Lock()
+
+        self.pickup_cfg: dict = {}
+        self.banner_type: str = "normal"
+        self.pity_state: dict = {}
+        self.owned_map: dict = {}
+        self.pickup_cards: list[dict] = []
+        self.filtered_cards: list[dict] = []
+
+        self._reload_state()
+        if not self.pickup_cards:
+            self.unit_filter = "ALL"
+            self._reload_state()
+
+    def _reload_state(self):
+        data = core.load_data()
+        self.pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
+        self.banner_type = core.get_active_proseka_banner(self.pickup_cfg)
+        uid = self.user.id if self.user else 0
+        self.pity_state = core.get_user_gacha_pity_state(self.guild_id, uid, data=data)
+        self.owned_map = core.safe_get_dict(data, "gacha_users", str(self.guild_id or 0), str(uid), "cards")
+        self.pickup_cards, pool = core.get_ceiling_exchange_pool(
+            self.pickup_cfg, banner_type=self.banner_type, unit_filter=self.unit_filter
+        )
+        if self.unowned_only:
+            pool = [c for c in pool if str(c.get("id")) not in self.owned_map]
+        self.filtered_cards = pool
+        total_pages = max(1, (len(self.filtered_cards) + self.per_page - 1) // self.per_page)
+        self.page = max(0, min(self.page, total_pages - 1))
+        if self.selected_card_id and not any(str(c.get("id")) == self.selected_card_id for c in self.filtered_cards):
+            self.selected_card_id = None
+        if not self.selected_card_id and self.filtered_cards:
+            self.selected_card_id = str(self.filtered_cards[0]["id"])
+        self._refresh_components()
+
+    def _refresh_components(self):
+        filter_opts = [
+            discord.SelectOption(
+                label=f"🎯 현재 픽업 ★4/생일 ({len(self.pickup_cards)}종)",
+                value="PICKUP",
+                default=(self.unit_filter == "PICKUP"),
+            ),
+            discord.SelectOption(
+                label="🌟 전체 ★4/생일 카드",
+                value="ALL",
+                default=(self.unit_filter == "ALL"),
+            ),
+        ]
+        for u in core.UNIT_ORDER:
+            u_em = core.UNIT_EMOJIS.get(u, "🎵")
+            filter_opts.append(
+                discord.SelectOption(label=f"{u_em} {u}", value=u, default=(self.unit_filter == u))
+            )
+        self.filter_select.options = filter_opts
+
+        start = self.page * self.per_page
+        page_items = self.filtered_cards[start : start + self.per_page]
+        if page_items:
+            opts = []
+            for c in page_items:
+                cid_str = str(c["id"])
+                owned_c = self.owned_map.get(cid_str)
+                own_tag = f"보유 {owned_c.get('count', 1)}장" if isinstance(owned_c, dict) else "✨ 미보유"
+                p_tag = "🎯" if c.get("is_pickup") else ("🎂" if c.get("rarity_type") == "rarity_birthday" else "🌟")
+                lbl = f"{p_tag} [{c.get('prefix', '')}] {c.get('char_name', '')}"[:95]
+                desc = f"{c.get('unit', '')} · {c.get('limit_label', '통상')} · {own_tag}"[:100]
+                opts.append(
+                    discord.SelectOption(label=lbl, value=cid_str, description=desc, default=(cid_str == self.selected_card_id))
+                )
+            self.card_select.options = opts
+            self.card_select.disabled = False
+        else:
+            self.card_select.options = [discord.SelectOption(label="조건에 맞는 카드가 없습니다", value="NONE")]
+            self.card_select.disabled = True
+
+        total_pages = max(1, (len(self.filtered_cards) + self.per_page - 1) // self.per_page)
+        self.prev_btn.disabled = (self.page <= 0)
+        self.next_btn.disabled = (self.page >= total_pages - 1)
+        self.page_btn.label = f"{self.page + 1} / {total_pages}"
+        self.unowned_toggle_btn.label = "✨ 미보유만: ON" if self.unowned_only else "✨ 미보유만: OFF"
+        self.unowned_toggle_btn.style = discord.ButtonStyle.success if self.unowned_only else discord.ButtonStyle.secondary
+
+        badges = int(self.pity_state.get("badges", 0))
+        cost = int(self.pity_state.get("ceiling_cost", core.GACHA_CEILING_BADGE_COST))
+        can_ex = (badges >= cost) and bool(self.selected_card_id) and (self.selected_card_id != "NONE")
+        self.exchange_btn.disabled = not can_ex
+        if can_ex:
+            self.exchange_btn.label = f"🏅 {cost}배지로 선택한 카드 확정 교환!"
+            self.exchange_btn.style = discord.ButtonStyle.success
+        else:
+            rem = max(0, cost - badges)
+            self.exchange_btn.label = f"🔒 배지 부족 ({rem}개 더 필요)" if badges < cost else "🏅 교환할 카드를 선택하세요"
+            self.exchange_btn.style = discord.ButtonStyle.secondary
+
+    def build_embed(self) -> discord.Embed:
+        badges = int(self.pity_state.get("badges", 0))
+        cost = int(self.pity_state.get("ceiling_cost", core.GACHA_CEILING_BADGE_COST))
+        gauge = int(self.pity_state.get("bonus_gauge", 0))
+        g_bar = self.pity_state.get("gauge_bar") or core.format_gacha_bonus_gauge_bar(gauge)
+        ex_times = badges // cost
+        u_name = self.user.display_name if self.user else "유저"
+
+        selected_card = (
+            next((c for c in self.filtered_cards if str(c.get("id")) == self.selected_card_id), None)
+            if self.selected_card_id
+            else None
+        )
+
+        lines = [
+            f"• **보유 가챠 배지:** **`{badges:,} / {cost:,}개`** "
+            + (f"(✨ **즉시 교환 가능 `{ex_times}회`**)" if ex_times > 0 else f"(천장까지 `{cost - badges:,}개` 남음)"),
+            f"• **가챠 보너스 게이지:** {g_bar} **`{gauge} / 100pt`** *(50pt ★4 / 100pt 픽업 ★4)*",
+            f"• **누적 천장 교환 횟수:** `{self.pity_state.get('ceiling_count', 0):,}회`  ·  **필터 결과:** `{len(self.filtered_cards):,}종`",
+        ]
+        if self.status_note:
+            lines.append(f"\n> {self.status_note}")
+
+        if selected_card:
+            cid_str = str(selected_card["id"])
+            owned_c = self.owned_map.get(cid_str)
+            own_txt = f"보유 중 (`{owned_c.get('count', 1)}장`)" if isinstance(owned_c, dict) else "✨ **미보유 (NEW!)**"
+            cos = core.get_costume_for_card(selected_card.get("id"))
+            cos_txt = f" · 👗 3D 의상 `[{cos['name']}]`" if cos else ""
+            raw_q = _get_card_preview_quote(selected_card)
+            lines.append(
+                "\n━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🎯 **선택된 교환 대상 카드**\n"
+                f"• **[{selected_card.get('prefix')}] {selected_card.get('char_name')}** (`{selected_card.get('rarity_label', '★★★★')}` · `{selected_card.get('limit_label', '통상')}`)\n"
+                f"• 🏷️ `{selected_card.get('unit')}` · {selected_card.get('attr')} · {own_txt}{cos_txt}\n"
+                f"• 💬 *\"{raw_q}\"*"
+            )
+        else:
+            lines.append("\n📭 조건에 맞는 교환 대상 카드가 없습니다. 필터를 변경해 주세요.")
+
+        embed = discord.Embed(
+            title=f"🏅 {u_name}님의 프로세카 가챠 배지 천장 교환소 (200배지)",
+            description="\n".join(lines),
+            color=discord.Color.gold() if badges >= cost else discord.Color.from_rgb(0, 204, 221),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        if selected_card:
+            embed.set_thumbnail(url=core.get_proseka_card_image_url(selected_card, "auto"))
+        embed.set_footer(text="1회 뽑기당 가챠 배지 +1개 적립 · 200배지로 원하는 ★4/생일 카드 1장을 확정 교환!")
+        return embed
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if self.user and interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 천장 교환소를 연 본인만 조작할 수 있습니다.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(placeholder="🎯 교환 풀 필터 (현재 픽업 / 전체 / 유닛별)...", row=0, options=[discord.SelectOption(label="전체", value="ALL")])
+    async def filter_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await core.safe_defer(interaction)
+        self.unit_filter = select.values[0]
+        self.page = 0
+        self.selected_card_id = None
+        self.status_note = ""
+        await asyncio.to_thread(self._reload_state)
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.select(placeholder="🌟 교환할 ★4 / 🎀생일 카드를 선택하세요...", row=1, options=[discord.SelectOption(label="로딩중", value="NONE")])
+    async def card_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        val = select.values[0]
+        if val == "NONE":
+            await core.safe_defer(interaction)
+            return
+        await core.safe_defer(interaction)
+        self.selected_card_id = val
+        self.status_note = ""
+        self._refresh_components()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="◀ 이전", style=discord.ButtonStyle.secondary, row=2)
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        if self.page > 0:
+            self.page -= 1
+            self._refresh_components()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="1 / 1", style=discord.ButtonStyle.secondary, disabled=True, row=2)
+    async def page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+
+    @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.secondary, row=2)
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        total_pages = max(1, (len(self.filtered_cards) + self.per_page - 1) // self.per_page)
+        if self.page < total_pages - 1:
+            self.page += 1
+            self._refresh_components()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="✨ 미보유만: OFF", style=discord.ButtonStyle.secondary, row=2)
+    async def unowned_toggle_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.unowned_only = not self.unowned_only
+        self.page = 0
+        self.selected_card_id = None
+        await asyncio.to_thread(self._reload_state)
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🏅 200배지로 확정 교환!", style=discord.ButtonStyle.success, row=3)
+    async def exchange_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self._lock.locked():
+            await core.safe_send_response(interaction, "⏳ 교환을 처리 중입니다. 잠시만 기다려 주세요.", ephemeral=True)
+            return
+        async with self._lock:
+            if not self.selected_card_id or self.selected_card_id == "NONE":
+                await core.safe_send_response(interaction, "❌ 먼저 교환할 카드를 선택해 주세요!", ephemeral=True)
+                return
+            await core.safe_defer(interaction)
+            ok, msg, info = await asyncio.to_thread(
+                core.exchange_gacha_ceiling_badge, self.guild_id, interaction.user.id, self.selected_card_id
+            )
+            if not ok:
+                self.status_note = f"❌ {msg}"
+                await asyncio.to_thread(self._reload_state)
+                await interaction.edit_original_response(embed=self.build_embed(), view=self)
+                return
+
+            card = info["card"]
+            self.status_note = f"✅ {msg} (남은 배지: `{info['remaining_badges']:,}개`)"
+            await asyncio.to_thread(self._reload_state)
+            await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+            # 축하 결과 & 고화질 공식 일러스트 별도 출력
+            new_tag = "✨ **[NEW!]** " if info.get("is_new") else ""
+            cos = core.get_costume_for_card(card.get("id"))
+            cos_line = f"\n• 👗 **3D 의상 획득:** `[{cos['name']}]`" if cos else ""
+            raw_q = _get_card_preview_quote(card)
+            cele_embed = discord.Embed(
+                title=f"🏅 천장 교환 완료! {new_tag}[{card.get('prefix')}] {card.get('char_name')}",
+                description=(
+                    f"🎉 {interaction.user.mention}님이 **가챠 배지 `{core.GACHA_CEILING_BADGE_COST}개`**로 원하는 최고 등급 카드를 확정 영입했습니다!\n\n"
+                    f"• 🏷️ **유닛:** `{card.get('unit')}` · **속성:** {card.get('attr')} · `{card.get('limit_label', '통상')}`{cos_line}\n"
+                    f"• 💬 **대사:** *\"{raw_q}\"*\n"
+                    f"• 🏅 **남은 가챠 배지:** **`{info['remaining_badges']:,}개`** (누적 천장 교환 `{info['ceiling_count']}회`)"
+                ),
+                color=discord.Color.from_rgb(255, 105, 180),
+                timestamp=datetime.datetime.now(core.KST),
+            )
+            img_bytes, fn = await asyncio.to_thread(core.fetch_proseka_card_image_bytes, card, "auto")
+            if img_bytes and fn:
+                cele_embed.set_image(url=f"attachment://{fn}")
+                await interaction.followup.send(embed=cele_embed, file=discord.File(io.BytesIO(img_bytes), filename=fn))
+            else:
+                cele_embed.set_image(url=core.get_proseka_card_image_url(card, "auto"))
+                await interaction.followup.send(embed=cele_embed)
+
+
+class SelectListGachaView(core.SafeView):
+    """봇주가 지급한 특수 티켓 1장으로 원하는 ★4 카드 10장을 직접 골라 확정 10연차를 돌리는 셀렉트 리스트 가챠 뷰"""
+
+    def __init__(self, user: discord.User | None = None, guild_id: int = 0, skip_anim: bool = False):
+        super().__init__(timeout=600)
+        self.user = user
+        self.guild_id = guild_id
+        self.skip_anim = bool(skip_anim)
+        self.unit_filter = "ALL"
+        self.unowned_only = False
+        self.page = 0
+        self.per_page = 15
+        self.selected_ids: list[str] = []
+        self.status_note: str = ""
+        self._lock = asyncio.Lock()
+
+        self.tickets: int = 0
+        self.owned_map: dict = {}
+        self.all_star4: list[dict] = []
+        self.filtered_cards: list[dict] = []
+        self._reload_state()
+
+    def _reload_state(self):
+        data = core.load_data()
+        uid = self.user.id if self.user else 0
+        self.tickets = core.get_user_select_tickets(uid, data=data)
+        self.owned_map = core.safe_get_dict(data, "gacha_users", str(self.guild_id or 0), str(uid), "cards")
+        self.all_star4 = [c for c in core.PROSEKA_KR_CARDS if c.get("rarity_type") == "rarity_4"]
+        pool = list(self.all_star4)
+        if self.unit_filter in core.UNIT_ORDER:
+            pool = [c for c in pool if c.get("unit") == self.unit_filter]
+        if self.unowned_only:
+            pool = [c for c in pool if str(c.get("id")) not in self.owned_map]
+        pool.sort(key=lambda x: (str(x.get("id")) in self.owned_map, x.get("char_id", 99), -x.get("id", 0)))
+        self.filtered_cards = pool
+        total_pages = max(1, (len(self.filtered_cards) + self.per_page - 1) // self.per_page)
+        self.page = max(0, min(self.page, total_pages - 1))
+        self._refresh_components()
+
+    def _refresh_components(self):
+        unit_opts = [
+            discord.SelectOption(label=f"🌟 전체 ★4 카드 ({len(self.all_star4)}종)", value="ALL", default=(self.unit_filter == "ALL"))
+        ]
+        for u in core.UNIT_ORDER:
+            unit_opts.append(
+                discord.SelectOption(label=f"{core.UNIT_EMOJIS.get(u, '🎵')} {u}", value=u, default=(self.unit_filter == u))
+            )
+        self.unit_select.options = unit_opts
+
+        start = self.page * self.per_page
+        page_items = self.filtered_cards[start : start + self.per_page]
+        sel_set = set(self.selected_ids)
+        if page_items:
+            opts = []
+            for c in page_items:
+                cid_str = str(c["id"])
+                is_sel = cid_str in sel_set
+                own_tag = "보유" if cid_str in self.owned_map else "✨미보유"
+                mark = "✅" if is_sel else "☐"
+                lbl = f"{mark} [{c.get('prefix', '')}] {c.get('char_name', '')}"[:95]
+                desc = f"{c.get('unit', '')} · {c.get('limit_label', '통상')} · {own_tag}"[:100]
+                opts.append(discord.SelectOption(label=lbl, value=cid_str, description=desc))
+            self.card_multi_select.options = opts
+            self.card_multi_select.min_values = 1
+            self.card_multi_select.max_values = min(core.SELECT_LIST_REQUIRED_COUNT, len(opts))
+            self.card_multi_select.disabled = False
+        else:
+            self.card_multi_select.options = [discord.SelectOption(label="조건에 맞는 ★4 카드가 없습니다", value="NONE")]
+            self.card_multi_select.min_values = 1
+            self.card_multi_select.max_values = 1
+            self.card_multi_select.disabled = True
+
+        total_pages = max(1, (len(self.filtered_cards) + self.per_page - 1) // self.per_page)
+        self.prev_btn.disabled = (self.page <= 0)
+        self.next_btn.disabled = (self.page >= total_pages - 1)
+        self.page_btn.label = f"{self.page + 1}/{total_pages}"
+        self.unowned_btn.label = "✨ 미보유만: ON" if self.unowned_only else "✨ 미보유만: OFF"
+        self.unowned_btn.style = discord.ButtonStyle.success if self.unowned_only else discord.ButtonStyle.secondary
+
+        req = core.SELECT_LIST_REQUIRED_COUNT
+        cnt = len(self.selected_ids)
+        can_pull = (self.tickets >= 1) and (cnt == req)
+        self.pull_btn.disabled = not can_pull
+        if self.tickets < 1:
+            self.pull_btn.label = f"🔒 특수 티켓 부족 (0장 · {cnt}/{req})"
+            self.pull_btn.style = discord.ButtonStyle.secondary
+        elif cnt < req:
+            self.pull_btn.label = f"🎟️ ★4 카드 선택 중 ({cnt}/{req}장)"
+            self.pull_btn.style = discord.ButtonStyle.primary
+        else:
+            self.pull_btn.label = f"🎟️ 티켓 1장 사용 · 10연차 실행! ({cnt}/{req})"
+            self.pull_btn.style = discord.ButtonStyle.success
+
+        self.skip_btn.label = "⏭️ 스킵: ON" if self.skip_anim else "✨ 스킵: OFF"
+        self.skip_btn.style = discord.ButtonStyle.success if self.skip_anim else discord.ButtonStyle.secondary
+
+    def build_embed(self) -> discord.Embed:
+        req = core.SELECT_LIST_REQUIRED_COUNT
+        u_name = self.user.display_name if self.user else "유저"
+        ticket_txt = (
+            f"**`{self.tickets:,}장`** ✨ *(즉시 실행 가능!)*"
+            if self.tickets > 0
+            else "**`0장`** *(🔒 봇주인에게 특수 티켓을 지급받으면 실행할 수 있습니다!)*"
+        )
+        lines = [
+            f"• **보유 셀렉트 리스트 특수 티켓:** 🎟️ {ticket_txt}",
+            f"• **규칙:** 직접 고른 **★4 카드 {req}장** 중 **최소 1장 100% 확정 출현!** (+ 1~9슬롯 픽업 UP & 가챠 배지 +10)",
+            f"• **현재 리스트 진행도:** **`{len(self.selected_ids)} / {req}장`** *(아래 드롭다운에서 여러 장 한꺼번에 추가/해제 가능)*",
+        ]
+        if self.status_note:
+            lines.append(f"\n> {self.status_note}")
+
+        if self.selected_ids:
+            sel_lines = []
+            for idx, cid_str in enumerate(self.selected_ids, start=1):
+                c = core.get_proseka_card_by_id(cid_str)
+                if not c:
+                    continue
+                own_tag = "" if cid_str in self.owned_map else " ✨`NEW후보`"
+                sel_lines.append(
+                    f"`{idx:02d}.` {core.UNIT_EMOJIS.get(c.get('unit'), '🌟')} **[{c.get('prefix')}] {c.get('char_name')}** (`{c.get('limit_label', '통상')}`){own_tag}"
+                )
+            lines.append("\n📋 **내 셀렉트 리스트 선택 목록**\n" + "\n".join(sel_lines))
+        else:
+            lines.append("\n💡 **Tip:** 아래 드롭다운에서 원하는 ★4를 고르거나 **`🎲 미보유 자동 10장 채우기`** 버튼을 눌러보세요!")
+
+        embed = discord.Embed(
+            title=f"🎟️ {u_name}님의 셀렉트 리스트 가챠 스튜디오",
+            description="\n".join(lines)[:4090],
+            color=discord.Color.from_rgb(255, 205, 86) if self.tickets > 0 else discord.Color.dark_grey(),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.set_footer(text="특수 티켓은 봇주인이 특별 이벤트·보상으로 지급합니다 • 10장 선택 후 즉시 10연차!")
+        return embed
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if self.user and interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 셀렉트 리스트 가챠를 연 본인만 조작할 수 있습니다.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(placeholder="🏷️ 유닛 필터 (전체 / 유닛별 ★4)...", row=0, options=[discord.SelectOption(label="전체", value="ALL")])
+    async def unit_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await core.safe_defer(interaction)
+        self.unit_filter = select.values[0]
+        self.page = 0
+        self.status_note = ""
+        await asyncio.to_thread(self._reload_state)
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.select(placeholder="🌟 ★4 카드를 골라 리스트에 추가/해제하세요 (다중 선택 가능)...", row=1, options=[discord.SelectOption(label="로딩중", value="NONE")])
+    async def card_multi_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await core.safe_defer(interaction)
+        req = core.SELECT_LIST_REQUIRED_COUNT
+        added = 0
+        removed = 0
+        overflow = 0
+        for val in select.values:
+            if val == "NONE":
+                continue
+            if val in self.selected_ids:
+                self.selected_ids.remove(val)
+                removed += 1
+            else:
+                if len(self.selected_ids) < req:
+                    self.selected_ids.append(val)
+                    added += 1
+                else:
+                    overflow += 1
+        parts = []
+        if added:
+            parts.append(f"`+{added}장` 추가")
+        if removed:
+            parts.append(f"`-{removed}장` 해제")
+        if overflow:
+            parts.append(f"⚠️ 최대 {req}장까지만 담을 수 있어 `{overflow}장` 제외됨")
+        self.status_note = " / ".join(parts)
+        self._refresh_components()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary, row=2)
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        if self.page > 0:
+            self.page -= 1
+            self._refresh_components()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="1/1", style=discord.ButtonStyle.secondary, disabled=True, row=2)
+    async def page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary, row=2)
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        total_pages = max(1, (len(self.filtered_cards) + self.per_page - 1) // self.per_page)
+        if self.page < total_pages - 1:
+            self.page += 1
+            self._refresh_components()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="✨ 미보유만: OFF", style=discord.ButtonStyle.secondary, row=2)
+    async def unowned_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.unowned_only = not self.unowned_only
+        self.page = 0
+        await asyncio.to_thread(self._reload_state)
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🎲 미보유 10장 채우기", style=discord.ButtonStyle.primary, row=2)
+    async def auto_fill_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        req = core.SELECT_LIST_REQUIRED_COUNT
+        need = max(0, req - len(self.selected_ids))
+        if need == 0:
+            self.status_note = f"✅ 이미 {req}장이 모두 채워져 있습니다! 교체하려면 선택 초기화 후 다시 담아주세요."
+        else:
+            sel_set = set(self.selected_ids)
+            base_pool = self.filtered_cards if len(self.filtered_cards) >= need else self.all_star4
+            unowned_cand = [str(c["id"]) for c in base_pool if str(c["id"]) not in sel_set and str(c["id"]) not in self.owned_map]
+            owned_cand = [str(c["id"]) for c in base_pool if str(c["id"]) not in sel_set and str(c["id"]) in self.owned_map]
+            random.shuffle(unowned_cand)
+            random.shuffle(owned_cand)
+            picks = (unowned_cand + owned_cand)[:need]
+            self.selected_ids.extend(picks)
+            self.status_note = f"🎲 미보유 ★4 우선으로 **`{len(picks)}장`**을 자동 채웠습니다! (`{len(self.selected_ids)}/{req}`)"
+        self._refresh_components()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🎟️ 티켓 1장 사용 · 10연차 실행!", style=discord.ButtonStyle.success, row=3)
+    async def pull_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self._lock.locked():
+            await core.safe_send_response(interaction, "⏳ 셀렉트 리스트 뽑기를 처리 중입니다!", ephemeral=True)
+            return
+        async with self._lock:
+            can_pull, rem = check_and_update_gacha_cooldown(interaction.user.id, skip_anim=self.skip_anim)
+            if not can_pull:
+                await core.safe_send_response(
+                    interaction,
+                    f"⏳ **봇의 원활한 서비스를 위해, 뽑기 쿨타임입니다!** `{rem:.1f}초` 후에 다시 눌러주세요.",
+                    ephemeral=True,
+                )
+                return
+            await core.safe_defer(interaction)
+            ok, msg, drawn, pity_info = await asyncio.to_thread(
+                core.execute_select_list_gacha_pull, self.guild_id, interaction.user.id, list(self.selected_ids)
+            )
+            if not ok:
+                self.status_note = f"❌ {msg}"
+                await asyncio.to_thread(self._reload_state)
+                await interaction.edit_original_response(embed=self.build_embed(), view=self)
+                return
+
+            self.status_note = f"🎉 셀렉트 리스트 10연차 완료! (남은 특수 티켓: `{pity_info.get('remaining_tickets', 0)}장`)"
+            await asyncio.to_thread(self._reload_state)
+            await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+            data = await asyncio.to_thread(core.load_data)
+            pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
+            active_banner = core.get_active_proseka_banner(pickup_cfg)
+            repull_view = GachaPullAgainView(
+                interaction.user,
+                banner_type=active_banner,
+                skip_anim=self.skip_anim,
+                guild_id=self.guild_id,
+                pity_info=pity_info,
+            )
+            await send_gacha_pull_result(
+                interaction,
+                drawn,
+                pickup_cfg,
+                10,
+                repull_view,
+                banner_type="select_list",
+                skip_anim=self.skip_anim,
+                mode_note=f"🎟️ **[셀렉트 리스트 가챠!]** 직접 선택한 ★4 10장 중 최소 1장 확정 출현! (남은 티켓: `{pity_info.get('remaining_tickets', 0)}장`)",
+                grid_tag="셀렉트 리스트",
+                pity_info=pity_info,
+            )
+
+    @discord.ui.button(label="🧹 선택 초기화", style=discord.ButtonStyle.danger, row=3)
+    async def clear_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.selected_ids = []
+        self.status_note = "🧹 선택한 셀렉트 리스트를 초기화했습니다."
+        self._refresh_components()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="✨ 스킵: OFF", style=discord.ButtonStyle.secondary, row=3)
+    async def skip_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.skip_anim = not self.skip_anim
+        self._refresh_components()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+
+class OwnerSelectTicketAmountModal(core.SafeModal, title="🎟️ [봇주 전용] 셀렉트 티켓 수량·사유 입력"):
+    amount_input = discord.ui.TextInput(
+        label="지급/회수 수량 (예: 1, 3, -1)",
+        placeholder="양수 입력 시 지급, 음수 입력 시 회수 (예: 2)",
+        required=True,
+        max_length=10,
+    )
+    reason_input = discord.ui.TextInput(
+        label="지급/회수 사유 (선택)",
+        placeholder="예: 이벤트 우승 보상 / 주년 기념 선물",
+        required=False,
+        max_length=80,
+    )
+
+    def __init__(self, parent_view: "OwnerSelectTicketGrantView"):
+        super().__init__()
+        self.parent_view = parent_view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not await _is_interaction_bot_owner(interaction):
+            await core.safe_send_response(interaction, "❌ 봇주인 전용 기능입니다.", ephemeral=True)
+            return
+        if not self.parent_view.target_user:
+            await core.safe_send_response(interaction, "❌ 먼저 대상 유저를 선택해 주세요.", ephemeral=True)
+            return
+        raw_val = (self.amount_input.value or "").strip()
+        try:
+            delta = int(raw_val)
+        except ValueError:
+            await core.safe_send_response(interaction, "❌ 수량은 정수로 입력해 주세요. (예: `1`, `5`, `-1`)", ephemeral=True)
+            return
+        if delta == 0 or abs(delta) > 999:
+            await core.safe_send_response(interaction, "❌ 수량은 `-999 ~ +999` 사이의 0이 아닌 정수로 입력해 주세요.", ephemeral=True)
+            return
+
+        await core.safe_defer(interaction, ephemeral=True)
+        t_user = self.parent_view.target_user
+        ok, msg, after_cnt = await asyncio.to_thread(
+            core.adjust_user_select_tickets,
+            t_user.id,
+            delta,
+            getattr(t_user, "display_name", ""),
+            interaction.user.id,
+            self.reason_input.value or "",
+        )
+        self.parent_view.status_note = f"{'✅' if ok else '❌'} {t_user.mention} ➔ {msg}"
+        if self.parent_view.message:
+            try:
+                await self.parent_view.message.edit(embed=self.parent_view.build_embed(), view=self.parent_view)
+            except Exception:
+                pass
+        await interaction.followup.send(f"🎟️ **{t_user.display_name}** ({t_user.mention}) — {msg}", ephemeral=True)
+
+
+class OwnerSelectTicketGrantView(core.SafeView):
+    """[봇주인 전용] 셀렉트 리스트 가챠 특수 티켓 지급·회수·보유자 관리 패널"""
+
+    def __init__(self, owner_user: discord.User):
+        super().__init__(timeout=300)
+        self.owner_user = owner_user
+        self.target_user: discord.User | discord.Member | None = None
+        self.status_note: str = ""
+        self.message: discord.Message | None = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await _is_interaction_bot_owner(interaction):
+            await core.safe_send_response(interaction, "❌ 이 제어판은 **봇주인(Bot Owner)** 만 사용할 수 있습니다.", ephemeral=True)
+            return False
+        return True
+
+    def build_embed(self) -> discord.Embed:
+        holders = core.list_select_ticket_holders()
+        total_tickets = sum(h["tickets"] for h in holders)
+        lines = [
+            "봇주인이 유저에게 **🎟️ 셀렉트 리스트 가챠 특수 티켓**을 지급하거나 회수할 수 있습니다.",
+            "티켓을 받은 유저는 `/설정` ➔ `🎮 미니게임` ➔ `1회·운명·연습·생일뽑기` ➔ **`🎟️ 셀렉트 리스트 가챠`** 에서 원하는 ★4 10장을 직접 골라 1장 확정 10연차를 돌릴 수 있습니다!",
+            "",
+            f"• **전체 티켓 보유 유저:** `{len(holders):,}명` (총 유통 티켓 `{total_tickets:,}장`)",
+        ]
+        if self.target_user:
+            cur_t = core.get_user_select_tickets(self.target_user.id)
+            lines.append(f"• **현재 선택된 대상:** {self.target_user.mention} (`{self.target_user.display_name}`) — 보유 **`{cur_t:,}장`**")
+        else:
+            lines.append("• **현재 선택된 대상:** *아래 유저 선택 드롭다운에서 먼저 대상을 골라주세요.*")
+
+        if self.status_note:
+            lines.append(f"\n> {self.status_note}")
+
+        if holders:
+            top_lines = [f"• <@{h['uid']}> (`{h['name']}`) : **`{h['tickets']:,}장`**" for h in holders[:8]]
+            if len(holders) > 8:
+                top_lines.append(f"*...외 {len(holders) - 8}명*")
+            lines.append("\n📋 **현재 티켓 보유자 현황**\n" + "\n".join(top_lines))
+
+        embed = discord.Embed(
+            title="🎟️ [봇주인 전용] 셀렉트 리스트 특수 티켓 지급 제어판",
+            description="\n".join(lines),
+            color=discord.Color.from_rgb(255, 205, 86),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.set_footer(text="유저 선택 후 +1 / +3 / +5 / 직접입력 / -1 회수 버튼을 클릭하세요.")
+        return embed
+
+    async def _quick_adjust(self, interaction: discord.Interaction, delta: int):
+        if not self.target_user:
+            await core.safe_send_response(interaction, "❌ 먼저 상단 드롭다운에서 대상 유저를 선택해 주세요!", ephemeral=True)
+            return
+        await core.safe_defer(interaction)
+        ok, msg, _ = await asyncio.to_thread(
+            core.adjust_user_select_tickets,
+            self.target_user.id,
+            delta,
+            getattr(self.target_user, "display_name", ""),
+            interaction.user.id,
+            "봇주인 제어판 지급" if delta > 0 else "봇주인 제어판 회수",
+        )
+        self.status_note = f"{'✅' if ok else '❌'} {self.target_user.mention} ➔ {msg}"
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="👤 특수 티켓을 지급/회수할 유저를 선택하세요...", row=0)
+    async def user_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        await core.safe_defer(interaction)
+        self.target_user = select.values[0]
+        self.status_note = f"👤 대상 유저가 {self.target_user.mention}(으)로 선택되었습니다."
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🎟️ +1장 지급", style=discord.ButtonStyle.success, row=1)
+    async def give_1(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._quick_adjust(interaction, 1)
+
+    @discord.ui.button(label="🎟️ +3장 지급", style=discord.ButtonStyle.success, row=1)
+    async def give_3(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._quick_adjust(interaction, 3)
+
+    @discord.ui.button(label="🎟️ +5장 지급", style=discord.ButtonStyle.primary, row=1)
+    async def give_5(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._quick_adjust(interaction, 5)
+
+    @discord.ui.button(label="✏️ 수량·사유 입력", style=discord.ButtonStyle.secondary, row=1)
+    async def custom_modal_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.target_user:
+            await core.safe_send_response(interaction, "❌ 먼저 상단 드롭다운에서 대상 유저를 선택해 주세요!", ephemeral=True)
+            return
+        self.message = interaction.message
+        await interaction.response.send_modal(OwnerSelectTicketAmountModal(self))
+
+    @discord.ui.button(label="➖ 1장 회수", style=discord.ButtonStyle.danger, row=1)
+    async def revoke_1(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._quick_adjust(interaction, -1)
+
+
+class CharacterRankView(core.SafeView):
+    """프로세카 26인 캐릭터 랭크(캐랭) 조회, 랭크업 크리스탈 보상 수령, 칭호 깃발 프로필 장착 뷰"""
+
+    def __init__(self, user: discord.User | None = None, guild_id: int = 0, initial_char_id: int | None = None):
+        super().__init__(timeout=300)
+        self.user = user
+        self.guild_id = guild_id
+        self.selected_unit: str = "SUMMARY"
+        self.selected_char_id: int | None = None
+        self.status_note: str = ""
+        self._lock = asyncio.Lock()
+
+        self.all_ranks: list[dict] = []
+        self.equipped_flags: list[dict] = []
+        if initial_char_id and int(initial_char_id) in core.CHARACTER_MAP:
+            self.selected_char_id = int(initial_char_id)
+            self.selected_unit = core.CHARACTER_MAP[self.selected_char_id]["unit"]
+        self._reload_state()
+
+    def _reload_state(self):
+        data = core.load_data()
+        uid = self.user.id if self.user else 0
+        self.all_ranks = core.calculate_all_character_ranks(data, self.guild_id, uid)
+        self.equipped_flags = core.get_user_equipped_rank_flags(self.guild_id, uid, data=data)
+        self._refresh_components()
+
+    def _get_selected_rank_info(self) -> dict | None:
+        if self.selected_char_id is None:
+            return None
+        return next((r for r in self.all_ranks if r["char_id"] == self.selected_char_id), None)
+
+    def _refresh_components(self):
+        unit_opts = [
+            discord.SelectOption(
+                label="📊 전체 26인 캐랭 요약 & 장착 깃발",
+                value="SUMMARY",
+                default=(self.selected_unit == "SUMMARY"),
+            )
+        ]
+        for u in core.UNIT_ORDER:
+            u_ranks = [r["rank"] for r in self.all_ranks if r["unit"] == u]
+            u_max = max(u_ranks) if u_ranks else 1
+            unit_opts.append(
+                discord.SelectOption(
+                    label=f"{core.UNIT_EMOJIS.get(u, '🎵')} {u}",
+                    value=u,
+                    description=f"최고 Rank {u_max}",
+                    default=(self.selected_unit == u),
+                )
+            )
+        self.unit_select.options = unit_opts
+
+        if self.selected_unit in core.UNIT_ORDER:
+            char_pool = [r for r in self.all_ranks if r["unit"] == self.selected_unit]
+        else:
+            char_pool = sorted(self.all_ranks, key=lambda r: (-r["rank"], -r["total_exp"], r["char_id"]))[:25]
+
+        char_opts = []
+        for r in char_pool:
+            f_em = r["highest_flag"]["emoji"] if r["highest_flag"] else "🔒"
+            uncl = f" · 🎁+{r['unclaimed_crystals']}💎" if r["unclaimed_crystals"] > 0 else ""
+            oshi_mark = " 💖" if r["is_oshi"] else ""
+            lbl = f"{f_em} {r['char_name']}{oshi_mark} (Rank {r['rank']})"[:95]
+            desc = f"{r['unit']} · 카드 {r['owned_cards']}종 · MR합 {r['mr_sum']}{uncl}"[:100]
+            char_opts.append(
+                discord.SelectOption(
+                    label=lbl,
+                    value=str(r["char_id"]),
+                    description=desc,
+                    default=(self.selected_char_id == r["char_id"]),
+                )
+            )
+        self.char_select.options = char_opts or [discord.SelectOption(label="캐릭터 없음", value="NONE")]
+
+        sel_info = self._get_selected_rank_info()
+        eq_pairs = {(f["char_id"], f["tier_rank"]) for f in self.equipped_flags}
+        if sel_info and sel_info["unlocked_flags"]:
+            flag_opts = []
+            for f in sel_info["unlocked_flags"]:
+                is_eq = (f["char_id"], f["tier_rank"]) in eq_pairs
+                mark = "✅ [장착중] " if is_eq else ""
+                flag_opts.append(
+                    discord.SelectOption(
+                        label=f"{mark}{f['emoji']} [{f['title']}]"[:95],
+                        value=f"{f['char_id']}:{f['tier_rank']}",
+                        description=f"Rank {f['tier_rank']} 해금 · {f['grade']} (클릭 시 장착/교체/해제)",
+                    )
+                )
+            self.flag_tier_select.options = flag_opts
+            self.flag_tier_select.disabled = False
+            self.flag_tier_select.placeholder = f"🚩 {sel_info['char_name']} 해금 칭호 깃발 선택 장착/해제..."
+        else:
+            lock_txt = (
+                f"🔒 {sel_info['char_name']} Rank 5 달성 시 첫 깃발 해금 (현재 Rank {sel_info['rank']})"
+                if sel_info
+                else "🚩 위에서 캐릭터를 선택하면 해금된 칭호 깃발을 장착할 수 있어요"
+            )
+            self.flag_tier_select.options = [discord.SelectOption(label=lock_txt[:95], value="NONE")]
+            self.flag_tier_select.disabled = True
+            self.flag_tier_select.placeholder = "🚩 캐릭터 선택 후 해금된 깃발 장착..."
+
+        if sel_info and sel_info["highest_flag"]:
+            hf = sel_info["highest_flag"]
+            is_hf_eq = (hf["char_id"], hf["tier_rank"]) in eq_pairs
+            self.quick_equip_btn.disabled = False
+            self.quick_equip_btn.label = "🏷️ 최고 깃발 해제" if is_hf_eq else f"🚩 [{hf['grade']}] 장착"
+            self.quick_equip_btn.style = discord.ButtonStyle.secondary if is_hf_eq else discord.ButtonStyle.primary
+        else:
+            self.quick_equip_btn.disabled = True
+            self.quick_equip_btn.label = "🚩 깃발 장착 (Rank 5+)"
+            self.quick_equip_btn.style = discord.ButtonStyle.secondary
+
+        if sel_info and sel_info["unclaimed_crystals"] > 0:
+            self.claim_char_btn.disabled = False
+            self.claim_char_btn.label = f"🎁 캐릭터 보상 (+{sel_info['unclaimed_crystals']:,}💎)"[:80]
+            self.claim_char_btn.style = discord.ButtonStyle.success
+        else:
+            self.claim_char_btn.disabled = True
+            self.claim_char_btn.label = "🎁 캐릭터 보상 없음"
+            self.claim_char_btn.style = discord.ButtonStyle.secondary
+
+        total_unclaimed = sum(r["unclaimed_crystals"] for r in self.all_ranks)
+        if total_unclaimed > 0:
+            self.claim_all_btn.disabled = False
+            self.claim_all_btn.label = f"💎 전체 일괄수령 (+{total_unclaimed:,}💎)"[:80]
+            self.claim_all_btn.style = discord.ButtonStyle.success
+        else:
+            self.claim_all_btn.disabled = True
+            self.claim_all_btn.label = "💎 전체 보상 수령완료"
+            self.claim_all_btn.style = discord.ButtonStyle.secondary
+
+        self.clear_flags_btn.disabled = (len(self.equipped_flags) == 0)
+
+    def _build_equipped_flags_line(self) -> str:
+        if not self.equipped_flags:
+            return "미장착 *(Rank 5 이상 달성 후 캐릭터를 선택해 최대 3개까지 장착해 보세요!)*"
+        return "\n".join(
+            f"• {f['emoji']} **`[{f['title']}]`** (`{f['grade']}` · `Rank {f.get('current_rank', f['tier_rank'])}`)"
+            for f in self.equipped_flags
+        )
+
+    async def build_embed_and_file(self) -> tuple[discord.Embed, discord.File | None]:
+        u_name = self.user.display_name if self.user else "유저"
+        sel_info = self._get_selected_rank_info()
+
+        if sel_info is None:
+            ranked = sorted(self.all_ranks, key=lambda r: (-r["rank"], -r["total_exp"], r["char_id"]))
+            total_rank_sum = sum(r["rank"] for r in self.all_ranks)
+            unlocked_flag_chars = sum(1 for r in self.all_ranks if r["highest_flag"])
+            total_unclaimed = sum(r["unclaimed_crystals"] for r in self.all_ranks)
+
+            top_lines = []
+            for idx, r in enumerate(ranked[:12], start=1):
+                hf = r["highest_flag"]
+                flag_txt = f"{hf['emoji']}`[{hf['title']}]`" if hf else "🔒`미해금`"
+                oshi_t = " 💖" if r["is_oshi"] else ""
+                uncl_t = f" 🎁`+{r['unclaimed_crystals']}💎`" if r["unclaimed_crystals"] > 0 else ""
+                top_lines.append(
+                    f"**{idx:02d}.** {r['unit_emoji']} **{r['char_name']}**{oshi_t} — **`Rank {r['rank']}`** ({flag_txt}){uncl_t}"
+                )
+
+            desc_lines = [
+                f"• **26인 캐릭터 랭크 합계:** **`{total_rank_sum:,}`**  ·  **깃발 해금 캐릭터:** `{unlocked_flag_chars}/26명`",
+                f"• **미수령 캐랭 보상 합계:** **`+{total_unclaimed:,} 💎`** *(랭크업 +50💎 / 5단위 +150💎 / 10단위 +300💎)*",
+                "",
+                f"🚩 **프로필 장착 중인 칭호 깃발 ({len(self.equipped_flags)}/{core.MAX_EQUIPPED_RANK_FLAGS})**",
+                self._build_equipped_flags_line(),
+            ]
+            if self.status_note:
+                desc_lines.append(f"\n> {self.status_note}")
+            desc_lines.append("\n🏆 **내 캐릭터 랭크 TOP 12**\n" + "\n".join(top_lines))
+
+            embed = discord.Embed(
+                title=f"🚩 {u_name}님의 캐릭터 랭크 & 칭호 깃발 스튜디오",
+                description="\n".join(desc_lines)[:4090],
+                color=discord.Color.from_rgb(0, 204, 221),
+                timestamp=datetime.datetime.now(core.KST),
+            )
+            embed.set_footer(text="아래에서 유닛·캐릭터를 선택하면 깃발 배너 확인 및 프로필 장착이 가능합니다!")
+            return embed, None
+
+        # 캐릭터 상세 모드 + 프로세카 인게임 스타일 깃발 배너 PNG 생성
+        bd = sel_info["breakdown"]
+        pct = min(100, int((sel_info["cur_exp"] / max(1, sel_info["need_exp"])) * 100))
+        filled = pct // 10
+        exp_bar = "🟩" * filled + "⬛" * (10 - filled)
+
+        tier_lines = []
+        eq_pairs = {(f["char_id"], f["tier_rank"]) for f in self.equipped_flags}
+        for t in core.CHARACTER_RANK_FLAG_TIERS:
+            fm = core.get_char_rank_flag_meta(sel_info["char_id"], t["rank"])
+            if not fm:
+                continue
+            unlocked = sel_info["rank"] >= t["rank"]
+            is_eq = (fm["char_id"], fm["tier_rank"]) in eq_pairs
+            st = "✅ 장착중" if is_eq else ("🔓 해금" if unlocked else f"🔒 Rank {t['rank']}")
+            tier_lines.append(f"• `Rank {t['rank']:02d}` {fm['emoji']} **`[{fm['title']}]`** ({fm['grade']}) — {st}")
+
+        desc_lines = [
+            f"• **캐릭터 랭크:** **`Rank {sel_info['rank']}`**  {exp_bar}  `{sel_info['cur_exp']} / {sel_info['need_exp']} EXP` *(누적 `{sel_info['total_exp']:,}`)*",
+            f"• **미수령 랭크업 보상:** **`+{sel_info['unclaimed_crystals']:,} 💎`** (`{sel_info['unclaimed_ranks']}랭크`분)",
+            "",
+            "📊 **캐랭 EXP 상세 내역**",
+            f"└ 🃏 카드 수집 `{sel_info['owned_cards']}종` (`+{bd['card_exp']}`) · 🏆 MR합 `{sel_info['mr_sum']}` (`+{bd['mr_exp']}`) · 🔨 강화 (`+{bd['lvl_exp']}`)",
+            f"└ 👗 3D 의상 `{sel_info['costume_count']}벌` (`+{bd['costume_exp']}`) · ⚔️ 라이브 `{sel_info['live_plays']}회` (`+{bd['live_exp']}`) · 💖 오시 (`+{bd['oshi_exp']}`)",
+        ]
+        if self.status_note:
+            desc_lines.append(f"\n> {self.status_note}")
+        desc_lines.append("\n🚩 **칭호 깃발 티어 목록 (Rank 5 ~ 65)**\n" + "\n".join(tier_lines))
+        desc_lines.append(
+            f"\n🪪 **현재 내 프로필 장착 깃발 ({len(self.equipped_flags)}/{core.MAX_EQUIPPED_RANK_FLAGS})**\n"
+            + self._build_equipped_flags_line()
+        )
+
+        u_rgb = sel_info.get("unit_color") or (0, 204, 221)
+        embed = discord.Embed(
+            title=f"{sel_info['unit_emoji']} {sel_info['char_name']} — Rank {sel_info['rank']} 칭호 깃발",
+            description="\n".join(desc_lines)[:4090],
+            color=discord.Color.from_rgb(*u_rgb),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.set_footer(text="장착한 깃발은 /내프로필 및 통합 PNG 프로필 카드에 자동 반영됩니다!")
+
+        img_bytes, fn = await asyncio.to_thread(
+            core.build_character_rank_flag_image_bytes, sel_info, self.equipped_flags
+        )
+        if img_bytes and fn:
+            embed.set_image(url=f"attachment://{fn}")
+            return embed, discord.File(io.BytesIO(img_bytes), filename=fn)
+        return embed, None
+
+    async def _commit_update(self, interaction: discord.Interaction):
+        embed, file_obj = await self.build_embed_and_file()
+        if file_obj:
+            await interaction.edit_original_response(embed=embed, attachments=[file_obj], view=self)
+        else:
+            await interaction.edit_original_response(embed=embed, attachments=[], view=self)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if self.user and interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 캐릭터 랭크 창을 연 본인만 조작할 수 있습니다.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(placeholder="🏷️ 유닛 선택 (전체 26인 요약 / 유닛별)...", row=0, options=[discord.SelectOption(label="요약", value="SUMMARY")])
+    async def unit_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await core.safe_defer(interaction)
+        val = select.values[0]
+        self.selected_unit = val
+        self.status_note = ""
+        if val == "SUMMARY":
+            self.selected_char_id = None
+        else:
+            unit_chars = [r for r in self.all_ranks if r["unit"] == val]
+            self.selected_char_id = unit_chars[0]["char_id"] if unit_chars else None
+        await asyncio.to_thread(self._reload_state)
+        await self._commit_update(interaction)
+
+    @discord.ui.select(placeholder="👤 캐릭터를 선택해 깃발 배너 & 상세 정보를 확인하세요...", row=1, options=[discord.SelectOption(label="로딩중", value="NONE")])
+    async def char_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        val = select.values[0]
+        if val == "NONE":
+            await core.safe_defer(interaction)
+            return
+        await core.safe_defer(interaction)
+        cid = int(val)
+        self.selected_char_id = cid
+        if cid in core.CHARACTER_MAP:
+            self.selected_unit = core.CHARACTER_MAP[cid]["unit"]
+        self.status_note = ""
+        await asyncio.to_thread(self._reload_state)
+        await self._commit_update(interaction)
+
+    @discord.ui.select(placeholder="🚩 해금된 칭호 깃발 선택 장착/해제...", row=2, options=[discord.SelectOption(label="로딩중", value="NONE")])
+    async def flag_tier_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        val = select.values[0]
+        if val == "NONE" or ":" not in val:
+            await core.safe_defer(interaction)
+            return
+        await core.safe_defer(interaction)
+        cid_s, tier_s = val.split(":", 1)
+        ok, msg, _ = await asyncio.to_thread(
+            core.toggle_user_equipped_rank_flag, self.guild_id, interaction.user.id, int(cid_s), int(tier_s)
+        )
+        self.status_note = msg
+        await asyncio.to_thread(self._reload_state)
+        await self._commit_update(interaction)
+
+    @discord.ui.button(label="🚩 깃발 장착", style=discord.ButtonStyle.primary, row=3)
+    async def quick_equip_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.selected_char_id is None:
+            await core.safe_send_response(interaction, "❌ 먼저 캐릭터를 선택해 주세요.", ephemeral=True)
+            return
+        await core.safe_defer(interaction)
+        ok, msg, _ = await asyncio.to_thread(
+            core.toggle_user_equipped_rank_flag, self.guild_id, interaction.user.id, self.selected_char_id, None
+        )
+        self.status_note = msg
+        await asyncio.to_thread(self._reload_state)
+        await self._commit_update(interaction)
+
+    @discord.ui.button(label="🎁 캐릭터 보상", style=discord.ButtonStyle.success, row=3)
+    async def claim_char_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.selected_char_id is None:
+            await core.safe_send_response(interaction, "❌ 먼저 캐릭터를 선택해 주세요.", ephemeral=True)
+            return
+        async with self._lock:
+            await core.safe_defer(interaction)
+            ok, msg, res = await asyncio.to_thread(
+                core.claim_character_rank_rewards,
+                self.guild_id,
+                interaction.user.id,
+                self.selected_char_id,
+                interaction.user.display_name,
+            )
+            self.status_note = f"{msg} (현재 크리스탈: `{res.get('current_crystals', 0):,}💎`)" if ok else f"ℹ️ {msg}"
+            await asyncio.to_thread(self._reload_state)
+            await self._commit_update(interaction)
+
+    @discord.ui.button(label="💎 전체 일괄수령", style=discord.ButtonStyle.success, row=3)
+    async def claim_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._lock:
+            await core.safe_defer(interaction)
+            ok, msg, res = await asyncio.to_thread(
+                core.claim_character_rank_rewards,
+                self.guild_id,
+                interaction.user.id,
+                None,
+                interaction.user.display_name,
+            )
+            self.status_note = f"{msg} (현재 크리스탈: `{res.get('current_crystals', 0):,}💎`)" if ok else f"ℹ️ {msg}"
+            await asyncio.to_thread(self._reload_state)
+            await self._commit_update(interaction)
+
+    @discord.ui.button(label="🧹 깃발 해제", style=discord.ButtonStyle.secondary, row=3)
+    async def clear_flags_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        _, msg = await asyncio.to_thread(core.clear_user_equipped_rank_flags, self.guild_id, interaction.user.id)
+        self.status_note = msg
+        await asyncio.to_thread(self._reload_state)
+        await self._commit_update(interaction)
+
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=3)
+    async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.status_note = "🔄 최신 카드·마스터랭크·의상·라이브 기준으로 캐랭을 다시 계산했습니다."
+        await asyncio.to_thread(self._reload_state)
+        await self._commit_update(interaction)
 
 
 class RerollSimulatorView(core.SafeView):
@@ -1068,9 +2471,13 @@ class DestinyRerollView(core.SafeView):
             await asyncio.to_thread(
                 core.save_real_pull_and_records, self.guild_id, self.user.id, chosen_cards, self.banner_type
             )
+            pity_info = await asyncio.to_thread(core.get_user_gacha_pity_state, self.guild_id, self.user.id)
+            pity_info["added_badges"] = len(chosen_cards)
             await self._render_current(interaction)
 
-            repull_view = GachaPullAgainView(self.user, banner_type=self.banner_type, skip_anim=True)
+            repull_view = GachaPullAgainView(
+                self.user, banner_type=self.banner_type, skip_anim=True, guild_id=self.guild_id, pity_info=pity_info
+            )
             await send_gacha_pull_result(
                 interaction,
                 chosen_cards,
@@ -1081,6 +2488,7 @@ class DestinyRerollView(core.SafeView):
                 skip_anim=True,
                 mode_note=f"🔮 **[운명 다시 뽑기 확정 수령!]** 총 {len(self.sets)}세트 중 **{chosen_idx + 1}세트**를 선택하여 보관함에 저장했습니다!",
                 grid_tag=f"운명 확정 ({chosen_idx + 1}세트)",
+                pity_info=pity_info,
             )
 
 
@@ -4460,8 +5868,12 @@ class GachaCog(commands.Cog):
                 return
             data = await asyncio.to_thread(core.load_data)
             pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
+            pity_info = core.get_user_gacha_pity_state(guild_id, interaction.user.id, data=data)
+            pity_info["added_badges"] = len(drawn)
             next_banner = (배너.value if (배너 is not None and is_owner) else core.get_active_proseka_banner(pickup_cfg))
-            repull_view = GachaPullAgainView(interaction.user, banner_type=next_banner, skip_anim=skip_anim)
+            repull_view = GachaPullAgainView(
+                interaction.user, banner_type=next_banner, skip_anim=skip_anim, guild_id=guild_id, pity_info=pity_info
+            )
             await send_gacha_pull_result(
                 interaction,
                 drawn,
@@ -4471,6 +5883,7 @@ class GachaCog(commands.Cog):
                 banner_type="birthday",
                 skip_anim=skip_anim,
                 mode_note=f"🎂 **[생일 당일 무료 1회!]** {msg}",
+                pity_info=pity_info,
             )
             return
 
@@ -4527,15 +5940,17 @@ class GachaCog(commands.Cog):
         data = await asyncio.to_thread(core.load_data)
         pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
         banner_key = 배너.value if (배너 is not None and is_owner) else core.get_active_proseka_banner(pickup_cfg)
-        drawn = await asyncio.to_thread(core.draw_proseka_cards, pickup_cfg, count=pull_count, banner_type=banner_key)
+        drawn, pity_info = await asyncio.to_thread(
+            core.execute_real_proseka_pull, guild_id, interaction.user.id, pickup_cfg, pull_count, banner_key
+        )
 
         if not drawn:
             await interaction.followup.send("❌ 한국 서버 캐릭터 DB를 불러오지 못했습니다.")
             return
 
-        await asyncio.to_thread(core.save_real_pull_and_records, guild_id, interaction.user.id, drawn, banner_key)
-
-        repull_view = GachaPullAgainView(interaction.user, banner_type=banner_key, skip_anim=skip_anim)
+        repull_view = GachaPullAgainView(
+            interaction.user, banner_type=banner_key, skip_anim=skip_anim, guild_id=guild_id, pity_info=pity_info
+        )
         await send_gacha_pull_result(
             interaction,
             drawn,
@@ -4544,6 +5959,7 @@ class GachaCog(commands.Cog):
             repull_view,
             banner_type=banner_key,
             skip_anim=skip_anim,
+            pity_info=pity_info,
         )
 
     @proseka_pull_cmd.error
@@ -5058,9 +6474,15 @@ class GachaCog(commands.Cog):
         oshi_card_count = sum(c.get("count", 1) for c in oshi_cards)
         oshi_char_id = next((cid for cid, info in core.CHARACTER_MAP.items() if info["name"] == oshi_raw), None)
         oshi_cos_str = ""
+        oshi_rank_str = ""
         if oshi_char_id:
             oshi_cos = core.get_user_equipped_costume(interaction.guild_id or 0, target_user.id, oshi_char_id)
             oshi_cos_str = f" · 👗`[{oshi_cos['name']}]`"
+            oshi_rk = core.calculate_character_rank(data, interaction.guild_id or 0, target_user.id, oshi_char_id)
+            oshi_rank_str = f" · 🚩`Rank {oshi_rk['rank']}`"
+
+        equipped_flags = core.get_user_equipped_rank_flags(interaction.guild_id or 0, target_user.id, data=data)
+        pity_state = core.get_user_gacha_pity_state(interaction.guild_id or 0, target_user.id, data=data)
 
         embed = discord.Embed(
             title=f"🌟 {target_user.display_name}님의 norosi 프로필",
@@ -5068,12 +6490,32 @@ class GachaCog(commands.Cog):
             timestamp=datetime.datetime.now(core.KST)
         )
         embed.set_thumbnail(url=target_user.display_avatar.url)
-        embed.add_field(name="👑 나의 오시 (최애)", value=f"**{oshi_name}** (`{oshi_card_count}장`){oshi_cos_str}", inline=True)
+        embed.add_field(name="👑 나의 오시 (최애)", value=f"**{oshi_name}** (`{oshi_card_count}장`){oshi_rank_str}{oshi_cos_str}", inline=True)
         embed.add_field(name="💑 파트너 (짝꿍)", value=f"<@{partner_id}>" if partner_id else "미등록 (`/설정` ➔ `💑 파트너`)", inline=True)
         embed.add_field(name="💎 보유 크리스탈", value=f"**`{crystals:,}개`**", inline=True)
         embed.add_field(name="🎰 누적 뽑기", value=f"`{total_pulls:,}회`", inline=True)
         embed.add_field(name="★★★★ / 🎀생일", value=f"`★4 {star4_count}장` · `🎀 {bday_count}장`", inline=True)
         embed.add_field(name="📚 도감 수집률", value=f"`{total_unique:,} / {total_db_cards:,}종 ({collect_rate:.1f}%)`", inline=True)
+
+        if equipped_flags:
+            flags_val = "  ·  ".join(
+                f"{f['emoji']} **`[{f['title']}]`** (`Rank {f.get('current_rank', f['tier_rank'])}`)"
+                for f in equipped_flags
+            )
+        else:
+            flags_val = "미장착 (`/설정` ➔ `🚩 캐릭터 랭크 & 칭호 깃발`에서 Rank 5+ 깃발 장착!)"
+        embed.add_field(name="🚩 장착 중인 캐랭 칭호 깃발", value=flags_val, inline=False)
+
+        embed.add_field(
+            name="⚡ 가챠 보너스 · 🏅 천장 배지 · 🎟️ 셀렉트 티켓",
+            value=(
+                f"⚡ 보너스 게이지: {pity_state['gauge_bar']} **`{pity_state['bonus_gauge']}/100pt`** *(다음 `{pity_state['next_bonus_label']}`)*\n"
+                f"🏅 가챠 배지: **`{pity_state['badges']:,} / {pity_state['ceiling_cost']}`** "
+                + (f"(✨ **천장 교환 가능!**)" if pity_state["can_exchange_ceiling"] else f"(천장까지 `{pity_state['ceiling_remaining']}개`)")
+                + f"  ·  🎟️ 셀렉트 티켓: **`{pity_state['select_tickets']:,}장`**"
+            ),
+            inline=False,
+        )
 
         ms = core.ensure_my_sekai(profile)
         ms_theme_name = core.MY_SEKAI_THEMES.get(ms.get("theme", "default"), {}).get("name", "🌌 기본 빈 세카이")
@@ -5579,6 +7021,88 @@ class GachaCog(commands.Cog):
         song_id = 곡.value if 곡 else None
         view = SekaiLiveView(interaction.user, guild_id=interaction.guild_id or 0, initial_song_id=song_id)
         await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+
+    @app_commands.command(name="천장교환", description="가챠 배지 200개로 원하는 ★4 / 🎀생일 카드를 확정 교환하고 가챠 보너스 게이지를 확인합니다.")
+    async def ceiling_exchange_cmd(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        view = GachaCeilingExchangeView(interaction.user, guild_id=interaction.guild_id or 0)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+
+    @app_commands.command(name="셀렉트리스트", description="봇주 지급 특수 티켓 1장으로 원하는 ★4 카드 10장을 골라 1장 확정 10연차를 실행합니다.")
+    async def select_list_gacha_cmd(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        view = SelectListGachaView(interaction.user, guild_id=interaction.guild_id or 0)
+        await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+
+    @app_commands.command(name="셀렉트티켓지급", description="[봇주인 전용] 특정 유저에게 셀렉트 리스트 가챠 특수 티켓을 지급·회수하거나 관리 패널을 엽니다.")
+    @app_commands.describe(
+        유저="(선택) 티켓을 지급하거나 회수할 대상 유저 (미입력 시 봇주 관리 제어판 열기)",
+        수량="(선택) 지급할 수량 (양수: 지급 / 음수: 회수 / 0: 보유량 확인, 기본: 1)",
+        사유="(선택) 지급/회수 사유 메모"
+    )
+    async def grant_select_ticket_cmd(
+        self,
+        interaction: discord.Interaction,
+        유저: Optional[discord.User] = None,
+        수량: int = 1,
+        사유: str = "",
+    ):
+        if not await _is_interaction_bot_owner(interaction, self.bot):
+            await core.safe_send_response(
+                interaction,
+                content="❌ 셀렉트 리스트 특수 티켓 지급은 **봇주인(Bot Owner)** 만 사용할 수 있습니다.",
+                ephemeral=True,
+            )
+            return
+        if 유저 is None:
+            await core.safe_defer(interaction, ephemeral=True)
+            view = OwnerSelectTicketGrantView(interaction.user)
+            msg_obj = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
+            view.message = msg_obj
+            return
+        if abs(수량) > 999:
+            await core.safe_send_response(interaction, "❌ 수량은 `-999 ~ +999` 사이로 입력해 주세요.", ephemeral=True)
+            return
+        await core.safe_defer(interaction)
+        ok, msg, after_cnt = await asyncio.to_thread(
+            core.adjust_user_select_tickets,
+            유저.id,
+            수량,
+            getattr(유저, "display_name", ""),
+            interaction.user.id,
+            사유,
+        )
+        reason_line = f"\n• **사유:** `{사유.strip()[:100]}`" if (사유 or "").strip() else ""
+        embed = discord.Embed(
+            title="🎟️ [봇주인 전용] 셀렉트 리스트 특수 티켓 지급 결과",
+            description=(
+                f"• **대상 유저:** {유저.mention} (`{유저.display_name}`)\n"
+                f"• **처리 결과:** {msg}{reason_line}\n\n"
+                "💡 받은 티켓은 `/설정` ➔ `🎮 미니게임` ➔ `1회·운명·연습·생일뽑기` ➔ **`🎟️ 셀렉트 리스트 가챠`** 에서 즉시 사용할 수 있습니다!"
+            ),
+            color=discord.Color.from_rgb(255, 205, 86) if ok else discord.Color.red(),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="캐릭터랭크", description="프로세카 26인 캐릭터 랭크(캐랭)와 칭호 깃발을 확인·장착하고 랭크업 보상(💎)을 수령합니다.")
+    @app_commands.autocomplete(캐릭터=core.proseka_char_autocomplete)
+    @app_commands.describe(캐릭터="(선택) 바로 확인할 프로세카 캐릭터 이름")
+    async def character_rank_cmd(self, interaction: discord.Interaction, 캐릭터: Optional[str] = None):
+        await core.safe_defer(interaction)
+        init_cid = None
+        if 캐릭터:
+            q = 캐릭터.strip().lower()
+            for cid, cinfo in core.CHARACTER_MAP.items():
+                if q in cinfo["name"].lower():
+                    init_cid = cid
+                    break
+        view = CharacterRankView(interaction.user, guild_id=interaction.guild_id or 0, initial_char_id=init_cid)
+        embed, file_obj = await view.build_embed_and_file()
+        if file_obj:
+            await interaction.followup.send(embed=embed, file=file_obj, view=view, wait=True)
+        else:
+            await interaction.followup.send(embed=embed, view=view, wait=True)
 
 
 class MySekaiGreetingModal(core.SafeModal, title="🪧 마이세카이 방 한줄 소개글 변경"):
