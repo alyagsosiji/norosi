@@ -2479,8 +2479,7 @@ def get_hsr_pokedex_stats(guild_id: int, user_id: int) -> dict:
     r5_own = sum(1 for r in relics if r["item_key"] in owned_map)
 
     rate = (len(owned_all) / max(1, len(all_master))) * 100.0
-    filled = int(round((rate / 100.0) * 10))
-    bar = "🟪" * filled + "⬛" * max(0, 10 - filled)
+    bar = core.format_progress_bar(len(owned_all), max(1, len(all_master)), slots=10)
 
     return {
         "total_all": len(all_master),

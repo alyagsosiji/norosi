@@ -1033,8 +1033,18 @@ GACHA_COOLDOWN_SECONDS: float = 3.5
 GACHA_SKIP_COOLDOWN_SECONDS: float = 5.0
 
 
-def check_and_update_gacha_cooldown(user_id: int, skip_anim: bool = False) -> tuple[bool, float]:
-    """모든 뽑기 경로(프로세카/원신/스타레일, 단차/10연차/재뽑기)에서 예외 없이 쿨타임(기본 3.5초, 연출 스킵 시 5.0초)을 강제 검사하고 갱신합니다."""
+def extend_gacha_cooldown(user_id: int, seconds: float) -> None:
+    """연출 재생 중 재뽑기를 막기 위해 쿨타임 만료 시각을 (지금 + seconds) 이상으로 연장합니다."""
+    until = time.time() + max(0.0, float(seconds))
+    if GACHA_GLOBAL_COOLDOWN.get(user_id, 0.0) < until:
+        GACHA_GLOBAL_COOLDOWN[user_id] = until
+
+
+def check_and_update_gacha_cooldown(
+    user_id: int, skip_anim: bool = False, base_seconds: float | None = None
+) -> tuple[bool, float]:
+    """모든 뽑기 경로(프로세카/원신/스타레일, 단차/10연차/재뽑기)에서 예외 없이 쿨타임(기본 3.5초, 연출 스킵 시 5.0초)을 강제 검사하고 갱신합니다.
+    `base_seconds`를 주면 연출 보기 시 기본 쿨타임을 해당 값으로 대체합니다."""
     now = time.time()
     cooldown_until = GACHA_GLOBAL_COOLDOWN.get(user_id, 0.0)
     if now < cooldown_until:
@@ -1044,7 +1054,10 @@ def check_and_update_gacha_cooldown(user_id: int, skip_anim: bool = False) -> tu
         expired = [uid for uid, exp in list(GACHA_GLOBAL_COOLDOWN.items()) if exp <= now]
         for uid in expired:
             GACHA_GLOBAL_COOLDOWN.pop(uid, None)
-    duration = GACHA_SKIP_COOLDOWN_SECONDS if skip_anim else GACHA_COOLDOWN_SECONDS
+    if skip_anim:
+        duration = GACHA_SKIP_COOLDOWN_SECONDS
+    else:
+        duration = GACHA_COOLDOWN_SECONDS if base_seconds is None else float(base_seconds)
     GACHA_GLOBAL_COOLDOWN[user_id] = now + duration
     return True, 0.0
 
@@ -3350,15 +3363,16 @@ def build_monthly_event_forecast_calendar(target_year: int, target_month: int):
         if not (ev_e < month_start_str or ev_s > month_end_str):
             events_in_month.append(ev)
 
-    # 아스키 달력 테이블 생성
-    days_header = "일   월   화   수   목   금   토"
-    grid_lines = [days_header]
+    # 아스키 달력 테이블 생성 (PC·모바일 모든 고정폭 폰트에서 열이 정확히 맞도록 순수 ASCII 고정폭 구성)
+    days_header = "SUN MON TUE WED THU FRI SAT"
+    sep_line = "─── ─── ─── ─── ─── ─── ───"
+    grid_lines = [days_header, sep_line]
 
     for week in cal:
         row = []
         for day in week:
             if day == 0:
-                row.append("    ")
+                row.append("   ")
             else:
                 day_str = f"{target_year:04d}-{target_month:02d}-{day:02d}"
                 is_start = any(ev["kr_estimated_start"] == day_str for ev in events_in_month)
@@ -3366,14 +3380,14 @@ def build_monthly_event_forecast_calendar(target_year: int, target_month: int):
                 is_ongoing = any(ev["kr_estimated_start"] <= day_str <= ev["kr_estimated_end"] for ev in events_in_month)
 
                 if is_start:
-                    icon = f"{day:2d}🚩"
+                    cell = f"{day:02d}S"
                 elif is_end:
-                    icon = f"{day:2d}🏁"
+                    cell = f"{day:02d}E"
                 elif is_ongoing:
-                    icon = f"{day:2d}🟢"
+                    cell = f"{day:02d}*"
                 else:
-                    icon = f"{day:2d}· "
-                row.append(icon)
+                    cell = f"{day:02d} "
+                row.append(cell)
         grid_lines.append(" ".join(row))
 
     calendar_ascii = "\n".join(grid_lines)
@@ -5637,22 +5651,93 @@ def list_select_ticket_holders(data: dict | None = None) -> list[dict]:
     return holders
 
 
-def _render_segment_bar(value: int, seg_max: int = 50, slots: int = 5) -> str:
+def _render_segment_bar(value: int | float, seg_max: int | float = 50, slots: int = 5) -> str:
     """단일 구간의 진행률을 고정폭 유니코드 블록(█/▓/▒/░)으로 렌더링합니다."""
-    v = max(0, min(seg_max, int(value)))
-    step = seg_max / max(1, slots)
+    mx = max(1e-9, float(seg_max))
+    v = max(0.0, min(mx, float(value)))
+    step = mx / max(1, slots)
     chars = []
     for i in range(slots):
         rem = v - (i * step)
-        if rem >= step:
+        if rem >= step - 1e-9:
             chars.append("█")
         elif rem >= step * 0.5:
             chars.append("▓")
-        elif rem > 0:
+        elif rem > 1e-9:
             chars.append("▒")
         else:
             chars.append("░")
     return "".join(chars)
+
+
+def format_progress_bar(value: int | float, max_value: int | float = 100, slots: int = 10) -> str:
+    """범용 고정폭 진행 바(`[████▓░░░░░]`)를 반환합니다."""
+    return f"`[{_render_segment_bar(value, max(1e-9, float(max_value)), slots=slots)}]`"
+
+
+def format_pity_gauge_block(
+    pity: int,
+    hard_pity: int,
+    *,
+    soft_pity: int | None = None,
+    status_tag: str = "",
+    extra_line: str = "",
+    slots: int = 10,
+) -> str:
+    """원신/스타레일 천장 스택을 PC·모바일 3줄 구조(수치 / 고정폭 바 / 소프트·확정 안내)로 포맷합니다."""
+    p = max(0, int(pity))
+    h = max(1, int(hard_pity))
+    bar = format_progress_bar(min(p, h), h, slots=slots)
+    rem_hard = max(0, h - p)
+    tag_part = f" · {status_tag}" if status_tag else ""
+    if soft_pity and p >= soft_pity:
+        sub = f"└ 🔥 **소프트 천장 진입!** (`{soft_pity}+`) · 확정까지 `{rem_hard}회` 남음"
+    elif soft_pity:
+        rem_soft = max(0, soft_pity - p)
+        sub = f"└ 소프트 천장(`{soft_pity}`)까지 `{rem_soft}회` · 확정까지 `{rem_hard}회` 남음"
+    else:
+        sub = f"└ 확정 천장까지 `{rem_hard}회` 남음"
+    if extra_line:
+        sub = f"{sub}\n{extra_line}"
+    return f"**{p} / {h} 스택**{tag_part}\n{bar}\n{sub}"
+
+
+def format_event_progress_bar(start_ms: int, end_ms: int) -> tuple[str, str]:
+    """이벤트 시작/종료(ms) 기준 (진행 바 줄, 남은 시간 줄)을 반환합니다."""
+    now_ms = int(time.time() * 1000)
+    if now_ms < start_ms:
+        rem_sec = max(0, (start_ms - now_ms) // 1000)
+        d, rem = divmod(rem_sec, 86400)
+        h, rem = divmod(rem, 3600)
+        m, _ = divmod(rem, 60)
+        return (
+            f"{format_progress_bar(0, 100, slots=10)} **0%**",
+            f"└ ⏳ 시작까지 `{d}일 {h}시간 {m}분` 남음",
+        )
+    if now_ms >= end_ms or end_ms <= start_ms:
+        return (
+            f"{format_progress_bar(100, 100, slots=10)} **100%**",
+            "└ 🏁 이벤트가 종료되었습니다",
+        )
+    total_ms = end_ms - start_ms
+    passed_ms = now_ms - start_ms
+    percent = min(100.0, max(0.0, (passed_ms / total_ms) * 100.0))
+    rem_sec = max(0, (end_ms - now_ms) // 1000)
+    d, rem = divmod(rem_sec, 86400)
+    h, rem = divmod(rem, 3600)
+    m, _ = divmod(rem, 60)
+    return (
+        f"{format_progress_bar(percent, 100, slots=10)} **{int(percent)}%**",
+        f"└ ⏱️ 남은 시간: `{d}일 {h}시간 {m}분`",
+    )
+
+
+def truncate_text(text: str, limit: int) -> str:
+    """지정 길이를 초과할 경우 깔끔하게 말줄임표(…)를 붙여 자릅니다."""
+    s = (text or "").strip()
+    if len(s) <= limit:
+        return s
+    return s[: max(1, limit - 1)].rstrip() + "…"
 
 
 def format_gacha_bonus_gauge_bar(gauge: int) -> str:
@@ -6886,8 +6971,7 @@ def get_card_pokedex_stats(guild_id: int, user_id: int) -> dict:
         own = b["owned_count"]
         rate = (own / tot * 100.0) if tot > 0 else 0.0
         b["rate"] = rate
-        filled = min(5, int(round(rate / 20.0)))
-        b["bar"] = ("🌌" * filled) + ("🌑" * max(0, 5 - filled))
+        b["bar"] = format_progress_bar(own, max(1, tot), slots=5)
         b["owned_cards"].sort(key=sort_key)
         b["unowned_cards"].sort(key=sort_key)
         by_character.append(b)
@@ -6896,8 +6980,7 @@ def get_card_pokedex_stats(guild_id: int, user_id: int) -> dict:
     total_owned = len(owned_list)
     total_unowned = len(unowned_list)
     overall_rate = (total_owned / total_master * 100.0) if total_master > 0 else 0.0
-    ov_filled = min(10, int(overall_rate // 10))
-    overall_bar = ("🌌" * ov_filled) + ("🌑" * max(0, 10 - ov_filled)) + f" **{overall_rate:.1f}%**"
+    overall_bar = f"{format_progress_bar(total_owned, max(1, total_master), slots=10)} **{overall_rate:.1f}%**"
 
     return {
         "total_master": total_master,
