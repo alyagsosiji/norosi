@@ -439,49 +439,49 @@ async def send_gacha_pull_result(
     want_grid = len(drawn) >= 2
     want_single_img = (not has_4star) and (not want_grid) and len(drawn) == 1
 
-    async def _empty_grid():
-        return None, None
-
-    if high_cards:
-        img_task = asyncio.create_task(
-            asyncio.gather(
+    async def _fetch_images():
+        if high_cards:
+            return await asyncio.gather(
                 *(asyncio.to_thread(core.fetch_proseka_card_image_bytes, c, "auto") for c in high_cards[:9])
             )
-        )
-    elif want_single_img:
-        img_task = asyncio.create_task(
-            asyncio.gather(
+        if want_single_img:
+            return await asyncio.gather(
                 asyncio.to_thread(core.fetch_proseka_card_image_bytes, drawn[0], "auto")
             )
-        )
-    else:
-        img_task = asyncio.create_task(asyncio.sleep(0, result=[]))
+        return []
 
-    grid_task = asyncio.create_task(
-        asyncio.to_thread(core.build_10pull_grid_image_bytes, drawn, banner_type, grid_tag)
-        if want_grid else _empty_grid()
-    )
+    async def _fetch_grid():
+        if want_grid:
+            return await asyncio.to_thread(core.build_10pull_grid_image_bytes, drawn, banner_type, grid_tag)
+        return None, None
+
+    img_task = asyncio.create_task(_fetch_images())
+    grid_task = asyncio.create_task(_fetch_grid())
 
     intro_msg = None
-    if not skip_anim:
-        stages = build_gacha_animation_stages(
-            drawn, banner_type=banner_type, pull_count=pull_count, pity_info=pity_info
-        )
-        for s_idx, (stage_embed, wait_sec) in enumerate(stages):
-            if s_idx == 0:
-                try:
-                    intro_msg = await interaction.followup.send(embed=stage_embed, wait=True)
-                except Exception:
-                    intro_msg = None
-            elif intro_msg is not None:
-                try:
-                    await intro_msg.edit(embed=stage_embed)
-                except Exception:
-                    pass
-            await asyncio.sleep(wait_sec)
+    try:
+        if not skip_anim:
+            stages = build_gacha_animation_stages(
+                drawn, banner_type=banner_type, pull_count=pull_count, pity_info=pity_info
+            )
+            for s_idx, (stage_embed, wait_sec) in enumerate(stages):
+                if s_idx == 0:
+                    try:
+                        intro_msg = await interaction.followup.send(embed=stage_embed, wait=True)
+                    except Exception:
+                        intro_msg = None
+                elif intro_msg is not None:
+                    try:
+                        await intro_msg.edit(embed=stage_embed)
+                    except Exception:
+                        pass
+                await asyncio.sleep(wait_sec)
         results, (grid_bytes, grid_fn) = await asyncio.gather(img_task, grid_task)
-    else:
-        results, (grid_bytes, grid_fn) = await asyncio.gather(img_task, grid_task)
+    except BaseException:
+        for t in (img_task, grid_task):
+            if not t.done():
+                t.cancel()
+        raise
 
     MAX_FILES = 10
     MAX_TOTAL_BYTES = 7_800_000
@@ -1192,6 +1192,7 @@ class GachaCeilingExchangeView(core.SafeView):
         return embed
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 천장 교환소를 연 본인만 조작할 수 있습니다.", ephemeral=True)
             return False
@@ -1205,7 +1206,7 @@ class GachaCeilingExchangeView(core.SafeView):
         self.selected_card_id = None
         self.status_note = ""
         await asyncio.to_thread(self._reload_state)
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.select(placeholder="🌟 교환할 ★4 / 🎀생일 카드를 선택하세요...", row=1, options=[discord.SelectOption(label="로딩중", value="NONE")])
     async def card_select(self, interaction: discord.Interaction, select: discord.ui.Select):
@@ -1217,7 +1218,7 @@ class GachaCeilingExchangeView(core.SafeView):
         self.selected_card_id = val
         self.status_note = ""
         self._refresh_components()
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="◀ 이전", style=discord.ButtonStyle.secondary, row=2)
     async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1225,7 +1226,7 @@ class GachaCeilingExchangeView(core.SafeView):
         if self.page > 0:
             self.page -= 1
             self._refresh_components()
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="1 / 1", style=discord.ButtonStyle.secondary, disabled=True, row=2)
     async def page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1238,7 +1239,7 @@ class GachaCeilingExchangeView(core.SafeView):
         if self.page < total_pages - 1:
             self.page += 1
             self._refresh_components()
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="✨ 미보유만: OFF", style=discord.ButtonStyle.secondary, row=2)
     async def unowned_toggle_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1247,7 +1248,7 @@ class GachaCeilingExchangeView(core.SafeView):
         self.page = 0
         self.selected_card_id = None
         await asyncio.to_thread(self._reload_state)
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🏅 200배지로 확정 교환!", style=discord.ButtonStyle.success, row=3)
     async def exchange_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1265,13 +1266,13 @@ class GachaCeilingExchangeView(core.SafeView):
             if not ok:
                 self.status_note = f"❌ {msg}"
                 await asyncio.to_thread(self._reload_state)
-                await interaction.edit_original_response(embed=self.build_embed(), view=self)
+                await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
                 return
 
             card = info["card"]
             self.status_note = f"✅ {msg} (남은 배지: `{info['remaining_badges']:,}개`)"
             await asyncio.to_thread(self._reload_state)
-            await interaction.edit_original_response(embed=self.build_embed(), view=self)
+            await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
             # 축하 결과 & 고화질 공식 일러스트 별도 출력
             new_tag = "✨ **[NEW!]** " if info.get("is_new") else ""
@@ -1290,10 +1291,14 @@ class GachaCeilingExchangeView(core.SafeView):
                 timestamp=datetime.datetime.now(core.KST),
             )
             img_bytes, fn = await asyncio.to_thread(core.fetch_proseka_card_image_bytes, card, "auto")
-            if img_bytes and fn:
-                cele_embed.set_image(url=f"attachment://{fn}")
-                await interaction.followup.send(embed=cele_embed, file=discord.File(io.BytesIO(img_bytes), filename=fn))
-            else:
+            try:
+                if img_bytes and fn:
+                    cele_embed.set_image(url=f"attachment://{fn}")
+                    await interaction.followup.send(embed=cele_embed, file=discord.File(io.BytesIO(img_bytes), filename=fn))
+                else:
+                    cele_embed.set_image(url=core.get_proseka_card_image_url(card, "auto"))
+                    await interaction.followup.send(embed=cele_embed)
+            except discord.HTTPException:
                 cele_embed.set_image(url=core.get_proseka_card_image_url(card, "auto"))
                 await interaction.followup.send(embed=cele_embed)
 
@@ -1434,6 +1439,7 @@ class SelectListGachaView(core.SafeView):
         return embed
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 셀렉트 리스트 가챠를 연 본인만 조작할 수 있습니다.", ephemeral=True)
             return False
@@ -1446,7 +1452,7 @@ class SelectListGachaView(core.SafeView):
         self.page = 0
         self.status_note = ""
         await asyncio.to_thread(self._reload_state)
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.select(placeholder="🌟 ★4 카드를 골라 리스트에 추가/해제하세요 (다중 선택 가능)...", row=1, options=[discord.SelectOption(label="로딩중", value="NONE")])
     async def card_multi_select(self, interaction: discord.Interaction, select: discord.ui.Select):
@@ -1476,7 +1482,7 @@ class SelectListGachaView(core.SafeView):
             parts.append(f"⚠️ 최대 {req}장까지만 담을 수 있어 `{overflow}장` 제외됨")
         self.status_note = " / ".join(parts)
         self._refresh_components()
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary, row=2)
     async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1484,7 +1490,7 @@ class SelectListGachaView(core.SafeView):
         if self.page > 0:
             self.page -= 1
             self._refresh_components()
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="1/1", style=discord.ButtonStyle.secondary, disabled=True, row=2)
     async def page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1497,7 +1503,7 @@ class SelectListGachaView(core.SafeView):
         if self.page < total_pages - 1:
             self.page += 1
             self._refresh_components()
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="✨ 미보유만: OFF", style=discord.ButtonStyle.secondary, row=2)
     async def unowned_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1505,7 +1511,7 @@ class SelectListGachaView(core.SafeView):
         self.unowned_only = not self.unowned_only
         self.page = 0
         await asyncio.to_thread(self._reload_state)
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🎲 미보유 10장 채우기", style=discord.ButtonStyle.primary, row=2)
     async def auto_fill_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1516,16 +1522,22 @@ class SelectListGachaView(core.SafeView):
             self.status_note = f"✅ 이미 {req}장이 모두 채워져 있습니다! 교체하려면 선택 초기화 후 다시 담아주세요."
         else:
             sel_set = set(self.selected_ids)
-            base_pool = self.filtered_cards if len(self.filtered_cards) >= need else self.all_star4
-            unowned_cand = [str(c["id"]) for c in base_pool if str(c["id"]) not in sel_set and str(c["id"]) not in self.owned_map]
-            owned_cand = [str(c["id"]) for c in base_pool if str(c["id"]) not in sel_set and str(c["id"]) in self.owned_map]
-            random.shuffle(unowned_cand)
-            random.shuffle(owned_cand)
-            picks = (unowned_cand + owned_cand)[:need]
+            filt_unowned = [str(c["id"]) for c in self.filtered_cards if str(c["id"]) not in sel_set and str(c["id"]) not in self.owned_map]
+            filt_owned = [str(c["id"]) for c in self.filtered_cards if str(c["id"]) not in sel_set and str(c["id"]) in self.owned_map]
+            random.shuffle(filt_unowned)
+            random.shuffle(filt_owned)
+            picks = (filt_unowned + filt_owned)[:need]
+            if len(picks) < need:
+                taken = sel_set | set(picks)
+                all_unowned = [str(c["id"]) for c in self.all_star4 if str(c["id"]) not in taken and str(c["id"]) not in self.owned_map]
+                all_owned = [str(c["id"]) for c in self.all_star4 if str(c["id"]) not in taken and str(c["id"]) in self.owned_map]
+                random.shuffle(all_unowned)
+                random.shuffle(all_owned)
+                picks.extend((all_unowned + all_owned)[: need - len(picks)])
             self.selected_ids.extend(picks)
             self.status_note = f"🎲 미보유 ★4 우선으로 **{len(picks)}장**을 자동 채웠습니다! (`{len(self.selected_ids)}/{req}`)"
         self._refresh_components()
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🎟️ 티켓 1장 사용 · 10연차 실행!", style=discord.ButtonStyle.success, row=3)
     async def pull_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1548,12 +1560,12 @@ class SelectListGachaView(core.SafeView):
             if not ok:
                 self.status_note = f"❌ {msg}"
                 await asyncio.to_thread(self._reload_state)
-                await interaction.edit_original_response(embed=self.build_embed(), view=self)
+                await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
                 return
 
             self.status_note = f"🎉 셀렉트 리스트 10연차 완료! (남은 특수 티켓: `{pity_info.get('remaining_tickets', 0)}장`)"
             await asyncio.to_thread(self._reload_state)
-            await interaction.edit_original_response(embed=self.build_embed(), view=self)
+            await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
             data = await asyncio.to_thread(core.load_data)
             pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
@@ -1584,14 +1596,14 @@ class SelectListGachaView(core.SafeView):
         self.selected_ids = []
         self.status_note = "🧹 선택한 셀렉트 리스트를 초기화했습니다."
         self._refresh_components()
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="✨ 스킵: OFF", style=discord.ButtonStyle.secondary, row=3)
     async def skip_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.skip_anim = not self.skip_anim
         self._refresh_components()
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
 
 class OwnerSelectTicketAmountModal(core.SafeModal, title="🎟️ [봇주 전용] 셀렉트 티켓 수량·사유 입력"):
@@ -1629,7 +1641,7 @@ class OwnerSelectTicketAmountModal(core.SafeModal, title="🎟️ [봇주 전용
             await core.safe_send_response(interaction, "❌ 수량은 `-999 ~ +999` 사이의 0이 아닌 정수로 입력해 주세요.", ephemeral=True)
             return
 
-        await core.safe_defer(interaction, ephemeral=True)
+        await core.safe_defer(interaction, ephemeral=True, thinking=True)
         t_user = self.parent_view.target_user
         ok, msg, after_cnt = await asyncio.to_thread(
             core.adjust_user_select_tickets,
@@ -1640,7 +1652,16 @@ class OwnerSelectTicketAmountModal(core.SafeModal, title="🎟️ [봇주 전용
             self.reason_input.value or "",
         )
         self.parent_view.status_note = f"{'✅' if ok else '❌'} {t_user.mention} ➔ {msg}"
-        if self.parent_view.message:
+        updated_panel = False
+        if self.parent_view._last_interaction is not None:
+            try:
+                await self.parent_view._last_interaction.edit_original_response(
+                    embed=self.parent_view.build_embed(), view=self.parent_view
+                )
+                updated_panel = True
+            except Exception:
+                pass
+        if not updated_panel and self.parent_view.message is not None:
             try:
                 await self.parent_view.message.edit(embed=self.parent_view.build_embed(), view=self.parent_view)
             except Exception:
@@ -1651,14 +1672,16 @@ class OwnerSelectTicketAmountModal(core.SafeModal, title="🎟️ [봇주 전용
 class OwnerSelectTicketGrantView(core.SafeView):
     """[봇주인 전용] 셀렉트 리스트 가챠 특수 티켓 지급·회수·보유자 관리 패널"""
 
-    def __init__(self, owner_user: discord.User):
+    def __init__(self, user: discord.User | None = None):
         super().__init__(timeout=300)
-        self.owner_user = owner_user
+        self.user = user
+        self.owner_user = user
         self.target_user: discord.User | discord.Member | None = None
         self.status_note: str = ""
         self.message: discord.Message | None = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
         if not await _is_interaction_bot_owner(interaction):
             await core.safe_send_response(interaction, "❌ 이 제어판은 **봇주인(Bot Owner)** 만 사용할 수 있습니다.", ephemeral=True)
             return False
@@ -1669,7 +1692,7 @@ class OwnerSelectTicketGrantView(core.SafeView):
         total_tickets = sum(h["tickets"] for h in holders)
         lines = [
             "봇주인이 유저에게 **🎟️ 셀렉트 리스트 가챠 특수 티켓**을 지급하거나 회수할 수 있습니다.",
-            "티켓을 받은 유저는 `/설정` ➔ `🎮 미니게임` ➔ `1회·운명·연습·생일뽑기` ➔ **`🎟️ 셀렉트 리스트 가챠`** 에서 원하는 ★4 10장을 직접 골라 1장 확정 10연차를 돌릴 수 있습니다!",
+            "티켓을 받은 유저는 `/설정` ➔ `🎮 미니게임` ➔ `특수뽑기·천장·셀렉트` ➔ **`🎟️ 셀렉트 리스트 가챠`** 에서 원하는 ★4 10장을 직접 골라 1장 확정 10연차를 돌릴 수 있습니다!",
             "",
             f"• **전체 티켓 보유 유저:** `{len(holders):,}명` (총 유통 티켓 `{total_tickets:,}장`)",
         ]
@@ -1711,14 +1734,26 @@ class OwnerSelectTicketGrantView(core.SafeView):
             "봇주인 제어판 지급" if delta > 0 else "봇주인 제어판 회수",
         )
         self.status_note = f"{'✅' if ok else '❌'} {self.target_user.mention} ➔ {msg}"
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="👤 특수 티켓을 지급/회수할 유저를 선택하세요...", row=0)
     async def user_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
         await core.safe_defer(interaction)
-        self.target_user = select.values[0]
+        picked = select.values[0]
+        if isinstance(picked, (str, int)):
+            uid = int(picked) if str(picked).isdigit() else 0
+            resolved = (interaction.guild.get_member(uid) if interaction.guild and uid else None) or (
+                interaction.client.get_user(uid) if uid else None
+            )
+            if resolved is None and uid and hasattr(interaction.client, "fetch_user"):
+                try:
+                    resolved = await interaction.client.fetch_user(uid)
+                except Exception:
+                    resolved = None
+            picked = resolved or interaction.user
+        self.target_user = picked
         self.status_note = f"👤 대상 유저가 {self.target_user.mention}(으)로 선택되었습니다."
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🎟️ +1장 지급", style=discord.ButtonStyle.success, row=1)
     async def give_1(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1799,8 +1834,10 @@ class CharacterRankView(core.SafeView):
 
         if self.selected_unit in core.UNIT_ORDER:
             char_pool = [r for r in self.all_ranks if r["unit"] == self.selected_unit]
+            self.char_select.placeholder = f"👤 {self.selected_unit} 캐릭터를 선택해 깃발 배너를 확인하세요..."
         else:
             char_pool = sorted(self.all_ranks, key=lambda r: (-r["rank"], -r["total_exp"], r["char_id"]))[:25]
+            self.char_select.placeholder = "👤 상위 25인 바로 선택 (전체 26인은 위 유닛 필터 사용)..."
 
         char_opts = []
         for r in char_pool:
@@ -1979,11 +2016,12 @@ class CharacterRankView(core.SafeView):
     async def _commit_update(self, interaction: discord.Interaction):
         embed, file_obj = await self.build_embed_and_file()
         if file_obj:
-            await interaction.edit_original_response(embed=embed, attachments=[file_obj], view=self)
+            await core.safe_edit_response(interaction, embed=embed, attachments=[file_obj], view=self)
         else:
-            await interaction.edit_original_response(embed=embed, attachments=[], view=self)
+            await core.safe_edit_response(interaction, embed=embed, attachments=[], view=self)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        await super().interaction_check(interaction)
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 캐릭터 랭크 창을 연 본인만 조작할 수 있습니다.", ephemeral=True)
             return False
@@ -7078,7 +7116,7 @@ class GachaCog(commands.Cog):
             description=(
                 f"• **대상 유저:** {유저.mention} (`{유저.display_name}`)\n"
                 f"• **처리 결과:** {msg}{reason_line}\n\n"
-                "💡 받은 티켓은 `/설정` ➔ `🎮 미니게임` ➔ `1회·운명·연습·생일뽑기` ➔ **`🎟️ 셀렉트 리스트 가챠`** 에서 즉시 사용할 수 있습니다!"
+                "💡 받은 티켓은 `/설정` ➔ `🎮 미니게임` ➔ `특수뽑기·천장·셀렉트` ➔ **`🎟️ 셀렉트 리스트 가챠`** 에서 즉시 사용할 수 있습니다!"
             ),
             color=discord.Color.from_rgb(255, 205, 86) if ok else discord.Color.red(),
             timestamp=datetime.datetime.now(core.KST),
