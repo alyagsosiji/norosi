@@ -3961,15 +3961,18 @@ class MasterDashboardView(core.SafeView):
                 ],
             },
             "fishing_personal": {
-                "title": "👜 낚시 물고기 가방 · 일일 퀘스트 · 수족관 · 실시간 조황",
-                "desc": "잡은 물고기를 판매/잠금/어항 이동하고 일일 낚시 의뢰 3종 및 실시간 낚시 기상·조황 예보를 확인합니다.",
+                "title": "👜 낚시 가방 · 어시장 시세 · 협동 레이드 · 강화 공방 · 수족관",
+                "desc": "잡은 물고기 스마트 정리/판매, 실시간 어시장 시세, 서버 협동 보스 레이드, 장비 강화/미끼 제작 공방, PNG 수족관을 한 번에 엽니다.",
                 "perm": PERM_USER,
                 "buttons": [
-                    ("내 물고기 가방 (판매·잠금)", "👜", discord.ButtonStyle.primary, self._sub_fishing_bag),
+                    ("내 물고기 가방 (스마트정리·선물)", "👜", discord.ButtonStyle.primary, self._sub_fishing_bag),
+                    ("실시간 어시장 시세 & 특가", "📈", discord.ButtonStyle.success, self._sub_fishing_market),
+                    ("서버 협동 대어 보스 레이드", "🐙", discord.ButtonStyle.danger, self._sub_fishing_raid),
+                    ("장비 강화·미끼 제작 공방", "🔨", discord.ButtonStyle.primary, self._sub_fishing_workshop),
+                    ("내 프라이빗 수족관 (PNG·먹이)", "🐠", discord.ButtonStyle.secondary, self._act_fishing_aquarium),
                     ("일일 낚시 퀘스트 (3종)", "📜", discord.ButtonStyle.success, self._sub_fishing_quest),
-                    ("내 프라이빗 수족관", "🐠", discord.ButtonStyle.secondary, self._act_fishing_aquarium),
                     ("내 낚시꾼 라이선스 프로필", "🪪", discord.ButtonStyle.secondary, self._sub_fishing_profile),
-                    ("실시간 낚시 기상 & 조황 예보", "🌤️", discord.ButtonStyle.primary, self._sub_fishing_env),
+                    ("실시간 낚시 기상 & 조황 예보", "🌤️", discord.ButtonStyle.secondary, self._sub_fishing_env),
                     ("낚시 장비·미끼 상점", "🛒", discord.ButtonStyle.secondary, self._act_fishing_shop),
                 ],
             },
@@ -5310,7 +5313,7 @@ class MasterDashboardView(core.SafeView):
                 interaction.user.display_name,
             )
             view = fishing.FishingAquariumView(interaction.user, interaction.user, guild_id=guild_id, summary=summary)
-            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            msg = await view.send_initial(interaction, ephemeral=False)
             view.message = msg
         except Exception as e:
             await core.safe_send_response(interaction, f"❌ 수족관 열기 실패: {e}", ephemeral=True)
@@ -5725,6 +5728,43 @@ class MasterDashboardView(core.SafeView):
             await fishing_cog.fishing_profile_cmd.callback(fishing_cog, interaction, 유저=None)
         else:
             await core.safe_send_response(interaction, "❌ 낚시 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    async def _sub_fishing_market(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            guild_id = interaction.guild_id or 0
+            view = fishing.FishingMarketView(interaction.user, guild_id=guild_id)
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 어시장 시세 열기 실패: {e}", ephemeral=True)
+
+    async def _sub_fishing_raid(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            guild_id = interaction.guild_id or 0
+            status = await asyncio.to_thread(fishing_core.get_fishing_boss_status, guild_id)
+            view = fishing.FishingBossRaidView(interaction.user, guild_id=guild_id, status=status)
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 보스 레이드 전광판 열기 실패: {e}", ephemeral=True)
+
+    async def _sub_fishing_workshop(self, interaction: discord.Interaction):
+        try:
+            await core.safe_defer(interaction)
+            guild_id = interaction.guild_id or 0
+            summary = await asyncio.to_thread(
+                fishing_core.get_user_fishing_summary,
+                guild_id,
+                interaction.user.id,
+                interaction.user.display_name,
+            )
+            view = fishing.FishingShopView(interaction.user, guild_id=guild_id, category="enhance", summary=summary)
+            msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+            view.message = msg
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 강화·제작 공방 열기 실패: {e}", ephemeral=True)
 
     async def _act_todo_grass(self, interaction: discord.Interaction):
         try:

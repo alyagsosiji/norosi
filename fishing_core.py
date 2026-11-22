@@ -403,9 +403,400 @@ BAITS: Dict[str, Dict[str, Any]] = {
         "unlimited": False,
         "rare_mult": 3.20,
         "size_mult": 1.32,
+        "variant_mult": 1.40,
         "desc": "★4 전설 & ★5 신화 대물 전용 비기 미끼 (5개 2,400🪙 / 희귀 ×3.20)",
     },
+    "live_minnow": {
+        "id": "live_minnow",
+        "name": "특제 생미끼",
+        "emoji": "🐟",
+        "price_per_pack": 0,
+        "pack_qty": 5,
+        "unlimited": False,
+        "craft_only": True,
+        "rare_mult": 1.95,
+        "size_mult": 1.18,
+        "variant_mult": 1.35,
+        "desc": "공방에서 소형어(★1~2) 5마리를 분해해 제작! 희귀 ×1.95 · 크기 ×1.18 · 변이율 ↑",
+    },
+    "trophy_chum": {
+        "id": "trophy_chum",
+        "name": "대물 특제 집어제",
+        "emoji": "🍖",
+        "price_per_pack": 0,
+        "pack_qty": 3,
+        "unlimited": False,
+        "craft_only": True,
+        "rare_mult": 2.65,
+        "size_mult": 1.30,
+        "variant_mult": 1.65,
+        "desc": "공방에서 소형어(★1~2) 12마리를 분해해 제작! 희귀 ×2.65 · 대물/변이율 대폭 ↑",
+    },
 }
+
+# ==========================================
+# 변이(이로치) · 최대 금관 / 최소 은관 메타
+# ==========================================
+VARIANT_META: Dict[str, Dict[str, Any]] = {
+    "normal": {
+        "id": "normal",
+        "name": "일반",
+        "emoji": "",
+        "gold_mult": 1.00,
+        "tank_mult": 1.00,
+        "crystal_bonus": 0,
+        "rgb": None,
+        "body_rgb": None,
+        "badge": None,
+        "base_prob": 0.0,
+    },
+    "golden": {
+        "id": "golden",
+        "name": "황금 변이",
+        "emoji": "✨",
+        "gold_mult": 2.00,
+        "tank_mult": 1.50,
+        "crystal_bonus": 35,
+        "rgb": (250, 204, 21),
+        "body_rgb": (255, 215, 95),
+        "badge": "황금 변이",
+        "base_prob": 0.025,
+    },
+    "albino": {
+        "id": "albino",
+        "name": "알비노 변이",
+        "emoji": "❄️",
+        "gold_mult": 2.80,
+        "tank_mult": 1.80,
+        "crystal_bonus": 60,
+        "rgb": (224, 242, 254),
+        "body_rgb": (244, 249, 255),
+        "badge": "알비노 변이",
+        "base_prob": 0.010,
+    },
+    "abyssal": {
+        "id": "abyssal",
+        "name": "심해 발광 변이",
+        "emoji": "🌌",
+        "gold_mult": 4.00,
+        "tank_mult": 2.50,
+        "crystal_bonus": 120,
+        "rgb": (168, 85, 247),
+        "body_rgb": (147, 51, 234),
+        "badge": "심해 발광",
+        "base_prob": 0.0045,
+    },
+}
+
+CROWN_META: Dict[str, Dict[str, Any]] = {
+    "max_gold": {
+        "id": "max_gold",
+        "name": "최대 금관",
+        "emoji": "🏆",
+        "badge": "최대 금관",
+        "gold_mult": 1.25,
+        "first_crystal": 30,
+        "rgb": (245, 158, 11),
+    },
+    "min_silver": {
+        "id": "min_silver",
+        "name": "최소 은관",
+        "emoji": "🥈",
+        "badge": "최소 은관",
+        "gold_mult": 1.15,
+        "first_crystal": 20,
+        "rgb": (148, 163, 184),
+    },
+}
+
+# ==========================================
+# 해금형 특수 낚시터 (3종)
+# ==========================================
+SPECIAL_SPOTS: Dict[str, Dict[str, Any]] = {
+    "glacier": {
+        "id": "glacier",
+        "name": "빙하 빙어호수",
+        "short": "빙하 호수",
+        "emoji": "🧊",
+        "base_habitat": "lake",
+        "req_level": 5,
+        "req_pokedex": 20,
+        "req_desc": "낚시 Lv.5 또는 도감 20종",
+        "rare_mult": 1.35,
+        "size_mult": 1.10,
+        "variant_mult": 1.45,
+        "treasure_bonus": 0.04,
+        "discord_color": 0x67E8F9,
+        "rgb": (56, 189, 248),
+        "prefer_zones": ("깊은 심수층", "맑은 중층수"),
+        "keywords": ("빙어", "송어", "연어", "철갑상어", "열목어", "공어", "심수"),
+        "desc": "만년설 빙하 아래 투명한 냉수층! 희귀 ×1.35 · 변이 ×1.45 · 보물 발견율 +4%",
+    },
+    "coral_atoll": {
+        "id": "coral_atoll",
+        "name": "산호초 환초군도",
+        "short": "산호 군도",
+        "emoji": "🏝️",
+        "base_habitat": "sea",
+        "req_level": 10,
+        "req_pokedex": 50,
+        "req_desc": "낚시 Lv.10 또는 도감 50종",
+        "rare_mult": 1.65,
+        "size_mult": 1.15,
+        "variant_mult": 1.80,
+        "treasure_bonus": 0.07,
+        "discord_color": 0x2DD4BF,
+        "rgb": (20, 184, 166),
+        "prefer_zones": ("산호초·열대 해역", "연안 갯바위·내만"),
+        "keywords": ("돔", "나비", "산호", "놀래기", "바리", "복어", "만타", "거북"),
+        "desc": "에메랄드빛 열대 산호초 군도! 희귀 ×1.65 · 변이 ×1.80 · 보물 발견율 +7%",
+    },
+    "mariana_trench": {
+        "id": "mariana_trench",
+        "name": "마리아나 심해 해구",
+        "short": "마리아나 해구",
+        "emoji": "🕳️",
+        "base_habitat": "sea",
+        "req_level": 18,
+        "req_pokedex": 100,
+        "req_desc": "낚시 Lv.18 또는 도감 100종",
+        "rare_mult": 2.15,
+        "size_mult": 1.24,
+        "variant_mult": 2.40,
+        "treasure_bonus": 0.10,
+        "discord_color": 0x7C3AED,
+        "rgb": (109, 40, 217),
+        "prefer_zones": ("심해·해구", "원양·회유 해역"),
+        "keywords": ("심해", "산갈치", "아귀", "실러캔스", "상어", "오징어", "참다랑어", "개복치"),
+        "desc": "빛이 닿지 않는 전설의 심연! 희귀 ×2.15 · 변이 ×2.40 · 보물 발견율 +10%",
+    },
+}
+
+# ==========================================
+# 수족관 테마 & 먹이주기 상수
+# ==========================================
+TANK_THEMES: Dict[str, Dict[str, Any]] = {
+    "coral": {
+        "id": "coral",
+        "name": "산호초 에메랄드 수조",
+        "emoji": "🪸",
+        "price": 0,
+        "top_rgb": (10, 62, 86),
+        "bot_rgb": (6, 26, 48),
+        "accent_rgb": (45, 212, 191),
+        "desc": "햇살이 비치는 에메랄드빛 기본 산호초 수족관 (무료 기본 제공)",
+    },
+    "deep_sea": {
+        "id": "deep_sea",
+        "name": "심해 아비스 네온 수조",
+        "emoji": "🌌",
+        "price": 6000,
+        "top_rgb": (14, 16, 48),
+        "bot_rgb": (5, 7, 24),
+        "accent_rgb": (168, 85, 247),
+        "desc": "신비로운 발광 플랑크톤과 네온 보랏빛이 감도는 심해 수조 (6,000🪙)",
+    },
+    "night_pond": {
+        "id": "night_pond",
+        "name": "달빛 연못 등불 수조",
+        "emoji": "🌙",
+        "price": 8000,
+        "top_rgb": (24, 24, 62),
+        "bot_rgb": (10, 18, 36),
+        "accent_rgb": (250, 204, 21),
+        "desc": "보름달과 황금빛 연등이 수면에 어른거리는 고요한 야경 연못 수조 (8,000🪙)",
+    },
+    "glacier": {
+        "id": "glacier",
+        "name": "빙하 오로라 수조",
+        "emoji": "🧊",
+        "price": 12000,
+        "top_rgb": (12, 54, 74),
+        "bot_rgb": (12, 24, 52),
+        "accent_rgb": (103, 232, 249),
+        "desc": "극지방의 오로라와 맑은 빙하 결정이 반짝이는 프리미엄 수조 (12,000🪙)",
+    },
+}
+
+TANK_FEED_COST: int = 150
+TANK_FEED_COOLDOWN_SEC: int = 2 * 3600
+TANK_FEED_BUFF_SEC: int = 4 * 3600
+TANK_FEED_BUFF_MULT: float = 1.35
+
+# ==========================================
+# 장비 강화 (+1 ~ +10) & 소형어 미끼 제작 공방
+# ==========================================
+ENHANCE_MAX_LEVEL: int = 10
+ENHANCE_TABLE: List[Dict[str, Any]] = [
+    {"target": 1, "cost": 400, "rate": 1.00},
+    {"target": 2, "cost": 800, "rate": 0.95},
+    {"target": 3, "cost": 1400, "rate": 0.90},
+    {"target": 4, "cost": 2200, "rate": 0.82},
+    {"target": 5, "cost": 3400, "rate": 0.75},
+    {"target": 6, "cost": 5000, "rate": 0.65},
+    {"target": 7, "cost": 7500, "rate": 0.55},
+    {"target": 8, "cost": 11000, "rate": 0.45},
+    {"target": 9, "cost": 16000, "rate": 0.38},
+    {"target": 10, "cost": 24000, "rate": 0.30},
+]
+
+ENHANCE_SLOT_META: Dict[str, Dict[str, str]] = {
+    "rod": {"name": "낚싯대", "emoji": "🎣", "effect": "단계당 희귀 +6% · 크기 +2% · 판매 +3%"},
+    "reel": {"name": "릴", "emoji": "🌀", "effect": "단계당 입질유예 +0.25초 · 월척 +2.5%"},
+    "net": {"name": "그물", "emoji": "🕸️", "effect": "단계당 그물희귀 +4% · 크기 +1.5% · 레이드 피해 +5%"},
+}
+
+BAIT_CRAFT_RECIPES: Dict[str, Dict[str, Any]] = {
+    "live_minnow": {
+        "id": "live_minnow",
+        "name": "특제 생미끼 ×5 제작",
+        "emoji": "🐟",
+        "need_fish": 5,
+        "max_rarity": 2,
+        "yield_bait": "live_minnow",
+        "yield_qty": 5,
+        "desc": "미잠금 ★1~★2 소형어 5마리 분해 → 특제 생미끼 5개 (희귀 ×1.95 · 변이 ↑)",
+    },
+    "trophy_chum": {
+        "id": "trophy_chum",
+        "name": "대물 특제 집어제 ×3 제작",
+        "emoji": "🍖",
+        "need_fish": 12,
+        "max_rarity": 2,
+        "yield_bait": "trophy_chum",
+        "yield_qty": 3,
+        "desc": "미잠금 ★1~★2 소형어 12마리 분해 → 대물 특제 집어제 3개 (희귀 ×2.65 · 변이 대폭 ↑)",
+    },
+    "golden_extract": {
+        "id": "golden_extract",
+        "name": "황금 전설 떡밥 ×2 추출",
+        "emoji": "✨",
+        "need_fish": 25,
+        "max_rarity": 2,
+        "yield_bait": "golden",
+        "yield_qty": 2,
+        "desc": "미잠금 ★1~★2 소형어 25마리 농축 → 황금 전설 떡밥 2개 (희귀 ×3.20)",
+    },
+}
+
+# ==========================================
+# 돌발 보물상자 · 표류물 & 서버 협동 대어 보스 레이드
+# ==========================================
+DRIFT_LOOT_TABLE: List[Dict[str, Any]] = [
+    {
+        "id": "wooden_chest",
+        "name": "낡은 해적 보물상자",
+        "emoji": "📦",
+        "weight": 38,
+        "gold_range": (250, 650),
+        "crystal_range": (0, 0),
+        "bait": None,
+        "flavor": "파도에 떠밀려온 나무 상자에서 반짝이는 금화를 건져 올렸습니다!",
+    },
+    {
+        "id": "drift_bottle",
+        "name": "표류하는 유리병 편지",
+        "emoji": "🍾",
+        "weight": 28,
+        "gold_range": (80, 200),
+        "crystal_range": (10, 25),
+        "bait": ("lure", 4),
+        "flavor": "누군가 남긴 항해 일지와 함께 고급 루어 미끼 묶음이 들어있었습니다!",
+    },
+    {
+        "id": "pearl_clam",
+        "name": "심해 흑진주 조개",
+        "emoji": "🦪",
+        "weight": 20,
+        "gold_range": (180, 420),
+        "crystal_range": (30, 75),
+        "bait": None,
+        "flavor": "조개 껍데기를 열자 영롱하게 빛나는 진주 크리스탈이 나타났습니다!",
+    },
+    {
+        "id": "sunken_relic",
+        "name": "고대 해저 유물함",
+        "emoji": "🏺",
+        "weight": 10,
+        "gold_range": (900, 1800),
+        "crystal_range": (45, 95),
+        "bait": ("glow", 3),
+        "flavor": "오랜 세월 바다 밑에 잠들어 있던 고대 문명의 보물함을 인양했습니다!",
+    },
+    {
+        "id": "golden_chest",
+        "name": "해적왕의 황금 보물상자",
+        "emoji": "👑",
+        "weight": 4,
+        "gold_range": (2000, 4200),
+        "crystal_range": (100, 180),
+        "bait": ("golden", 2),
+        "flavor": "전설 속 해적왕의 비밀 금고가 낚싯바늘에 걸려 올라왔습니다!!",
+    },
+]
+
+BOSS_SPECIES_POOL: List[Dict[str, Any]] = [
+    {
+        "id": "kraken",
+        "name": "심해의 크라켄",
+        "emoji": "🐙",
+        "max_hp": 3500,
+        "duration_min": 45,
+        "base_gold": 1200,
+        "pool_gold": 4000,
+        "base_crystals": 45,
+        "pool_crystals": 120,
+        "bait_id": "glow",
+        "bait_qty": 4,
+        "desc": "거대한 촉수로 어선을 휘감는 심해의 군주! 서버원들과 합동으로 릴을 당겨 제압하세요.",
+    },
+    {
+        "id": "megalodon",
+        "name": "태고의 메갈로돈",
+        "emoji": "🦈",
+        "max_hp": 4500,
+        "duration_min": 45,
+        "base_gold": 1500,
+        "pool_gold": 5500,
+        "base_crystals": 55,
+        "pool_crystals": 160,
+        "bait_id": "golden",
+        "bait_qty": 2,
+        "desc": "고대 대양을 지배하던 20m 초거대 백상아리! 강력한 장비 강화로 승부하세요.",
+    },
+    {
+        "id": "leviathan",
+        "name": "심연의 리바이어던",
+        "emoji": "🐉",
+        "max_hp": 6000,
+        "duration_min": 60,
+        "base_gold": 2000,
+        "pool_gold": 8000,
+        "base_crystals": 75,
+        "pool_crystals": 240,
+        "bait_id": "golden",
+        "bait_qty": 3,
+        "desc": "폭풍을 몰고 다니는 신화 속 바다 용! 처치 시 서버 최고급 보상이 지급됩니다.",
+    },
+    {
+        "id": "golden_dragon_koi",
+        "name": "천년 황금 용잉어",
+        "emoji": "🐲",
+        "max_hp": 3000,
+        "duration_min": 40,
+        "base_gold": 1300,
+        "pool_gold": 4500,
+        "base_crystals": 50,
+        "pool_crystals": 150,
+        "bait_id": "trophy_chum",
+        "bait_qty": 4,
+        "desc": "폭포를 거슬러 올라 용이 되기 직전의 신비한 황금 거대 잉어!",
+    },
+]
+
+BOSS_ATTACK_COOLDOWN_SEC: float = 8.0
+BOSS_SPAWN_COOLDOWN_SEC: int = 20 * 60
+_BOSS_ATTACK_LAST: Dict[Tuple[int, int], float] = {}
 
 DEFAULT_BAG_CAPACITY: int = 180
 BAG_CAPACITY_TIERS: List[int] = [180, 300, 500, 1000, 2000]
@@ -433,6 +824,82 @@ def get_next_bag_upgrade(u: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]
     if not step:
         return None
     return {"cur_cap": cur, **step}
+
+
+def get_variant_meta(variant_id: Optional[str]) -> Dict[str, Any]:
+    return VARIANT_META.get(str(variant_id or "normal"), VARIANT_META["normal"])
+
+
+def is_special_spot_unlocked(u: Optional[Dict[str, Any]], spot_id: str) -> bool:
+    spot = SPECIAL_SPOTS.get(spot_id)
+    if not spot or not isinstance(u, dict):
+        return False
+    lvl = max(1, _safe_int(u.get("level"), 1))
+    pd = u.get("pokedex")
+    pd_cnt = len(pd) if isinstance(pd, dict) else 0
+    return lvl >= int(spot["req_level"]) or pd_cnt >= int(spot["req_pokedex"])
+
+
+def get_unlocked_special_spots(u: Optional[Dict[str, Any]]) -> List[str]:
+    return [sid for sid in SPECIAL_SPOTS if is_special_spot_unlocked(u, sid)]
+
+
+def get_gear_enhance_levels(u: Optional[Dict[str, Any]]) -> Dict[str, int]:
+    raw = u.get("gear_enhance") if isinstance(u, dict) else None
+    if not isinstance(raw, dict):
+        return {"rod": 0, "reel": 0, "net": 0}
+    return {
+        slot: max(0, min(ENHANCE_MAX_LEVEL, _safe_int(raw.get(slot), 0)))
+        for slot in ("rod", "reel", "net")
+    }
+
+
+def get_gear_enhance_bonuses(u: Optional[Dict[str, Any]]) -> Dict[str, float]:
+    lvls = get_gear_enhance_levels(u)
+    has_net = bool(isinstance(u, dict) and u.get("net_id") in NETS)
+    rod_lv = lvls["rod"]
+    reel_lv = lvls["reel"]
+    net_lv = lvls["net"] if has_net else 0
+    return {
+        "rod_lv": rod_lv,
+        "reel_lv": reel_lv,
+        "net_lv": lvls["net"],
+        "rare_bonus": round(rod_lv * 0.06 + net_lv * 0.04, 4),
+        "size_bonus": round(rod_lv * 0.02 + net_lv * 0.015, 4),
+        "gold_bonus": round(rod_lv * 0.03, 4),
+        "window_sec": round(reel_lv * 0.25, 2),
+        "wait_reduce": round(reel_lv * 0.05, 2),
+        "trophy_bonus": round(reel_lv * 0.025, 4),
+        "boss_dmg_mult": round(1.0 + rod_lv * 0.08 + reel_lv * 0.04 + lvls["net"] * 0.05, 3),
+    }
+
+
+def get_gear_enhance_step(cur_level: int) -> Optional[Dict[str, Any]]:
+    lv = max(0, int(cur_level or 0))
+    if lv >= ENHANCE_MAX_LEVEL:
+        return None
+    return ENHANCE_TABLE[lv]
+
+
+def is_tank_feed_buff_active(u: Optional[Dict[str, Any]], now_dt: Optional[datetime.datetime] = None) -> Tuple[bool, int]:
+    """수족관 먹이주기 버프 활성 여부 및 남은 분(minutes) 반환"""
+    if not isinstance(u, dict):
+        return False, 0
+    until_iso = u.get("tank_feed_buff_until")
+    if not until_iso:
+        return False, 0
+    dt_now = now_dt or datetime.datetime.now(core.KST)
+    try:
+        until_dt = datetime.datetime.fromisoformat(str(until_iso))
+        if until_dt.tzinfo is None:
+            until_dt = until_dt.replace(tzinfo=core.KST)
+        rem_sec = int((until_dt - dt_now).total_seconds())
+        if rem_sec > 0:
+            return True, max(1, (rem_sec + 59) // 60)
+    except Exception:
+        pass
+    return False, 0
+
 
 
 # ==========================================
@@ -888,6 +1355,109 @@ def get_current_fishing_env(now: Optional[datetime.datetime] = None) -> Dict[str
 
 
 # ==========================================
+# 실시간 어시장 시세 변동 & 오늘의 특가 매입 엔진 (3시간 KST 주기)
+# ==========================================
+def get_current_fish_market(now: Optional[datetime.datetime] = None) -> Dict[str, Any]:
+    """3시간 KST 주기로 결정론적 실시간 어시장 시세(서식지/성급 배율 + 오늘의 특가 3종)를 산출합니다."""
+    now_dt = now or datetime.datetime.now(core.KST)
+    slot_idx = now_dt.hour // 3
+    next_slot_hour = (slot_idx + 1) * 3
+    next_dt = now_dt.replace(hour=0, minute=0, second=0, microsecond=0) + datetime.timedelta(hours=next_slot_hour)
+    rem_sec = max(60, int((next_dt - now_dt).total_seconds()))
+    rem_h, rem_m = divmod(rem_sec // 60, 60)
+    remain_str = f"{rem_h}시간 {rem_m}분" if rem_h > 0 else f"{rem_m}분"
+
+    seed_str = f"norosi-fish-market-{now_dt.strftime('%Y-%m-%d')}-slot-{slot_idx}"
+    seed_int = int(hashlib.sha256(seed_str.encode("utf-8")).hexdigest()[:12], 16)
+    rng = random.Random(seed_int)
+
+    habs = ["lake", "river", "sea"]
+    rng.shuffle(habs)
+    surge_hab, steady_hab, dip_hab = habs[0], habs[1], habs[2]
+    habitat_mults: Dict[str, float] = {
+        surge_hab: round(rng.uniform(1.25, 1.45), 2),
+        steady_hab: round(rng.uniform(1.02, 1.14), 2),
+        dip_hab: round(rng.uniform(0.90, 0.98), 2),
+    }
+
+    boosted_rarity = rng.choice([1, 2, 3, 4])
+    boosted_rarity_mult = round(rng.uniform(1.18, 1.35), 2)
+    rarity_mults: Dict[int, float] = {
+        r: (boosted_rarity_mult if r == boosted_rarity else 1.00)
+        for r in range(1, 6)
+    }
+
+    featured_species: Dict[str, Dict[str, Any]] = {}
+    for h_id in ("lake", "river", "sea"):
+        cands = [
+            sp for sp in _FALLBACK_ORIGINAL_140
+            if sp.get("habitat") == h_id and 1 <= int(sp.get("rarity", 1)) <= 4
+        ]
+        if not cands:
+            cands = FISH_BY_HABITAT.get(h_id) or FISH_SPECIES_DB[:10]
+        chosen = rng.choice(cands)
+        feat_mult = round(rng.uniform(1.80, 2.05), 2)
+        featured_species[chosen["id"]] = {
+            "id": chosen["id"],
+            "name": chosen["name"],
+            "emoji": chosen.get("emoji", "🐟"),
+            "habitat": h_id,
+            "rarity": int(chosen.get("rarity", 1)),
+            "mult": feat_mult,
+        }
+
+    surge_name = HABITATS[surge_hab]["name"]
+    surge_pct = int(round((habitat_mults[surge_hab] - 1.0) * 100))
+    rm_name = RARITY_META[boosted_rarity]["stars"]
+    headline = f"🔥 {surge_name} 어종 +{surge_pct}% 급등 · {rm_name} 매입강세 · 오늘의 특가 최대 ×2.05!"
+
+    return {
+        "slot_idx": slot_idx,
+        "remain_str": remain_str,
+        "surge_habitat": surge_hab,
+        "habitat_mults": habitat_mults,
+        "boosted_rarity": boosted_rarity,
+        "rarity_mults": rarity_mults,
+        "featured_species": featured_species,
+        "headline": headline,
+        "updated_label": f"{slot_idx * 3:02d}:00 ~ {min(24, (slot_idx + 1) * 3):02d}:00 KST",
+    }
+
+
+def compute_market_sell_price(
+    fish_item: Dict[str, Any],
+    market: Optional[Dict[str, Any]] = None,
+) -> Tuple[int, float, List[str]]:
+    """물고기 개체의 실시간 어시장 매입가(원가 × 서식지/성급/특가 배율)를 계산합니다."""
+    base_gold = max(10, _safe_int(fish_item.get("gold"), 15))
+    mk = market or get_current_fish_market()
+    fid = str(fish_item.get("fish_id") or "")
+    hab = str(fish_item.get("habitat") or "lake")
+    rar = max(1, min(5, _safe_int(fish_item.get("rarity"), 1)))
+
+    tags: List[str] = []
+    feat = (mk.get("featured_species") or {}).get(fid)
+    hab_mult = float((mk.get("habitat_mults") or {}).get(hab, 1.0))
+    rar_mult = float((mk.get("rarity_mults") or {}).get(rar, 1.0))
+
+    if isinstance(feat, dict):
+        feat_mult = float(feat.get("mult", 1.85))
+        total_mult = min(2.50, round(max(feat_mult, hab_mult * rar_mult), 2))
+        tags.append(f"🔥오늘의특가 ×{total_mult:.2f}")
+    else:
+        total_mult = round(hab_mult * rar_mult, 2)
+        if hab_mult >= 1.15:
+            tags.append(f"📈{HABITATS.get(hab, HABITATS['lake'])['name']}강세")
+        elif hab_mult < 0.99:
+            tags.append("📉약보합")
+        if rar_mult > 1.05:
+            tags.append(f"⭐★{rar}수요↑")
+
+    final_gold = max(10, int(round(base_gold * total_mult)))
+    return final_gold, total_mult, tags
+
+
+# ==========================================
 # 유저 & 기록 데이터 구조 초기화/보장
 # ==========================================
 def _pick_daily_quests_for_date(date_str: str) -> List[Dict[str, Any]]:
@@ -948,6 +1518,15 @@ def ensure_fishing_user(data: dict, guild_id: int | str, user_id: int | str, use
     u["total_catches"] = max(0, _safe_int(u.get("total_catches"), 0))
     u["total_trophy"] = max(0, _safe_int(u.get("total_trophy"), 0))
     u["total_gold_earned"] = max(0, _safe_int(u.get("total_gold_earned"), 0))
+    u["combo"] = max(0, min(20, _safe_int(u.get("combo"), 0)))
+    u["max_combo"] = max(u["combo"], _safe_int(u.get("max_combo"), 0))
+    u["treasures_found"] = max(0, _safe_int(u.get("treasures_found"), 0))
+    u["boss_defeats"] = max(0, _safe_int(u.get("boss_defeats"), 0))
+    u["duel_wins"] = max(0, _safe_int(u.get("duel_wins"), 0))
+    u["duel_losses"] = max(0, _safe_int(u.get("duel_losses"), 0))
+    u["gifts_sent"] = max(0, _safe_int(u.get("gifts_sent"), 0))
+    u["gifts_received"] = max(0, _safe_int(u.get("gifts_received"), 0))
+
     u.setdefault("rod_id", "bamboo")
     u.setdefault("reel_id", "basic_reel")
     u.setdefault("net_id", None)
@@ -962,10 +1541,41 @@ def ensure_fishing_user(data: dict, guild_id: int | str, user_id: int | str, use
         u["owned_nets"] = list(dict.fromkeys(nets))
     else:
         u["owned_nets"] = list(dict.fromkeys(str(n) for n in u["owned_nets"] if n and str(n) in NETS))
+
+    # 장비 강화 (+0 ~ +10) & 실패 천장 보정
+    raw_enh = u.get("gear_enhance")
+    if not isinstance(raw_enh, dict):
+        raw_enh = {}
+    u["gear_enhance"] = {
+        slot: max(0, min(ENHANCE_MAX_LEVEL, _safe_int(raw_enh.get(slot), 0)))
+        for slot in ("rod", "reel", "net")
+    }
+    raw_pity = u.get("enhance_pity")
+    if not isinstance(raw_pity, dict):
+        raw_pity = {}
+    u["enhance_pity"] = {
+        slot: max(0, min(10, _safe_int(raw_pity.get(slot), 0)))
+        for slot in ("rod", "reel", "net")
+    }
+
     u.setdefault("selected_bait", "dough")
     u.setdefault("selected_habitat", "lake")
     u.setdefault("selected_zone", "all")
+    if u.get("selected_spot") not in SPECIAL_SPOTS:
+        u["selected_spot"] = None
     u["auto_mode"] = bool(u.get("auto_mode", False))
+
+    # 수족관 테마 & 먹이주기
+    if not isinstance(u.get("owned_tank_themes"), list):
+        themes = [str(t) for t in core.coerce_list_like(u.get("owned_tank_themes")) if str(t) in TANK_THEMES]
+        u["owned_tank_themes"] = list(dict.fromkeys(["coral"] + themes))
+    else:
+        cleaned_t = [str(t) for t in u["owned_tank_themes"] if str(t) in TANK_THEMES]
+        u["owned_tank_themes"] = list(dict.fromkeys(["coral"] + cleaned_t))
+    if u.get("tank_theme") not in TANK_THEMES or u.get("tank_theme") not in u["owned_tank_themes"]:
+        u["tank_theme"] = "coral"
+    u.setdefault("last_tank_feed", None)
+    u.setdefault("tank_feed_buff_until", None)
 
     if not isinstance(u.get("baits"), dict):
         coerced_baits = core.coerce_dict_like(u.get("baits"))
@@ -1014,6 +1624,8 @@ def ensure_fishing_user(data: dict, guild_id: int | str, user_id: int | str, use
         u["selected_habitat"] = "lake"
     if u.get("selected_zone") != "all" and u.get("selected_zone") not in CANONICAL_ZONES.get(u["selected_habitat"], []):
         u["selected_zone"] = "all"
+    if u.get("selected_spot") and not is_special_spot_unlocked(u, u["selected_spot"]):
+        u["selected_spot"] = None
     if "bamboo" not in u["owned_rods"]:
         u["owned_rods"].append("bamboo")
     if "basic_reel" not in u["owned_reels"]:
@@ -1044,7 +1656,7 @@ def _compute_fish_weight_kg(sp: Dict[str, Any], length_cm: float) -> float:
 
 
 def get_tank_pending_gold(u: Dict[str, Any], now: Optional[datetime.datetime] = None) -> Tuple[int, int]:
-    """수족관 누적 골드와 경과 시간(분) 반환 (최대 24시간 누적)"""
+    """수족관 누적 골드와 시간당 수익 반환 (변이 보너스 + 먹이주기 +35% 버프 반영, 최대 24시간 누적)"""
     raw_tank = u.get("tank", [])
     tank = [item for item in raw_tank if isinstance(item, dict)] if isinstance(raw_tank, list) else []
     if not tank:
@@ -1066,7 +1678,14 @@ def get_tank_pending_gold(u: Dict[str, Any], now: Optional[datetime.datetime] = 
         base_r = RARITY_META.get(r, RARITY_META[1])["tank_rate"]
         if item.get("is_trophy"):
             base_r = int(base_r * 1.35)
+        v_meta = get_variant_meta(item.get("variant"))
+        if v_meta["tank_mult"] > 1.0:
+            base_r = int(base_r * v_meta["tank_mult"])
         hourly_rate += base_r
+
+    feed_active, _ = is_tank_feed_buff_active(u, now_dt)
+    if feed_active:
+        hourly_rate = int(round(hourly_rate * TANK_FEED_BUFF_MULT))
 
     pending = int((hourly_rate / 60.0) * capped_min)
     return pending, hourly_rate
@@ -1085,7 +1704,9 @@ def get_user_fishing_summary(guild_id: int | str, user_id: int | str, user_name:
         u = ensure_fishing_user(data, guild_id, user_id, user_name)
         prof = core.ensure_user_profile(data, user_id, user_name)
         env = get_current_fishing_env()
+        market = get_current_fish_market(env["now"])
         pending_tank, hourly_tank = get_tank_pending_gold(u, env["now"])
+        feed_active, feed_rem_min = is_tank_feed_buff_active(u, env["now"])
         lvl, rem_exp, need_exp = _calc_level_from_exp(u.get("exp", 0))
         prev_lvl = u.get("level")
         u["level"] = lvl
@@ -1101,13 +1722,20 @@ def get_user_fishing_summary(guild_id: int | str, user_id: int | str, user_name:
             "user": copy.deepcopy(u),
             "crystals": max(0, _safe_int(prof.get("crystals"), 0)),
             "env": env,
+            "market": market,
             "rod": RODS[u["rod_id"]],
             "reel": REELS[u["reel_id"]],
             "net": NETS.get(u.get("net_id")),
             "bait": BAITS[u["selected_bait"]],
+            "enhance": get_gear_enhance_bonuses(u),
+            "selected_spot": SPECIAL_SPOTS.get(u.get("selected_spot") or ""),
+            "unlocked_spots": get_unlocked_special_spots(u),
             "bag_capacity": get_bag_capacity(u),
             "tank_pending": pending_tank,
             "tank_hourly": hourly_tank,
+            "tank_theme": TANK_THEMES.get(u.get("tank_theme", "coral"), TANK_THEMES["coral"]),
+            "tank_feed_active": feed_active,
+            "tank_feed_rem_min": feed_rem_min,
             "rem_exp": rem_exp,
             "need_exp": need_exp,
             "life_buffs": life_buffs,
@@ -1122,19 +1750,31 @@ def update_user_fishing_prefs(
     bait_id: Optional[str] = None,
     auto_mode: Optional[bool] = None,
     zone_filter: Optional[str] = None,
+    spot_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     with _FISHING_LOCK:
         data = core.load_data()
         u = ensure_fishing_user(data, guild_id, user_id, user_name)
+        if spot_id is not None:
+            if spot_id == "" or spot_id == "none":
+                u["selected_spot"] = None
+            elif spot_id in SPECIAL_SPOTS and is_special_spot_unlocked(u, spot_id):
+                u["selected_spot"] = spot_id
+                u["selected_habitat"] = SPECIAL_SPOTS[spot_id]["base_habitat"]
+                u["selected_zone"] = "all"
         if habitat and habitat in HABITATS:
             if u.get("selected_habitat") != habitat and zone_filter is None:
                 u["selected_zone"] = "all"
             u["selected_habitat"] = habitat
+            if spot_id is None:
+                u["selected_spot"] = None
         if zone_filter is not None:
             if zone_filter == "all" or zone_filter in CANONICAL_ZONES.get(u["selected_habitat"], []):
                 u["selected_zone"] = zone_filter
             else:
                 u["selected_zone"] = "all"
+            if spot_id is None:
+                u["selected_spot"] = None
         if bait_id and bait_id in BAITS:
             u["selected_bait"] = bait_id
         if auto_mode is not None:
@@ -1144,13 +1784,18 @@ def update_user_fishing_prefs(
 
 
 def prepare_cast_parameters(guild_id: int | str, user_id: int | str, user_name: str = "") -> Dict[str, Any]:
-    """찌 던지기 시작 시 대기시간·당기기 허용시간·사용할 미끼·세부 수역 계산 (아직 미끼 차감 전 단계)"""
+    """찌 던지기 시작 시 대기시간·당기기 허용시간·사용할 미끼·세부 수역·특수 낚시터 계산"""
     with _FISHING_LOCK:
         data = core.load_data()
         u = ensure_fishing_user(data, guild_id, user_id, user_name)
         rod = RODS[u["rod_id"]]
         reel = REELS[u["reel_id"]]
         net = NETS.get(u.get("net_id"))
+        enh = get_gear_enhance_bonuses(u)
+        spot_id = u.get("selected_spot")
+        if spot_id and not is_special_spot_unlocked(u, spot_id):
+            spot_id = None
+            u["selected_spot"] = None
         bait_id = u["selected_bait"]
         if bait_id != "dough" and _safe_int(u["baits"].get(bait_id), 0) <= 0:
             bait_id = "dough"
@@ -1160,18 +1805,21 @@ def prepare_cast_parameters(guild_id: int | str, user_id: int | str, user_name: 
         env = get_current_fishing_env()
 
         base_wait = random.uniform(1.8, 3.6)
-        wait_sec = max(1.1, round(base_wait - reel["wait_reduce"], 2))
-        window_sec = float(reel["window_sec"])
+        wait_sec = max(1.0, round(base_wait - reel["wait_reduce"] - enh["wait_reduce"], 2))
+        window_sec = round(float(reel["window_sec"]) + enh["window_sec"], 2)
         grace_sec = 1.25  # 디스코드/모바일 렌더링 지연 보정 숨은 유예
 
         return {
-            "habitat": u["selected_habitat"],
-            "zone_filter": u.get("selected_zone", "all"),
+            "habitat": SPECIAL_SPOTS[spot_id]["base_habitat"] if spot_id else u["selected_habitat"],
+            "zone_filter": "all" if spot_id else u.get("selected_zone", "all"),
+            "spot_id": spot_id,
+            "spot": SPECIAL_SPOTS.get(spot_id) if spot_id else None,
             "bait_id": bait_id,
             "bait": bait,
             "rod": rod,
             "reel": reel,
             "net": net,
+            "enhance": enh,
             "env": env,
             "wait_sec": wait_sec,
             "window_sec": window_sec,
@@ -1180,9 +1828,21 @@ def prepare_cast_parameters(guild_id: int | str, user_id: int | str, user_name: 
         }
 
 
+def reset_fishing_combo(guild_id: int | str, user_id: int | str) -> int:
+    """입질 놓침 등으로 연속 성공 콤보를 초기화하고 직전 콤보 수치를 반환합니다."""
+    with _FISHING_LOCK:
+        data = core.load_data()
+        u = ensure_fishing_user(data, guild_id, user_id)
+        prev = _safe_int(u.get("combo"), 0)
+        if prev > 0:
+            u["combo"] = 0
+            core.save_data(data)
+        return prev
+
+
 import itertools
 
-_SPECIES_CUM_WEIGHT_CACHE: Dict[Tuple[str, int, str, str, str, bool, str], Tuple[List[Dict[str, Any]], List[float]]] = {}
+_SPECIES_CUM_WEIGHT_CACHE: Dict[Tuple[str, int, str, str, str, bool, str, str], Tuple[List[Dict[str, Any]], List[float]]] = {}
 
 
 def _get_cached_species_cum_weights(
@@ -1193,6 +1853,7 @@ def _get_cached_species_cum_weights(
     bait_id: str,
     use_zone_focus: bool,
     zone_filter: str,
+    spot_id: str = "",
 ) -> Tuple[List[Dict[str, Any]], List[float]]:
     cache_key = (
         habitat,
@@ -1202,6 +1863,7 @@ def _get_cached_species_cum_weights(
         bait_id,
         use_zone_focus,
         zone_filter if use_zone_focus else "all",
+        spot_id or "",
     )
     cached = _SPECIES_CUM_WEIGHT_CACHE.get(cache_key)
     if cached is not None:
@@ -1209,6 +1871,10 @@ def _get_cached_species_cum_weights(
 
     pool = FISH_BY_HABITAT.get(habitat) or FISH_SPECIES_DB
     bucket = FISH_BY_HABITAT_RARITY.get((habitat, chosen_rarity)) or pool
+    spot_meta = SPECIAL_SPOTS.get(spot_id) if spot_id else None
+    spot_zones = set(spot_meta.get("prefer_zones") or ()) if spot_meta else set()
+    spot_kws = tuple(spot_meta.get("keywords") or ()) if spot_meta else ()
+
     weights: List[float] = []
     for sp in bucket:
         w = 1.0
@@ -1233,6 +1899,12 @@ def _get_cached_species_cum_weights(
         if use_zone_focus and (sp.get("zone") == zone_filter or sp.get("sub_zone") == zone_filter):
             w *= 3.20
 
+        if spot_meta:
+            if (sp.get("zone") in spot_zones) or (sp.get("sub_zone") in spot_zones):
+                w *= 2.80
+            if spot_kws and any(kw in sp.get("name", "") for kw in spot_kws):
+                w *= 2.20
+
         weights.append(max(0.05, w))
 
     cum_weights = list(itertools.accumulate(weights))
@@ -1251,20 +1923,26 @@ def _roll_species_weighted(
     pokedex_ids: Optional[set] = None,
     net: Optional[Dict[str, Any]] = None,
     life_rare_bonus: float = 0.0,
+    extra_rare_bonus: float = 0.0,
+    spot_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """2단계 성급 정규화 추첨: (1) 장비·미끼·날씨·생활버프 기반 성급 결정 → (2) 누적 가중치 캐시 기반 O(log N) 이진 탐색 추첨"""
+    """2단계 성급 정규화 추첨: (1) 장비·강화·콤보·특수터·미끼·날씨·생활버프 기반 성급 결정 → (2) 누적 가중치 캐시 기반 추첨"""
+    spot_meta = SPECIAL_SPOTS.get(spot_id or "") if spot_id else None
+    if spot_meta:
+        habitat = spot_meta["base_habitat"]
     if habitat not in HABITATS:
         habitat = "lake"
     net_rare = float((net or {}).get("rare_bonus", 0.0))
+    spot_rare_mult = float(spot_meta["rare_mult"]) if spot_meta else 1.0
     rare_factor = (
-        (1.0 + rod["rare_bonus"] + net_rare + max(0.0, float(life_rare_bonus or 0.0)))
+        (1.0 + rod["rare_bonus"] + net_rare + max(0.0, float(life_rare_bonus or 0.0)) + max(0.0, float(extra_rare_bonus or 0.0)))
         * bait["rare_mult"]
         * env["weather_rare_mult"]
         * env["feeding_mult"]
+        * spot_rare_mult
     )
-    use_zone_focus = bool(zone_filter and zone_filter != "all" and zone_filter in CANONICAL_ZONES.get(habitat, []))
+    use_zone_focus = bool(not spot_meta and zone_filter and zone_filter != "all" and zone_filter in CANONICAL_ZONES.get(habitat, []))
 
-    # 1단계: 어종 수가 36,700종으로 늘어나도 성급별 확률 분포가 붕괴되지 않도록 목표 성급 확률을 먼저 결정
     avail_rarities = [r for r in range(1, 6) if FISH_BY_HABITAT_RARITY.get((habitat, r))]
     if not avail_rarities:
         avail_rarities = [1]
@@ -1285,7 +1963,6 @@ def _roll_species_weighted(
 
     chosen_rarity = random.choices(avail_rarities, weights=tier_weights, k=1)[0]
 
-    # 2단계: 캐시된 누적 가중치(cum_weights)로 C 레벨 이진 탐색 추첨 (11,500종 순회 생략)
     bucket, cum_weights = _get_cached_species_cum_weights(
         habitat,
         chosen_rarity,
@@ -1294,6 +1971,7 @@ def _roll_species_weighted(
         bait["id"],
         use_zone_focus,
         zone_filter,
+        spot_id or "",
     )
     pick = random.choices(bucket, cum_weights=cum_weights, k=1)[0]
     if pokedex_ids is not None and pick["id"] in pokedex_ids and random.random() < 0.26:
@@ -1301,6 +1979,76 @@ def _roll_species_weighted(
         if alt["id"] not in pokedex_ids:
             return alt
     return pick
+
+
+def _roll_fish_variant(variant_mult: float = 1.0) -> str:
+    """변이(이로치) 개체 추첨: 심해 발광 > 알비노 > 황금 > 일반"""
+    m = max(1.0, min(5.0, float(variant_mult or 1.0)))
+    r = random.random()
+    p_abyssal = VARIANT_META["abyssal"]["base_prob"] * m
+    if r < p_abyssal:
+        return "abyssal"
+    p_albino = p_abyssal + VARIANT_META["albino"]["base_prob"] * m
+    if r < p_albino:
+        return "albino"
+    p_golden = p_albino + VARIANT_META["golden"]["base_prob"] * m
+    if r < p_golden:
+        return "golden"
+    return "normal"
+
+
+def _roll_treasure_drop(
+    u: Dict[str, Any],
+    prof: Dict[str, Any],
+    env: Dict[str, Any],
+    spot_meta: Optional[Dict[str, Any]],
+    combo: int,
+) -> Optional[Dict[str, Any]]:
+    """출조 성공 시 확률적으로 돌발 보물상자/표류물을 인양합니다."""
+    chance = 0.095
+    if env.get("weather_id") == "storm":
+        chance += 0.055
+    elif env.get("weather_id") in ("rain", "fog"):
+        chance += 0.025
+    if spot_meta:
+        chance += float(spot_meta.get("treasure_bonus", 0.0))
+    chance += min(0.05, combo * 0.0025)
+    if random.random() >= chance:
+        return None
+
+    weights = [int(item["weight"]) for item in DRIFT_LOOT_TABLE]
+    picked = random.choices(DRIFT_LOOT_TABLE, weights=weights, k=1)[0]
+    g_lo, g_hi = picked["gold_range"]
+    c_lo, c_hi = picked["crystal_range"]
+    gain_gold = random.randint(g_lo, g_hi) if g_hi > 0 else 0
+    gain_crystals = random.randint(c_lo, c_hi) if c_hi > 0 else 0
+    gain_bait_id = None
+    gain_bait_qty = 0
+    if picked.get("bait"):
+        gain_bait_id, gain_bait_qty = picked["bait"]
+
+    if gain_gold > 0:
+        u["gold"] = _safe_int(u.get("gold"), 0) + gain_gold
+        u["total_gold_earned"] = _safe_int(u.get("total_gold_earned"), 0) + gain_gold
+    if gain_crystals > 0:
+        prof["crystals"] = _safe_int(prof.get("crystals"), 0) + gain_crystals
+    if gain_bait_id and gain_bait_qty > 0:
+        baits = core.ensure_dict_path(u, "baits")
+        baits[gain_bait_id] = _safe_int(baits.get(gain_bait_id), 0) + gain_bait_qty
+    u["treasures_found"] = _safe_int(u.get("treasures_found"), 0) + 1
+
+    bait_name = BAITS[gain_bait_id]["name"] if gain_bait_id in BAITS else ""
+    return {
+        "id": picked["id"],
+        "name": picked["name"],
+        "emoji": picked["emoji"],
+        "flavor": picked["flavor"],
+        "gold": gain_gold,
+        "crystals": gain_crystals,
+        "bait_id": gain_bait_id,
+        "bait_name": bait_name,
+        "bait_qty": gain_bait_qty,
+    }
 
 
 def finalize_fish_catch(
@@ -1311,9 +2059,10 @@ def finalize_fish_catch(
     bait_id: Optional[str] = None,
     reaction_sec: Optional[float] = None,
     zone_filter: Optional[str] = None,
+    spot_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    채집 성공 시 어종·cm·kg·월척·신기록·도감·가방·일일퀘스트·크리스탈 보너스를 단일 락 안에서 원자적으로 저장합니다.
+    채집 성공 시 어종·cm·kg·변이·금관/은관·콤보·보물상자·월척·신기록·도감·가방·일일퀘스트·크리스탈 보너스를 단일 락 안에서 원자적으로 저장합니다.
     그물 장착 시 1회 출조로 2~10마리를 동시 포획합니다.
     """
     with _FISHING_LOCK:
@@ -1322,10 +2071,17 @@ def finalize_fish_catch(
         prof = core.ensure_user_profile(data, user_id, user_name)
         env = get_current_fishing_env()
 
-        if habitat not in HABITATS:
+        use_spot_id = spot_id if spot_id is not None else u.get("selected_spot")
+        if use_spot_id and (use_spot_id not in SPECIAL_SPOTS or not is_special_spot_unlocked(u, use_spot_id)):
+            use_spot_id = None
+        spot_meta = SPECIAL_SPOTS.get(use_spot_id) if use_spot_id else None
+
+        if spot_meta:
+            habitat = spot_meta["base_habitat"]
+        elif habitat not in HABITATS:
             habitat = u["selected_habitat"]
 
-        use_zone = zone_filter if zone_filter is not None else u.get("selected_zone", "all")
+        use_zone = "all" if spot_meta else (zone_filter if zone_filter is not None else u.get("selected_zone", "all"))
 
         use_bait_id = bait_id or u.get("selected_bait", "dough")
         if use_bait_id not in BAITS:
@@ -1345,6 +2101,16 @@ def finalize_fish_catch(
         reel = REELS[u["reel_id"]]
         net = NETS.get(u.get("net_id"))
         bait = BAITS[use_bait_id]
+        enh = get_gear_enhance_bonuses(u)
+
+        # 연속 성공 콤보 갱신 (최대 20콤보 -> 희귀 +30%, EXP +40%, 변이 +35%)
+        new_combo = min(20, _safe_int(u.get("combo"), 0) + 1)
+        u["combo"] = new_combo
+        if new_combo > _safe_int(u.get("max_combo"), 0):
+            u["max_combo"] = new_combo
+        combo_rare_bonus = min(0.30, new_combo * 0.015)
+        combo_exp_mult = 1.0 + min(0.40, new_combo * 0.02)
+        combo_variant_mult = 1.0 + min(0.35, new_combo * 0.0175)
 
         # 생활 버프(요리 + 동반 펫 + 서버 공동 농장) 연동
         life_buffs = {}
@@ -1357,6 +2123,12 @@ def finalize_fish_catch(
         life_size_bonus = _safe_float(life_buffs.get("size_bonus"), 0.0)
         life_trophy_bonus = _safe_float(life_buffs.get("trophy_bonus"), 0.0)
         life_gold_bonus = _safe_float(life_buffs.get("gold_bonus"), 0.0)
+
+        # 변이 확률 배율
+        weather_var_mult = 1.35 if env["weather_id"] in ("storm", "fog") else (1.15 if env["weather_id"] == "rain" else 1.0)
+        spot_var_mult = float(spot_meta["variant_mult"]) if spot_meta else 1.0
+        bait_var_mult = float(bait.get("variant_mult", 1.0))
+        total_variant_mult = weather_var_mult * spot_var_mult * bait_var_mult * combo_variant_mult
 
         # 그물 장착 시 2~10마리 범위 내 랜덤 포획, 미장착 시 1마리
         if net:
@@ -1380,6 +2152,8 @@ def finalize_fish_catch(
         # 빠른 챔질 보너스 (0.2s~1.8s 내 반응 시 대물 보정)
         perfect_hook = bool(reaction_sec is not None and reaction_sec <= 1.8)
         net_size_bonus = float((net or {}).get("size_bonus", 0.0))
+        spot_size_mult = float(spot_meta["size_mult"]) if spot_meta else 1.0
+        extra_rare_bonus = enh["rare_bonus"] + combo_rare_bonus
 
         catches: List[Dict[str, Any]] = []
         just_caught_uids: set = set()
@@ -1387,6 +2161,7 @@ def finalize_fish_catch(
         all_bonus_reasons: List[str] = []
         total_gain_exp = 0
         auto_sold_items: List[Tuple[str, int]] = []
+        cur_season = get_current_season_meta()
 
         for _ in range(catch_count):
             sp = _roll_species_weighted(
@@ -1398,39 +2173,51 @@ def finalize_fish_catch(
                 pokedex_ids=pokedex_keys,
                 net=net,
                 life_rare_bonus=life_rare_bonus,
+                extra_rare_bonus=extra_rare_bonus,
+                spot_id=use_spot_id,
             )
 
-            # 체장(cm) 계산: 정규분포 중심 + 장비·그물·날씨·반응속도·생활버프 보정
+            # 체장(cm) 계산: 정규분포 중심 + 장비·강화·그물·특수터·날씨·반응속도·생활버프 보정
             span = sp["max_cm"] - sp["min_cm"]
             mu_ratio = (
                 0.42
-                + (rod["size_bonus"] + net_size_bonus + life_size_bonus) * 0.25
+                + (rod["size_bonus"] + net_size_bonus + life_size_bonus + enh["size_bonus"]) * 0.25
                 + (bait["size_mult"] - 1.0) * 0.25
                 + (env["weather_size_mult"] - 1.0) * 0.35
+                + (spot_size_mult - 1.0) * 0.35
             )
             if perfect_hook:
                 mu_ratio += 0.08
-            ratio = random.gauss(min(0.80, mu_ratio), 0.20)
-            if random.random() < (0.07 + (reel["trophy_bonus"] + life_trophy_bonus) * 0.20):
-                ratio = random.uniform(0.84, 1.04)
+            ratio = random.gauss(min(0.82, mu_ratio), 0.21)
+            if random.random() < (0.07 + (reel["trophy_bonus"] + life_trophy_bonus + enh["trophy_bonus"]) * 0.20):
+                ratio = random.uniform(0.84, 1.05)
 
             ratio = max(0.0, min(1.06, ratio))
             length_cm = round(sp["min_cm"] + span * ratio, 1)
             is_trophy = length_cm >= (sp["min_cm"] + span * 0.82)
             weight_kg = _compute_fish_weight_kg(sp, length_cm)
 
-            # 황금/특대 변이 판정 (희귀 이벤트)
-            variant = "golden" if random.random() < 0.025 else "normal"
+            # 최대 금관 / 최소 은관 판정
+            crown: Optional[str] = None
+            if ratio >= 0.94:
+                crown = "max_gold"
+            elif ratio <= 0.08:
+                crown = "min_silver"
 
-            # 예상 판매 골드 산정 (+ 계절 제철 어종 1.25배 보너스)
-            cur_season = get_current_season_meta()
+            # 변이(이로치) 판정: golden / albino / abyssal / normal
+            variant = _roll_fish_variant(total_variant_mult)
+            v_meta = get_variant_meta(variant)
+
+            # 예상 판매 골드 산정 (+ 계절 제철 어종 1.25배 + 변이 + 금관/은관 + 강화 보너스)
             is_seasonal = is_seasonal_bonus_species(sp, cur_season["id"])
             size_factor = 0.80 + (ratio * 0.70)
-            gold_val = int(sp["base_gold"] * size_factor * (1.0 + rod["gold_bonus"] + life_gold_bonus))
+            gold_val = int(sp["base_gold"] * size_factor * (1.0 + rod["gold_bonus"] + life_gold_bonus + enh["gold_bonus"]))
             if is_trophy:
                 gold_val = int(gold_val * 1.40)
-            if variant == "golden":
-                gold_val = int(gold_val * 2.00)
+            if v_meta["gold_mult"] > 1.0:
+                gold_val = int(gold_val * v_meta["gold_mult"])
+            if crown and crown in CROWN_META:
+                gold_val = int(gold_val * CROWN_META[crown]["gold_mult"])
             if is_seasonal:
                 gold_val = int(gold_val * 1.25)
             gold_val = max(10, gold_val)
@@ -1452,37 +2239,64 @@ def finalize_fish_catch(
                 "is_trophy": is_trophy,
                 "is_seasonal": is_seasonal,
                 "variant": variant,
-                "locked": sp["rarity"] >= 4 or is_trophy,  # 전설/신화/월척 자동 보호
+                "crown": crown,
+                "spot_id": use_spot_id,
+                "locked": sp["rarity"] >= 4 or is_trophy or variant != "normal" or crown is not None,
                 "caught_at": caught_at,
             }
 
             bag.append(fish_inst)
             just_caught_uids.add(uid_hex)
 
-            # 도감 업데이트
+            # 도감 업데이트 (최대/최소 체장, 금관/은관, 변이 이력 포함)
             is_first_catch = sp["id"] not in pokedex
             pokedex_keys.add(sp["id"])
             pd_rec = pokedex.get(sp["id"])
             is_personal_len_best = False
             is_personal_wt_best = False
+            new_crown_unlocked = False
+            new_variant_unlocked = False
             if not isinstance(pd_rec, dict):
                 pd_rec = {
                     "count": 1,
                     "max_cm": length_cm,
+                    "min_cm": length_cm,
                     "max_kg": weight_kg,
+                    "max_crown": crown == "max_gold",
+                    "min_crown": crown == "min_silver",
+                    "variants": [variant] if variant != "normal" else [],
                     "first_caught": caught_at,
                 }
                 pokedex[sp["id"]] = pd_rec
                 is_personal_len_best = True
                 is_personal_wt_best = True
+                new_crown_unlocked = crown is not None
+                new_variant_unlocked = variant != "normal"
             else:
                 pd_rec["count"] = _safe_int(pd_rec.get("count"), 0) + 1
                 if length_cm > _safe_float(pd_rec.get("max_cm"), 0.0):
                     pd_rec["max_cm"] = length_cm
                     is_personal_len_best = True
+                prev_min = _safe_float(pd_rec.get("min_cm"), 0.0)
+                if prev_min <= 0 or length_cm < prev_min:
+                    pd_rec["min_cm"] = length_cm
                 if weight_kg > _safe_float(pd_rec.get("max_kg"), 0.0):
                     pd_rec["max_kg"] = weight_kg
                     is_personal_wt_best = True
+                if crown == "max_gold" and not pd_rec.get("max_crown"):
+                    pd_rec["max_crown"] = True
+                    new_crown_unlocked = True
+                if crown == "min_silver" and not pd_rec.get("min_crown"):
+                    pd_rec["min_crown"] = True
+                    new_crown_unlocked = True
+                if variant != "normal":
+                    v_list = pd_rec.get("variants")
+                    if not isinstance(v_list, list):
+                        v_list = []
+                        pd_rec["variants"] = v_list
+                    if variant not in v_list:
+                        v_list.append(variant)
+                        new_variant_unlocked = True
 
             # 서버 신기록 체크 (길이 & 무게 독립 기록)
             sp_rec = g_rec_map.get(sp["id"])
@@ -1529,6 +2343,16 @@ def finalize_fish_catch(
                     item_crystal += 10
                     item_reasons.append("신규 도감 등록(+10💎)")
 
+            if variant != "normal" and v_meta["crystal_bonus"] > 0:
+                vc = int(v_meta["crystal_bonus"])
+                item_crystal += vc
+                item_reasons.append(f"{v_meta['emoji']} {v_meta['name']}(+{vc}💎)")
+
+            if new_crown_unlocked and crown in CROWN_META:
+                cc = int(CROWN_META[crown]["first_crystal"])
+                item_crystal += cc
+                item_reasons.append(f"{CROWN_META[crown]['emoji']} 첫 {CROWN_META[crown]['name']}(+{cc}💎)")
+
             if new_server_len_record or new_server_wt_record:
                 item_crystal += 25 if (prev_len_rec or prev_wt_rec) else 15
                 item_reasons.append("🏆 서버 신기록(+25💎)" if (prev_len_rec or prev_wt_rec) else "🏆 서버 첫 기록(+15💎)")
@@ -1538,8 +2362,9 @@ def finalize_fish_catch(
                 if r_txt not in all_bonus_reasons:
                     all_bonus_reasons.append(r_txt)
 
-            # EXP 및 누적 통계
-            item_exp = 14 + sp["rarity"] * 12 + (18 if is_trophy else 0) + (20 if is_first_catch else 0)
+            # EXP 및 누적 통계 (콤보 보너스 반영)
+            raw_exp = 14 + sp["rarity"] * 12 + (18 if is_trophy else 0) + (20 if is_first_catch else 0) + (25 if variant != "normal" else 0)
+            item_exp = int(round(raw_exp * combo_exp_mult))
             total_gain_exp += item_exp
             u["total_catches"] = _safe_int(u.get("total_catches"), 0) + 1
             if is_trophy:
@@ -1568,10 +2393,15 @@ def finalize_fish_catch(
                 "is_personal_wt_best": is_personal_wt_best,
                 "new_server_len_record": new_server_len_record,
                 "new_server_wt_record": new_server_wt_record,
+                "new_crown_unlocked": new_crown_unlocked,
+                "new_variant_unlocked": new_variant_unlocked,
                 "crystal_bonus": item_crystal,
                 "bonus_reasons": item_reasons,
                 "gain_exp": item_exp,
             })
+
+        # 돌발 보물상자 · 표류물 인양 체크
+        treasure_drop = _roll_treasure_drop(u, prof, env, spot_meta, new_combo)
 
         # 가방 상한 초과 시 가장 오래된 미잠금 저등급부터 자동 판매 보전
         bag_cap = get_bag_capacity(u)
@@ -1625,15 +2455,20 @@ def finalize_fish_catch(
             data, guild_id, user_id, user_name, habitat, catches
         )
 
+        # 폭풍우/피딩타임 중 서버 대어 보스 돌발 출현 체크 (길드 내 활성 보스 없을 때 낮은 확률)
+        boss_spawned = _maybe_auto_spawn_boss_unlocked(data, guild_id, env, user_name)
+
         core.save_data(data)
 
-        # 포획된 모든 물고기를 성급 높은 순(성급 > 신기록 > 월척 > 황금 > 첫도감 > 골드 > 길이)으로 정렬
+        # 포획된 모든 물고기를 성급/변이/금관/신기록 순으로 정렬
+        variant_rank = {"abyssal": 3, "albino": 2, "golden": 1, "normal": 0}
         catches.sort(
             key=lambda c: (
+                variant_rank.get(c["fish"].get("variant", "normal"), 0),
                 c["species"]["rarity"],
                 1 if (c["new_server_len_record"] or c["new_server_wt_record"]) else 0,
+                1 if c["fish"].get("crown") else 0,
                 1 if c["fish"]["is_trophy"] else 0,
-                1 if c["fish"]["variant"] == "golden" else 0,
                 1 if c["is_first_catch"] else 0,
                 c["fish"]["gold"],
                 c["fish"]["length_cm"],
@@ -1653,6 +2488,12 @@ def finalize_fish_catch(
             "reel": reel,
             "net": net,
             "bait": bait,
+            "enhance": enh,
+            "spot": spot_meta,
+            "combo": new_combo,
+            "max_combo": u["max_combo"],
+            "treasure_drop": treasure_drop,
+            "boss_spawned": boss_spawned,
             "is_first_catch": primary["is_first_catch"],
             "is_personal_len_best": primary["is_personal_len_best"],
             "is_personal_wt_best": primary["is_personal_wt_best"],
@@ -1661,6 +2502,8 @@ def finalize_fish_catch(
             "any_first_catch": any(c["is_first_catch"] for c in catches),
             "any_server_record": any(c["new_server_len_record"] or c["new_server_wt_record"] for c in catches),
             "any_seasonal_bonus": any(c["fish"].get("is_seasonal") for c in catches),
+            "any_variant": any(c["fish"].get("variant", "normal") != "normal" for c in catches),
+            "any_crown": any(bool(c["fish"].get("crown")) for c in catches),
             "crystal_bonus": total_crystal_bonus,
             "bonus_reasons": all_bonus_reasons,
             "gain_exp": total_gain_exp,
@@ -1677,26 +2520,34 @@ def finalize_fish_catch(
 
 
 # ==========================================
-# 가방 · 판매 · 수족관 · 상점 · 도감 · 랭킹 · 퀘스트 액션
+# 가방 · 실시간 시세 판매 · 스마트 정리 · 수족관 · 상점 · 도감 · 랭킹 · 퀘스트 액션
 # ==========================================
+def _add_sell_quest_progress(u: Dict[str, Any], sold_gold: int) -> None:
+    for q in (core.as_dict(u.get("daily_quests")).get("items") or []):
+        if isinstance(q, dict) and q.get("type") == "sell_gold" and not q.get("claimed"):
+            q_tgt = max(1, _safe_int(q.get("target"), 1))
+            q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + sold_gold)
+
+
 def sell_fish_by_uid(guild_id: int | str, user_id: int | str, uid: str) -> Tuple[bool, str, int]:
     with _FISHING_LOCK:
         data = core.load_data()
         u = ensure_fishing_user(data, guild_id, user_id)
         bag = u.get("bag", [])
+        market = get_current_fish_market()
         for idx, item in enumerate(bag):
             if isinstance(item, dict) and item.get("uid") == uid:
-                gold = _safe_int(item.get("gold"), 15)
+                base_g = _safe_int(item.get("gold"), 15)
+                gold, mult, tags = compute_market_sell_price(item, market)
                 name = item.get("name", "물고기")
                 bag.pop(idx)
                 u["gold"] += gold
                 u["total_gold_earned"] = _safe_int(u.get("total_gold_earned"), 0) + gold
-                for q in (core.as_dict(u.get("daily_quests")).get("items") or []):
-                    if isinstance(q, dict) and q.get("type") == "sell_gold" and not q.get("claimed"):
-                        q_tgt = max(1, _safe_int(q.get("target"), 1))
-                        q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + gold)
+                _add_sell_quest_progress(u, gold)
                 core.save_data(data)
-                return True, f"💰 **{name}**을(를) 판매해 `+{gold:,}🪙`을 획득했습니다! (보유: `{u['gold']:,}🪙`)", gold
+                diff = gold - base_g
+                mk_note = f" ({' · '.join(tags)} {diff:+,}🪙)" if tags and diff != 0 else ""
+                return True, f"💰 **{name}**을(를) 어시장에 판매해 `+{gold:,}🪙`을 획득했습니다!{mk_note} (보유: `{u['gold']:,}🪙`)", gold
         return False, "⚠️ 이미 판매되었거나 가방에 없는 개체입니다.", 0
 
 
@@ -1713,9 +2564,11 @@ def sell_fishes_by_uids(
         data = core.load_data()
         u = ensure_fishing_user(data, guild_id, user_id)
         bag = u.get("bag", [])
+        market = get_current_fish_market()
         kept = []
         sold_cnt = 0
         sold_gold = 0
+        base_total = 0
         skipped_locked_uids: List[str] = []
         for item in bag:
             uid_s = str(item.get("uid") or "") if isinstance(item, dict) else ""
@@ -1725,7 +2578,9 @@ def sell_fishes_by_uids(
                     skipped_locked_uids.append(uid_s)
                 else:
                     sold_cnt += 1
-                    sold_gold += _safe_int(item.get("gold"), 15)
+                    base_total += _safe_int(item.get("gold"), 15)
+                    mk_g, _, _ = compute_market_sell_price(item, market)
+                    sold_gold += mk_g
             else:
                 kept.append(item)
         if sold_cnt == 0:
@@ -1741,20 +2596,19 @@ def sell_fishes_by_uids(
         u["bag"] = kept
         u["gold"] += sold_gold
         u["total_gold_earned"] = _safe_int(u.get("total_gold_earned"), 0) + sold_gold
-        for q in (core.as_dict(u.get("daily_quests")).get("items") or []):
-            if isinstance(q, dict) and q.get("type") == "sell_gold" and not q.get("claimed"):
-                q_tgt = max(1, _safe_int(q.get("target"), 1))
-                q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + sold_gold)
+        _add_sell_quest_progress(u, sold_gold)
         core.save_data(data)
+        diff = sold_gold - base_total
+        mk_note = f" · 📈 시세 `{diff:+,}🪙`" if diff != 0 else ""
         if skipped_locked_uids:
             msg = (
-                f"💰 선택한 미잠금 물고기 `{sold_cnt}마리`를 판매해 `+{sold_gold:,}🪙`을 획득했습니다! "
+                f"💰 선택한 미잠금 물고기 `{sold_cnt}마리`를 판매해 `+{sold_gold:,}🪙`을 획득했습니다!{mk_note} "
                 f"(보유: `{u['gold']:,}🪙` · 🔒 잠금 `{len(skipped_locked_uids)}마리` 제외)"
             )
         elif skip_locked:
-            msg = f"💰 선택한 물고기 `{sold_cnt}마리`를 일괄 판매해 `+{sold_gold:,}🪙`을 획득했습니다! (보유: `{u['gold']:,}🪙`)"
+            msg = f"💰 선택한 물고기 `{sold_cnt}마리`를 일괄 판매해 `+{sold_gold:,}🪙`을 획득했습니다!{mk_note} (보유: `{u['gold']:,}🪙`)"
         else:
-            msg = f"💰 방금 잡은 물고기 `{sold_cnt}마리`를 일괄 판매해 `+{sold_gold:,}🪙`을 획득했습니다! (보유: `{u['gold']:,}🪙`)"
+            msg = f"💰 방금 잡은 물고기 `{sold_cnt}마리`를 일괄 판매해 `+{sold_gold:,}🪙`을 획득했습니다!{mk_note} (보유: `{u['gold']:,}🪙`)"
         return (
             True,
             msg,
@@ -1774,9 +2628,11 @@ def sell_all_unlocked_bag(
         data = core.load_data()
         u = ensure_fishing_user(data, guild_id, user_id)
         bag = u.get("bag", [])
+        market = get_current_fish_market()
         kept = []
         sold_cnt = 0
         sold_gold = 0
+        base_total = 0
         for item in bag:
             if not isinstance(item, dict):
                 continue
@@ -1784,20 +2640,138 @@ def sell_all_unlocked_bag(
             r_ok = _safe_int(item.get("rarity"), 1) <= max_rarity
             if not item.get("locked", False) and h_ok and r_ok:
                 sold_cnt += 1
-                sold_gold += _safe_int(item.get("gold"), 15)
+                base_total += _safe_int(item.get("gold"), 15)
+                mk_g, _, _ = compute_market_sell_price(item, market)
+                sold_gold += mk_g
             else:
                 kept.append(item)
         if sold_cnt == 0:
-            return False, "ℹ️ 판매할 수 있는(잠금 해제된) 물고기가 없습니다.", 0, 0
+            scope = f"★1~★{max_rarity} " if max_rarity < 5 else ""
+            return False, f"ℹ️ 판매할 수 있는(잠금 해제된) {scope}물고기가 없습니다.", 0, 0
         u["bag"] = kept
         u["gold"] += sold_gold
         u["total_gold_earned"] = _safe_int(u.get("total_gold_earned"), 0) + sold_gold
-        for q in (core.as_dict(u.get("daily_quests")).get("items") or []):
-            if isinstance(q, dict) and q.get("type") == "sell_gold" and not q.get("claimed"):
-                q_tgt = max(1, _safe_int(q.get("target"), 1))
-                q["progress"] = min(q_tgt, _safe_int(q.get("progress"), 0) + sold_gold)
+        _add_sell_quest_progress(u, sold_gold)
         core.save_data(data)
-        return True, f"💰 잠금 해제된 물고기 `{sold_cnt}마리`를 일괄 판매해 `+{sold_gold:,}🪙`를 벌었습니다! (보유: `{u['gold']:,}🪙`)", sold_cnt, sold_gold
+        diff = sold_gold - base_total
+        mk_note = f" (📈 시세 `{diff:+,}🪙` 반영)" if diff != 0 else ""
+        scope_txt = f"★1~★{max_rarity} " if max_rarity < 5 else ""
+        return True, f"💰 잠금 해제된 {scope_txt}물고기 `{sold_cnt}마리`를 일괄 판매해 `+{sold_gold:,}🪙`를 벌었습니다!{mk_note} (보유: `{u['gold']:,}🪙`)", sold_cnt, sold_gold
+
+
+def sell_bag_by_max_rarity(
+    guild_id: int | str,
+    user_id: int | str,
+    max_rarity: int = 2,
+    habitat_filter: str = "all",
+) -> Tuple[bool, str, int, int]:
+    """가방 내 미잠금 저등급(기본 ★1~★2) 물고기만 스마트 일괄 판매합니다."""
+    return sell_all_unlocked_bag(guild_id, user_id, habitat_filter=habitat_filter, max_rarity=max(1, min(5, int(max_rarity))))
+
+
+def sell_bag_duplicates_keep_best(
+    guild_id: int | str,
+    user_id: int | str,
+    habitat_filter: str = "all",
+) -> Tuple[bool, str, int, int]:
+    """같은 어종이 여러 마리일 때 어종별 최고 개체(변이·금관·월척·최장) 1마리씩만 남기고 나머지 미잠금 중복 개체를 일괄 판매합니다."""
+    with _FISHING_LOCK:
+        data = core.load_data()
+        u = ensure_fishing_user(data, guild_id, user_id)
+        bag = u.get("bag", [])
+        market = get_current_fish_market()
+
+        def _spec_score(it: Dict[str, Any]) -> Tuple[int, int, int, int, float, int]:
+            v_rank = {"abyssal": 3, "albino": 2, "golden": 1}.get(str(it.get("variant") or "normal"), 0)
+            return (
+                1 if it.get("locked") else 0,
+                v_rank,
+                1 if it.get("crown") else 0,
+                1 if it.get("is_trophy") else 0,
+                _safe_float(it.get("length_cm"), 0.0),
+                _safe_int(it.get("gold"), 0),
+            )
+
+        best_uid_by_sp: Dict[str, str] = {}
+        best_score_by_sp: Dict[str, Tuple[int, int, int, int, float, int]] = {}
+        for it in bag:
+            if not isinstance(it, dict):
+                continue
+            sp_key = str(it.get("fish_id") or it.get("name") or "")
+            uid_s = str(it.get("uid") or "")
+            if not sp_key or not uid_s:
+                continue
+            sc = _spec_score(it)
+            if sp_key not in best_score_by_sp or sc > best_score_by_sp[sp_key]:
+                best_score_by_sp[sp_key] = sc
+                best_uid_by_sp[sp_key] = uid_s
+
+        kept = []
+        sold_cnt = 0
+        sold_gold = 0
+        base_total = 0
+        for it in bag:
+            if not isinstance(it, dict):
+                continue
+            sp_key = str(it.get("fish_id") or it.get("name") or "")
+            uid_s = str(it.get("uid") or "")
+            h_ok = (habitat_filter == "all") or (it.get("habitat") == habitat_filter)
+            is_best = best_uid_by_sp.get(sp_key) == uid_s
+            if h_ok and not is_best and not it.get("locked", False):
+                sold_cnt += 1
+                base_total += _safe_int(it.get("gold"), 15)
+                mk_g, _, _ = compute_market_sell_price(it, market)
+                sold_gold += mk_g
+            else:
+                kept.append(it)
+
+        if sold_cnt == 0:
+            return False, "ℹ️ 정리할 중복 미잠금 물고기가 없습니다! (어종별 최고 개체 및 잠금 개체는 모두 보호됨)", 0, 0
+
+        u["bag"] = kept
+        u["gold"] += sold_gold
+        u["total_gold_earned"] = _safe_int(u.get("total_gold_earned"), 0) + sold_gold
+        _add_sell_quest_progress(u, sold_gold)
+        core.save_data(data)
+        diff = sold_gold - base_total
+        mk_note = f" (📈 시세 `{diff:+,}🪙`)" if diff != 0 else ""
+        return (
+            True,
+            f"✨ 어종별 최고 개체를 남기고 중복 물고기 `{sold_cnt}마리`를 깔끔하게 판매해 `+{sold_gold:,}🪙` 획득!{mk_note} (보유: `{u['gold']:,}🪙`)",
+            sold_cnt,
+            sold_gold,
+        )
+
+
+def sell_bag_market_featured(guild_id: int | str, user_id: int | str) -> Tuple[bool, str, int, int]:
+    """현재 어시장 '오늘의 특가(×1.8~2.05)'에 해당하는 미잠금 물고기만 골라 고가에 즉시 판매합니다."""
+    with _FISHING_LOCK:
+        data = core.load_data()
+        u = ensure_fishing_user(data, guild_id, user_id)
+        bag = u.get("bag", [])
+        market = get_current_fish_market()
+        feat_ids = set((market.get("featured_species") or {}).keys())
+        kept = []
+        sold_cnt = 0
+        sold_gold = 0
+        for it in bag:
+            if not isinstance(it, dict):
+                continue
+            if not it.get("locked", False) and str(it.get("fish_id") or "") in feat_ids:
+                sold_cnt += 1
+                mk_g, _, _ = compute_market_sell_price(it, market)
+                sold_gold += mk_g
+            else:
+                kept.append(it)
+        if sold_cnt == 0:
+            return False, "ℹ️ 가방에 판매 가능한(미잠금) 오늘의 특가 어종이 없습니다.", 0, 0
+        u["bag"] = kept
+        u["gold"] += sold_gold
+        u["total_gold_earned"] = _safe_int(u.get("total_gold_earned"), 0) + sold_gold
+        _add_sell_quest_progress(u, sold_gold)
+        core.save_data(data)
+        return True, f"🔥 오늘의 특가 어종 `{sold_cnt}마리`를 최고가 매입으로 판매해 `+{sold_gold:,}🪙` 획득! (보유: `{u['gold']:,}🪙`)", sold_cnt, sold_gold
+
 
 
 def toggle_fish_lock(guild_id: int | str, user_id: int | str, uid: str) -> Tuple[bool, str]:
@@ -2002,7 +2976,634 @@ def harvest_tank_gold(guild_id: int | str, user_id: int | str) -> Tuple[bool, st
         return True, f"🪙 수족관 관람 수익 `+{pending:,}🪙`를 수확했습니다! (현재 보유: `{u['gold']:,}🪙`)", pending
 
 
+def buy_or_equip_tank_theme(guild_id: int | str, user_id: int | str, theme_id: str) -> Tuple[bool, str]:
+    """수족관 테마 구매 및 장착"""
+    theme = TANK_THEMES.get(theme_id)
+    if not theme:
+        return False, "❌ 존재하지 않는 수족관 테마입니다."
+    with _FISHING_LOCK:
+        data = core.load_data()
+        u = ensure_fishing_user(data, guild_id, user_id)
+        owned = u["owned_tank_themes"]
+        if theme_id in owned:
+            u["tank_theme"] = theme_id
+            core.save_data(data)
+            return True, f"{theme['emoji']} **{theme['name']}** 테마를 수족관에 적용했습니다!"
+        cost = int(theme["price"])
+        if int(u.get("gold", 0)) < cost:
+            return False, f"❌ 낚시 골드가 부족합니다! (필요: `{cost:,}🪙` / 보유: `{int(u.get('gold', 0)):,}🪙`)"
+        u["gold"] -= cost
+        owned.append(theme_id)
+        u["tank_theme"] = theme_id
+        core.save_data(data)
+        return True, f"🎨 {theme['emoji']} **{theme['name']}** 테마를 구매하고 즉시 적용했습니다! (`-{cost:,}🪙` · 잔액 `{u['gold']:,}🪙`)"
+
+
+def feed_aquarium_fish(guild_id: int | str, user_id: int | str) -> Tuple[bool, str, Dict[str, Any]]:
+    """수족관 전시 물고기에게 먹이를 주어 4시간 +35% 수익 버프 & 전시어 소폭 성장(+0.5~1.4%) 적용"""
+    with _FISHING_LOCK:
+        data = core.load_data()
+        u = ensure_fishing_user(data, guild_id, user_id)
+        tank = [it for it in (u.get("tank") or []) if isinstance(it, dict)]
+        if not tank:
+            return False, "ℹ️ 수족관에 전시된 물고기가 없어 먹이를 줄 수 없습니다! 먼저 가방에서 물고기를 전시해 주세요.", {}
+
+        now_dt = datetime.datetime.now(core.KST)
+        last_iso = u.get("last_tank_feed")
+        if last_iso:
+            try:
+                last_dt = datetime.datetime.fromisoformat(str(last_iso))
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=core.KST)
+                elapsed = (now_dt - last_dt).total_seconds()
+                if elapsed < TANK_FEED_COOLDOWN_SEC:
+                    rem_min = max(1, int((TANK_FEED_COOLDOWN_SEC - elapsed + 59) // 60))
+                    rh, rm = divmod(rem_min, 60)
+                    rem_txt = f"{rh}시간 {rm}분" if rh > 0 else f"{rm}분"
+                    return False, f"⏳ 물고기들이 아직 배부릅니다! **`{rem_txt}`** 후에 다시 먹이를 줄 수 있습니다.", {}
+            except Exception:
+                pass
+
+        if int(u.get("gold", 0)) < TANK_FEED_COST:
+            return False, f"❌ 고급 수족관 사료 비용이 부족합니다! (필요: `{TANK_FEED_COST:,}🪙` / 보유: `{int(u.get('gold', 0)):,}🪙`)", {}
+
+        u["gold"] -= TANK_FEED_COST
+        u["last_tank_feed"] = now_dt.isoformat()
+        buff_until = now_dt + datetime.timedelta(seconds=TANK_FEED_BUFF_SEC)
+        u["tank_feed_buff_until"] = buff_until.isoformat()
+
+        grown_cnt = 0
+        total_cm_gain = 0.0
+        for item in tank:
+            sp = FISH_BY_ID.get(str(item.get("fish_id") or ""))
+            cur_cm = max(1.0, _safe_float(item.get("length_cm"), 10.0))
+            max_cap = round(float(sp["max_cm"]) * 1.08, 1) if sp else round(cur_cm * 1.25, 1)
+            if cur_cm < max_cap:
+                pct = random.uniform(0.005, 0.014)
+                add_cm = max(0.1, round(cur_cm * pct, 1))
+                new_cm = min(max_cap, round(cur_cm + add_cm, 1))
+                delta = round(new_cm - cur_cm, 1)
+                if delta > 0:
+                    item["length_cm"] = new_cm
+                    if sp:
+                        old_kg = _safe_float(item.get("weight_kg"), 0.01)
+                        est_kg = _compute_fish_weight_kg(sp, new_cm)
+                        item["weight_kg"] = max(old_kg, est_kg)
+                    item["gold"] = max(_safe_int(item.get("gold"), 15), int(round(_safe_int(item.get("gold"), 15) * (1.0 + pct * 0.8))))
+                    grown_cnt += 1
+                    total_cm_gain += delta
+
+        _, new_hourly = get_tank_pending_gold(u, now_dt)
+        core.save_data(data)
+        grow_note = f"전시어 `{grown_cnt}마리` 총 `+{total_cm_gain:.1f}cm` 성장!" if grown_cnt > 0 else "모든 전시어가 이미 최대 성장치에 도달했습니다!"
+        return (
+            True,
+            f"🍖 수족관 먹이주기 완료! (`-{TANK_FEED_COST:,}🪙`) · **{grow_note}** · **4시간 동안 수족관 수익 +35%** (현재 시간당 `+{new_hourly:,}🪙`)",
+            {"grown_cnt": grown_cnt, "total_cm_gain": round(total_cm_gain, 1), "hourly": new_hourly},
+        )
+
+
+def enhance_fishing_gear(guild_id: int | str, user_id: int | str, slot: str) -> Tuple[bool, str, Dict[str, Any]]:
+    """장비 강화 (+0 → +10, 실패 시 파괴/하락 없음 + 천장 확률 +8% 누적)"""
+    if slot not in ("rod", "reel", "net"):
+        return False, "❌ 강화할 수 있는 장비 부위는 `rod`(낚싯대), `reel`(릴), `net`(그물)입니다.", {}
+    with _FISHING_LOCK:
+        data = core.load_data()
+        u = ensure_fishing_user(data, guild_id, user_id)
+        meta = ENHANCE_SLOT_META[slot]
+        cur_lv = _safe_int(u["gear_enhance"].get(slot), 0)
+        if cur_lv >= ENHANCE_MAX_LEVEL:
+            return False, f"🏆 {meta['emoji']} **{meta['name']}**은(는) 이미 최고 강화 단계(`+{ENHANCE_MAX_LEVEL}`)에 도달했습니다!", {"level": cur_lv}
+
+        step = ENHANCE_TABLE[cur_lv]
+        cost = int(step["cost"])
+        if int(u.get("gold", 0)) < cost:
+            return False, f"❌ 강화 비용이 부족합니다! (`+{cur_lv}→+{cur_lv + 1}` 필요: `{cost:,}🪙` / 보유: `{int(u.get('gold', 0)):,}🪙`)", {"level": cur_lv}
+
+        pity = _safe_int(u["enhance_pity"].get(slot), 0)
+        eff_rate = min(1.0, float(step["rate"]) + pity * 0.08)
+        u["gold"] -= cost
+
+        success = random.random() < eff_rate
+        if success:
+            new_lv = cur_lv + 1
+            u["gear_enhance"][slot] = new_lv
+            u["enhance_pity"][slot] = 0
+            core.save_data(data)
+            return (
+                True,
+                f"✨ **강화 대성공!** {meta['emoji']} **{meta['name']} `+{cur_lv} → +{new_lv}`** 달성! (`-{cost:,}🪙` · 적용 확률 `{int(round(eff_rate * 100))}%` · 잔액 `{u['gold']:,}🪙`)",
+                {"success": True, "old_level": cur_lv, "level": new_lv, "cost": cost, "rate": eff_rate},
+            )
+
+        u["enhance_pity"][slot] = min(10, pity + 1)
+        next_pity_pct = int(round(min(1.0, float(step["rate"]) + u["enhance_pity"][slot] * 0.08) * 100))
+        core.save_data(data)
+        return (
+            True,
+            f"💨 **강화 실패** (안전 보호: 단계 유지 `+{cur_lv}` · `-{cost:,}🪙` · 잔액 `{u['gold']:,}🪙`)\n"
+            f"🍀 장인의 기운이 쌓여 다음 시도 성공률이 **`{next_pity_pct}%`** 로 상승했습니다!",
+            {"success": False, "old_level": cur_lv, "level": cur_lv, "cost": cost, "rate": eff_rate},
+        )
+
+
+def craft_bait_from_bag(guild_id: int | str, user_id: int | str, recipe_id: str) -> Tuple[bool, str, Dict[str, Any]]:
+    """가방 속 미잠금 소형어(★1~★2)를 분해해 특제 생미끼/집어제/황금 떡밥을 제작합니다."""
+    recipe = BAIT_CRAFT_RECIPES.get(recipe_id)
+    if not recipe:
+        return False, "❌ 존재하지 않는 미끼 제작 레시피입니다.", {}
+    with _FISHING_LOCK:
+        data = core.load_data()
+        u = ensure_fishing_user(data, guild_id, user_id)
+        bag = u.get("bag", [])
+        need = int(recipe["need_fish"])
+        max_r = int(recipe["max_rarity"])
+
+        # 미잠금 ★1~2 물고기 중 가치가 낮은 것부터 우선 분해
+        eligible_indices = [
+            idx for idx, it in enumerate(bag)
+            if isinstance(it, dict)
+            and not it.get("locked", False)
+            and _safe_int(it.get("rarity"), 1) <= max_r
+        ]
+        if len(eligible_indices) < need:
+            return (
+                False,
+                f"❌ 재료 소형어(미잠금 ★1~★{max_r})가 부족합니다! (보유 `{len(eligible_indices)}마리` / 필요 `{need}마리`)",
+                {"have": len(eligible_indices), "need": need},
+            )
+
+        eligible_indices.sort(key=lambda i: (_safe_int(bag[i].get("rarity"), 1), _safe_int(bag[i].get("gold"), 0)))
+        consume_set = set(eligible_indices[:need])
+        u["bag"] = [it for idx, it in enumerate(bag) if idx not in consume_set]
+
+        y_bait = recipe["yield_bait"]
+        y_qty = int(recipe["yield_qty"])
+        baits = core.ensure_dict_path(u, "baits")
+        baits[y_bait] = _safe_int(baits.get(y_bait), 0) + y_qty
+        u["selected_bait"] = y_bait
+        b_meta = BAITS[y_bait]
+        core.save_data(data)
+        return (
+            True,
+            f"🧪 미잠금 소형어 `{need}마리`를 분해해 {b_meta['emoji']} **{b_meta['name']} ×{y_qty}개**를 제작하고 장착했습니다! (총 `{baits[y_bait]}개` 보유)",
+            {"bait_id": y_bait, "qty": y_qty, "total_qty": baits[y_bait], "consumed": need},
+        )
+
+
+def gift_fish_to_user(
+    guild_id: int | str,
+    sender_id: int | str,
+    sender_name: str,
+    receiver_id: int | str,
+    receiver_name: str,
+    uid: str,
+) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+    """가방 속 미잠금 물고기 1마리를 같은 서버의 다른 유저에게 안전하게 선물(이동)합니다."""
+    if str(sender_id) == str(receiver_id):
+        return False, "❌ 자기 자신에게는 물고기를 선물할 수 없습니다!", None
+    with _FISHING_LOCK:
+        data = core.load_data()
+        s_u = ensure_fishing_user(data, guild_id, sender_id, sender_name)
+        r_u = ensure_fishing_user(data, guild_id, receiver_id, receiver_name)
+
+        s_bag = s_u.get("bag", [])
+        target_idx = None
+        for idx, it in enumerate(s_bag):
+            if isinstance(it, dict) and str(it.get("uid") or "") == str(uid):
+                target_idx = idx
+                break
+        if target_idx is None:
+            return False, "⚠️ 가방에서 해당 물고기를 찾지 못했습니다.", None
+
+        fish_item = s_bag[target_idx]
+        if fish_item.get("locked", False):
+            return False, "🔒 잠금 보호 중인 물고기는 바로 선물할 수 없습니다! 먼저 가방에서 `[🔓 잠금해제]`해 주세요.", None
+
+        r_bag = r_u.get("bag", [])
+        r_cap = get_bag_capacity(r_u)
+        if len(r_bag) >= r_cap:
+            return False, f"⚠️ **{r_u['name']}**님의 낚시 가방이 가득 차서 선물할 수 없습니다! (`{len(r_bag):,}/{r_cap:,}`)", None
+
+        gifted = copy.deepcopy(s_bag.pop(target_idx))
+        gifted["uid"] = uuid.uuid4().hex[:8]
+        gifted["locked"] = True  # 선물받은 개체는 실수 판매 방지를 위해 자동 잠금
+        gifted["gifted_from"] = s_u["name"]
+        gifted["gifted_at"] = datetime.datetime.now(core.KST).strftime("%Y-%m-%d %H:%M")
+        r_bag.append(gifted)
+
+        s_u["gifts_sent"] = _safe_int(s_u.get("gifts_sent"), 0) + 1
+        r_u["gifts_received"] = _safe_int(r_u.get("gifts_received"), 0) + 1
+        core.save_data(data)
+        return (
+            True,
+            f"🎁 **{s_u['name']}**님이 **{r_u['name']}**님에게 {gifted.get('emoji', '🐟')} **★{gifted.get('rarity', 1)} {gifted.get('name', '물고기')}** (`{float(gifted.get('length_cm', 0)):.1f}cm`)을(를) 선물했습니다! *(받는 분 가방에 🔒 자동 잠금 보관)*",
+            gifted,
+        )
+
+
+def roll_duel_cast(guild_id: int | str, user_id: int | str, user_name: str = "") -> Dict[str, Any]:
+    """1:1 대물 낚시 대결 1라운드 투척 결과를 유저 실제 장비/강화/날씨 기반으로 산출합니다."""
+    with _FISHING_LOCK:
+        data = core.load_data()
+        u = ensure_fishing_user(data, guild_id, user_id, user_name)
+        rod = RODS[u["rod_id"]]
+        reel = REELS[u["reel_id"]]
+        net = NETS.get(u.get("net_id"))
+        enh = get_gear_enhance_bonuses(u)
+        bait = BAITS.get(u.get("selected_bait", "dough"), BAITS["dough"])
+        env = get_current_fishing_env()
+        hab = random.choice(["lake", "river", "sea"])
+        sp = _roll_species_weighted(
+            hab,
+            rod,
+            bait,
+            env,
+            net=net,
+            extra_rare_bonus=enh["rare_bonus"],
+        )
+        span = sp["max_cm"] - sp["min_cm"]
+        mu = 0.48 + (rod["size_bonus"] + enh["size_bonus"]) * 0.25 + (env["weather_size_mult"] - 1.0) * 0.30
+        ratio = max(0.0, min(1.06, random.gauss(min(0.80, mu), 0.22)))
+        if random.random() < (0.09 + (reel["trophy_bonus"] + enh["trophy_bonus"]) * 0.20):
+            ratio = random.uniform(0.84, 1.05)
+        length_cm = round(sp["min_cm"] + span * ratio, 1)
+        is_trophy = length_cm >= (sp["min_cm"] + span * 0.82)
+        variant = _roll_fish_variant(1.5)
+        v_meta = get_variant_meta(variant)
+        v_bonus = {"normal": 0, "golden": 140, "albino": 220, "abyssal": 340}.get(variant, 0)
+        score = int(round(sp["rarity"] * 125 + ratio * 220 + (95 if is_trophy else 0) + v_bonus))
+        return {
+            "fish_id": sp["id"],
+            "name": sp["name"],
+            "emoji": sp["emoji"],
+            "habitat": hab,
+            "rarity": sp["rarity"],
+            "length_cm": length_cm,
+            "is_trophy": is_trophy,
+            "variant": variant,
+            "variant_emoji": v_meta["emoji"],
+            "score": score,
+        }
+
+
+def settle_fishing_duel(
+    guild_id: int | str,
+    p1_id: int | str,
+    p1_name: str,
+    p2_id: int | str,
+    p2_name: str,
+    winner_id: Optional[int | str],
+    wager: int = 0,
+) -> Tuple[bool, str, int]:
+    """1:1 낚시 대결 승패 기록 및 내기 골드 안전 정산"""
+    safe_wager = max(0, int(wager or 0))
+    with _FISHING_LOCK:
+        data = core.load_data()
+        u1 = ensure_fishing_user(data, guild_id, p1_id, p1_name)
+        u2 = ensure_fishing_user(data, guild_id, p2_id, p2_name)
+        if winner_id is None:
+            core.save_data(data)
+            return True, "🤝 극적인 **무승부!** 내기 골드는 변동 없이 양측 모두 반환되었습니다.", 0
+
+        if str(winner_id) == str(p1_id):
+            win_u, lose_u = u1, u2
+        else:
+            win_u, lose_u = u2, u1
+
+        transferred = min(safe_wager, max(0, _safe_int(lose_u.get("gold"), 0)))
+        if transferred > 0:
+            lose_u["gold"] -= transferred
+            win_u["gold"] += transferred
+            win_u["total_gold_earned"] = _safe_int(win_u.get("total_gold_earned"), 0) + transferred
+        win_u["duel_wins"] = _safe_int(win_u.get("duel_wins"), 0) + 1
+        lose_u["duel_losses"] = _safe_int(lose_u.get("duel_losses"), 0) + 1
+        core.save_data(data)
+        wager_txt = f" · 내기 상금 **`+{transferred:,}🪙`** 획득!" if transferred > 0 else ""
+        return True, f"🏆 **{win_u['name']}**님 대결 승리!{wager_txt}", transferred
+
+
+# ==========================================
+# 서버 협동 거대 대어 보스 레이드 엔진
+# ==========================================
+def _ensure_guild_boss_root(data: Dict[str, Any], guild_id: int | str) -> Dict[str, Any]:
+    g_key = str(guild_id or 0)
+    root = core.ensure_dict_path(data, "fishing_boss_raids", g_key)
+    if not isinstance(root.get("history"), list):
+        root["history"] = []
+    return root
+
+
+def _create_boss_instance(sp: Dict[str, Any], now_dt: datetime.datetime, spawner_name: str, auto: bool = False) -> Dict[str, Any]:
+    ends_dt = now_dt + datetime.timedelta(minutes=int(sp["duration_min"]))
+    return {
+        "uid": uuid.uuid4().hex[:8],
+        "boss_id": sp["id"],
+        "name": sp["name"],
+        "emoji": sp["emoji"],
+        "desc": sp["desc"],
+        "max_hp": int(sp["max_hp"]),
+        "hp": int(sp["max_hp"]),
+        "base_gold": int(sp["base_gold"]),
+        "pool_gold": int(sp["pool_gold"]),
+        "base_crystals": int(sp["base_crystals"]),
+        "pool_crystals": int(sp["pool_crystals"]),
+        "bait_id": sp["bait_id"],
+        "bait_qty": int(sp["bait_qty"]),
+        "spawner_name": spawner_name,
+        "is_auto": auto,
+        "started_at": now_dt.isoformat(),
+        "ends_at": ends_dt.isoformat(),
+        "defeated": False,
+        "participants": {},
+    }
+
+
+def _expire_boss_if_needed_unlocked(root: Dict[str, Any], now_dt: datetime.datetime) -> bool:
+    active = root.get("active")
+    if not isinstance(active, dict) or active.get("defeated"):
+        return False
+    try:
+        ends_dt = datetime.datetime.fromisoformat(str(active.get("ends_at")))
+        if ends_dt.tzinfo is None:
+            ends_dt = ends_dt.replace(tzinfo=core.KST)
+        if now_dt > ends_dt:
+            active["expired"] = True
+            hist = list(root.get("history") or [])
+            hist.insert(0, {
+                "name": active.get("name"),
+                "emoji": active.get("emoji"),
+                "defeated": False,
+                "ended_at": now_dt.strftime("%Y-%m-%d %H:%M"),
+                "participants_cnt": len(core.as_dict(active.get("participants"))),
+                "mvp_name": "-",
+            })
+            root["history"] = hist[:15]
+            root["active"] = None
+            root["last_ended_at"] = now_dt.isoformat()
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _maybe_auto_spawn_boss_unlocked(
+    data: Dict[str, Any],
+    guild_id: int | str,
+    env: Dict[str, Any],
+    trigger_user_name: str,
+) -> Optional[Dict[str, Any]]:
+    """폭풍우(8%) 또는 피딩타임(3.5%) 중 활성 보스가 없을 때 서버 대어 보스를 돌발 소환합니다."""
+    root = _ensure_guild_boss_root(data, guild_id)
+    now_dt = env.get("now") or datetime.datetime.now(core.KST)
+    _expire_boss_if_needed_unlocked(root, now_dt)
+    if isinstance(root.get("active"), dict) and not root["active"].get("defeated"):
+        return None
+    last_end = root.get("last_ended_at")
+    if last_end:
+        try:
+            le_dt = datetime.datetime.fromisoformat(str(last_end))
+            if le_dt.tzinfo is None:
+                le_dt = le_dt.replace(tzinfo=core.KST)
+            if (now_dt - le_dt).total_seconds() < BOSS_SPAWN_COOLDOWN_SEC:
+                return None
+        except Exception:
+            pass
+    prob = 0.08 if env.get("weather_id") == "storm" else (0.035 if env.get("feeding_time") else 0.0)
+    if prob <= 0 or random.random() >= prob:
+        return None
+    sp = random.choice(BOSS_SPECIES_POOL)
+    boss = _create_boss_instance(sp, now_dt, f"⛈️ 자연 돌발 ({trigger_user_name}님 목격)", auto=True)
+    root["active"] = boss
+    return copy.deepcopy(boss)
+
+
+def get_fishing_boss_status(guild_id: int | str) -> Dict[str, Any]:
+    """현재 서버의 협동 대어 보스 레이드 현황 반환"""
+    with _FISHING_LOCK:
+        data = core.load_data()
+        now_dt = datetime.datetime.now(core.KST)
+        root = _ensure_guild_boss_root(data, guild_id)
+        dirty = _expire_boss_if_needed_unlocked(root, now_dt)
+        if dirty:
+            core.save_data(data)
+
+        active = root.get("active")
+        remain_str = ""
+        cooldown_rem_min = 0
+        rankings: List[Dict[str, Any]] = []
+        if isinstance(active, dict) and not active.get("defeated"):
+            try:
+                ends_dt = datetime.datetime.fromisoformat(str(active.get("ends_at")))
+                if ends_dt.tzinfo is None:
+                    ends_dt = ends_dt.replace(tzinfo=core.KST)
+                rem_sec = max(0, int((ends_dt - now_dt).total_seconds()))
+                m, s = divmod(rem_sec, 60)
+                remain_str = f"{m}분 {s}초"
+            except Exception:
+                remain_str = "진행 중"
+            for uid_s, p in core.as_dict(active.get("participants")).items():
+                if isinstance(p, dict):
+                    rankings.append({
+                        "user_id": str(uid_s),
+                        "user_name": str(p.get("user_name") or f"출조사({uid_s[:4]})"),
+                        "damage": _safe_int(p.get("damage"), 0),
+                        "hits": _safe_int(p.get("hits"), 0),
+                    })
+            rankings.sort(key=lambda r: (-r["damage"], -r["hits"]))
+        else:
+            last_end = root.get("last_ended_at")
+            if last_end:
+                try:
+                    le_dt = datetime.datetime.fromisoformat(str(last_end))
+                    if le_dt.tzinfo is None:
+                        le_dt = le_dt.replace(tzinfo=core.KST)
+                    rem_cd = BOSS_SPAWN_COOLDOWN_SEC - (now_dt - le_dt).total_seconds()
+                    if rem_cd > 0:
+                        cooldown_rem_min = max(1, int((rem_cd + 59) // 60))
+                except Exception:
+                    pass
+
+        return {
+            "active": copy.deepcopy(active) if isinstance(active, dict) else None,
+            "rankings": rankings,
+            "remain_str": remain_str,
+            "cooldown_rem_min": cooldown_rem_min,
+            "history": copy.deepcopy((root.get("history") or [])[:8]),
+        }
+
+
+def spawn_fishing_boss(
+    guild_id: int | str,
+    spawner_id: int | str,
+    spawner_name: str,
+    boss_id: Optional[str] = None,
+    bypass_cooldown: bool = False,
+) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+    """서버 협동 대어 보스를 수동 소환합니다 (토벌/만료 후 20분 쿨타임)."""
+    with _FISHING_LOCK:
+        data = core.load_data()
+        now_dt = datetime.datetime.now(core.KST)
+        root = _ensure_guild_boss_root(data, guild_id)
+        _expire_boss_if_needed_unlocked(root, now_dt)
+        if isinstance(root.get("active"), dict) and not root["active"].get("defeated"):
+            return False, f"⚠️ 이미 `{root['active']['emoji']} {root['active']['name']}` 레이드가 진행 중입니다!", copy.deepcopy(root["active"])
+
+        if not bypass_cooldown and root.get("last_ended_at"):
+            try:
+                le_dt = datetime.datetime.fromisoformat(str(root["last_ended_at"]))
+                if le_dt.tzinfo is None:
+                    le_dt = le_dt.replace(tzinfo=core.KST)
+                rem = BOSS_SPAWN_COOLDOWN_SEC - (now_dt - le_dt).total_seconds()
+                if rem > 0:
+                    rem_m = max(1, int((rem + 59) // 60))
+                    return False, f"⏳ 해역이 아직 잠잠합니다! **`{rem_m}분`** 후에 새 대어 보스를 소환할 수 있습니다.", None
+            except Exception:
+                pass
+
+        sp = next((b for b in BOSS_SPECIES_POOL if b["id"] == boss_id), None) or random.choice(BOSS_SPECIES_POOL)
+        boss = _create_boss_instance(sp, now_dt, spawner_name or f"출조사({str(spawner_id)[:4]})", auto=False)
+        root["active"] = boss
+        core.save_data(data)
+        return True, f"🚨 **거대 대어 출현 경보!!** {boss['emoji']} **`{boss['name']}`** (HP `{boss['max_hp']:,}`)이(가) 해역에 나타났습니다!", copy.deepcopy(boss)
+
+
+def attack_fishing_boss(
+    guild_id: int | str,
+    user_id: int | str,
+    user_name: str,
+    bypass_cooldown: bool = False,
+) -> Tuple[bool, str, Dict[str, Any]]:
+    """진행 중인 서버 대어 보스에게 합동 릴 당기기 공격을 가합니다. HP 0 도달 시 전원 보상 지급!"""
+    cd_key = (int(guild_id or 0), int(user_id))
+    now_mono = time.monotonic()
+    with _FISHING_LOCK:
+        if not bypass_cooldown:
+            last_t = _BOSS_ATTACK_LAST.get(cd_key, 0.0)
+            elapsed = now_mono - last_t
+            if elapsed < BOSS_ATTACK_COOLDOWN_SEC:
+                rem = max(0.5, round(BOSS_ATTACK_COOLDOWN_SEC - elapsed, 1))
+                return False, f"⏳ 릴을 다시 감는 중입니다! **`{rem:.1f}초`** 후에 다시 당겨주세요.", {}
+
+        data = core.load_data()
+        now_dt = datetime.datetime.now(core.KST)
+        root = _ensure_guild_boss_root(data, guild_id)
+        _expire_boss_if_needed_unlocked(root, now_dt)
+        boss = root.get("active")
+        if not isinstance(boss, dict) or boss.get("defeated"):
+            return False, "ℹ️ 현재 진행 중인 보스 레이드가 없습니다! `[🌊 보스 소환]` 버튼으로 대어를 불러내세요.", {}
+
+        u = ensure_fishing_user(data, guild_id, user_id, user_name)
+        rod = RODS[u["rod_id"]]
+        reel = REELS[u["reel_id"]]
+        net = NETS.get(u.get("net_id"))
+        enh = get_gear_enhance_bonuses(u)
+
+        base_dmg = (
+            120
+            + int(rod["tier"]) * 48
+            + int(reel["tier"]) * 32
+            + (int(net["tier"]) * 24 if net else 0)
+            + min(30, _safe_int(u.get("level"), 1)) * 6
+        )
+        base_dmg = int(round(base_dmg * enh["boss_dmg_mult"] * random.uniform(0.88, 1.16)))
+        is_crit = random.random() < (0.16 + reel["trophy_bonus"] * 0.40)
+        dmg = int(round(base_dmg * 1.65)) if is_crit else base_dmg
+        dmg = max(50, dmg)
+
+        prev_hp = max(0, _safe_int(boss.get("hp"), 0))
+        actual_dmg = min(prev_hp, dmg)
+        boss["hp"] = max(0, prev_hp - actual_dmg)
+
+        p_map = boss.setdefault("participants", {})
+        uid_s = str(user_id)
+        p_ent = p_map.get(uid_s)
+        if not isinstance(p_ent, dict):
+            p_ent = {"user_name": user_name or u["name"], "damage": 0, "hits": 0}
+            p_map[uid_s] = p_ent
+        p_ent["user_name"] = user_name or u["name"]
+        p_ent["damage"] = _safe_int(p_ent.get("damage"), 0) + actual_dmg
+        p_ent["hits"] = _safe_int(p_ent.get("hits"), 0) + 1
+
+        _BOSS_ATTACK_LAST[cd_key] = now_mono
+
+        defeated_now = boss["hp"] <= 0
+        rewards_summary: List[Dict[str, Any]] = []
+        if defeated_now:
+            boss["defeated"] = True
+            total_dmg = max(1, sum(_safe_int(p.get("damage"), 0) for p in p_map.values() if isinstance(p, dict)))
+            ranked_p = sorted(
+                [(k, v) for k, v in p_map.items() if isinstance(v, dict)],
+                key=lambda kv: -_safe_int(kv[1].get("damage"), 0),
+            )
+            mvp_id = ranked_p[0][0] if ranked_p else uid_s
+            mvp_name = ranked_p[0][1].get("user_name", user_name) if ranked_p else user_name
+            b_bait_id = boss.get("bait_id") or "glow"
+            b_bait_qty = max(1, _safe_int(boss.get("bait_qty"), 2))
+
+            for rank_i, (p_uid, p_info) in enumerate(ranked_p, 1):
+                share = _safe_int(p_info.get("damage"), 0) / total_dmg
+                g_gain = int(round(boss["base_gold"] + boss["pool_gold"] * share + (1500 if p_uid == mvp_id else 0)))
+                c_gain = int(round(boss["base_crystals"] + boss["pool_crystals"] * share + (60 if p_uid == mvp_id else 0)))
+                pu = ensure_fishing_user(data, guild_id, p_uid, p_info.get("user_name", ""))
+                pprof = core.ensure_user_profile(data, p_uid, p_info.get("user_name", ""))
+                pu["gold"] = _safe_int(pu.get("gold"), 0) + g_gain
+                pu["total_gold_earned"] = _safe_int(pu.get("total_gold_earned"), 0) + g_gain
+                pu["boss_defeats"] = _safe_int(pu.get("boss_defeats"), 0) + 1
+                pprof["crystals"] = _safe_int(pprof.get("crystals"), 0) + c_gain
+                if b_bait_id in BAITS:
+                    p_baits = core.ensure_dict_path(pu, "baits")
+                    p_baits[b_bait_id] = _safe_int(p_baits.get(b_bait_id), 0) + b_bait_qty
+                rewards_summary.append({
+                    "rank": rank_i,
+                    "user_id": p_uid,
+                    "user_name": p_info.get("user_name", "출조사"),
+                    "damage": _safe_int(p_info.get("damage"), 0),
+                    "gold": g_gain,
+                    "crystals": c_gain,
+                    "bait_name": BAITS.get(b_bait_id, {}).get("name", "특급 미끼"),
+                    "bait_qty": b_bait_qty,
+                    "is_mvp": p_uid == mvp_id,
+                })
+
+            hist = list(root.get("history") or [])
+            hist.insert(0, {
+                "name": boss["name"],
+                "emoji": boss["emoji"],
+                "defeated": True,
+                "ended_at": now_dt.strftime("%Y-%m-%d %H:%M"),
+                "participants_cnt": len(ranked_p),
+                "mvp_name": mvp_name,
+            })
+            root["history"] = hist[:15]
+            root["active"] = None
+            root["last_ended_at"] = now_dt.isoformat()
+
+        core.save_data(data)
+        crit_txt = " 💥 **치명타!**" if is_crit else ""
+        if defeated_now:
+            return (
+                True,
+                f"🎉 **토벌 완료!!** {boss['emoji']} **{boss['name']}**에게 마지막 일격 `-{actual_dmg:,}`{crit_txt}으로 쓰러뜨렸습니다! 참가자 `{len(rewards_summary)}명` 전원에게 보상이 지급되었습니다!",
+                {"damage": actual_dmg, "is_crit": is_crit, "defeated": True, "hp": 0, "rewards": rewards_summary, "boss_name": boss["name"], "boss_emoji": boss["emoji"]},
+            )
+        return (
+            True,
+            f"🎣 **{boss['name']}**에게 **`-{actual_dmg:,}`** 피해!{crit_txt} (남은 HP: `{boss['hp']:,} / {boss['max_hp']:,}`)",
+            {"damage": actual_dmg, "is_crit": is_crit, "defeated": False, "hp": boss["hp"], "max_hp": boss["max_hp"]},
+        )
+
+
 def purchase_shop_item(guild_id: int | str, user_id: int | str, category: str, item_id: str) -> Tuple[bool, str]:
+    if category == "tank_theme":
+        return buy_or_equip_tank_theme(guild_id, user_id, item_id)
+    if category == "enhance":
+        ok, msg, _ = enhance_fishing_gear(guild_id, user_id, item_id)
+        return ok, msg
+    if category == "craft":
+        ok, msg, _ = craft_bait_from_bag(guild_id, user_id, item_id)
+        return ok, msg
+
     with _FISHING_LOCK:
         data = core.load_data()
         u = ensure_fishing_user(data, guild_id, user_id)
@@ -2068,6 +3669,8 @@ def purchase_shop_item(guild_id: int | str, user_id: int | str, category: str, i
                 u["selected_bait"] = "dough"
                 core.save_data(data)
                 return True, "🍡 기본 곡물 떡밥으로 장착했습니다."
+            if bait.get("craft_only"):
+                return False, f"🧪 **{bait['name']}**은(는) 상점 구매 불가 미끼입니다! `🧪 미끼제작` 탭에서 소형어를 분해해 제작하세요."
             cost = int(bait["price_per_pack"])
             qty = int(bait["pack_qty"])
             if gold < cost:
@@ -2158,8 +3761,12 @@ def get_fishing_pokedex_stats(guild_id: int | str, user_id: int | str) -> Dict[s
     owned_by_zone: Dict[Tuple[str, str], int] = {}
     owned_by_rar = {r: 0 for r in range(1, 6)}
     owned_total = 0
+    max_crowns = 0
+    min_crowns = 0
+    variant_species_cnt = 0
+    variant_counts = {"golden": 0, "albino": 0, "abyssal": 0}
 
-    for sp_id in pd.keys():
+    for sp_id, rec in pd.items():
         sp = FISH_BY_ID.get(sp_id)
         if not sp:
             continue
@@ -2172,6 +3779,17 @@ def get_fishing_pokedex_stats(guild_id: int | str, user_id: int | str) -> Dict[s
         r = int(sp.get("rarity", 1))
         if r in owned_by_rar:
             owned_by_rar[r] += 1
+        if isinstance(rec, dict):
+            if rec.get("max_crown"):
+                max_crowns += 1
+            if rec.get("min_crown"):
+                min_crowns += 1
+            v_list = rec.get("variants")
+            if isinstance(v_list, list) and v_list:
+                variant_species_cnt += 1
+                for vk in v_list:
+                    if vk in variant_counts:
+                        variant_counts[vk] += 1
 
     by_habitat: Dict[str, Dict[str, int]] = {}
     by_zone: Dict[str, Dict[str, Dict[str, int]]] = {}
@@ -2199,8 +3817,13 @@ def get_fishing_pokedex_stats(guild_id: int | str, user_id: int | str) -> Dict[s
         "by_habitat": by_habitat,
         "by_zone": by_zone,
         "by_rarity": by_rarity,
+        "max_crowns": max_crowns,
+        "min_crowns": min_crowns,
+        "variant_species_cnt": variant_species_cnt,
+        "variant_counts": variant_counts,
         "pokedex": pd,
     }
+
 
 
 def get_fishing_leaderboard(guild_id: int | str, habitat_filter: str = "all") -> Dict[str, Any]:
@@ -2425,7 +4048,7 @@ def build_catch_card_bytes(
     user_name: str,
     catch_index: int = 0,
 ) -> Optional[io.BytesIO]:
-    """포획 인증서 고화질 PNG 카드 생성 (다중 포획 시 catch_index번째 물고기 카드 렌더링, 설명 멀티라인 줄바꿈 지원)"""
+    """포획 인증서 고화질 PNG 카드 생성 (변이 오라 · 최대 금관/최소 은관 · 특수 낚시터 · 다중 포획 지원)"""
     if Image is None or ImageDraw is None:
         return None
     try:
@@ -2450,20 +4073,24 @@ def build_catch_card_bytes(
 
         env = catch_res["env"]
         hab = HABITATS.get(sp.get("habitat", "lake"), HABITATS["lake"])
+        spot_meta = catch_res.get("spot") or SPECIAL_SPOTS.get(str(fish.get("spot_id") or ""))
         rmeta = RARITY_META.get(int(sp.get("rarity", 1)), RARITY_META[1])
+        v_id = str(fish.get("variant") or "normal")
+        v_meta = get_variant_meta(v_id)
+        crown_id = fish.get("crown")
 
         w, h = 880, 456
         img = Image.new("RGBA", (w, h), (10, 18, 34, 255))
-        draw = ImageDraw.Draw(img)
+        draw = ImageDraw.Draw(img, "RGBA")
 
-        # 서식지 + 성급 그라데이션 배경
-        base_r, base_g, base_b = hab["rgb"]
-        rar_r, rar_g, rar_b = rmeta["rgb"]
+        # 서식지/특수터 + 성급/변이 그라데이션 배경
+        base_r, base_g, base_b = (spot_meta["rgb"] if isinstance(spot_meta, dict) and spot_meta.get("rgb") else hab["rgb"])
+        rar_r, rar_g, rar_b = (v_meta["rgb"] if v_meta.get("rgb") else rmeta["rgb"])
         for y in range(h):
             t = y / h
-            r = int(10 + base_r * 0.16 * (1 - t) + rar_r * 0.10 * t)
-            g = int(18 + base_g * 0.18 * (1 - t) + rar_g * 0.10 * t)
-            b = int(36 + base_b * 0.24 * (1 - t) + rar_b * 0.14 * t)
+            r = int(10 + base_r * 0.16 * (1 - t) + rar_r * 0.12 * t)
+            g = int(18 + base_g * 0.18 * (1 - t) + rar_g * 0.12 * t)
+            b = int(36 + base_b * 0.24 * (1 - t) + rar_b * 0.16 * t)
             draw.line([(0, y), (w, y)], fill=(min(255, r), min(255, g), min(255, b), 255))
 
         # 물결 데코 라인
@@ -2472,30 +4099,46 @@ def build_catch_card_bytes(
             pts = []
             for x in range(0, w + 20, 20):
                 pts.append((x, wy + int(math.sin(x * 0.025 + wave_i * 1.1) * 6)))
-            draw.line(pts, fill=(rar_r, rar_g, rar_b, 42 + wave_i * 12), width=2)
+            draw.line(pts, fill=(rar_r, rar_g, rar_b, 48 + wave_i * 12), width=2)
 
         # 메인 프레임 보더
-        draw.rounded_rectangle([14, 14, w - 14, h - 14], radius=24, outline=(rar_r, rar_g, rar_b, 220), width=4)
-        draw.rounded_rectangle([24, 24, w - 24, h - 24], radius=18, outline=(255, 255, 255, 38), width=1)
+        border_w = 5 if v_id != "normal" else 4
+        draw.rounded_rectangle([14, 14, w - 14, h - 14], radius=24, outline=(rar_r, rar_g, rar_b, 235), width=border_w)
+        draw.rounded_rectangle([24, 24, w - 24, h - 24], radius=18, outline=(255, 255, 255, 45), width=1)
 
         font_title = core._get_grid_font(34, bold=True)
         font_hdr = core._get_grid_font(22, bold=True)
         font_med = core._get_grid_font(20, bold=False)
         font_sm = core._get_grid_font(16, bold=False)
 
-        # 좌측 어종 심볼 서클 카드
+        # 좌측 어종 심볼 서클 카드 (+ 변이 발광 오라)
         cx, cy = 152, 212
-        draw.ellipse([cx - 96, cy - 96, cx + 96, cy + 96], fill=(16, 28, 52, 235), outline=(rar_r, rar_g, rar_b, 230), width=4)
-        draw.ellipse([cx - 82, cy - 82, cx + 82, cy + 82], outline=(255, 255, 255, 45), width=1)
+        if v_id != "normal" and v_meta.get("rgb"):
+            vr, vg, vb = v_meta["rgb"]
+            draw.ellipse([cx - 108, cy - 108, cx + 108, cy + 108], fill=(vr, vg, vb, 38))
+            draw.ellipse([cx - 101, cy - 101, cx + 101, cy + 101], outline=(vr, vg, vb, 160), width=2)
+        draw.ellipse([cx - 96, cy - 96, cx + 96, cy + 96], fill=(16, 28, 52, 238), outline=(rar_r, rar_g, rar_b, 235), width=4)
+        draw.ellipse([cx - 82, cy - 82, cx + 82, cy + 82], outline=(255, 255, 255, 48), width=1)
 
-        # 심플 벡터 물고기 실루엣 렌더링 (이모지 폰트 깨짐 0% 방지)
-        body_col = (255, 215, 95, 245) if fish.get("variant") == "golden" else (rar_r, rar_g, rar_b, 235)
+        # 심플 벡터 물고기 실루엣 렌더링 (변이별 커스텀 컬러 & 눈/지느러미 표현)
+        if v_meta.get("body_rgb"):
+            br, bg, bb = v_meta["body_rgb"]
+            body_col = (br, bg, bb, 248)
+        else:
+            rr, rg, rb = rmeta["rgb"]
+            body_col = (rr, rg, rb, 238)
+        fin_col = (103, 232, 249, 235) if v_id == "abyssal" else ((255, 230, 140, 235) if v_id == "golden" else (base_r, base_g, base_b, 235))
         tail_pts = [(cx - 64, cy - 26), (cx - 32, cy), (cx - 64, cy + 26)]
         draw.polygon(tail_pts, fill=body_col)
         draw.ellipse([cx - 42, cy - 32, cx + 56, cy + 32], fill=body_col)
-        draw.polygon([(cx - 10, cy - 30), (cx + 18, cy - 52), (cx + 26, cy - 26)], fill=(base_r, base_g, base_b, 235))
+        draw.polygon([(cx - 10, cy - 30), (cx + 18, cy - 52), (cx + 26, cy - 26)], fill=fin_col)
+        if v_id == "abyssal":
+            # 심해 발광 스팟
+            for sx, sy in [(cx - 14, cy - 6), (cx + 2, cy + 6), (cx + 16, cy - 4)]:
+                draw.ellipse([sx - 4, sy - 4, sx + 4, sy + 4], fill=(103, 232, 249, 235))
         draw.ellipse([cx + 28, cy - 12, cx + 40, cy], fill=(255, 255, 255, 255))
-        draw.ellipse([cx + 32, cy - 9, cx + 38, cy - 3], fill=(12, 18, 30, 255))
+        pupil_col = (239, 68, 68, 255) if v_id == "albino" else ((56, 189, 248, 255) if v_id == "abyssal" else (12, 18, 30, 255))
+        draw.ellipse([cx + 32, cy - 9, cx + 38, cy - 3], fill=pupil_col)
 
         # 좌측 하단 성급 배지 (& 다중 포획 시 카드 순번 표시)
         star_txt = core._sanitize_grid_text(rmeta["full_stars"])
@@ -2508,35 +4151,43 @@ def build_catch_card_bytes(
             seq_w = seq_b[2] - seq_b[0]
             draw.text((cx - seq_w // 2, cy + 140), seq_txt, font=font_sm, fill=(180, 215, 255, 235))
 
-        # 우측 헤더: 서식지 & 도장 배지
+        # 우측 헤더: 서식지/특수터 & 도장 배지
         rx = 282
         sub_z = sp.get("sub_zone") or sp.get("zone") or ""
-        hab_tag = core._sanitize_grid_text(f"[{hab['name']} · {sub_z}]  |  {rmeta['name']} ({rmeta['stars']})")
+        loc_tag = f"{spot_meta['name']}" if isinstance(spot_meta, dict) else f"{hab['name']} · {sub_z}"
+        hab_tag = core._sanitize_grid_text(f"[{loc_tag}]  |  {rmeta['name']} ({rmeta['stars']})")
         draw.text((rx, 42), hab_tag, font=font_sm, fill=(175, 215, 255, 240))
 
-        # 특수 도장 (현재 카드 번호 / 신기록 / 월척 / 첫도감 / 황금변이)
+        # 특수 도장 (변이 / 금관·은관 / 신기록 / 월척 / 첫도감 / 다중)
         catch_count = max(total_cards, _safe_int(catch_res.get("catch_count"), 1))
         net_info = catch_res.get("net")
         badges = []
+        if v_id != "normal" and v_meta.get("badge"):
+            vr, vg, vb = v_meta["rgb"] or (250, 204, 21)
+            b_fill = (vr, vg, vb, 255)
+            txt_col = (20, 26, 40, 255) if v_id in ("golden", "albino") else (255, 255, 255, 255)
+            badges.append((v_meta["badge"], b_fill, txt_col))
+        if crown_id in CROWN_META:
+            cm = CROWN_META[crown_id]
+            cr, cg, cb = cm["rgb"]
+            badges.append((cm["badge"], (cr, cg, cb, 255), (255, 255, 255, 255)))
         if total_cards > 1:
-            badges.append((f"#{idx + 1}/{total_cards}마리", (14, 165, 233, 255)))
+            badges.append((f"#{idx + 1}/{total_cards}마리", (14, 165, 233, 255), (255, 255, 255, 255)))
         if new_len_rec or new_wt_rec:
-            badges.append(("서버 신기록!", (245, 158, 11, 255)))
-        if fish.get("is_trophy"):
-            badges.append(("월척 대물", (239, 68, 68, 255)))
-        if fish.get("variant") == "golden":
-            badges.append(("황금 변이", (250, 204, 21, 255)))
+            badges.append(("서버 신기록!", (245, 158, 11, 255), (255, 255, 255, 255)))
+        if fish.get("is_trophy") and crown_id != "max_gold":
+            badges.append(("월척 대물", (239, 68, 68, 255), (255, 255, 255, 255)))
         if is_first_catch:
-            badges.append(("NEW 도감", (16, 185, 129, 255)))
+            badges.append(("NEW 도감", (16, 185, 129, 255), (255, 255, 255, 255)))
 
         bx_cur = w - 42
-        for b_txt, b_col in badges[:3]:
+        for b_txt, b_col, t_col in badges[:3]:
             b_clean = core._sanitize_grid_text(b_txt)
             bb = draw.textbbox((0, 0), b_clean, font=font_sm)
             bw = (bb[2] - bb[0]) + 22
             bx_cur -= bw
             draw.rounded_rectangle([bx_cur, 36, bx_cur + bw, 66], radius=12, fill=b_col)
-            draw.text((bx_cur + 11, 41), b_clean, font=font_sm, fill=(255, 255, 255, 255))
+            draw.text((bx_cur + 11, 41), b_clean, font=font_sm, fill=t_col)
             bx_cur -= 8
 
         # 어종명 & 학명
@@ -2552,7 +4203,7 @@ def build_catch_card_bytes(
         sci_name = core._sanitize_grid_text(f"{sp['scientific_name']}")
         draw.text((rx, 126), sci_name, font=font_med, fill=(180, 200, 230, 215))
 
-        # 크기 · 무게 · 가치 메트릭 박스 3칸 (현재 선택된 물고기 개체 가치 표시)
+        # 크기 · 무게 · 가치 메트릭 박스 3칸
         card_y = 166
         box_w = 176
         box_h = 92
@@ -2570,7 +4221,7 @@ def build_catch_card_bytes(
             val_clean = core._sanitize_grid_text(m_val)
             draw.text((mx + 14, card_y + 40), val_clean, font=font_hdr, fill=m_col)
 
-        # 하단 어종 설명 박스 (최대 3줄 멀티라인 자동 줄바꿈으로 설명이 잘리지 않고 끝까지 표시됨)
+        # 하단 어종 설명 박스 (최대 3줄 멀티라인 자동 줄바꿈)
         desc_clean = core._sanitize_grid_text(sp.get("desc", ""))
         max_desc_w = w - rx - 44
         desc_lines = _wrap_card_text_lines(draw, desc_clean, font_sm, max_desc_w, max_lines=3)
@@ -2588,12 +4239,16 @@ def build_catch_card_bytes(
         for l_idx, d_line in enumerate(desc_lines):
             draw.text((rx + 14, start_ty + l_idx * line_step), d_line, font=font_sm, fill=(230, 240, 255, 245))
 
-        rod_name = core._sanitize_grid_text(catch_res["rod"]["name"])
+        enh = catch_res.get("enhance") or {}
+        rod_lv = _safe_int(enh.get("rod_lv"), 0)
+        rod_name = core._sanitize_grid_text(catch_res["rod"]["name"]) + (f" +{rod_lv}" if rod_lv > 0 else "")
         net_str = f" + {core._sanitize_grid_text(net_info['name'])}" if isinstance(net_info, dict) and catch_count > 1 else ""
         weather_name = core._sanitize_grid_text(env["weather_name"])
         time_txt = "낮" if env["time_phase"] == "day" else "밤"
+        combo_val = _safe_int(catch_res.get("combo"), 0)
+        combo_str = f"  |  {combo_val}콤보" if combo_val >= 2 else ""
         angler = core._sanitize_grid_text(user_name)[:16]
-        footer_txt = core._sanitize_grid_text(f"출조사: {angler}  |  장비: {rod_name}{net_str}  |  환경: {time_txt} · {weather_name}  |  {fish['caught_at']} KST")
+        footer_txt = core._sanitize_grid_text(f"출조사: {angler}  |  장비: {rod_name}{net_str}{combo_str}  |  {time_txt} · {weather_name}  |  {fish['caught_at']} KST")
         max_footer_w = w - rx - 30
         if font_sm is not None and footer_txt:
             raw_ft = footer_txt
@@ -2611,6 +4266,180 @@ def build_catch_card_bytes(
     except Exception as e:
         print(f"⚠️ [fishing_core] 포획 카드 PNG 렌더링 예외: {e}", flush=True)
         return None
+
+
+def build_aquarium_card_bytes(
+    summary: Dict[str, Any],
+    owner_name: str,
+) -> Optional[io.BytesIO]:
+    """개인 수족관에 전시된 물고기들을 테마 배경·기포·빛줄기와 함께 920x520 고화질 PNG 스냅샷으로 렌더링합니다."""
+    if Image is None or ImageDraw is None:
+        return None
+    try:
+        u = summary.get("user") if isinstance(summary, dict) else {}
+        if not isinstance(u, dict):
+            u = {}
+        raw_tank = u.get("tank", [])
+        tank = [it for it in (raw_tank if isinstance(raw_tank, list) else []) if isinstance(it, dict)]
+        max_slots = _safe_int(u.get("tank_slots"), 4)
+        theme_id = str(u.get("tank_theme") or "coral")
+        theme = TANK_THEMES.get(theme_id, TANK_THEMES["coral"])
+        hourly = _safe_int(summary.get("tank_hourly"), 0)
+        feed_active = bool(summary.get("tank_feed_active", False))
+
+        w, h = 920, 520
+        img = Image.new("RGBA", (w, h), (8, 22, 42, 255))
+        draw = ImageDraw.Draw(img, "RGBA")
+
+        tr, tg, tb = theme["top_rgb"]
+        br, bg, bb = theme["bot_rgb"]
+        ar, ag, ab = theme["accent_rgb"]
+
+        # 수조 배경 수직 그라데이션
+        for y in range(h):
+            t = y / h
+            r = int(tr * (1 - t) + br * t)
+            g = int(tg * (1 - t) + bg * t)
+            b = int(tb * (1 - t) + bb * t)
+            draw.line([(0, y), (w, y)], fill=(r, g, b, 255))
+
+        # 테마별 배경 연출 (빛줄기 / 달빛 / 오로라 / 심해 네온)
+        if theme_id == "coral":
+            for ray_x in (140, 360, 610, 790):
+                draw.polygon([(ray_x, 0), (ray_x + 70, 0), (ray_x + 150, h - 80), (ray_x + 25, h - 80)], fill=(120, 240, 235, 18))
+            # 모래 바닥 + 산호
+            draw.rectangle([0, h - 68, w, h], fill=(194, 168, 120, 120))
+            for cx_pos, col_c in [(90, (244, 114, 182, 165)), (210, (251, 146, 60, 155)), (740, (45, 212, 191, 155)), (845, (244, 114, 182, 155))]:
+                draw.ellipse([cx_pos - 28, h - 108, cx_pos + 28, h - 42], fill=col_c)
+                draw.ellipse([cx_pos - 16, h - 126, cx_pos + 16, h - 70], fill=col_c)
+        elif theme_id == "deep_sea":
+            for gx, gy, gr in [(160, 410, 75), (480, 440, 90), (770, 390, 70)]:
+                draw.ellipse([gx - gr, gy - gr, gx + gr, gy + gr], fill=(ar, ag, ab, 28))
+            draw.rectangle([0, h - 58, w, h], fill=(16, 12, 38, 190))
+            for px, py in [(120, 140), (260, 210), (410, 130), (630, 190), (780, 150), (540, 310), (310, 340)]:
+                draw.ellipse([px - 3, py - 3, px + 3, py + 3], fill=(103, 232, 249, 175))
+        elif theme_id == "night_pond":
+            # 보름달 & 수면 반사
+            draw.ellipse([750, 70, 842, 162], fill=(254, 243, 199, 215))
+            draw.ellipse([736, 56, 856, 176], fill=(250, 204, 21, 35))
+            for lx in (150, 390, 620):
+                draw.ellipse([lx - 26, h - 72, lx + 26, h - 52], fill=(34, 197, 94, 145))
+                draw.ellipse([lx - 9, h - 82, lx + 9, h - 64], fill=(251, 191, 36, 180))
+        else:  # glacier
+            for band_i, b_col in enumerate([(56, 189, 248, 32), (168, 85, 247, 28), (45, 212, 191, 30)]):
+                pts = [(x, 105 + band_i * 22 + int(math.sin(x * 0.012 + band_i) * 20)) for x in range(0, w + 20, 20)]
+                draw.line(pts, fill=b_col, width=18)
+            draw.polygon([(0, h - 45), (140, h - 125), (270, h - 45)], fill=(186, 230, 253, 85))
+            draw.polygon([(660, h - 45), (795, h - 135), (920, h - 45)], fill=(186, 230, 253, 85))
+            draw.rectangle([0, h - 52, w, h], fill=(186, 230, 253, 95))
+
+        # 상승 공기방울 데코
+        for bi in range(18):
+            bx = 55 + (bi * 49) % (w - 110)
+            by = 95 + (bi * 73) % (h - 170)
+            br_rad = 3 + (bi % 4) * 2
+            draw.ellipse([bx - br_rad, by - br_rad, bx + br_rad, by + br_rad], outline=(220, 245, 255, 110), width=1)
+
+        # 유리 수조 프레임 & 상단 헤더 바
+        draw.rounded_rectangle([12, 12, w - 12, h - 12], radius=22, outline=(ar, ag, ab, 210), width=4)
+        draw.rounded_rectangle([22, 22, w - 22, 74], radius=14, fill=(8, 18, 34, 195), outline=(255, 255, 255, 45), width=1)
+
+        font_hdr = core._get_grid_font(22, bold=True)
+        font_sm = core._get_grid_font(15, bold=False)
+        font_xs = core._get_grid_font(13, bold=False)
+
+        owner_clean = core._sanitize_grid_text(owner_name)[:16]
+        theme_clean = core._sanitize_grid_text(theme["name"])
+        hdr_left = core._sanitize_grid_text(f"{owner_clean}님의 수족관  |  {theme_clean} ({len(tank)}/{max_slots}칸)")
+        draw.text((38, 36), hdr_left, font=font_hdr, fill=(255, 255, 255, 248))
+
+        buff_tag = "  [먹이 +35%]" if feed_active else ""
+        hdr_right = core._sanitize_grid_text(f"+{hourly:,} G/h{buff_tag}")
+        rb_box = draw.textbbox((0, 0), hdr_right, font=font_sm)
+        rw = rb_box[2] - rb_box[0]
+        pill_col = (16, 185, 129, 225) if feed_active else (ar, ag, ab, 195)
+        draw.rounded_rectangle([w - 40 - rw - 20, 32, w - 34, 64], radius=12, fill=pill_col)
+        draw.text((w - 40 - rw - 10, 38), hdr_right, font=font_sm, fill=(10, 18, 30, 255))
+
+        # 전시된 물고기들 렌더링 (최대 20마리, uid 해시 기반 안정적 배치)
+        if not tank:
+            empty_msg = core._sanitize_grid_text("아직 수족관에 전시된 물고기가 없습니다. 가방에서 대물을 전시해 보세요!")
+            eb = draw.textbbox((0, 0), empty_msg, font=font_hdr)
+            ew = eb[2] - eb[0]
+            draw.text(((w - ew) // 2, h // 2 - 12), empty_msg, font=font_hdr, fill=(210, 230, 250, 210))
+        else:
+            n_fish = min(20, len(tank))
+            cols = 4 if n_fish <= 8 else 5
+            rows = max(1, math.ceil(n_fish / cols))
+            zone_top, zone_bot = 98, h - 78
+            zone_left, zone_right = 68, w - 68
+            cell_w = (zone_right - zone_left) / max(1, cols)
+            cell_h = (zone_bot - zone_top) / max(1, rows)
+
+            for i, it in enumerate(tank[:20]):
+                h_val = int(hashlib.md5(str(it.get("uid") or i).encode("utf-8")).hexdigest()[:8], 16)
+                col_i = i % cols
+                row_i = i // cols
+                jx = ((h_val % 25) - 12)
+                jy = (((h_val >> 5) % 21) - 10)
+                fx = int(zone_left + (col_i + 0.5) * cell_w + jx)
+                fy = int(zone_top + (row_i + 0.5) * cell_h + jy)
+                face_right = (h_val & 1) == 0
+
+                rar = max(1, min(5, _safe_int(it.get("rarity"), 1)))
+                rm = RARITY_META.get(rar, RARITY_META[1])
+                v_id = str(it.get("variant") or "normal")
+                v_meta = get_variant_meta(v_id)
+                if v_meta.get("body_rgb"):
+                    fr, fg, fb = v_meta["body_rgb"]
+                else:
+                    fr, fg, fb = rm["rgb"]
+
+                scale = 0.72 + (rar - 1) * 0.11 + (0.14 if it.get("is_trophy") else 0.0)
+                if n_fish > 12:
+                    scale *= 0.82
+                bw = int(34 * scale)
+                bh = int(18 * scale)
+                d = 1 if face_right else -1
+
+                # 변이 발광 오라
+                if v_id != "normal" and v_meta.get("rgb"):
+                    vr, vg, vb = v_meta["rgb"]
+                    draw.ellipse([fx - bw - 10, fy - bh - 10, fx + bw + 10, fy + bh + 10], fill=(vr, vg, vb, 48))
+
+                # 꼬리 + 몸통 + 등지느러미 + 눈
+                tail = [(fx - d * (bw + int(16 * scale)), fy - int(14 * scale)), (fx - d * int(bw * 0.65), fy), (fx - d * (bw + int(16 * scale)), fy + int(14 * scale))]
+                draw.polygon(tail, fill=(fr, fg, fb, 235))
+                draw.ellipse([fx - bw, fy - bh, fx + bw, fy + bh], fill=(fr, fg, fb, 245), outline=(255, 255, 255, 90), width=1)
+                fin = [(fx - d * int(6 * scale), fy - bh + 2), (fx + d * int(8 * scale), fy - bh - int(11 * scale)), (fx + d * int(14 * scale), fy - bh + 4)]
+                draw.polygon(fin, fill=(ar, ag, ab, 215))
+                ex = fx + d * int(bw * 0.52)
+                ey = fy - int(bh * 0.22)
+                draw.ellipse([ex - 4, ey - 4, ex + 4, ey + 4], fill=(255, 255, 255, 255))
+                p_col = (239, 68, 68, 255) if v_id == "albino" else (12, 18, 30, 255)
+                draw.ellipse([ex - 2, ey - 2, ex + 2, ey + 2], fill=p_col)
+
+                # 하단 이름 & 크기 캡션
+                tag_prefix = "★" if v_id != "normal" else ("*" if it.get("is_trophy") else "")
+                nm = core._sanitize_grid_text(f"{tag_prefix}{str(it.get('name', '물고기'))[:8]} {float(it.get('length_cm', 0)):.0f}cm")
+                nb = draw.textbbox((0, 0), nm, font=font_xs)
+                nw = nb[2] - nb[0]
+                draw.rounded_rectangle([fx - nw // 2 - 5, fy + bh + 4, fx + nw // 2 + 5, fy + bh + 22], radius=6, fill=(8, 16, 30, 175))
+                draw.text((fx - nw // 2, fy + bh + 5), nm, font=font_xs, fill=(235, 245, 255, 240))
+
+        # 바닥 워터마크
+        ft_txt = core._sanitize_grid_text("NOROSI PRIVATE AQUARIUM  |  먹이주기: +35% 수익 & 전시어 성장")
+        draw.text((32, h - 38), ft_txt, font=font_xs, fill=(215, 235, 255, 195))
+
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        img.close()
+        buf.seek(0)
+        return buf
+    except Exception as e:
+        print(f"⚠️ [fishing_core] 수족관 PNG 렌더링 예외: {e}", flush=True)
+        return None
+
 
 
 # ==========================================
@@ -2765,7 +4594,12 @@ def compute_tournament_catch_points(fish: Dict[str, Any], sp: Dict[str, Any], se
     pts = int(round(base_pts * (0.75 + size_ratio * 0.55)))
     if fish.get("is_trophy"):
         pts = int(round(pts * 1.35))
-    if fish.get("variant") == "golden":
+    v_id = str(fish.get("variant") or "normal")
+    if v_id == "abyssal":
+        pts = int(round(pts * 2.20))
+    elif v_id == "albino":
+        pts = int(round(pts * 1.85))
+    elif v_id == "golden":
         pts = int(round(pts * 1.60))
     seasonal = is_seasonal_bonus_species(sp, season_id)
     if seasonal:
