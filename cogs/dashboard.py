@@ -184,9 +184,43 @@ class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 & 전�
         ch_raw = (self.d_channel_opt.value or "예").strip().lower()
         make_channel = ch_raw not in ("아니오", "n", "no", "false", "0", "끄기", "안함")
 
+        try:
+            datetime.datetime.strptime(date_val, "%Y-%m-%d")
+        except ValueError:
+            await core.safe_send_response(
+                interaction,
+                "❌ 날짜 형식이 올바르지 않습니다. `YYYY-MM-DD` (예: `2026-12-25`) 형식으로 입력해 주세요.",
+                ephemeral=True,
+            )
+            return
+
         bot_ref = self.dashboard_view.bot or interaction.client
         dday_cog = next((c for c in bot_ref.cogs.values() if hasattr(c, "_create_or_update_dday")), None)
         if dday_cog:
+            if make_channel and interaction.guild is not None:
+                from cogs.dday import DDayCategoryPickView
+                pick_view = DDayCategoryPickView(
+                    bot_instance=bot_ref,
+                    user=interaction.user,
+                    guild=interaction.guild,
+                    pending_dday={
+                        "name": name_val,
+                        "date": date_val,
+                        "emoji": emoji_val,
+                        "repeat": use_repeat,
+                        "plus_one": use_plus_one,
+                    },
+                    parent_view=self.dashboard_view,
+                    mode="create",
+                )
+                await core.safe_send_response(
+                    interaction,
+                    embed=pick_view.build_embed(),
+                    view=pick_view,
+                    ephemeral=True,
+                )
+                return
+
             await dday_cog._create_or_update_dday(
                 interaction,
                 이름=name_val,
@@ -195,7 +229,7 @@ class DashboardDDayAddModal(core.SafeModal, title="📅 새 D-Day 일정 & 전�
                 이모지=emoji_val,
                 시작일=None,
                 매년반복=use_repeat,
-                채널생성=make_channel,
+                채널생성=False,
                 플러스1=use_plus_one,
             )
             self.dashboard_view.data = await asyncio.to_thread(core.load_data)

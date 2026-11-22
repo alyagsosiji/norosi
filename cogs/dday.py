@@ -1114,6 +1114,29 @@ class DDayQuickAddModal(core.SafeModal, title="📅 새 D-Day & 전광판 채널
         bot_ref = getattr(self.board_view, "bot_instance", None) or interaction.client
         dday_cog = next((c for c in bot_ref.cogs.values() if hasattr(c, "_create_or_update_dday")), None) if bot_ref else None
         if dday_cog:
+            if make_channel:
+                pick_view = DDayCategoryPickView(
+                    bot_instance=bot_ref,
+                    user=interaction.user,
+                    guild=interaction.guild,
+                    pending_dday={
+                        "name": name_val,
+                        "date": target_val,
+                        "emoji": emoji_val,
+                        "repeat": repeat_val,
+                        "plus_one": plus_one_val,
+                    },
+                    parent_view=self.board_view,
+                    mode="create",
+                )
+                await core.safe_send_response(
+                    interaction,
+                    embed=pick_view.build_embed(),
+                    view=pick_view,
+                    ephemeral=True,
+                )
+                return
+
             await dday_cog._create_or_update_dday(
                 interaction,
                 이름=name_val,
@@ -1122,7 +1145,7 @@ class DDayQuickAddModal(core.SafeModal, title="📅 새 D-Day & 전광판 채널
                 이모지=emoji_val,
                 시작일=None,
                 매년반복=repeat_val,
-                채널생성=make_channel,
+                채널생성=False,
                 플러스1=plus_one_val,
             )
             if want_channel and not has_ch_perm:
@@ -1164,6 +1187,319 @@ class DDayQuickAddModal(core.SafeModal, title="📅 새 D-Day & 전광판 채널
         if hasattr(self.board_view, "refresh_components"):
             self.board_view.refresh_components()
         await interaction.edit_original_response(embed=self.board_view.build_embed(), view=self.board_view)
+
+
+class DDayCategoryPickView(core.SafeView):
+    """D-Day 전광판 음성채널을 생성하거나 이동할 카테고리를 직접 선택하는 뷰"""
+
+    def __init__(
+        self,
+        bot_instance=None,
+        user: discord.abc.User | None = None,
+        guild: discord.Guild | None = None,
+        pending_dday: dict | None = None,
+        parent_view=None,
+        mode: str = "create",
+    ):
+        super().__init__(timeout=180)
+        self.bot_instance = bot_instance
+        self.user = user
+        self.guild = guild
+        self.pending_dday = dict(pending_dday) if isinstance(pending_dday, dict) else {}
+        self.parent_view = parent_view
+        self.mode = mode if mode in ("create", "attach") else "create"
+        self.default_category = self._resolve_default_category()
+        self._build_components()
+
+    def _resolve_default_category(self) -> discord.CategoryChannel | None:
+        if not self.guild:
+            return None
+        try:
+            data = core.get_cached_data_ro()
+            default_cat_id = core.get_guild_setting(data, self.guild.id, "default_category_id")
+            if default_cat_id:
+                ch = self.guild.get_channel(int(default_cat_id))
+                if isinstance(ch, discord.CategoryChannel):
+                    return ch
+        except Exception:
+            pass
+        return None
+
+    def _build_components(self):
+        self.clear_items()
+
+        cat_sel = discord.ui.ChannelSelect(
+            placeholder="📁 전광판 음성채널을 생성할 카테고리 선택...",
+            channel_types=[discord.ChannelType.category],
+            min_values=1,
+            max_values=1,
+            row=0,
+            custom_id="norosi:DDayCategoryPick:cat_select",
+        )
+        cat_sel.callback = self._on_category_picked
+        self.add_item(cat_sel)
+
+        if self.default_category is not None:
+            def_btn = discord.ui.Button(
+                label=f"기본 카테고리 ({self.default_category.name[:16]})",
+                emoji="⭐",
+                style=discord.ButtonStyle.success,
+                row=1,
+                custom_id="norosi:DDayCategoryPick:use_default",
+            )
+            def_btn.callback = self._on_use_default_clicked
+            self.add_item(def_btn)
+
+        top_btn = discord.ui.Button(
+            label="카테고리 없이 최상단",
+            emoji="📂",
+            style=discord.ButtonStyle.primary if self.default_category is None else discord.ButtonStyle.secondary,
+            row=1,
+            custom_id="norosi:DDayCategoryPick:no_category",
+        )
+        top_btn.callback = self._on_top_level_clicked
+        self.add_item(top_btn)
+
+        if self.mode == "create":
+            no_ch_btn = discord.ui.Button(
+                label="채널 없이 일정만",
+                emoji="📝",
+                style=discord.ButtonStyle.secondary,
+                row=1,
+                custom_id="norosi:DDayCategoryPick:no_channel",
+            )
+            no_ch_btn.callback = self._on_no_channel_clicked
+            self.add_item(no_ch_btn)
+
+        cancel_btn = discord.ui.Button(
+            label="취소",
+            emoji="❌",
+            style=discord.ButtonStyle.danger,
+            row=1,
+            custom_id="norosi:DDayCategoryPick:cancel",
+        )
+        cancel_btn.callback = self._on_cancel_clicked
+        self.add_item(cancel_btn)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        if self.user and interaction.user.id != self.user.id:
+            await core.safe_send_response(
+                interaction,
+                "❌ 본인만 이 D-Day 카테고리 선택 창을 조작할 수 있습니다.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    def build_embed(self) -> discord.Embed:
+        info = self.pending_dday or {}
+        name_val = str(info.get("name") or "D-Day 일정")
+        date_val = str(info.get("date") or core.get_today_str())
+        emoji_val = str(info.get("emoji") or "🌠")
+        plus_one_val = bool(info.get("plus_one", False))
+        try:
+            _, dday_text = core.get_dday_info(date_val, plus_one=plus_one_val)
+            ch_preview = core.format_dday_channel_name(name_val, date_val, emoji_val, plus_one=plus_one_val)
+        except Exception:
+            dday_text = "-"
+            ch_preview = f"{emoji_val}ㅣ{name_val}"
+
+        default_txt = f"📁 `{self.default_category.name}`" if self.default_category else "미지정"
+        title_txt = (
+            "📁 디데이 전광판 채널 생성 — 카테고리 선택"
+            if self.mode == "create"
+            else "📁 전광판 채널 생성 · 이동 — 카테고리 선택"
+        )
+        action_verb = "생성" if self.mode == "create" else "생성/이동"
+        embed = discord.Embed(
+            title=title_txt,
+            description=(
+                f"• **일정:** {emoji_val} **{name_val}** (`{date_val}` · `{dday_text}`)\n"
+                f"• **전광판 채널명:** 🔊 `{ch_preview}`\n"
+                f"• **서버 기본 카테고리:** {default_txt}\n\n"
+                f"아래 드롭다운에서 **원하는 카테고리를 선택**하면 해당 카테고리에 전광판 음성채널이 즉시 {action_verb}됩니다!"
+            ),
+            color=discord.Color.from_rgb(0, 204, 221),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.set_footer(text="카테고리 선택 즉시 반영됩니다 · 카테고리 없이 서버 최상단에 만들 수도 있습니다.")
+        return embed
+
+    async def _refresh_parent_view(self):
+        if self.parent_view is None:
+            return
+        try:
+            fresh_data = await asyncio.to_thread(core.load_data)
+            self.parent_view.data = fresh_data
+            if hasattr(self.parent_view, "refresh_components"):
+                self.parent_view.refresh_components()
+            msg = getattr(self.parent_view, "message", None)
+            if msg is not None:
+                emb_builder = getattr(self.parent_view, "build_current_embed", None) or getattr(self.parent_view, "build_embed", None)
+                if callable(emb_builder):
+                    await msg.edit(embed=emb_builder(), view=self.parent_view)
+        except Exception:
+            pass
+
+    async def _finalize(
+        self,
+        interaction: discord.Interaction,
+        chosen_category: discord.CategoryChannel | None,
+        *,
+        make_channel: bool = True,
+        use_default_category: bool = False,
+    ):
+        if not self.pending_dday or not self.pending_dday.get("name"):
+            await core.safe_edit_response(
+                interaction,
+                content="⏳ 만료된 카테고리 선택 창입니다. 다시 `[➕ 디데이+채널 등록]` 버튼을 눌러 진행해 주세요.",
+                embed=None,
+                view=None,
+            )
+            return
+
+        await core.safe_defer(interaction)
+        bot_ref = self.bot_instance or interaction.client
+
+        if self.mode == "attach":
+            if not interaction.guild:
+                await core.safe_edit_response(interaction, content="❌ 서버 채널에서만 사용할 수 있습니다.", embed=None, view=None)
+                return
+            s_key = str(self.pending_dday.get("storage_key") or self.pending_dday.get("name"))
+            data = await asyncio.to_thread(core.load_data)
+            ddays_map = core.ensure_dict_path(data, "ddays")
+            info = ddays_map.get(s_key)
+            if not isinstance(info, dict):
+                await core.safe_edit_response(interaction, content="❌ 해당 D-Day 일정을 찾을 수 없습니다.", embed=None, view=None)
+                return
+
+            disp_name = core.get_dday_display_name(s_key, info)
+            date_str = str(info.get("date") or core.get_today_str())
+            emoji = str(info.get("emoji") or "🌠")
+            plus_one = bool(info.get("plus_one", False))
+            new_ch_name = core.format_dday_channel_name(disp_name, date_str, emoji, plus_one=plus_one)
+
+            target_cat = chosen_category
+            if target_cat is None and use_default_category:
+                target_cat = self.default_category
+
+            existing_ch_id = info.get("channel_id")
+            ch_obj = interaction.guild.get_channel(int(existing_ch_id)) if existing_ch_id else None
+            try:
+                if ch_obj:
+                    await ch_obj.edit(name=new_ch_name, category=target_cat)
+                    cat_note = f" (📁 `{target_cat.name}`)" if target_cat else " (최상단)"
+                    action_desc = f"✅ **`{disp_name}`** 전광판 채널을 🔊 **`{ch_obj.name}`**{cat_note} 위치로 갱신/이동했습니다!"
+                else:
+                    overwrites = {
+                        interaction.guild.default_role: discord.PermissionOverwrite(view_channel=True, connect=False),
+                        interaction.guild.me: discord.PermissionOverwrite(view_channel=True, connect=True, manage_channels=True),
+                    }
+                    ch_obj = await interaction.guild.create_voice_channel(
+                        name=new_ch_name,
+                        category=target_cat,
+                        overwrites=overwrites,
+                        reason=f"디데이 '{disp_name}' 전광판 채널 생성",
+                    )
+                    cat_note = f" (📁 `{target_cat.name}`)" if target_cat else " (최상단)"
+                    action_desc = f"✅ **`{disp_name}`** 전광판 채널 🔊 **`{ch_obj.name}`**{cat_note} 생성이 완료되었습니다!"
+            except discord.Forbidden:
+                await core.safe_edit_response(
+                    interaction,
+                    content="🚨 권한 부족: 봇에게 서버의 **'채널 관리'** 권한을 부여해 주세요.",
+                    embed=None,
+                    view=None,
+                )
+                return
+            except Exception as e:
+                await core.safe_edit_response(
+                    interaction,
+                    content=f"⚠️ 전광판 채널 처리 실패: `{e}`",
+                    embed=None,
+                    view=None,
+                )
+                return
+
+            def _commit_attach():
+                with core._DATA_LOCK:
+                    d = core.load_data()
+                    dm = core.ensure_dict_path(d, "ddays")
+                    if s_key in dm and isinstance(dm[s_key], dict):
+                        dm[s_key]["channel_id"] = ch_obj.id
+                        dm[s_key]["guild_id"] = interaction.guild_id
+                        dm[s_key]["category_id"] = target_cat.id if target_cat else None
+                    core.save_data(d)
+
+            await asyncio.to_thread(_commit_attach)
+            await self._refresh_parent_view()
+            done_embed = discord.Embed(
+                title="✅ D-Day 전광판 채널 설정 완료",
+                description=action_desc,
+                color=discord.Color.green(),
+                timestamp=datetime.datetime.now(core.KST),
+            )
+            await core.safe_edit_response(interaction, content=None, embed=done_embed, view=None)
+            return
+
+        # mode == "create"
+        dday_cog = next((c for c in bot_ref.cogs.values() if hasattr(c, "_create_or_update_dday")), None) if bot_ref else None
+        if not dday_cog:
+            await core.safe_edit_response(interaction, content="❌ D-Day 모듈을 찾을 수 없습니다.", embed=None, view=None)
+            return
+
+        result_embed = await dday_cog._create_or_update_dday(
+            interaction,
+            이름=str(self.pending_dday["name"]),
+            날짜=str(self.pending_dday["date"]),
+            카테고리=chosen_category,
+            이모지=str(self.pending_dday.get("emoji") or "🌠"),
+            시작일=None,
+            매년반복=bool(self.pending_dday.get("repeat", False)),
+            채널생성=make_channel,
+            플러스1=bool(self.pending_dday.get("plus_one", False)),
+            use_default_category=use_default_category,
+            return_embed_only=True,
+        )
+        await self._refresh_parent_view()
+        if result_embed is not None:
+            await core.safe_edit_response(interaction, content=None, embed=result_embed, view=None)
+        else:
+            await core.safe_edit_response(interaction, content="✅ 디데이 일정 설정이 완료되었습니다.", embed=None, view=None)
+
+    async def _on_category_picked(self, interaction: discord.Interaction):
+        raw_vals = (interaction.data or {}).get("values") or []
+        cat_id = int(raw_vals[0]) if (raw_vals and str(raw_vals[0]).isdigit()) else None
+        chosen_cat = None
+        if cat_id and interaction.guild:
+            chosen_cat = interaction.guild.get_channel(cat_id)
+            if chosen_cat is None:
+                try:
+                    chosen_cat = await interaction.guild.fetch_channel(cat_id)
+                except Exception:
+                    chosen_cat = None
+        if not isinstance(chosen_cat, discord.CategoryChannel):
+            await core.safe_send_response(interaction, "❌ 선택한 카테고리를 찾을 수 없습니다.", ephemeral=True)
+            return
+        await self._finalize(interaction, chosen_cat, make_channel=True, use_default_category=False)
+
+    async def _on_use_default_clicked(self, interaction: discord.Interaction):
+        await self._finalize(interaction, self.default_category, make_channel=True, use_default_category=True)
+
+    async def _on_top_level_clicked(self, interaction: discord.Interaction):
+        await self._finalize(interaction, None, make_channel=True, use_default_category=False)
+
+    async def _on_no_channel_clicked(self, interaction: discord.Interaction):
+        await self._finalize(interaction, None, make_channel=False, use_default_category=False)
+
+    async def _on_cancel_clicked(self, interaction: discord.Interaction):
+        cancel_embed = discord.Embed(
+            title="❌ D-Day 채널 생성 취소됨",
+            description="디데이 등록/채널 생성이 취소되었습니다.",
+            color=discord.Color.dark_grey(),
+        )
+        await core.safe_edit_response(interaction, content=None, embed=cancel_embed, view=None)
 
 
 class DDayChannelSetupView(core.SafeView):
@@ -1402,7 +1738,7 @@ class DDayChannelSetupView(core.SafeView):
             await core.safe_defer(interaction, ephemeral=True)
             return
         s_key = vals[0]
-        await core.safe_defer(interaction)
+        await core.safe_defer(interaction, ephemeral=True)
 
         data = await asyncio.to_thread(core.load_data)
         ddays_map = core.ensure_dict_path(data, "ddays")
@@ -1415,57 +1751,27 @@ class DDayChannelSetupView(core.SafeView):
         date_str = str(info.get("date") or core.get_today_str())
         emoji = str(info.get("emoji") or "🌠")
         plus_one = bool(info.get("plus_one", False))
-        new_ch_name = core.format_dday_channel_name(disp_name, date_str, emoji, plus_one=plus_one)
 
-        default_cat_id = core.get_guild_setting(data, interaction.guild_id, "default_category_id")
-        target_cat = interaction.guild.get_channel(int(default_cat_id)) if default_cat_id else None
-        if target_cat and not isinstance(target_cat, discord.CategoryChannel):
-            target_cat = None
-
-        existing_ch_id = info.get("channel_id")
-        ch_obj = interaction.guild.get_channel(int(existing_ch_id)) if existing_ch_id else None
-        action_msg = ""
-        try:
-            if ch_obj:
-                await ch_obj.edit(name=new_ch_name, category=target_cat or ch_obj.category)
-                cat_note = f" (📁 `{target_cat.name}`)" if target_cat else ""
-                action_msg = f"✅ **`{disp_name}`** 전광판 채널을 🔊 **`{ch_obj.name}`**{cat_note}(으)로 갱신/이동했습니다!"
-            else:
-                overwrites = {
-                    interaction.guild.default_role: discord.PermissionOverwrite(view_channel=True, connect=False),
-                    interaction.guild.me: discord.PermissionOverwrite(view_channel=True, connect=True, manage_channels=True),
-                }
-                ch_obj = await interaction.guild.create_voice_channel(
-                    name=new_ch_name,
-                    category=target_cat,
-                    overwrites=overwrites,
-                    reason=f"디데이 '{disp_name}' 전광판 채널 생성",
-                )
-                cat_note = f" (📁 `{target_cat.name}`)" if target_cat else ""
-                action_msg = f"✅ **`{disp_name}`** 전광판 채널 🔊 **`{ch_obj.name}`**{cat_note} 생성 완료!"
-        except discord.Forbidden:
-            await interaction.followup.send("🚨 권한 부족: 봇에게 서버의 **'채널 관리'** 권한을 부여해 주세요.", ephemeral=True)
-            return
-        except Exception as e:
-            await interaction.followup.send(f"⚠️ 전광판 채널 처리 실패: `{e}`", ephemeral=True)
-            return
-
-        def _commit():
-            with core._DATA_LOCK:
-                d = core.load_data()
-                dm = core.ensure_dict_path(d, "ddays")
-                if s_key in dm and isinstance(dm[s_key], dict):
-                    dm[s_key]["channel_id"] = ch_obj.id
-                    dm[s_key]["guild_id"] = interaction.guild_id
-                    if target_cat:
-                        dm[s_key]["category_id"] = target_cat.id
-                core.save_data(d)
-                return d
-
-        self.data = await asyncio.to_thread(_commit)
-        self.refresh_components()
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
-        await interaction.followup.send(action_msg, ephemeral=True)
+        pick_view = DDayCategoryPickView(
+            bot_instance=self.bot_instance or interaction.client,
+            user=interaction.user,
+            guild=interaction.guild,
+            pending_dday={
+                "storage_key": s_key,
+                "name": disp_name,
+                "date": date_str,
+                "emoji": emoji,
+                "plus_one": plus_one,
+                "channel_id": info.get("channel_id"),
+            },
+            parent_view=self,
+            mode="attach",
+        )
+        await interaction.followup.send(
+            embed=pick_view.build_embed(),
+            view=pick_view,
+            ephemeral=True,
+        )
 
     async def _on_add_clicked(self, interaction: discord.Interaction):
         await interaction.response.send_modal(DDayQuickAddModal(self))
@@ -2412,6 +2718,8 @@ class DDayCog(commands.Cog):
         매년반복: bool | None = False,
         채널생성: bool = True,
         플러스1: bool = False,
+        use_default_category: bool = True,
+        return_embed_only: bool = False,
     ):
         try:
             target_dt = datetime.datetime.strptime(날짜, "%Y-%m-%d").date()
@@ -2419,7 +2727,7 @@ class DDayCog(commands.Cog):
                 datetime.datetime.strptime(시작일, "%Y-%m-%d")
         except ValueError:
             await core.safe_send_response(interaction, "❌ 날짜 형식은 `YYYY-MM-DD`로 입력해 주세요.", ephemeral=True)
-            return
+            return None
 
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
@@ -2447,8 +2755,10 @@ class DDayCog(commands.Cog):
 
         target_category = 카테고리
         default_cat_id = core.get_guild_setting(data, interaction.guild_id, "default_category_id")
-        if not target_category and default_cat_id and interaction.guild:
-            target_category = interaction.guild.get_channel(int(default_cat_id))
+        if target_category is None and use_default_category and default_cat_id and interaction.guild:
+            cand_cat = interaction.guild.get_channel(int(default_cat_id))
+            if isinstance(cand_cat, discord.CategoryChannel):
+                target_category = cand_cat
 
         created_channel = None
         channel_status_msg = "생성 안 함 (`채널생성: False`)"
@@ -2460,8 +2770,14 @@ class DDayCog(commands.Cog):
                 created_channel = interaction.guild.get_channel(int(existing_ch_id))
                 if created_channel:
                     try:
-                        await created_channel.edit(name=new_ch_name, category=target_category or created_channel.category)
-                        channel_status_msg = f"🔊 `{created_channel.name}` (기존 채널 갱신됨)"
+                        if target_category is not None or not use_default_category:
+                            await created_channel.edit(name=new_ch_name, category=target_category)
+                            eff_cat = target_category
+                        else:
+                            await created_channel.edit(name=new_ch_name)
+                            eff_cat = created_channel.category
+                        cat_label = f" (카테고리: `{eff_cat.name}`)" if eff_cat else " (최상단)"
+                        channel_status_msg = f"🔊 `{created_channel.name}`{cat_label} (기존 채널 갱신됨)"
                     except Exception as e:
                         channel_status_msg = f"⚠️ 기존 채널 수정 실패: {e}"
 
@@ -2477,13 +2793,18 @@ class DDayCog(commands.Cog):
                         overwrites=overwrites,
                         reason=f"디데이 '{이름}' 전광판 채널 자동 생성"
                     )
-                    cat_label = f" (카테고리: `{target_category.name}`)" if target_category else ""
+                    cat_label = f" (카테고리: `{target_category.name}`)" if target_category else " (최상단)"
                     channel_status_msg = f"🔊 `{created_channel.name}` 생성 완료{cat_label}"
                 except discord.Forbidden:
                     channel_status_msg = "🚨 권한 부족: 봇에게 서버의 **'채널 관리'** 권한을 부여해 주세요."
                 except Exception as e:
                     channel_status_msg = f"⚠️ 채널 생성 실패: {e}"
 
+        saved_cat_id = (
+            target_category.id
+            if target_category is not None
+            else (None if (채널생성 and not use_default_category) else existing_info.get("category_id"))
+        )
         ddays_map[storage_key] = {
             "display_name": 이름,
             "date": 날짜,
@@ -2492,7 +2813,7 @@ class DDayCog(commands.Cog):
             "start_date": actual_start,
             "emoji": 이모지,
             "channel_id": created_channel.id if created_channel else existing_ch_id,
-            "category_id": target_category.id if target_category else existing_info.get("category_id"),
+            "category_id": saved_cat_id,
             "guild_id": interaction.guild_id or existing_info.get("guild_id"),
         }
         await asyncio.to_thread(core.save_data, data)
@@ -2517,7 +2838,9 @@ class DDayCog(commands.Cog):
             ),
             color=core.get_embed_color(diff)
         )
-        await interaction.followup.send(embed=embed)
+        if not return_embed_only:
+            await interaction.followup.send(embed=embed)
+        return embed
 
 
     @app_commands.command(name="출석체크", description="자정(00:00) 기준 각 서버별로 하루 1회 출석체크를 진행하고 출석 달력 및 개근 보상(100~2000💎)을 받습니다.")
