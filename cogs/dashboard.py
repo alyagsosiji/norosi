@@ -103,6 +103,44 @@ CATEGORY_INFO = {
     },
 }
 
+# 3단계 세부 제어판(sub_mode) → 직속 부모 (카테고리, 페이지 인덱스) 매핑
+# 봇 재시작·구버전 메시지 복구 시에도 홈이 아닌 직전 부모 페이지로 복귀하도록 보장합니다.
+SUB_MODE_PARENT_MAP: Dict[str, Tuple[str, int]] = {
+    "admin_dday": ("advanced", 2),
+    "admin_music_sched": ("advanced", 2),
+    "admin_reset": ("advanced", 2),
+    "admin_sticky": ("advanced", 1),
+    "admin_ticket": ("advanced", 0),
+    "bday_partner": ("personal", 2),
+    "fishing_personal": ("personal", 1),
+    "gi_banner_hub": ("minigame", 1),
+    "gi_personal": ("personal", 1),
+    "hsr_banner_hub": ("minigame", 1),
+    "hsr_personal": ("personal", 1),
+    "life_personal_hub": ("minigame", 2),
+    "music_voice": ("general", 1),
+    "owner_backup_sync": ("advanced", 3),
+    "owner_gi_pickup": ("advanced", 3),
+    "owner_hsr_pickup": ("advanced", 3),
+    "owner_sekai_pickup": ("advanced", 3),
+    "owner_terminal": ("advanced", 3),
+    "pokedex_hub": ("minigame", 3),
+    "ranking_hub": ("minigame", 3),
+    "relay_novel": ("general", 2),
+    "sekai_deck": ("personal", 1),
+    "sekai_pull_hub": ("minigame", 0),
+    "sekai_schedule": ("general", 0),
+}
+
+_NAV_CAT_TO_CODE: Dict[str, str] = {
+    "home": "h",
+    "general": "g",
+    "advanced": "a",
+    "minigame": "m",
+    "personal": "p",
+}
+_NAV_CODE_TO_CAT: Dict[str, str] = {v: k for k, v in _NAV_CAT_TO_CODE.items()}
+
 
 def detect_user_perm_tier_sync(user: Optional[discord.abc.User], guild: Optional[discord.Guild]) -> str:
     """동기 컨텍스트(임베드/버튼 렌더링)에서 호출자의 권한 등급(owner / admin / user) 판별"""
@@ -2046,8 +2084,77 @@ class MasterDashboardView(core.SafeView):
         else:
             self.sub_mode = None
 
+        # 직전 화면 복귀용 네비게이션 히스토리 스택 [(category, page, sub_mode), ...]
+        self._nav_history: List[Tuple[str, int, Optional[str]]] = []
+
         self._pages_cache: Dict[str, List[Dict[str, Any]]] = self._build_catalog_pages()
         self.refresh_components()
+
+    def _current_nav_state(self) -> Tuple[str, int, Optional[str]]:
+        return (self.current_category, self.current_page, self.sub_mode)
+
+    def _push_nav_history(self, state: Optional[Tuple[str, int, Optional[str]]] = None):
+        entry = state if state is not None else self._current_nav_state()
+        if not self._nav_history or self._nav_history[-1] != entry:
+            self._nav_history.append(entry)
+            if len(self._nav_history) > 25:
+                self._nav_history = self._nav_history[-25:]
+
+    @staticmethod
+    def _encode_nav_state(state: Tuple[str, int, Optional[str]]) -> str:
+        cat, page, sub = state
+        code = _NAV_CAT_TO_CODE.get(cat, "h")
+        if sub:
+            return f"{code}{page}.{sub}"
+        return f"{code}{page}"
+
+    @staticmethod
+    def _decode_nav_state(token: str) -> Optional[Tuple[str, int, Optional[str]]]:
+        token = (token or "").strip()
+        if not token:
+            return None
+        sub: Optional[str] = None
+        head = token
+        if "." in token:
+            head, sub_part = token.split(".", 1)
+            sub = sub_part or None
+            if sub and sub not in SUB_MODE_PARENT_MAP:
+                return None
+        if len(head) < 2:
+            return None
+        cat = _NAV_CODE_TO_CAT.get(head[0])
+        page_s = head[1:]
+        if not cat or not page_s.isdigit():
+            return None
+        return (cat, int(page_s), sub)
+
+    def _get_back_button_custom_id(self) -> str:
+        """직전 화면 히스토리 스택을 custom_id에 압축 인코딩 (봇 재시작·타임아웃 복구 후에도 이전 화면 유지)"""
+        prefix = "norosi:Settings:nav_back:"
+        max_payload = 100 - len(prefix)
+        states: List[Tuple[str, int, Optional[str]]] = list(self._nav_history)
+        if not states:
+            if self.sub_mode is not None:
+                p_cat, p_page = SUB_MODE_PARENT_MAP.get(
+                    self.sub_mode, (self.current_category, self.current_page)
+                )
+                states = [(p_cat, p_page, None)]
+            else:
+                states = [("home", 0, None)]
+
+        encoded_rev: List[str] = []
+        cur_len = 0
+        for st in reversed(states):
+            tok = self._encode_nav_state(st)
+            add_len = len(tok) + (1 if encoded_rev else 0)
+            if cur_len + add_len > max_payload:
+                break
+            encoded_rev.append(tok)
+            cur_len += add_len
+        if not encoded_rev:
+            return "norosi:Settings:nav_back:h0"
+        encoded_rev.reverse()
+        return f"{prefix}{'|'.join(encoded_rev)}"
 
     @staticmethod
     def _resolve_initial_target(tab_key: str, page_idx: int = 0) -> Tuple[str, int]:
@@ -2075,7 +2182,7 @@ class MasterDashboardView(core.SafeView):
         if tk == "game":
             return "minigame", 3
         if tk in ("personal", "개인", "profile"):
-            return "personal", max(0, min(2, page_idx))
+            return "personal", max(0, min(3, page_idx))
         return "home", 0
 
     @property
@@ -2106,35 +2213,72 @@ class MasterDashboardView(core.SafeView):
         if not msg:
             return
         restored = False
+        is_home = False
+        restored_sub: Optional[str] = None
+        restored_cat_page: Optional[Tuple[str, int]] = None
+        parsed_history: Optional[List[Tuple[str, int, Optional[str]]]] = None
+
+        def _parse_nav_back_cid(cid_val: str) -> Optional[List[Tuple[str, int, Optional[str]]]]:
+            if not cid_val.startswith("norosi:Settings:nav_back:"):
+                return None
+            payload = cid_val[len("norosi:Settings:nav_back:"):]
+            hist: List[Tuple[str, int, Optional[str]]] = []
+            for tok in payload.split("|"):
+                dec = self._decode_nav_state(tok)
+                if dec is not None:
+                    hist.append(dec)
+            return hist or None
+
         for row in getattr(msg, "components", []) or []:
             for comp in getattr(row, "children", []):
                 cid = getattr(comp, "custom_id", "") or ""
                 if cid in ("norosi:Settings:quick_jump_select", "norosi:Settings:cat_general"):
-                    self.current_category = "home"
-                    self.current_page = 0
-                    self.sub_mode = None
-                    restored = True
-                    break
-                if cid.startswith("norosi:Settings:sub_"):
+                    is_home = True
+                elif cid.startswith("norosi:Settings:sub_") and restored_sub is None:
                     rest = cid[len("norosi:Settings:sub_"):]
                     if "_" in rest:
-                        sub_name, _idx = rest.rsplit("_", 1)
-                        self.sub_mode = sub_name
-                        restored = True
-                        break
-                if cid.startswith("norosi:Settings:act_"):
+                        sub_name, idx_s = rest.rsplit("_", 1)
+                        if idx_s.isdigit():
+                            restored_sub = sub_name
+                elif cid.startswith("norosi:Settings:act_") and restored_cat_page is None:
                     rest = cid[len("norosi:Settings:act_"):]
                     parts = rest.rsplit("_", 2)
                     if len(parts) == 3:
                         cat, page_s, _idx = parts
                         if page_s.isdigit():
-                            self.current_category = cat
-                            self.current_page = int(page_s)
-                            self.sub_mode = None
-                            restored = True
-                            break
-            if restored:
-                break
+                            restored_cat_page = (cat, int(page_s))
+                elif cid.startswith("norosi:Settings:nav_back:") and parsed_history is None:
+                    parsed_history = _parse_nav_back_cid(cid)
+
+        if parsed_history is None and isinstance(getattr(interaction, "data", None), dict):
+            clicked_cid = interaction.data.get("custom_id") or ""
+            parsed_history = _parse_nav_back_cid(clicked_cid)
+
+        if is_home:
+            self.current_category = "home"
+            self.current_page = 0
+            self.sub_mode = None
+            self._nav_history = []
+            restored = True
+        elif restored_sub is not None:
+            self.sub_mode = restored_sub
+            if parsed_history:
+                self._nav_history = parsed_history
+                top_cat, top_page, _top_sub = parsed_history[-1]
+                self.current_category = top_cat
+                self.current_page = top_page
+            else:
+                p_cat, p_page = SUB_MODE_PARENT_MAP.get(restored_sub, ("home", 0))
+                self.current_category = p_cat
+                self.current_page = p_page
+                self._nav_history = []
+            restored = True
+        elif restored_cat_page is not None:
+            self.current_category, self.current_page = restored_cat_page
+            self.sub_mode = None
+            self._nav_history = parsed_history if parsed_history else []
+            restored = True
+
         if restored:
             self.refresh_components()
 
@@ -3346,7 +3490,7 @@ class MasterDashboardView(core.SafeView):
             emoji="⬅️",
             style=discord.ButtonStyle.danger,
             row=3,
-            custom_id="norosi:Settings:nav_back",
+            custom_id=self._get_back_button_custom_id(),
         )
         back_btn.callback = self._on_back_clicked
         self.add_item(back_btn)
@@ -3415,6 +3559,9 @@ class MasterDashboardView(core.SafeView):
         return [preset[i] if i < len(preset) else f"{i + 1}p" for i in range(total_pages)]
 
     async def _on_page_num_selected(self, interaction: discord.Interaction, target_page: int):
+        target_state = (self.current_category, target_page, None)
+        if self._current_nav_state() != target_state:
+            self._push_nav_history()
         self.current_page = target_page
         self.sub_mode = None
         self.refresh_components()
@@ -3422,6 +3569,9 @@ class MasterDashboardView(core.SafeView):
 
     def _make_cat_enter_cb(self, cat_key: str) -> Callable[[discord.Interaction], Awaitable[None]]:
         async def _cb(interaction: discord.Interaction):
+            target_state = (cat_key, 0, None)
+            if self._current_nav_state() != target_state:
+                self._push_nav_history()
             self.current_category = cat_key
             self.current_page = 0
             self.sub_mode = None
@@ -3430,7 +3580,17 @@ class MasterDashboardView(core.SafeView):
         return _cb
 
     async def _on_back_clicked(self, interaction: discord.Interaction):
-        if self.sub_mode is not None:
+        if self._nav_history:
+            prev_cat, prev_page, prev_sub = self._nav_history.pop()
+            self.current_category = prev_cat
+            self.current_page = prev_page
+            self.sub_mode = prev_sub
+        elif self.sub_mode is not None:
+            p_cat, p_page = SUB_MODE_PARENT_MAP.get(
+                self.sub_mode, (self.current_category, self.current_page)
+            )
+            self.current_category = p_cat
+            self.current_page = p_page
             self.sub_mode = None
         else:
             self.current_category = "home"
@@ -3439,6 +3599,7 @@ class MasterDashboardView(core.SafeView):
         await core.safe_edit_response(interaction, embed=self.build_current_embed(), view=self)
 
     async def _on_home_clicked(self, interaction: discord.Interaction):
+        self._nav_history.clear()
         self.sub_mode = None
         self.current_category = "home"
         self.current_page = 0
@@ -3446,12 +3607,18 @@ class MasterDashboardView(core.SafeView):
         await core.safe_edit_response(interaction, embed=self.build_current_embed(), view=self)
 
     async def _on_prev_page_clicked(self, interaction: discord.Interaction):
+        prev_state = self._current_nav_state()
         self._step_global_page(-1)
+        if self._current_nav_state() != prev_state:
+            self._push_nav_history(prev_state)
         self.refresh_components()
         await core.safe_edit_response(interaction, embed=self.build_current_embed(), view=self)
 
     async def _on_next_page_clicked(self, interaction: discord.Interaction):
+        prev_state = self._current_nav_state()
         self._step_global_page(1)
+        if self._current_nav_state() != prev_state:
+            self._push_nav_history(prev_state)
         self.refresh_components()
         await core.safe_edit_response(interaction, embed=self.build_current_embed(), view=self)
 
@@ -3852,7 +4019,7 @@ class MasterDashboardView(core.SafeView):
             emoji="⬅️",
             style=discord.ButtonStyle.danger,
             row=nav_row,
-            custom_id="norosi:Settings:nav_back",
+            custom_id=self._get_back_button_custom_id(),
         )
         back_btn.callback = self._on_back_clicked
         self.add_item(back_btn)
@@ -4086,7 +4253,7 @@ class MasterDashboardView(core.SafeView):
             timestamp=datetime.datetime.now(core.KST),
         )
         embed.set_footer(
-            text=f"🏠 홈  ·  🔢 페이지 번호 바로 이동 ({global_cur}/{global_tot}p)  ·  🔄 새로고침"
+            text=f"⬅️ 뒤로 (이전 화면)  ·  🔢 페이지 번호 바로 이동 ({global_cur}/{global_tot}p)  ·  🔄 새로고침"
         )
         return embed
 
@@ -4123,10 +4290,12 @@ class MasterDashboardView(core.SafeView):
             color=discord.Color.from_rgb(r, g, b),
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_footer(text="⬅️ 이전 페이지  ·  🏠 설정 홈  ·  🔄 새로고침")
+        embed.set_footer(text="⬅️ 이전 화면  ·  🏠 설정 홈  ·  🔄 새로고침")
         return embed
 
     async def _enter_sub_mode(self, interaction: discord.Interaction, mode_key: str):
+        if self.sub_mode != mode_key:
+            self._push_nav_history()
         self.sub_mode = mode_key
         self.refresh_components()
         await core.safe_edit_response(interaction, embed=self.build_current_embed(), view=self)

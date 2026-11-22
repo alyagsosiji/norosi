@@ -874,6 +874,13 @@ class NorosiBot(commands.Bot):
                                     if child_cid.endswith(f":{item_name}"):
                                         target_item = child
                                         break
+                                    if (
+                                        view_name == "Settings"
+                                        and (item_name == "nav_back" or item_name.startswith("nav_back:"))
+                                        and child_cid.startswith("norosi:Settings:nav_back")
+                                    ):
+                                        target_item = child
+                                        break
                             if not target_item and interaction.data.get("component_type") in (3, 5, 6, 7, 8):
                                 select_children = [
                                     c for c in view.children
@@ -998,6 +1005,10 @@ class NorosiBot(commands.Bot):
                     data = core.get_cached_data()
                     view = MasterDashboardView(self, interaction.user, interaction.guild, data)
                     view.message = msg
+                    try:
+                        view._restore_from_message(interaction)
+                    except Exception:
+                        pass
 
                     if component_type in (3, 5, 6, 7, 8):
                         sel_val = (interaction.data.get("values") or [None])[0] if isinstance(interaction.data, dict) else None
