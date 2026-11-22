@@ -1627,9 +1627,8 @@ def finalize_fish_catch(
 
         core.save_data(data)
 
-        # 대표 어종 선정 (성급 > 신기록 > 월척 > 황금 > 첫도감 > 골드 > 길이)
-        primary = max(
-            catches,
+        # 포획된 모든 물고기를 성급 높은 순(성급 > 신기록 > 월척 > 황금 > 첫도감 > 골드 > 길이)으로 정렬
+        catches.sort(
             key=lambda c: (
                 c["species"]["rarity"],
                 1 if (c["new_server_len_record"] or c["new_server_wt_record"]) else 0,
@@ -1639,7 +1638,9 @@ def finalize_fish_catch(
                 c["fish"]["gold"],
                 c["fish"]["length_cm"],
             ),
+            reverse=True,
         )
+        primary = catches[0]
 
         return {
             "fish": primary["fish"],
@@ -2373,18 +2374,85 @@ async def fish_species_autocomplete(interaction, current: str):
 # ==========================================
 # Pillow 포획 인증 카드 PNG 생성기
 # ==========================================
-def build_catch_card_bytes(catch_res: Dict[str, Any], user_name: str) -> Optional[io.BytesIO]:
-    """포획 인증서 고화질 PNG 카드 생성 (실패 시 None 반환 -> 텍스트 임베드 폴백)"""
+def _wrap_card_text_lines(draw, text: str, font, max_w: int, max_lines: int = 3) -> List[str]:
+    """어종 설명 문자열을 픽셀 폭 기준으로 자연스럽게 여러 줄로 줄바꿈하여 잘림 없이 반환합니다."""
+    clean = (text or "").strip()
+    if not clean:
+        return []
+    if font is None:
+        chunk = 44
+        return [clean[i:i + chunk] for i in range(0, len(clean), chunk)][:max_lines]
+
+    words = clean.split(" ")
+    lines: List[str] = []
+    cur = ""
+    for w_tok in words:
+        cand = f"{cur} {w_tok}".strip() if cur else w_tok
+        if draw.textbbox((0, 0), cand, font=font)[2] <= max_w:
+            cur = cand
+        else:
+            if cur:
+                lines.append(cur)
+                cur = ""
+            # 단일 토큰이 max_w보다 긴 경우 글자 단위로 분할
+            if draw.textbbox((0, 0), w_tok, font=font)[2] <= max_w:
+                cur = w_tok
+            else:
+                sub = ""
+                for ch in w_tok:
+                    if draw.textbbox((0, 0), sub + ch, font=font)[2] <= max_w:
+                        sub += ch
+                    else:
+                        if sub:
+                            lines.append(sub)
+                        sub = ch
+                cur = sub
+    if cur:
+        lines.append(cur)
+
+    if len(lines) > max_lines:
+        kept = lines[:max_lines - 1]
+        tail = " ".join(lines[max_lines - 1:])
+        while len(tail) > 4 and draw.textbbox((0, 0), tail + "…", font=font)[2] > max_w:
+            tail = tail[:-1].rstrip()
+        kept.append(tail + ("…" if tail != " ".join(lines[max_lines - 1:]) else ""))
+        return kept
+    return lines
+
+
+def build_catch_card_bytes(
+    catch_res: Dict[str, Any],
+    user_name: str,
+    catch_index: int = 0,
+) -> Optional[io.BytesIO]:
+    """포획 인증서 고화질 PNG 카드 생성 (다중 포획 시 catch_index번째 물고기 카드 렌더링, 설명 멀티라인 줄바꿈 지원)"""
     if Image is None or ImageDraw is None:
         return None
     try:
-        fish = catch_res["fish"]
-        sp = catch_res["species"]
+        catches = catch_res.get("catches")
+        if isinstance(catches, list) and catches:
+            idx = max(0, min(int(catch_index or 0), len(catches) - 1))
+            selected = catches[idx] if isinstance(catches[idx], dict) else {}
+            fish = selected.get("fish") or catch_res["fish"]
+            sp = selected.get("species") or catch_res["species"]
+            is_first_catch = bool(selected.get("is_first_catch", catch_res.get("is_first_catch")))
+            new_len_rec = bool(selected.get("new_server_len_record", catch_res.get("new_server_len_record")))
+            new_wt_rec = bool(selected.get("new_server_wt_record", catch_res.get("new_server_wt_record")))
+            total_cards = len(catches)
+        else:
+            idx = 0
+            fish = catch_res["fish"]
+            sp = catch_res["species"]
+            is_first_catch = bool(catch_res.get("is_first_catch"))
+            new_len_rec = bool(catch_res.get("new_server_len_record"))
+            new_wt_rec = bool(catch_res.get("new_server_wt_record"))
+            total_cards = 1
+
         env = catch_res["env"]
         hab = HABITATS.get(sp.get("habitat", "lake"), HABITATS["lake"])
         rmeta = RARITY_META.get(int(sp.get("rarity", 1)), RARITY_META[1])
 
-        w, h = 880, 420
+        w, h = 880, 456
         img = Image.new("RGBA", (w, h), (10, 18, 34, 255))
         draw = ImageDraw.Draw(img)
 
@@ -2400,7 +2468,7 @@ def build_catch_card_bytes(catch_res: Dict[str, Any], user_name: str) -> Optiona
 
         # 물결 데코 라인
         for wave_i in range(4):
-            wy = 315 + wave_i * 22
+            wy = 345 + wave_i * 22
             pts = []
             for x in range(0, w + 20, 20):
                 pts.append((x, wy + int(math.sin(x * 0.025 + wave_i * 1.1) * 6)))
@@ -2416,7 +2484,7 @@ def build_catch_card_bytes(catch_res: Dict[str, Any], user_name: str) -> Optiona
         font_sm = core._get_grid_font(16, bold=False)
 
         # 좌측 어종 심볼 서클 카드
-        cx, cy = 152, 205
+        cx, cy = 152, 212
         draw.ellipse([cx - 96, cy - 96, cx + 96, cy + 96], fill=(16, 28, 52, 235), outline=(rar_r, rar_g, rar_b, 230), width=4)
         draw.ellipse([cx - 82, cy - 82, cx + 82, cy + 82], outline=(255, 255, 255, 45), width=1)
 
@@ -2429,30 +2497,36 @@ def build_catch_card_bytes(catch_res: Dict[str, Any], user_name: str) -> Optiona
         draw.ellipse([cx + 28, cy - 12, cx + 40, cy], fill=(255, 255, 255, 255))
         draw.ellipse([cx + 32, cy - 9, cx + 38, cy - 3], fill=(12, 18, 30, 255))
 
-        # 좌측 하단 성급 배지
+        # 좌측 하단 성급 배지 (& 다중 포획 시 카드 순번 표시)
         star_txt = core._sanitize_grid_text(rmeta["full_stars"])
         sb = draw.textbbox((0, 0), star_txt, font=font_hdr)
         sw = sb[2] - sb[0]
         draw.text((cx - sw // 2, cy + 110), star_txt, font=font_hdr, fill=(rar_r, rar_g, rar_b, 255))
+        if total_cards > 1:
+            seq_txt = core._sanitize_grid_text(f"포획 카드 {idx + 1} / {total_cards}")
+            seq_b = draw.textbbox((0, 0), seq_txt, font=font_sm)
+            seq_w = seq_b[2] - seq_b[0]
+            draw.text((cx - seq_w // 2, cy + 140), seq_txt, font=font_sm, fill=(180, 215, 255, 235))
 
         # 우측 헤더: 서식지 & 도장 배지
         rx = 282
-        hab_tag = core._sanitize_grid_text(f"[{hab['name']} · {sp['sub_zone']}]  |  {rmeta['name']} ({rmeta['stars']})")
-        draw.text((rx, 46), hab_tag, font=font_sm, fill=(175, 215, 255, 240))
+        sub_z = sp.get("sub_zone") or sp.get("zone") or ""
+        hab_tag = core._sanitize_grid_text(f"[{hab['name']} · {sub_z}]  |  {rmeta['name']} ({rmeta['stars']})")
+        draw.text((rx, 42), hab_tag, font=font_sm, fill=(175, 215, 255, 240))
 
-        # 특수 도장 (그물 다중 포획 / 신기록 / 월척 / 첫도감 / 황금변이)
-        catch_count = max(1, _safe_int(catch_res.get("catch_count"), 1))
+        # 특수 도장 (현재 카드 번호 / 신기록 / 월척 / 첫도감 / 황금변이)
+        catch_count = max(total_cards, _safe_int(catch_res.get("catch_count"), 1))
         net_info = catch_res.get("net")
         badges = []
-        if catch_count > 1:
-            badges.append((f"그물 {catch_count}마리!", (14, 165, 233, 255)))
-        if catch_res.get("new_server_len_record") or catch_res.get("new_server_wt_record"):
+        if total_cards > 1:
+            badges.append((f"#{idx + 1}/{total_cards}마리", (14, 165, 233, 255)))
+        if new_len_rec or new_wt_rec:
             badges.append(("서버 신기록!", (245, 158, 11, 255)))
         if fish.get("is_trophy"):
             badges.append(("월척 대물", (239, 68, 68, 255)))
         if fish.get("variant") == "golden":
             badges.append(("황금 변이", (250, 204, 21, 255)))
-        if catch_res.get("is_first_catch"):
+        if is_first_catch:
             badges.append(("NEW 도감", (16, 185, 129, 255)))
 
         bx_cur = w - 42
@@ -2461,11 +2535,11 @@ def build_catch_card_bytes(catch_res: Dict[str, Any], user_name: str) -> Optiona
             bb = draw.textbbox((0, 0), b_clean, font=font_sm)
             bw = (bb[2] - bb[0]) + 22
             bx_cur -= bw
-            draw.rounded_rectangle([bx_cur, 40, bx_cur + bw, 70], radius=12, fill=b_col)
-            draw.text((bx_cur + 11, 45), b_clean, font=font_sm, fill=(255, 255, 255, 255))
+            draw.rounded_rectangle([bx_cur, 36, bx_cur + bw, 66], radius=12, fill=b_col)
+            draw.text((bx_cur + 11, 41), b_clean, font=font_sm, fill=(255, 255, 255, 255))
             bx_cur -= 8
 
-        # 어종명 & 학명 (긴 이름/설명 픽셀 초과 시 안전 축약)
+        # 어종명 & 학명
         fish_name = core._sanitize_grid_text(fish["name"])
         if font_title is not None and fish_name:
             raw_name = fish_name
@@ -2474,40 +2548,45 @@ def build_catch_card_bytes(catch_res: Dict[str, Any], user_name: str) -> Optiona
             while cut_n > 6 and draw.textbbox((0, 0), fish_name, font=font_title)[2] > max_title_w:
                 cut_n -= 1
                 fish_name = raw_name[:cut_n].rstrip() + "…"
-        draw.text((rx, 86), fish_name, font=font_title, fill=(255, 255, 255, 255))
+        draw.text((rx, 80), fish_name, font=font_title, fill=(255, 255, 255, 255))
         sci_name = core._sanitize_grid_text(f"{sp['scientific_name']}")
-        draw.text((rx, 134), sci_name, font=font_med, fill=(180, 200, 230, 215))
+        draw.text((rx, 126), sci_name, font=font_med, fill=(180, 200, 230, 215))
 
-        # 크기 · 무게 · 가치 메트릭 박스 3칸
-        card_y = 178
+        # 크기 · 무게 · 가치 메트릭 박스 3칸 (현재 선택된 물고기 개체 가치 표시)
+        card_y = 166
         box_w = 176
-        box_h = 96
-        val_lbl = f"총 가치 ({catch_count}마리)" if catch_count > 1 else "추정 가치"
-        val_gold = _safe_int(catch_res.get("total_gold_value"), fish["gold"]) if catch_count > 1 else _safe_int(fish.get("gold"), 0)
+        box_h = 92
+        val_lbl = f"개체 가치 (#{idx + 1})" if total_cards > 1 else "추정 가치"
+        val_gold = _safe_int(fish.get("gold"), 0)
         metrics = [
             ("체장 (Length)", f"{fish['length_cm']:.1f} cm", (56, 189, 248, 255)),
             ("무게 (Weight)", f"{fish['weight_kg']:.2f} kg" if fish['weight_kg'] >= 0.2 else f"{fish['weight_kg']:.3f} kg", (52, 211, 153, 255)),
             (val_lbl, f"{val_gold:,} G", (250, 204, 21, 255)),
         ]
-        for idx, (m_lbl, m_val, m_col) in enumerate(metrics):
-            mx = rx + idx * (box_w + 14)
+        for m_i, (m_lbl, m_val, m_col) in enumerate(metrics):
+            mx = rx + m_i * (box_w + 14)
             draw.rounded_rectangle([mx, card_y, mx + box_w, card_y + box_h], radius=14, fill=(14, 24, 44, 215), outline=(255, 255, 255, 45), width=1)
-            draw.text((mx + 14, card_y + 12), core._sanitize_grid_text(m_lbl), font=font_sm, fill=(170, 190, 220, 230))
+            draw.text((mx + 14, card_y + 11), core._sanitize_grid_text(m_lbl), font=font_sm, fill=(170, 190, 220, 230))
             val_clean = core._sanitize_grid_text(m_val)
-            draw.text((mx + 14, card_y + 42), val_clean, font=font_hdr, fill=m_col)
+            draw.text((mx + 14, card_y + 40), val_clean, font=font_hdr, fill=m_col)
 
-        # 하단 설명 & 출조 환경 푸터 (반복마다 슬라이스 인덱스 감소로 무한 루프 원천 차단)
+        # 하단 어종 설명 박스 (최대 3줄 멀티라인 자동 줄바꿈으로 설명이 잘리지 않고 끝까지 표시됨)
         desc_clean = core._sanitize_grid_text(sp.get("desc", ""))
-        max_desc_w = w - rx - 46
-        if font_sm is not None and desc_clean:
-            raw_desc = desc_clean.rstrip(".…")
-            cut_d = len(raw_desc)
-            while cut_d > 8 and draw.textbbox((0, 0), desc_clean, font=font_sm)[2] > max_desc_w:
-                cut_d -= 1
-                desc_clean = raw_desc[:cut_d].rstrip() + "..."
-        elif len(desc_clean) > 42:
-            desc_clean = desc_clean[:42] + "..."
-        draw.text((rx, 294), desc_clean, font=font_sm, fill=(220, 232, 248, 230))
+        max_desc_w = w - rx - 44
+        desc_lines = _wrap_card_text_lines(draw, desc_clean, font_sm, max_desc_w, max_lines=3)
+        desc_box_y = 272
+        desc_box_h = 98
+        draw.rounded_rectangle(
+            [rx, desc_box_y, w - 34, desc_box_y + desc_box_h],
+            radius=12,
+            fill=(12, 22, 42, 185),
+            outline=(rar_r, rar_g, rar_b, 85),
+            width=1,
+        )
+        line_step = 26 if len(desc_lines) <= 2 else 24
+        start_ty = desc_box_y + (desc_box_h - len(desc_lines) * line_step) // 2 - 1
+        for l_idx, d_line in enumerate(desc_lines):
+            draw.text((rx + 14, start_ty + l_idx * line_step), d_line, font=font_sm, fill=(230, 240, 255, 245))
 
         rod_name = core._sanitize_grid_text(catch_res["rod"]["name"])
         net_str = f" + {core._sanitize_grid_text(net_info['name'])}" if isinstance(net_info, dict) and catch_count > 1 else ""
@@ -2522,7 +2601,7 @@ def build_catch_card_bytes(catch_res: Dict[str, Any], user_name: str) -> Optiona
             while cut_f > 16 and draw.textbbox((0, 0), footer_txt, font=font_sm)[2] > max_footer_w:
                 cut_f -= 1
                 footer_txt = raw_ft[:cut_f].rstrip() + "..."
-        draw.text((rx, 352), footer_txt, font=font_sm, fill=(160, 185, 220, 215))
+        draw.text((rx, 392), footer_txt, font=font_sm, fill=(160, 185, 220, 215))
 
         buf = io.BytesIO()
         img.save(buf, format="PNG")

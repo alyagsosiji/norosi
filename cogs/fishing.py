@@ -324,12 +324,32 @@ class FishingCastView(core.SafeView):
         self.zone_filter = zone_filter or self.summary["user"].get("selected_zone", "all")
         self.last_catch: Optional[Dict[str, Any]] = None
         self.last_catches: List[Dict[str, Any]] = []
+        self.catch_card_idx: int = 0
+        self._catch_card_cache: Dict[int, bytes] = {}
 
         self.habitat_select = FishingLocationSelect(self)
         self.bait_select = FishingBaitSelect(self)
         self.add_item(self.habitat_select)
         self.add_item(self.bait_select)
         self.sync_controls(phase="idle")
+
+    def _get_catch_entries(self) -> List[Dict[str, Any]]:
+        if not isinstance(self.last_catch, dict):
+            return []
+        catches = self.last_catch.get("catches")
+        if isinstance(catches, list) and catches:
+            return [c for c in catches if isinstance(c, dict) and isinstance(c.get("fish"), dict)]
+        f = self.last_catch.get("fish")
+        sp = self.last_catch.get("species")
+        if isinstance(f, dict) and isinstance(sp, dict):
+            return [{
+                "fish": f,
+                "species": sp,
+                "is_first_catch": bool(self.last_catch.get("is_first_catch")),
+                "new_server_len_record": bool(self.last_catch.get("new_server_len_record")),
+                "new_server_wt_record": bool(self.last_catch.get("new_server_wt_record")),
+            }]
+        return []
 
     def _get_pending_fish_list(self) -> List[Dict[str, Any]]:
         if self.last_catches:
@@ -392,20 +412,37 @@ class FishingCastView(core.SafeView):
         self.btn_auto_toggle.label = "⏩ 자동채집: ON" if auto_on else "⏩ 자동채집: OFF"
         self.btn_auto_toggle.style = discord.ButtonStyle.primary if auto_on else discord.ButtonStyle.secondary
 
-        # 포획 직후 처분 버튼 활성 여부 & 라벨 최신화
+        # 포획 직후 처분 버튼 & 성급순 물고기 카드 넘기기 버튼 활성 여부
         pending = self._get_pending_fish_list()
+        entries = self._get_catch_entries()
+        total_cards = len(entries)
+        if total_cards > 0:
+            self.catch_card_idx = max(0, min(self.catch_card_idx, total_cards - 1))
+        else:
+            self.catch_card_idx = 0
+
         has_catch = bool(pending) and phase in ("idle", "resolved")
         if len(pending) > 1:
-            self.btn_sell_last.label = f"💰 방금 잡은 {len(pending)}마리 판매"
+            self.btn_sell_last.label = f"💰 {len(pending)}마리 판매"
             self.btn_tank_last.label = "🐠 수족관 전시"
-            self.btn_release_last.label = f"🌊 방생 ({len(pending)}마리 +EXP)"
+            self.btn_release_last.label = f"🌊 방생({len(pending)}마리)"
         else:
-            self.btn_sell_last.label = "💰 방금 잡은 물고기 판매"
+            self.btn_sell_last.label = "💰 물고기 판매"
             self.btn_tank_last.label = "🐠 수족관 전시"
             self.btn_release_last.label = "🌊 방생(+EXP)"
         self.btn_sell_last.disabled = not has_catch
         self.btn_tank_last.disabled = not has_catch
         self.btn_release_last.disabled = not has_catch
+
+        can_nav_cards = (total_cards > 1) and phase in ("idle", "resolved")
+        if total_cards > 1:
+            self.btn_prev_fish_card.label = f"◀ 이전 ({self.catch_card_idx + 1}/{total_cards})"
+            self.btn_next_fish_card.label = f"다음 물고기 ({self.catch_card_idx + 1}/{total_cards}) ▶"
+        else:
+            self.btn_prev_fish_card.label = "◀ 이전 물고기"
+            self.btn_next_fish_card.label = "다음 물고기 ▶"
+        self.btn_prev_fish_card.disabled = (not can_nav_cards) or (self.catch_card_idx <= 0)
+        self.btn_next_fish_card.disabled = (not can_nav_cards) or (self.catch_card_idx >= total_cards - 1)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if not await super().interaction_check(interaction):
@@ -515,12 +552,20 @@ class FishingCastView(core.SafeView):
         return embed
 
     def build_catch_embed(self, res: Dict[str, Any]) -> discord.Embed:
-        fish = res["fish"]
-        sp = res["species"]
-        hab = fishing_core.HABITATS[sp["habitat"]]
-        rmeta = fishing_core.RARITY_META[sp["rarity"]]
         catches = res.get("catches") or []
         catch_count = int(res.get("catch_count", len(catches) or 1) or 1)
+        if catches:
+            idx = max(0, min(self.catch_card_idx, len(catches) - 1))
+            cur_entry = catches[idx]
+            fish = cur_entry.get("fish") or res["fish"]
+            sp = cur_entry.get("species") or res["species"]
+        else:
+            idx = 0
+            fish = res["fish"]
+            sp = res["species"]
+
+        hab = fishing_core.HABITATS[sp["habitat"]]
+        rmeta = fishing_core.RARITY_META[sp["rarity"]]
         net = res.get("net") or self.summary.get("net")
 
         tags = []
@@ -546,7 +591,7 @@ class FishingCastView(core.SafeView):
             net_lbl = f"{net['emoji']} `{net['name']}`" if isinstance(net, dict) else "🕸️ 그물"
             total_gold = int(res.get("total_gold_value", sum(c["fish"]["gold"] for c in catches)))
             haul_lines = []
-            for idx, c in enumerate(catches, 1):
+            for c_idx, c in enumerate(catches, 1):
                 cf = c["fish"]
                 csp = c["species"]
                 crm = fishing_core.RARITY_META[csp["rarity"]]
@@ -562,18 +607,23 @@ class FishingCastView(core.SafeView):
                 if c.get("is_first_catch"):
                     b_icons += "🆕"
                 b_suffix = f" {b_icons}" if b_icons else ""
+                pointer = "👉 " if (c_idx - 1) == idx else "   "
                 haul_lines.append(
-                    f"`{idx:2d}.` {cf['emoji']} {crm['stars']} **{cf['name']}** — `{cf['length_cm']:.1f}cm` · `{_format_weight(cf['weight_kg'])}` · **`{cf['gold']:,}🪙`**{b_suffix}"
+                    f"{pointer}`{c_idx:2d}.` {cf['emoji']} {crm['stars']} **{cf['name']}** — `{cf['length_cm']:.1f}cm` · `{_format_weight(cf['weight_kg'])}` · **`{cf['gold']:,}🪙`**{b_suffix}"
                 )
+            sub_z = sp.get("sub_zone") or sp.get("zone") or ""
             desc = (
                 f"{tag_line}\n"
-                f"• **사용 장비:** {net_lbl} (**총 `{catch_count}마리` 포획** · 1회 미끼 1개 소모)\n"
-                f"• **대표 대물:** {fish['emoji']} **{fish['name']}** ({rmeta['name']} `{rmeta['full_stars']}`)\n"
+                f"• **사용 장비:** {net_lbl} (**총 `{catch_count}마리` 포획** · 성급 높은 순 정렬)\n"
                 f"• **총 추정 판매가:** **`{total_gold:,}🪙`**  ·  **총 EXP:** `+{res['gain_exp']:,}`\n\n"
-                "**📦 이번 투망 포획 목록**\n"
+                f"🪪 **현재 조회 중인 포획 카드 (`{idx + 1} / {len(catches)}`)**\n"
+                f"• **어종:** {fish['emoji']} **{fish['name']}** (`{sp['scientific_name']}`) — {rmeta['emoji']} **`{rmeta['name']} ({rmeta['full_stars']})`**\n"
+                f"• **서식지:** {hab['emoji']} `{hab['name']} · {sub_z}`  ·  **체장/무게:** **`{fish['length_cm']:.1f} cm`** · **`{_format_weight(fish['weight_kg'])}`** (`{fish['gold']:,}🪙`)\n"
+                f"> *{sp['desc']}*\n\n"
+                "**📦 이번 투망 포획 목록 (성급 높은 순 · `[다음 물고기 ▶]` 버튼으로 카드 전환)**\n"
                 + "\n".join(haul_lines)
             )
-            title = f"{net['emoji'] if isinstance(net, dict) else '🕸️'} [{hab['name']}] 그물 포획 성공! 총 {catch_count}마리 만선!"
+            title = f"{net['emoji'] if isinstance(net, dict) else '🕸️'} [{hab['name']}] 그물 {catch_count}마리 포획! ({idx + 1}/{len(catches)}: ★{sp['rarity']} {fish['name']})"
         else:
             desc = (
                 f"{tag_line}\n\n"
@@ -620,34 +670,55 @@ class FishingCastView(core.SafeView):
             value=(
                 f"🪙 보유 골드: **`{res['user_gold']:,}🪙`**  ·  💎 크리스탈: **`{res['user_crystals']:,}💎`**  ·  "
                 f"미끼({res['bait']['name']}): `{bait_rem}`\n"
-                f"🎒 *포획한 물고기는 이미 가방에 안전 저장되었습니다! 아래 버튼으로 즉시 판매/수족관 전시하거나 다시 출조할 수 있습니다.*"
+                f"🎒 *포획한 물고기는 이미 가방에 안전 저장되었습니다! 아래 버튼으로 물고기 카드를 넘겨보거나 즉시 판매/수족관 전시할 수 있습니다.*"
             ),
             inline=False,
         )
         return embed
+
+    async def _get_or_render_catch_card_bytes(self, res: Dict[str, Any], card_idx: int) -> Optional[bytes]:
+        cached = self._catch_card_cache.get(card_idx)
+        if cached is not None:
+            return cached
+        png_buf = await asyncio.to_thread(
+            fishing_core.build_catch_card_bytes,
+            res,
+            self.user.display_name,
+            card_idx,
+        )
+        png_bytes = png_buf.getvalue() if png_buf is not None else None
+        if png_bytes is not None:
+            self._catch_card_cache[card_idx] = png_bytes
+        return png_bytes
 
     async def _present_catch_result(
         self,
         interaction: Optional[discord.Interaction],
         message: Optional[discord.Message],
         res: Dict[str, Any],
+        card_idx: int = 0,
     ):
+        if self.last_catch is not res:
+            self._catch_card_cache.clear()
         self.last_catch = res
+        self.catch_card_idx = max(0, int(card_idx or 0))
         catches = res.get("catches")
         if isinstance(catches, list) and catches:
+            self.catch_card_idx = min(self.catch_card_idx, len(catches) - 1)
             self.last_catches = [
                 c["fish"] for c in catches
                 if isinstance(c, dict) and isinstance(c.get("fish"), dict)
             ]
         elif isinstance(res.get("fish"), dict):
+            self.catch_card_idx = 0
             self.last_catches = [res["fish"]]
         else:
+            self.catch_card_idx = 0
             self.last_catches = []
         await self.refresh_summary()
         self.sync_controls(phase="idle")
         embed = self.build_catch_embed(res)
-        png_buf = await asyncio.to_thread(fishing_core.build_catch_card_bytes, res, self.user.display_name)
-        png_bytes = png_buf.getvalue() if png_buf is not None else None
+        png_bytes = await self._get_or_render_catch_card_bytes(res, self.catch_card_idx)
         if png_bytes is not None:
             embed.set_image(url="attachment://catch_card.png")
         try:
@@ -940,7 +1011,25 @@ class FishingCastView(core.SafeView):
             clear_attachments=True,
         )
 
-    @discord.ui.button(label="💰 방금 잡은 물고기 판매", style=discord.ButtonStyle.success, disabled=True, row=3)
+    @discord.ui.button(label="◀ 이전 물고기", style=discord.ButtonStyle.secondary, disabled=True, row=3)
+    async def btn_prev_fish_card(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        entries = self._get_catch_entries()
+        if not isinstance(self.last_catch, dict) or len(entries) <= 1:
+            return
+        new_idx = max(0, self.catch_card_idx - 1)
+        await self._present_catch_result(interaction, interaction.message or self.message, self.last_catch, card_idx=new_idx)
+
+    @discord.ui.button(label="다음 물고기 ▶", style=discord.ButtonStyle.primary, disabled=True, row=3)
+    async def btn_next_fish_card(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        entries = self._get_catch_entries()
+        if not isinstance(self.last_catch, dict) or len(entries) <= 1:
+            return
+        new_idx = min(len(entries) - 1, self.catch_card_idx + 1)
+        await self._present_catch_result(interaction, interaction.message or self.message, self.last_catch, card_idx=new_idx)
+
+    @discord.ui.button(label="💰 물고기 판매", style=discord.ButtonStyle.success, disabled=True, row=3)
     async def btn_sell_last(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         pending = self._get_pending_fish_list()
@@ -953,6 +1042,7 @@ class FishingCastView(core.SafeView):
             if ok:
                 self.last_catches = []
                 self.last_catch = None
+                self._catch_card_cache.clear()
         else:
             uids = [f["uid"] for f in pending]
             ok, msg, _, _, rem_uids = await asyncio.to_thread(
@@ -963,6 +1053,7 @@ class FishingCastView(core.SafeView):
                 self.last_catches = [f for f in pending if f["uid"] in rem_set]
                 if not self.last_catches:
                     self.last_catch = None
+                    self._catch_card_cache.clear()
         await self.refresh_summary()
         self.sync_controls(phase="idle")
         await _safe_update_message_or_interaction(interaction, interaction.message or self.message, view=self)
@@ -981,6 +1072,7 @@ class FishingCastView(core.SafeView):
             if ok:
                 self.last_catches = []
                 self.last_catch = None
+                self._catch_card_cache.clear()
         else:
             ordered = sorted(
                 pending,
@@ -996,6 +1088,7 @@ class FishingCastView(core.SafeView):
                 self.last_catches = [f for f in ordered if f["uid"] in rem_set]
                 if not self.last_catches:
                     self.last_catch = None
+                    self._catch_card_cache.clear()
         await self.refresh_summary()
         self.sync_controls(phase="idle")
         await _safe_update_message_or_interaction(interaction, interaction.message or self.message, view=self)
@@ -1014,6 +1107,7 @@ class FishingCastView(core.SafeView):
             if ok:
                 self.last_catches = []
                 self.last_catch = None
+                self._catch_card_cache.clear()
         else:
             uids = [f["uid"] for f in pending]
             ok, msg, _, _, rem_uids = await asyncio.to_thread(
@@ -1024,6 +1118,7 @@ class FishingCastView(core.SafeView):
                 self.last_catches = [f for f in pending if f["uid"] in rem_set]
                 if not self.last_catches:
                     self.last_catch = None
+                    self._catch_card_cache.clear()
         await self.refresh_summary()
         self.sync_controls(phase="idle")
         await _safe_update_message_or_interaction(interaction, interaction.message or self.message, view=self)
