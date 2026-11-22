@@ -1,4 +1,4 @@
-name: Deploy norosi Bot to Remote Server (kami-aio)
+name: Deploy norosi Bot to Remote Server
 
 on:
   push:
@@ -24,7 +24,7 @@ jobs:
           .ci_venv/bin/python scripts/ci_check.py
 
   deploy:
-    name: Deploy to kami-aio (n.kami.live:29023) via SSH
+    name: Deploy to Remote Host via SSH
     needs: verify
     runs-on: ubuntu-latest
 
@@ -35,26 +35,28 @@ jobs:
       - name: Validate GitHub Secrets
         env:
           SSH_KEY_SECRET: ${{ secrets.GCP_SSH_KEY || secrets.SSH_PRIVATE_KEY || secrets.SSH_KEY }}
+          SSH_HOST_SECRET: ${{ secrets.SSH_HOST || secrets.GCP_HOST }}
+          SSH_USER_SECRET: ${{ secrets.SSH_USER || secrets.GCP_USER }}
         run: |
-          if [ -z "$SSH_KEY_SECRET" ]; then
-            echo "❌ [오류] SSH 개인키 시크릿(GCP_SSH_KEY 또는 SSH_PRIVATE_KEY)이 설정되지 않았습니다."
-            echo "👉 GitHub Settings > Secrets and variables > Actions > Repository secrets에 SSH 개인키를 등록해주세요."
+          if [ -z "$SSH_KEY_SECRET" ] || [ -z "$SSH_HOST_SECRET" ] || [ -z "$SSH_USER_SECRET" ]; then
+            echo "❌ [오류] 필수 SSH 배포 시크릿(GCP_SSH_KEY, GCP_HOST, GCP_USER)이 설정되지 않았습니다."
+            echo "👉 GitHub Settings > Secrets and variables > Actions > Repository secrets에 시크릿을 등록해주세요."
             exit 1
           fi
-          echo "✅ SSH 배포용 개인키 시크릿 확인 완료! (대상 서버: kami@n.kami.live:29023)"
+          echo "✅ SSH 배포용 시크릿 확인 완료!"
 
-      - name: Setup SSH Key & Deploy to kami-aio
+      - name: Setup SSH Key & Deploy to Remote Host
         env:
-          GCP_HOST: ${{ secrets.SSH_HOST || secrets.GCP_HOST || 'n.kami.live' }}
-          GCP_PORT: ${{ secrets.SSH_PORT || secrets.GCP_PORT || '29023' }}
-          GCP_USER: ${{ secrets.SSH_USER || secrets.GCP_USER || 'kami' }}
+          GCP_HOST: ${{ secrets.SSH_HOST || secrets.GCP_HOST }}
+          GCP_PORT: ${{ secrets.SSH_PORT || secrets.GCP_PORT || '22' }}
+          GCP_USER: ${{ secrets.SSH_USER || secrets.GCP_USER }}
           GCP_SSH_KEY: ${{ secrets.GCP_SSH_KEY || secrets.SSH_PRIVATE_KEY || secrets.SSH_KEY }}
           DISCORD_TOKEN_SECRET: ${{ secrets.DISCORD_TOKEN }}
           SSH_KNOWN_HOSTS_SECRET: ${{ secrets.SSH_KNOWN_HOSTS }}
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          trap 'rm -f ~/.ssh/gcp_deploy_key' EXIT
+          trap 'rm -f ~/.ssh/gcp_deploy_key ~/.ssh/config' EXIT
 
           # 비밀키 자동 정규화 및 저장 (PEM/OpenSSH 텍스트, Base64, CRLF, 하이픈 누락 자동 보정)
           python3 - << 'EOF'
@@ -93,45 +95,16 @@ jobs:
           fi
           echo "✅ SSH 개인키 포맷 검증 완료!"
 
-          # ~/.ssh/config 에 kami-aio 프로필 등록 (Host kami-aio / HostName n.kami.live / Port 29023 / User kami)
-          cat << 'SSH_CFG' > ~/.ssh/config
-          Host kami-aio
-              HostName n.kami.live
-              Port 29023
-              User kami
-              IdentityFile ~/.ssh/gcp_deploy_key
-              IdentitiesOnly yes
-              StrictHostKeyChecking accept-new
-          SSH_CFG
-          chmod 600 ~/.ssh/config
-
-          # 현재 개인키에서 추출한 정확한 공개키(Public Key) 준비 (권한 거부 시 안내용)
-          DERIVED_PUBKEY="$(ssh-keygen -y -f ~/.ssh/gcp_deploy_key) kami@kami-aio"
-
-          # 원격 SSH 서버 연결 탐색 (kami-aio [kami@n.kami.live:29023] 최우선 시도 후 시크릿 설정값 폴백)
           set +e
-          ACTIVE_HOST="n.kami.live"
-          ACTIVE_PORT="29023"
-          ACTIVE_USER="kami"
-          CONNECTED=0
-
-          # 후보 엔드포인트 목록: "유저|호스트|포트"
-          CANDIDATES=(
-            "kami|n.kami.live|29023"
-          )
-          if [ -n "${GCP_HOST}" ] && [ "${GCP_HOST}" != "kami-aio" ]; then
-            CLEAN_HOST="${GCP_HOST%:*}"
-            EXTRACTED_PORT="${GCP_HOST##*:}"
-            if [ "$CLEAN_HOST" != "$EXTRACTED_PORT" ] && [[ "$EXTRACTED_PORT" =~ ^[0-9]+$ ]]; then
-              CANDIDATE_PORT="$EXTRACTED_PORT"
-            else
-              CANDIDATE_PORT="${GCP_PORT:-29023}"
-            fi
-            CANDIDATES+=("${GCP_USER:-kami}|${CLEAN_HOST}|${CANDIDATE_PORT}")
-            if [ "${GCP_USER}" != "kami" ]; then
-              CANDIDATES+=("kami|${CLEAN_HOST}|29023")
-            fi
+          CLEAN_HOST="${GCP_HOST%:*}"
+          EXTRACTED_PORT="${GCP_HOST##*:}"
+          if [ "$CLEAN_HOST" != "$EXTRACTED_PORT" ] && [[ "$EXTRACTED_PORT" =~ ^[0-9]+$ ]]; then
+            ACTIVE_PORT="$EXTRACTED_PORT"
+          else
+            ACTIVE_PORT="${GCP_PORT:-22}"
           fi
+          ACTIVE_HOST="${CLEAN_HOST}"
+          ACTIVE_USER="${GCP_USER}"
 
           # 선택적 SSH 호스트 키 고정 (GitHub Secrets에 SSH_KNOWN_HOSTS가 등록된 경우 StrictHostKeyChecking=yes)
           SSH_HOST_CHECK="accept-new"
@@ -142,18 +115,12 @@ jobs:
             echo "🔒 SSH_KNOWN_HOSTS 적용됨 (StrictHostKeyChecking=yes)"
           fi
 
-          for ENTRY in "${CANDIDATES[@]}"; do
-            IFS='|' read -r C_USER C_HOST C_PORT <<< "$ENTRY"
-            echo "🔍 SSH 연결 테스트: ${C_USER}@${C_HOST} (Port ${C_PORT}) ..."
-            if ssh -p "${C_PORT}" -o "StrictHostKeyChecking=${SSH_HOST_CHECK}" -o BatchMode=yes -o ConnectTimeout=10 -i ~/.ssh/gcp_deploy_key "${C_USER}@${C_HOST}" "true" 2>/dev/null; then
-              ACTIVE_USER="${C_USER}"
-              ACTIVE_HOST="${C_HOST}"
-              ACTIVE_PORT="${C_PORT}"
-              CONNECTED=1
-              echo "✅ SSH 연결 확인 성공: ${ACTIVE_USER}@${ACTIVE_HOST}:${ACTIVE_PORT}"
-              break
-            fi
-          done
+          echo "🔍 원격 배포 서버 SSH 연결 확인 중..."
+          if ssh -p "${ACTIVE_PORT}" -o "StrictHostKeyChecking=${SSH_HOST_CHECK}" -o BatchMode=yes -o ConnectTimeout=10 -i ~/.ssh/gcp_deploy_key "${ACTIVE_USER}@${ACTIVE_HOST}" "true" 2>/dev/null; then
+            echo "✅ 원격 서버 SSH 인증 확인 성공"
+          else
+            echo "⚠️ 사전 연결 테스트 실패 - 본 배포 연결을 시도합니다."
+          fi
 
           # GitHub Secrets에 DISCORD_TOKEN이 등록된 경우 서버의 .env에 자동 동기화용 base64 페이로드
           # (명령행 인자 argv 대신 stdin 첫 줄로 전달하여 원격 ps/proc 노출 차단)
@@ -171,21 +138,19 @@ jobs:
           echo "=========================================="
           echo "🚀 [1/4] norosi 디렉토리 이동 및 최신 코드 반영..."
           echo "=========================================="
-          TARGET_DIR="/home/kami/Desktop/norosi"
-          if [ ! -d "$TARGET_DIR" ]; then
-            TARGET_DIR="$HOME/Desktop/norosi"
-          fi
+          TARGET_DIR="$HOME/Desktop/norosi"
           if [ ! -d "$TARGET_DIR" ]; then
             TARGET_DIR="$HOME/norosi"
           fi
-          if [ ! -d "$TARGET_DIR" ]; then
-            TARGET_DIR="/home/kami/norosi"
-          fi
-          if [ ! -d "$TARGET_DIR" ]; then
-            TARGET_DIR="/home/${ACTIVE_USER}/norosi"
+          if [ ! -d "$TARGET_DIR" ] && [ -n "$ACTIVE_USER" ]; then
+            if [ -d "/home/${ACTIVE_USER}/Desktop/norosi" ]; then
+              TARGET_DIR="/home/${ACTIVE_USER}/Desktop/norosi"
+            elif [ -d "/home/${ACTIVE_USER}/norosi" ]; then
+              TARGET_DIR="/home/${ACTIVE_USER}/norosi"
+            fi
           fi
           cd "$TARGET_DIR"
-          echo "📂 배포 대상 경로: $TARGET_DIR"
+          echo "📂 원격 작업 디렉토리 확인 완료"
 
           git fetch origin
           CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "master")
@@ -207,6 +172,9 @@ jobs:
               fi
             fi
           fi
+
+          # 민감 데이터 파일 권한 강화 (타 계정 읽기 차단)
+          chmod 600 .env .env.local ddays_data.json 2>/dev/null || true
 
           echo "=========================================="
           echo "📦 [2/4] Python 가상환경 의존성 확인..."
@@ -237,8 +205,7 @@ jobs:
           fi
 
           if [ "$USE_SYSTEMD" -eq 0 ]; then
-            echo "ℹ️ 컨테이너/비-systemd 환경 감지됨 (PID 1 != systemd) -> 24/7 백그라운드 데몬 모드로 재기동합니다."
-            # 1. 기존 감시 루프(supervisor) 및 봇 프로세스 안전 종료
+            echo "ℹ️ 컨테이너/비-systemd 환경 감지됨 -> 24/7 백그라운드 데몬 모드로 재기동합니다."
             if [ -f "$TARGET_DIR/.norosi_supervisor.pid" ]; then
               kill -9 $(cat "$TARGET_DIR/.norosi_supervisor.pid") 2>/dev/null || true
               rm -f "$TARGET_DIR/.norosi_supervisor.pid"
@@ -253,13 +220,13 @@ jobs:
             sleep 1
             pkill -9 -f "[p]ython.*bot\.py" 2>/dev/null || true
 
-            # 2. 24/7 자동 재시작 백그라운드 데몬 스크립트 생성 및 실행
             python3 - "$TARGET_DIR/.norosi_keepalive.sh" << 'PY_EOF'
           import pathlib, sys
           script_path = pathlib.Path(sys.argv[1])
           script_content = """#!/usr/bin/env bash
           cd "$(dirname "$0")"
           WORK_DIR="$(pwd)"
+          umask 077
           echo $$ > "$WORK_DIR/.norosi_supervisor.pid"
           if [ -x "$WORK_DIR/.venv/bin/python3" ]; then
             PY_BIN="$WORK_DIR/.venv/bin/python3"
@@ -280,37 +247,28 @@ jobs:
           """
           lines = [line[10:] if line.startswith("          ") else line for line in script_content.splitlines()]
           script_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-          script_path.chmod(0o755)
+          script_path.chmod(0o700)
           PY_EOF
             : > "$TARGET_DIR/bot.log"
+            chmod 600 "$TARGET_DIR/bot.log" 2>/dev/null || true
             setsid nohup bash -c "exec -a norosi_keepalive '$TARGET_DIR/.norosi_keepalive.sh'" </dev/null >/dev/null 2>&1 &
             sleep 3
           fi
 
           echo "=========================================="
-          echo "✅ [4/4] 봇 가동 상태 확인..."
+          echo "✅ [4/4] 봇 가동 상태 확인 (민감 로그 출력 생략)..."
           echo "=========================================="
           if [ "$USE_SYSTEMD" -eq 1 ]; then
             if sudo -n systemctl is-active --quiet norosi 2>/dev/null || systemctl --user is-active --quiet norosi 2>/dev/null; then
-              echo "🎉 [배포 성공] kami-aio (n.kami.live) 서버에서 norosi 봇(systemd) 정상 가동!"
+              echo "🎉 [배포 성공] 원격 서버에서 norosi 봇(systemd) 정상 가동 중!"
             fi
-            echo "=========================================="
-            echo "📋 [5/5] 최근 봇 실행 저널 로그 (최근 70줄)..."
-            echo "=========================================="
-            sleep 2
-            sudo -n journalctl -u norosi -n 70 --no-pager 2>/dev/null || journalctl --user -u norosi -n 70 --no-pager 2>/dev/null || true
           else
             RUNNING_PID=$(pgrep -f "[p]ython.*bot\.py" | head -n 1 || true)
             if [ -n "$RUNNING_PID" ]; then
-              echo "🎉 [배포 성공] kami-aio (n.kami.live) 서버에서 norosi 봇 백그라운드 정상 가동! (PID: $RUNNING_PID)"
+              echo "🎉 [배포 성공] 원격 서버에서 norosi 봇 백그라운드 정상 가동 중!"
             else
-              echo "⚠️ 봇 프로세스 시작 확인 중... 아래 bot.log를 확인하세요."
+              echo "⚠️ 봇 프로세스 시작 대기 중입니다. 서버 내부에서 bot.log를 확인해주세요."
             fi
-            echo "=========================================="
-            echo "📋 [5/5] 최근 봇 실행 로그 (bot.log 최근 70줄)..."
-            echo "=========================================="
-            sleep 2
-            tail -n 70 "$TARGET_DIR/bot.log" 2>/dev/null || true
           fi
           REMOTE_SCRIPT
           } | ssh -p "${ACTIVE_PORT}" -o "StrictHostKeyChecking=${SSH_HOST_CHECK}" -o BatchMode=yes -o ConnectTimeout=15 -i ~/.ssh/gcp_deploy_key \
@@ -320,21 +278,6 @@ jobs:
           set -e
 
           if [ $SSH_EXIT_CODE -ne 0 ]; then
-            echo ""
-            echo "================================================================================"
-            echo "🚨 [원인 안내] kami-aio (kami@n.kami.live:29023) SSH 접속 또는 배포 중 오류가 발생했습니다!"
-            echo ""
-            echo "🛠️ [해결 방법 1 - 새 서버에 공개키 등록]"
-            echo "로컬 터미널에서 ssh kami-aio (또는 ssh -p 29023 kami@n.kami.live) 접속 후 아래 명령어를 1회 실행하세요:"
-            echo "--------------------------------------------------------------------------------"
-            echo "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo \"$DERIVED_PUBKEY\" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
-            echo "--------------------------------------------------------------------------------"
-            echo ""
-            echo "🛠️ [해결 방법 2 - 서버에서 원클릭 키 & 권한 설정 스크립트 실행]"
-            echo "서버 접속 후: cd /home/kami/Desktop/norosi && bash deploy/fix_ssh_key.sh"
-            echo "================================================================================"
+            echo "🚨 원격 SSH 접속 또는 배포 중 오류가 발생했습니다. GitHub Secrets(GCP_HOST, GCP_PORT, GCP_USER, GCP_SSH_KEY) 및 서버의 deploy/fix_ssh_key.sh 설정을 확인해주세요."
             exit $SSH_EXIT_CODE
           fi
-
-
-

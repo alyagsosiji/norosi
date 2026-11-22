@@ -82,5 +82,5 @@ echo "7. (보안을 위해 'Allow write access'는 체크 해제한 채로) [Add
 echo ""
 echo "연결 테스트 명령어: ssh -T git@github.com"
 echo "프라이빗 저장소 복제 명령어:"
-echo "  git clone git@github.com:깃허브아이디/저장소이름.git /home/kami/Desktop/norosi"
+echo "  git clone git@github.com:깃허브아이디/저장소이름.git ~/norosi"
 echo "===================================================================="

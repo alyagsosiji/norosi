@@ -1103,7 +1103,7 @@ class LoggerCog(commands.Cog):
         # 4. 봇 전용 aiohttp 웹훅 URL 계산
         ext_host = os.getenv("EXTERNAL_URL") or os.getenv("WEBHOOK_HOST")
         if not ext_host:
-            ext_host = f"http://n.kami.live:{core.PORT}"
+            ext_host = f"http://<서버도메인_또는_IP>:{core.PORT}"
 
         bot_webhook_url = f"{ext_host.rstrip('/')}/api/github/webhook"
         primary_url = bot_webhook_url if "http" in ext_host and "<" not in ext_host else (discord_webhook_url or bot_webhook_url)
