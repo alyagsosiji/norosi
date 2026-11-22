@@ -413,11 +413,13 @@ def build_gacha_pull_embed(
             inline=False,
         )
 
+    embed.add_field(name="🎯 현재 픽업", value=core.truncate_text(pickup_summary, 1000) or "-", inline=False)
+
     if user:
         author_icon = user.display_avatar.url if hasattr(user, "display_avatar") else None
         embed.set_author(name=f"{user.display_name}님의 가챠 결과", icon_url=author_icon)
 
-    embed.set_footer(text=f"{b_cfg['short_name']} • 픽업: {core.truncate_text(pickup_summary, 70)}")
+    embed.set_footer(text=f"{b_cfg['short_name']} • {pull_lbl}")
     return embed, has_4star
 
 
@@ -543,6 +545,13 @@ async def send_gacha_pull_result(
 
     embeds = [embed]
     card_embed_pairs: list[tuple[discord.Embed, dict]] = []
+    if total_high > 9:
+        rest = ", ".join(f"[{c.get('prefix', '')}] {c.get('char_name', '')}" for c in high_cards[9:])
+        embed.add_field(
+            name=f"🖼️ 일러스트 미표시 {total_high - 9}장 (디스코드 10개 제한)",
+            value=core.truncate_text(rest, 1000) + "\n└ 내 카드 목록에서 일러스트를 확인할 수 있어요",
+            inline=False,
+        )
 
     for idx, (c, (img_bytes, filename)) in enumerate(zip(high_cards[:9], results), start=1):
         is_bday_card = (c.get("rarity_type") == "rarity_birthday")
@@ -572,6 +581,8 @@ async def send_gacha_pull_result(
             desc_parts.append(f"분류: `{limit_lbl}`")
 
         raw_phrase = (c.get("gachaPhrase") or "").strip()
+        if not raw_phrase or raw_phrase == "-":
+            raw_phrase = (_get_card_preview_quote(c) or "").strip()
         if raw_phrase and raw_phrase != "-":
             desc_parts.append(f"> 💬 *\"{raw_phrase}\"*")
 
