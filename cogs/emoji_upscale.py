@@ -40,7 +40,7 @@ from aiohttp import web
 import discord
 from discord import app_commands
 from discord.ext import commands
-from PIL import Image, ImageSequence
+from PIL import Image, ImageFile
 
 import core
 
@@ -69,11 +69,48 @@ CACHE_TTL_SECONDS = 24 * 3600  # 24시간 TTL (emote-cdn-rust 동일)
 CACHE_MAX_CAPACITY = 50000     # 인메모리 WebP 바이트 캐시 엔트리 상한 (emote-cdn-rust 동일)
 RESAMPLE_LANCZOS = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.LANCZOS)
 
+# 트레일러(0x3B)가 누락되거나 마지막 프레임이 미세하게 잘린 사용자 업로드 GIF도 안전하게 디코드
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
 try:
     from PIL import GifImagePlugin
     GifImagePlugin.LOADING_STRATEGY = GifImagePlugin.LoadingStrategy.RGB_AFTER_DIFFERENT_PALETTE_ONLY
 except Exception:
     pass
+
+
+async def _read_response_bytes_bounded(
+    resp: aiohttp.ClientResponse,
+    max_bytes: int,
+) -> Optional[bytes]:
+    """
+    aiohttp StreamReader.read(n)은 n > 0일 때 EOF까지 읽지 않고 첫 버퍼 청크만 반환해
+    다중 청크 GIF/WebP/PNG 응답이 중간에 잘리는(image file is truncated) 문제가 발생합니다.
+    iter_chunked()로 EOF까지 전체 바이트를 안전하게 누적하되 max_bytes 초과 시 None을 반환합니다.
+    """
+    if resp.content_length and resp.content_length > max_bytes:
+        return None
+    content = getattr(resp, "content", None)
+    if content is None:
+        raw = await resp.read()
+        return raw if len(raw) <= max_bytes else None
+    buf = bytearray()
+    if hasattr(content, "iter_chunked"):
+        async for chunk in content.iter_chunked(65536):
+            if not chunk:
+                continue
+            buf.extend(chunk)
+            if len(buf) > max_bytes:
+                return None
+    else:
+        while True:
+            chunk = await content.read(65536)
+            if not chunk:
+                break
+            buf.extend(chunk)
+            if len(buf) > max_bytes:
+                return None
+    return bytes(buf)
 
 
 # ==========================================
@@ -288,9 +325,21 @@ def resize_animated_image_to_webp(
 
         frames_rgba: list[Image.Image] = []
         durations: list[int] = []
+        default_dur = img.info.get("duration", 100)
+        frame_idx = 0
 
-        for frame in ImageSequence.Iterator(img):
-            raw_dur = frame.info.get("duration", img.info.get("duration", 100))
+        while frame_idx < 512:
+            try:
+                img.seek(frame_idx)
+                raw_dur = img.info.get("duration", default_dur)
+                rgba_frame = img.convert("RGBA")
+            except EOFError:
+                break
+            except OSError:
+                if frames_rgba:
+                    break
+                raise
+
             try:
                 dur_ms = int(round(float(raw_dur)))
             except (ValueError, TypeError):
@@ -299,13 +348,13 @@ def resize_animated_image_to_webp(
                 dur_ms = 100
             dur_ms = max(1, dur_ms)
 
-            rgba_frame = frame.convert("RGBA")
             if (rgba_frame.width, rgba_frame.height) != (new_width, new_height):
                 resized_frame = rgba_frame.resize((new_width, new_height), RESAMPLE_LANCZOS)
             else:
                 resized_frame = rgba_frame.copy()
             frames_rgba.append(resized_frame)
             durations.append(dur_ms)
+            frame_idx += 1
 
     if not frames_rgba:
         raise ValueError("No frames found in animated image")
@@ -451,18 +500,30 @@ def _extract_rgba_frames(
             return [_resize_rgba(img.convert("RGBA"), slot_size, slot_size)], [100], 0
 
         loop_count = int(img.info.get("loop", 0) or 0)
+        default_dur = img.info.get("duration", 100)
         resized_frames: list[Image.Image] = []
         durations: list[int] = []
-        for frame in ImageSequence.Iterator(img):
-            raw_dur = frame.info.get("duration", img.info.get("duration", 100))
+        frame_idx = 0
+        while frame_idx < 512:
+            try:
+                img.seek(frame_idx)
+                raw_dur = img.info.get("duration", default_dur)
+                rgba_frame = img.convert("RGBA")
+            except EOFError:
+                break
+            except OSError:
+                if resized_frames:
+                    break
+                raise
             try:
                 dur = max(1, int(round(float(raw_dur))))
             except (ValueError, TypeError):
                 dur = 100
             if dur < 10:
                 dur = 100
-            resized_frames.append(_resize_rgba(frame.convert("RGBA"), slot_size, slot_size))
+            resized_frames.append(_resize_rgba(rgba_frame, slot_size, slot_size))
             durations.append(dur)
+            frame_idx += 1
 
     if not resized_frames:
         with Image.open(io.BytesIO(raw_bytes)) as img:
@@ -1231,10 +1292,8 @@ async def _download_avatar_png_bytes(
             try:
                 async with http.get(url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=6)) as resp:
                     if 200 <= resp.status < 300:
-                        if resp.content_length and resp.content_length > _MAX_AVATAR_DOWNLOAD_BYTES:
-                            continue
-                        raw = await resp.content.read(_MAX_AVATAR_DOWNLOAD_BYTES + 1)
-                        if raw and len(raw) <= _MAX_AVATAR_DOWNLOAD_BYTES:
+                        raw = await _read_response_bytes_bounded(resp, _MAX_AVATAR_DOWNLOAD_BYTES)
+                        if raw:
                             png = await asyncio.to_thread(_normalize_avatar_to_png_bytes, raw)
                             if png:
                                 return png
@@ -1811,10 +1870,13 @@ async def _get_cdn_shared_session() -> aiohttp.ClientSession:
 
 
 def _can_decode_with_pillow(raw: bytes) -> bool:
-    """Pillow(libwebp 등)가 해당 이미지의 첫 프레임을 오류 없이 디코드할 수 있는지 검사합니다."""
+    """Pillow(libwebp 등)가 해당 이미지의 프레임을 오류 없이 디코드할 수 있는지 검사합니다."""
     try:
         with Image.open(io.BytesIO(raw)) as img:
             img.load()
+            if getattr(img, "is_animated", False) and getattr(img, "n_frames", 1) > 1:
+                img.seek(1)
+                img.load()
             return True
     except Exception:
         return False
@@ -1824,9 +1886,11 @@ async def fetch_and_resize_cdn_item(
     session: aiohttp.ClientSession,
     item_id: str,
     content_type: str = "emoji",
+    *,
+    animated: bool = False,
 ) -> Optional[tuple[bytes, str]]:
     """
-    Discord CDN에서 이모지/스티커 원본(WebP -> PNG 폴백)을 가져와
+    Discord CDN에서 이모지/스티커 원본(WebP -> GIF/PNG 폴백)을 EOF까지 완전하게 다운로드하여
     투명 여백 없이 160x160 종횡비 유지 WebP로 리사이징하고 24시간 메모리 캐시에 저장합니다
     (emote-cdn-rust handlers::process_emoji / process_sticker / process_image).
     """
@@ -1846,11 +1910,12 @@ async def fetch_and_resize_cdn_item(
             f"https://media.discordapp.net/stickers/{clean_id}.webp?size=160",
         ]
     else:
-        # emote-cdn-rust handlers::process_emoji 동일: WebP(?size=160&animated=true) 우선 시도 후 PNG 폴백
-        src_urls = [
-            f"https://cdn.discordapp.com/emojis/{clean_id}.webp?size=160&animated=true",
-            f"https://cdn.discordapp.com/emojis/{clean_id}.png?size=160&animated=true",
-        ]
+        # emote-cdn-rust handlers::process_emoji 동일: WebP(?size=160&animated=true) 우선,
+        # 애니메이션 이모지(animated=True)는 실패/정적 폴백 시 .gif?size=160 을 PNG보다 우선 시도
+        src_urls = [f"https://cdn.discordapp.com/emojis/{clean_id}.webp?size=160&animated=true"]
+        if animated:
+            src_urls.append(f"https://cdn.discordapp.com/emojis/{clean_id}.gif?size=160")
+        src_urls.append(f"https://cdn.discordapp.com/emojis/{clean_id}.png?size=160&animated=true")
 
     body: Optional[bytes] = None
     actual_src = ""
@@ -1859,10 +1924,18 @@ async def fetch_and_resize_cdn_item(
         try:
             async with session.get(src_url, headers=headers, allow_redirects=False) as resp:
                 if 200 <= resp.status < 300:
-                    if resp.content_length and resp.content_length > MAX_CDN_DOWNLOAD_BYTES:
-                        continue
-                    raw = await resp.content.read(MAX_CDN_DOWNLOAD_BYTES + 1)
-                    if raw and 12 <= len(raw) <= MAX_CDN_DOWNLOAD_BYTES:
+                    raw = await _read_response_bytes_bounded(resp, MAX_CDN_DOWNLOAD_BYTES)
+                    if raw and len(raw) >= 12:
+                        if (
+                            animated
+                            and src_url.endswith(".webp?size=160&animated=true")
+                            and detect_image_format(raw) == DetectedFormat.WEBP
+                            and not is_animated_webp(raw)
+                        ):
+                            if body is None:
+                                body = raw
+                                actual_src = src_url
+                            continue
                         body = raw
                         actual_src = src_url
                         break
@@ -1886,11 +1959,10 @@ async def fetch_and_resize_cdn_item(
             try:
                 async with session.get(gif_url, headers=headers, allow_redirects=False) as gif_resp:
                     if 200 <= gif_resp.status < 300:
-                        if not gif_resp.content_length or gif_resp.content_length <= MAX_CDN_DOWNLOAD_BYTES:
-                            gif_raw = await gif_resp.content.read(MAX_CDN_DOWNLOAD_BYTES + 1)
-                            if gif_raw and 12 <= len(gif_raw) <= MAX_CDN_DOWNLOAD_BYTES and detect_image_format(gif_raw) == DetectedFormat.GIF:
-                                body = gif_raw
-                                actual_src = gif_url
+                        gif_raw = await _read_response_bytes_bounded(gif_resp, MAX_CDN_DOWNLOAD_BYTES)
+                        if gif_raw and len(gif_raw) >= 12 and detect_image_format(gif_raw) == DetectedFormat.GIF:
+                            body = gif_raw
+                            actual_src = gif_url
             except Exception:
                 pass
 
@@ -2202,7 +2274,7 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         return self._http_session
 
     async def _download_emoji_bytes(self, emoji_id: str, animated: bool = False) -> Optional[bytes]:
-        """Discord CDN에서 WebP(?size=160&animated=true) 우선 다운로드, 디코드 불가 애니메이션 WebP는 GIF로 안전 폴백합니다."""
+        """Discord CDN에서 WebP(?size=160&animated=true) 우선 다운로드, 디코드 불가/정적 WebP는 GIF로 안전 폴백합니다."""
         clean_id = clean_id_from_path(emoji_id)
         if not validate_id(clean_id):
             return None
@@ -2217,10 +2289,17 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
             try:
                 async with session.get(url, allow_redirects=False) as resp:
                     if 200 <= resp.status < 300:
-                        if resp.content_length and resp.content_length > MAX_CDN_DOWNLOAD_BYTES:
-                            continue
-                        raw = await resp.content.read(MAX_CDN_DOWNLOAD_BYTES + 1)
-                        if raw and 12 <= len(raw) <= MAX_CDN_DOWNLOAD_BYTES:
+                        raw = await _read_response_bytes_bounded(resp, MAX_CDN_DOWNLOAD_BYTES)
+                        if raw and len(raw) >= 12:
+                            if (
+                                animated
+                                and url.endswith(".webp?size=160&animated=true")
+                                and detect_image_format(raw) == DetectedFormat.WEBP
+                                and not is_animated_webp(raw)
+                            ):
+                                if fallback_raw is None:
+                                    fallback_raw = raw
+                                continue
                             if is_animated_webp(raw) and not await asyncio.to_thread(_can_decode_with_pillow, raw):
                                 fallback_raw = raw
                                 continue
@@ -2229,24 +2308,36 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
                 continue
         return fallback_raw
 
-    async def _verify_url_returns_webp(self, url: str) -> bool:
+    async def _verify_url_returns_webp(self, url: str, *, require_animated: bool = False) -> bool:
         """해당 URL이 실제로 HTTP 200 OK 및 유효한 이미지(WebP/PNG/GIF)를 반환하는지 검증합니다."""
         if not await asyncio.to_thread(core.is_safe_external_url, url):
             return False
         session = await self._get_session()
         try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5), allow_redirects=False) as resp:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=6), allow_redirects=False) as resp:
                 if 200 <= resp.status < 300:
-                    if resp.content_length and resp.content_length > MAX_CDN_DOWNLOAD_BYTES:
-                        return False
-                    raw = await resp.content.read(MAX_CDN_DOWNLOAD_BYTES + 1)
-                    if raw and 12 <= len(raw) <= MAX_CDN_DOWNLOAD_BYTES and detect_image_format(raw) != DetectedFormat.UNKNOWN:
+                    raw = await _read_response_bytes_bounded(resp, MAX_CDN_DOWNLOAD_BYTES)
+                    if raw and len(raw) >= 12:
+                        fmt = detect_image_format(raw)
+                        if fmt == DetectedFormat.UNKNOWN:
+                            return False
+                        if require_animated:
+                            if fmt == DetectedFormat.WEBP and not is_animated_webp(raw):
+                                return False
+                            if fmt == DetectedFormat.PNG:
+                                return False
                         return True
                 return False
         except Exception:
             return False
 
-    async def _resolve_working_emote_cdn_url(self, emoji_id: str, dup_index: int = 0) -> Optional[str]:
+    async def _resolve_working_emote_cdn_url(
+        self,
+        emoji_id: str,
+        dup_index: int = 0,
+        *,
+        animated: bool = False,
+    ) -> Optional[str]:
         """
         emote-cdn-rust 가이드에 따라 투명 여백 없이 원본 종횡비를 유지한 160x160 WebP URL을 반환합니다.
         1) 먼저 Discord CDN에서 원본을 가져와 로컬 emote-cdn-rust 160x160 WebP 캐시(GLOBAL_EMOTE_CACHE)를 예열하고 유효성을 검증합니다.
@@ -2258,13 +2349,14 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
             return None
 
         session = await self._get_session()
-        local_res = await fetch_and_resize_cdn_item(session, clean_id, content_type="emoji")
+        local_res = await fetch_and_resize_cdn_item(session, clean_id, content_type="emoji", animated=animated)
         if local_res is None:
             return None
-        _, actual_src = local_res
+        local_webp, actual_src = local_res
+        need_anim = bool(animated and is_animated_webp(local_webp))
 
         now_mono = time.monotonic()
-        url_cache_key = f"{clean_id}:{dup_index}:{get_emote_cdn_base_url()}:{bool(get_emote_cdn_signing_key())}"
+        url_cache_key = f"{clean_id}:{dup_index}:{int(need_anim)}:{get_emote_cdn_base_url()}:{bool(get_emote_cdn_signing_key())}"
         cached_url_entry = self._verified_cdn_urls.get(url_cache_key)
         if cached_url_entry is not None:
             exp_mono, cached_url = cached_url_entry
@@ -2275,24 +2367,30 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
 
         # 1차: 설정된 emote-cdn-rust 서버 URL 검증
         primary_url = generate_emote_cdn_url(clean_id, content_type="emoji", dup_index=dup_index)
-        if await self._verify_url_returns_webp(primary_url):
+        if await self._verify_url_returns_webp(primary_url, require_animated=need_anim):
             self._verified_cdn_urls[url_cache_key] = (now_mono + 3600, primary_url)
             while len(self._verified_cdn_urls) > 5000:
                 self._verified_cdn_urls.popitem(last=False)
             return primary_url
 
         # 2차: 투명 여백 없는 160x160 종횡비 유지 Lanczos3 WebP 공개 CDN URL 검증
-        fallback_url = generate_wsrv_emote_webp_url(
-            clean_id,
-            actual_src=actual_src,
-            content_type="emoji",
-            dup_index=dup_index,
-        )
-        if await self._verify_url_returns_webp(fallback_url):
-            self._verified_cdn_urls[url_cache_key] = (now_mono + 3600, fallback_url)
-            while len(self._verified_cdn_urls) > 5000:
-                self._verified_cdn_urls.popitem(last=False)
-            return fallback_url
+        wsrv_sources = [actual_src]
+        gif_src = f"https://cdn.discordapp.com/emojis/{clean_id}.gif?size=160"
+        if need_anim and actual_src != gif_src:
+            wsrv_sources.append(gif_src)
+
+        for src_candidate in wsrv_sources:
+            fallback_url = generate_wsrv_emote_webp_url(
+                clean_id,
+                actual_src=src_candidate,
+                content_type="emoji",
+                dup_index=dup_index,
+            )
+            if await self._verify_url_returns_webp(fallback_url, require_animated=need_anim):
+                self._verified_cdn_urls[url_cache_key] = (now_mono + 3600, fallback_url)
+                while len(self._verified_cdn_urls) > 5000:
+                    self._verified_cdn_urls.popitem(last=False)
+                return fallback_url
 
         return None
 
@@ -2316,7 +2414,11 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
             occ = seen_counts.get(clean_id, 0)
             seen_counts[clean_id] = occ + 1
 
-            verified_url = await self._resolve_working_emote_cdn_url(clean_id, dup_index=occ)
+            verified_url = await self._resolve_working_emote_cdn_url(
+                clean_id,
+                dup_index=occ,
+                animated=bool(em.get("animated", False)),
+            )
             if not verified_url:
                 return None
             masked_links.append(f"[{BRAILLE_BLANK}]({verified_url})")
@@ -2338,7 +2440,12 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", items[0]["name"])[:48] or "emoji"
 
         if len(items) == 1:
-            res = await fetch_and_resize_cdn_item(session, items[0]["id"], content_type="emoji")
+            res = await fetch_and_resize_cdn_item(
+                session,
+                items[0]["id"],
+                content_type="emoji",
+                animated=bool(items[0].get("animated", False)),
+            )
             if not res:
                 return None
             webp_bytes, _ = res
