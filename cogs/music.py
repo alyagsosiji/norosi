@@ -10,7 +10,7 @@ import datetime
 from typing import Optional
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 import core
 
 # PCMVolumeTransformer가 하위 오디오 소스의 _current_error를 투명하게 전달하도록 확장
@@ -312,6 +312,35 @@ def _can_control_voice_player(user: discord.abc.User, guild: Optional[discord.Gu
         if user.voice and user.voice.channel:
             return True, ""
     return False, "❌ 먼저 음성채널에 입장한 상태에서 사용해 주세요."
+
+
+async def _is_bot_owner(bot: Optional[discord.Client], user: Optional[discord.abc.User]) -> bool:
+    """24/7 상주 모드 ON/OFF 등 봇 주인 전용 기능의 소유자 권한을 검증합니다."""
+    if not user:
+        return False
+    if bot is not None and hasattr(bot, "is_bot_owner_user"):
+        try:
+            return bool(await bot.is_bot_owner_user(user))
+        except Exception:
+            pass
+    uid = getattr(user, "id", None)
+    if uid is None:
+        return False
+    if core.BOT_OWNER_ID and int(uid) == int(core.BOT_OWNER_ID):
+        return True
+    extra_owners = os.getenv("BOT_OWNER_IDS", "")
+    if extra_owners:
+        try:
+            if int(uid) in {int(i.strip()) for i in extra_owners.split(",") if i.strip().isdigit()}:
+                return True
+        except Exception:
+            pass
+    if bot is not None and hasattr(bot, "is_owner"):
+        try:
+            return bool(await bot.is_owner(user))
+        except Exception:
+            pass
+    return False
 
 
 class MusicScheduleAddModal(core.SafeModal, title="⏰ 새 맞춤 음악 추천 타이머 추가"):
@@ -1053,19 +1082,169 @@ class GuildVoicePlaylistPlayer:
         self.auto_announce: bool = True  # 다음 곡 자동 전환 시 대시보드 실시간 갱신
         self.deaf_mode: bool = True  # 기본값: 헤드셋 끄기 (청각 차단 On / deafen)
         self.playback_speed: float = 1.0  # 기본값: 1.0배속 (0.5x ~ 2.0x 지원)
+        self.stay_247: bool = False  # 24/7 상주 모드 (봇 주인 전용 ON/OFF · 무인 유지 · 재시작 자동복구)
         self.is_playing_flag: bool = False
         self.is_paused_flag: bool = False
         self._stop_requested: bool = False
         self._skip_lock = asyncio.Lock()
+        self._restore_lock = asyncio.Lock()
+        self._persist_247_lock = asyncio.Lock()
+        self._persist_247_seq: int = 0
         self._play_generation: int = 0
         self._sleep_task: Optional[asyncio.Task] = None
         self.sleep_until_ts: Optional[float] = None
+        self._last_voice_channel_id: Optional[int] = None
+        self._last_text_channel_id: Optional[int] = None
+        self._last_control_message_id: Optional[int] = None
+        self._last_play_attempt_at: float = 0.0
+        self._last_error_notify_at: float = 0.0
+        self._reconnect_failures: int = 0
+        self._next_retry_at: float = 0.0
+
+        # 서버에 저장된 24/7 설정이 있으면 초기 상태 동기화
+        try:
+            saved_247 = core.get_voice_247_config(guild.id) if guild else None
+            if isinstance(saved_247, dict) and saved_247.get("enabled"):
+                self.stay_247 = True
+                if saved_247.get("voice_channel_id"):
+                    self._last_voice_channel_id = int(saved_247["voice_channel_id"])
+                if saved_247.get("text_channel_id"):
+                    self._last_text_channel_id = int(saved_247["text_channel_id"])
+                if saved_247.get("control_message_id"):
+                    self._last_control_message_id = int(saved_247["control_message_id"])
+        except Exception:
+            pass
 
     @property
     def current_track(self) -> Optional[dict]:
         if 0 <= self.current_index < len(self.tracks):
             return self.tracks[self.current_index]
         return None
+
+    def get_current_track(self) -> Optional[dict]:
+        return self.current_track
+
+    def _compact_tracks_snapshot(self) -> list[dict]:
+        """24/7 자동 복구용으로 현재 재생 중이던 플레이리스트 트랙 스냅샷을 경량 직렬화합니다."""
+        compact: list[dict] = []
+        for raw in self.tracks[:100]:
+            if not isinstance(raw, dict):
+                continue
+            norm = core.normalize_playlist_track(raw)
+            compact.append({
+                "title": norm.get("title", "제목 없음"),
+                "artist": norm.get("artist", "아티스트 미지정"),
+                "url": norm.get("url", ""),
+                "platform": norm.get("platform", "YouTube"),
+                "image": norm.get("image", ""),
+            })
+        return compact
+
+    def _build_247_snapshot(self) -> dict:
+        vc = self.guild.voice_client if self.guild else None
+        vc_id = getattr(getattr(vc, "channel", None), "id", None) or self._last_voice_channel_id
+        tc_id = getattr(self.text_channel, "id", None) or self._last_text_channel_id
+        cm_id = getattr(self.control_message, "id", None) or self._last_control_message_id
+        if vc_id:
+            self._last_voice_channel_id = int(vc_id)
+        if tc_id:
+            self._last_text_channel_id = int(tc_id)
+        if cm_id:
+            self._last_control_message_id = int(cm_id)
+        return {
+            "enabled": True,
+            "voice_channel_id": int(vc_id) if vc_id else None,
+            "text_channel_id": int(tc_id) if tc_id else None,
+            "control_message_id": int(cm_id) if cm_id else None,
+            "playlist_owner_id": int(self.playlist_owner_id or 0),
+            "playlist_owner_name": str(self.playlist_owner_name or ""),
+            "playlist_id": str(self.playlist_id or "pl_default"),
+            "playlist_name": str(self.playlist_name or "플레이리스트"),
+            "playlist_emoji": str(self.playlist_emoji or "🎧"),
+            "playlist_platform": str(self.playlist_platform or "YouTube"),
+            "tracks": self._compact_tracks_snapshot(),
+            "current_index": int(self.current_index or 0),
+            "loop_mode": self.loop_mode if self.loop_mode in ("all", "one") else "all",
+            "volume": round(float(self.volume or 0.20), 2),
+            "deaf_mode": bool(self.deaf_mode),
+            "playback_speed": round(float(self.playback_speed or 1.0), 2),
+        }
+
+    def _schedule_persist_247(self) -> None:
+        """24/7 상주 모드가 활성 상태일 때 현재 재생 중인 플리·곡 순번·설정을 순서 보장하며 비동기로 저장합니다."""
+        if not self.stay_247 or not self.guild:
+            return
+        snap = self._build_247_snapshot()
+        if not snap.get("voice_channel_id") or not snap.get("tracks"):
+            return
+        gid = self.guild.id
+        self._persist_247_seq += 1
+        my_seq = self._persist_247_seq
+
+        async def _save_job():
+            async with self._persist_247_lock:
+                if not self.stay_247 or my_seq != self._persist_247_seq:
+                    return
+                try:
+                    await asyncio.to_thread(core.set_voice_247_config, gid, snap)
+                except Exception as e:
+                    print(f"⚠️ [24/7 저장 예외] guild={gid}: {e}", flush=True)
+
+        try:
+            asyncio.get_running_loop().create_task(_save_job())
+        except RuntimeError:
+            try:
+                core.set_voice_247_config(gid, snap)
+            except Exception:
+                pass
+
+    async def _clear_247_persisted(self) -> None:
+        """진행 중인 비동기 저장이 있더라도 최종적으로 24/7 설정이 확실히 제거되도록 직렬화해 해제합니다."""
+        self.stay_247 = False
+        self._persist_247_seq += 1
+        if not self.guild:
+            return
+        gid = self.guild.id
+        async with self._persist_247_lock:
+            if self.stay_247:
+                return
+            try:
+                await asyncio.to_thread(core.clear_voice_247_config, gid)
+            except Exception as e:
+                print(f"⚠️ [24/7 해제 예외] guild={gid}: {e}", flush=True)
+
+    async def set_stay_247(self, enabled: bool) -> tuple[bool, str]:
+        """24/7 상주 모드를 켜거나 끕니다 (봇 주인 전용 호출)."""
+        if enabled:
+            vc = self.guild.voice_client if self.guild else None
+            vc_ch = getattr(vc, "channel", None) if (vc and vc.is_connected()) else None
+            if not vc_ch:
+                return False, "❌ 먼저 음성채널에서 플레이리스트를 재생 중인 상태에서 24/7 모드를 켜 주세요."
+            if not self.tracks:
+                return False, "❌ 현재 재생 중인 플레이리스트가 없어 24/7 모드를 켤 수 없습니다."
+            self.set_sleep_timer(0)
+            if self.loop_mode == "off":
+                self.loop_mode = "all"
+            self.stay_247 = True
+            self._last_voice_channel_id = int(vc_ch.id)
+            self._persist_247_seq += 1
+            my_seq = self._persist_247_seq
+            snap = self._build_247_snapshot()
+            async with self._persist_247_lock:
+                if self.stay_247 and my_seq == self._persist_247_seq:
+                    await asyncio.to_thread(core.set_voice_247_config, self.guild.id, snap)
+            return (
+                True,
+                f"📻 **24/7 상주 모드 ON!** (**{vc_ch.name}** · `{self.playlist_emoji} {self.playlist_name}`)\n"
+                "• 음성채널에 사람이 모두 나가도 퇴장하지 않고 무한 순환 재생을 유지합니다.\n"
+                "• 봇이 재시작/업데이트되어도 원래 재생 중이던 플레이리스트와 순번으로 자동 재입장·이어재생됩니다.",
+            )
+
+        await self._clear_247_persisted()
+        return (
+            True,
+            "📴 **24/7 상주 모드 OFF** — 일반 모드로 전환되었습니다. (채널이 비면 5초 후 자동 퇴장되며 재시작 시 자동 재입장하지 않습니다)",
+        )
 
     def set_sleep_timer(self, minutes: int):
         if self._sleep_task and not self._sleep_task.done():
@@ -1074,6 +1253,13 @@ class GuildVoicePlaylistPlayer:
             self.sleep_until_ts = None
             self._sleep_task = None
             return
+        if self.stay_247:
+            self.stay_247 = False
+            self._persist_247_seq += 1
+            try:
+                asyncio.get_running_loop().create_task(self._clear_247_persisted())
+            except Exception:
+                pass
         self.sleep_until_ts = time.time() + (minutes * 60)
 
         async def _timer_job():
@@ -1099,10 +1285,12 @@ class GuildVoicePlaylistPlayer:
             try:
                 cur_ch = vc.channel
                 await self.guild.change_voice_state(channel=cur_ch, self_mute=False, self_deaf=enable)
+                self._schedule_persist_247()
                 return True
             except Exception as e:
                 print(f"⚠️ 헤드셋 상태 변경 예외: {e}", flush=True)
                 return False
+        self._schedule_persist_247()
         return True
 
     async def toggle_deafen(self) -> bool:
@@ -1115,6 +1303,7 @@ class GuildVoicePlaylistPlayer:
         """플레이어의 재생 배속(0.5x ~ 2.0x)을 설정하고 현재 곡을 새로운 속도로 매끄럽게 재적용합니다."""
         val = round(max(0.5, min(2.0, float(speed))), 2)
         self.playback_speed = val
+        self._schedule_persist_247()
         vc = self.guild.voice_client
         if vc and (vc.is_playing() or vc.is_paused()) and self.current_stream_meta:
             await self.skip_to(self.current_index)
@@ -1197,37 +1386,156 @@ class GuildVoicePlaylistPlayer:
     async def start_playlist(
         self,
         voice_channel: discord.abc.Connectable,
-        text_channel: discord.abc.Messageable,
-        owner: discord.abc.User,
+        text_channel: Optional[discord.abc.Messageable],
+        owner: discord.abc.User | object,
         playlist_data: dict,
-        start_index: int = 0
+        start_index: int = 0,
+        *,
+        preserve_deaf: bool = False,
     ) -> tuple[bool, str]:
         tracks = [core.normalize_playlist_track(t) for t in playlist_data.get("tracks", []) if isinstance(t, dict)]
         if not tracks:
             return False, "플레이리스트에 수록된 곡이 없습니다! 먼저 곡을 추가해 주세요."
 
-        ok, err_msg = await self.ensure_connected(voice_channel, self_deaf=True)
+        target_deaf = self.deaf_mode if preserve_deaf else True
+        ok, err_msg = await self.ensure_connected(voice_channel, self_deaf=target_deaf)
         if not ok:
             return False, err_msg
 
         self.text_channel = text_channel
-        self.playlist_owner_id = owner.id
-        self.playlist_owner_name = owner.display_name
+        self._last_voice_channel_id = getattr(voice_channel, "id", None) or self._last_voice_channel_id
+        if text_channel is not None and getattr(text_channel, "id", None):
+            self._last_text_channel_id = int(text_channel.id)
+        self.playlist_owner_id = int(getattr(owner, "id", 0) or 0)
+        self.playlist_owner_name = str(getattr(owner, "display_name", None) or getattr(owner, "name", "") or "유저")
         self.playlist_id = str(playlist_data.get("id", "pl_default"))
         self.playlist_name = str(playlist_data.get("name", "플레이리스트"))
         self.playlist_emoji = str(playlist_data.get("emoji", "🎧"))
         self.playlist_platform = str(playlist_data.get("platform", "YouTube"))
         self.tracks = tracks
-        self.current_index = max(0, min(start_index, len(tracks) - 1))
+        self.current_index = max(0, min(int(start_index or 0), len(tracks) - 1))
         self._stop_requested = False
+        self._reconnect_failures = 0
+        self._next_retry_at = 0.0
+        if self.stay_247 and self.loop_mode == "off":
+            self.loop_mode = "all"
         self._play_generation += 1
 
         await self._play_current_index(initial=True)
+        self._schedule_persist_247()
         return True, f"🔊 **{ getattr(voice_channel, 'name', '음성채널') }**에서 **`{self.playlist_emoji} {self.playlist_name}`** ({len(tracks)}곡) 순번 자동재생을 시작합니다!"
+
+    async def restore_from_247_config(self, cfg: dict) -> tuple[bool, str]:
+        """저장된 24/7 상주 설정으로부터 원래 재생 중이던 플레이리스트와 순번을 자동 복구합니다."""
+        async with self._restore_lock:
+            if not isinstance(cfg, dict) or not cfg.get("enabled"):
+                return False, "disabled"
+            vc_id = cfg.get("voice_channel_id")
+            if not vc_id or not self.guild:
+                return False, "permanent:no_channel"
+
+            voice_ch = self.guild.get_channel(int(vc_id))
+            if voice_ch is None:
+                try:
+                    voice_ch = await self.guild.fetch_channel(int(vc_id))
+                except discord.NotFound:
+                    return False, "permanent:channel_deleted"
+                except Exception:
+                    return False, "transient:fetch_failed"
+            if not isinstance(voice_ch, (discord.VoiceChannel, discord.StageChannel)):
+                return False, "permanent:not_voice_channel"
+
+            me = self.guild.me or (self.guild.get_member(self.bot.user.id) if self.bot and self.bot.user else None)
+            if me and hasattr(voice_ch, "permissions_for"):
+                perms = voice_ch.permissions_for(me)
+                if not perms.connect or not perms.speak:
+                    return False, "permanent:missing_perms"
+
+            # 원래 재생 중이던 트랙 스냅샷 최우선 사용 (스냅샷이 비어 있을 때만 유저 프로필 플리에서 폴백)
+            saved_tracks = [t for t in (cfg.get("tracks") or []) if isinstance(t, dict)]
+            if not saved_tracks and cfg.get("playlist_owner_id") and cfg.get("playlist_id"):
+                try:
+                    data = await asyncio.to_thread(core.load_data)
+                    prof = core.safe_get_dict(data, "user_profiles", str(cfg["playlist_owner_id"]))
+                    pls = prof.get("playlists") or []
+                    matched = next((p for p in pls if isinstance(p, dict) and p.get("id") == cfg["playlist_id"]), None)
+                    if matched and matched.get("tracks"):
+                        saved_tracks = [t for t in matched["tracks"] if isinstance(t, dict)]
+                except Exception:
+                    pass
+            if not saved_tracks:
+                return False, "permanent:empty_tracks"
+
+            text_ch = None
+            tc_id = cfg.get("text_channel_id")
+            if tc_id:
+                text_ch = self.guild.get_channel(int(tc_id))
+                if text_ch is None and hasattr(self.guild, "get_thread"):
+                    text_ch = self.guild.get_thread(int(tc_id))
+
+            self.stay_247 = True
+            self.loop_mode = cfg.get("loop_mode") if cfg.get("loop_mode") in ("all", "one") else "all"
+            self.volume = round(max(0.05, min(2.0, float(cfg.get("volume", 0.20) or 0.20))), 2)
+            self.deaf_mode = bool(cfg.get("deaf_mode", True))
+            self.playback_speed = round(max(0.5, min(2.0, float(cfg.get("playback_speed", 1.0) or 1.0))), 2)
+            self._last_voice_channel_id = int(vc_id)
+            self._last_text_channel_id = int(tc_id) if tc_id else None
+            self._last_control_message_id = int(cfg["control_message_id"]) if cfg.get("control_message_id") else None
+
+            class _SavedOwner:
+                def __init__(self, uid: int, name: str):
+                    self.id = uid
+                    self.display_name = name
+                    self.name = name
+
+            owner_stub = _SavedOwner(
+                int(cfg.get("playlist_owner_id", 0) or 0),
+                str(cfg.get("playlist_owner_name") or "플레이리스트"),
+            )
+            pl_data = {
+                "id": str(cfg.get("playlist_id") or "pl_default"),
+                "name": str(cfg.get("playlist_name") or "플레이리스트"),
+                "emoji": str(cfg.get("playlist_emoji") or "🎧"),
+                "platform": str(cfg.get("playlist_platform") or "YouTube"),
+                "tracks": saved_tracks,
+            }
+            saved_idx = int(cfg.get("current_index", 0) or 0) % len(saved_tracks)
+
+            ok, msg = await self.start_playlist(
+                voice_channel=voice_ch,
+                text_channel=text_ch,
+                owner=owner_stub,
+                playlist_data=pl_data,
+                start_index=saved_idx,
+                preserve_deaf=True,
+            )
+            if not ok:
+                return False, f"transient:{msg}"
+
+            # 기존 리모컨 메시지가 남아 있다면 스팸 없이 제자리 갱신
+            if text_ch is not None and self._last_control_message_id and hasattr(text_ch, "fetch_message"):
+                try:
+                    existing_msg = await text_ch.fetch_message(self._last_control_message_id)
+                    if existing_msg is not None:
+                        self.control_message = existing_msg
+                        await self.refresh_control_panel()
+                except Exception:
+                    pass
+            return True, msg
+
+    def _should_notify_error(self) -> bool:
+        """24/7 상주 모드에서는 야간/무인 상태에서 텍스트 채널 오류 도배를 막기 위해 5분 간격으로 안내를 제한합니다."""
+        if not self.stay_247:
+            return True
+        now_ts = time.time()
+        if (now_ts - self._last_error_notify_at) < 300.0:
+            return False
+        self._last_error_notify_at = now_ts
+        return True
 
     async def _report_playback_error(self, err_text: str):
         """스트리밍 도중 오류 발생 시 텍스트 채널에 상태 안내"""
-        if not self.text_channel:
+        if not self.text_channel or not self._should_notify_error():
             return
         try:
             embed = discord.Embed(
@@ -1247,6 +1555,7 @@ class GuildVoicePlaylistPlayer:
         if self._stop_requested or not self.tracks:
             return
 
+        self._last_play_attempt_at = time.time()
         self._play_generation += 1
         my_gen = self._play_generation
 
@@ -1257,7 +1566,7 @@ class GuildVoicePlaylistPlayer:
         self.voice_client = vc
 
         if not (0 <= self.current_index < len(self.tracks)):
-            if self.loop_mode == "all" and self.tracks:
+            if (self.loop_mode == "all" or self.stay_247) and self.tracks:
                 self.current_index = 0
             else:
                 self.is_playing_flag = False
@@ -1277,7 +1586,7 @@ class GuildVoicePlaylistPlayer:
             bad_title = target_track.get("title", "알 수 없는 곡")
             bad_artist = target_track.get("artist", "")
             bad_label = f"{bad_title} — {bad_artist}" if bad_artist and bad_artist != "아티스트 미지정" else bad_title
-            if self.text_channel:
+            if self.text_channel and self._should_notify_error():
                 try:
                     await self.text_channel.send(
                         f"⚠️ **#{self.current_index + 1}. `{bad_label}`** 스트리밍 링크를 불러오지 못해 다음 곡으로 자동 전환합니다. *(사유: {err or '오디오 스트림 없음'})*"
@@ -1291,9 +1600,14 @@ class GuildVoicePlaylistPlayer:
                 return
             else:
                 self.is_playing_flag = False
-                if self.text_channel:
+                if self.stay_247:
+                    self._reconnect_failures = min(self._reconnect_failures + 1, 6)
+                    backoff = min(300.0, 45.0 * (2 ** (self._reconnect_failures - 1)))
+                    self._next_retry_at = time.time() + backoff
+                if self.text_channel and self._should_notify_error():
                     try:
-                        await self.text_channel.send("⚠️ 플레이리스트의 모든 수록곡 오디오 스트림을 불러올 수 없어 재생을 중단했습니다.")
+                        extra = " *(24/7 상주 모드: 잠시 후 자동으로 재시도합니다)*" if self.stay_247 else ""
+                        await self.text_channel.send(f"⚠️ 플레이리스트의 모든 수록곡 오디오 스트림을 불러올 수 없어 재생을 잠시 중단했습니다.{extra}")
                     except Exception:
                         pass
                 return
@@ -1302,6 +1616,8 @@ class GuildVoicePlaylistPlayer:
         self.track_started_at = time.time()
         self.is_playing_flag = True
         self.is_paused_flag = False
+        self._reconnect_failures = 0
+        self._next_retry_at = 0.0
 
         ffmpeg_exe = core.get_ffmpeg_executable()
         core.ensure_opus_loaded()
@@ -1377,6 +1693,7 @@ class GuildVoicePlaylistPlayer:
             )
 
         vc.play(source, after=_after_track)
+        self._schedule_persist_247()
 
         # 0.7초 후 음성 송출 상태 워치독 (소리 즉시 끊김 조기 감지)
         async def _verify_playback():
@@ -1390,7 +1707,6 @@ class GuildVoicePlaylistPlayer:
         if not initial and self.auto_announce:
             await self.refresh_control_panel()
 
-
     async def _on_track_finished(self, gen: Optional[int] = None):
         async with self._skip_lock:
             if gen is not None and gen != self._play_generation:
@@ -1402,24 +1718,25 @@ class GuildVoicePlaylistPlayer:
                 self.is_playing_flag = False
                 return
 
-            # 음성채널에 봇 혼자만 남았는지 체크 (무인 자동 퇴장 편의 기능)
-            human_members = [m for m in vc.channel.members if not m.bot]
-            if len(human_members) == 0:
-                ch = self.text_channel
-                await self.stop_and_disconnect()
-                if ch:
-                    try:
-                        await ch.send("🔇 음성채널에 듣고 계신 멤버가 없어 플레이리스트 자동재생을 마치고 퇴장했습니다.")
-                    except Exception:
-                        pass
-                return
+            # 24/7 상주 모드가 꺼져 있을 때만 무인 음성채널 자동 퇴장 수행
+            if not self.stay_247:
+                human_members = [m for m in vc.channel.members if not m.bot]
+                if len(human_members) == 0:
+                    ch = self.text_channel
+                    await self.stop_and_disconnect()
+                    if ch:
+                        try:
+                            await ch.send("🔇 음성채널에 듣고 계신 멤버가 없어 플레이리스트 자동재생을 마치고 퇴장했습니다.")
+                        except Exception:
+                            pass
+                    return
 
             if self.loop_mode == "one":
                 # 현재 순번 그대로 다시 재생
                 pass
             elif self.current_index + 1 < len(self.tracks):
                 self.current_index += 1
-            elif self.loop_mode == "all":
+            elif self.loop_mode == "all" or self.stay_247:
                 self.current_index = 0
             else:
                 # 1회 순차 완주 완료
@@ -1466,9 +1783,10 @@ class GuildVoicePlaylistPlayer:
         vc = self.guild.voice_client
         if vc and vc.source and isinstance(vc.source, discord.PCMVolumeTransformer):
             vc.source.volume = self.volume
+        self._schedule_persist_247()
         return int(round(self.volume * 100))
 
-    async def stop_and_disconnect(self):
+    async def stop_and_disconnect(self, *, clear_247: bool = True):
         self._stop_requested = True
         self._play_generation += 1
         self.is_playing_flag = False
@@ -1477,6 +1795,9 @@ class GuildVoicePlaylistPlayer:
         if self._sleep_task and not self._sleep_task.done():
             self._sleep_task.cancel()
         self.sleep_until_ts = None
+
+        if clear_247 and self.stay_247:
+            await self._clear_247_persisted()
 
         vc = self.guild.voice_client
         if vc:
@@ -1506,9 +1827,10 @@ class VoicePlayerControlView(core.SafeView):
     - [⏮️ 이전 곡] [⏯️ 일시정지/재생] [⏭️ 다음 곡] [🔁 반복모드] [⏹️ 정지/퇴장]
     - [🔉 볼륨 -15%] [🔊 볼륨 +15%] [🔀 순번 셔플] [🌙 취침타이머] [💿 현재 곡 내 플리에 담기]
     - 드롭다운: 원하는 순번의 곡으로 즉시 점프 재생
+    - [🎧 헤드셋] [🔄 오디오 재연결] [⚡ 배속] [📻 24/7 상주 (봇주 전용)]
     """
     def __init__(self, player: Optional[GuildVoicePlaylistPlayer] = None):
-        super().__init__(timeout=3600)
+        super().__init__(timeout=None)
         self.player = player
         self.update_components()
 
@@ -1517,9 +1839,14 @@ class VoicePlayerControlView(core.SafeView):
             return False
         guild_obj = getattr(self.player, "guild", None) or interaction.guild
         vc = getattr(guild_obj, "voice_client", None)
+        is_owner = await _is_bot_owner(interaction.client, interaction.user)
         if not vc or not vc.channel:
+            if is_owner and self.player and getattr(self.player, "stay_247", False):
+                return True
             await core.safe_send_response(interaction, "❌ 봇이 현재 음성채널에 연결되어 있지 않습니다.", ephemeral=True)
             return False
+        if is_owner:
+            return True
         if not interaction.user.voice or interaction.user.voice.channel != vc.channel:
             await core.safe_send_response(
                 interaction,
@@ -1538,6 +1865,7 @@ class VoicePlayerControlView(core.SafeView):
         vc = getattr(guild_obj, "voice_client", None)
         connected = bool(vc and vc.is_connected())
         has_tracks = len(self.player.tracks) > 0
+        stay_247 = bool(getattr(self.player, "stay_247", False))
 
         self.prev_track_btn.disabled = not (connected and has_tracks)
         self.pause_resume_btn.disabled = not (connected and has_tracks)
@@ -1575,39 +1903,39 @@ class VoicePlayerControlView(core.SafeView):
             self.sleep_timer_btn.label = "🌙 취침타이머"
             self.sleep_timer_btn.style = discord.ButtonStyle.secondary
 
-        # 트랙 점프 드롭다운 (최대 25곡 표시, 현재 순번 주변 우선)
+        # 트랙 점프 드롭다운 (현재 순번 주변 최대 15곡 표시 · Discord 컴포넌트 6,000B 한도 준수)
         if not has_tracks:
             self.jump_select.options = [discord.SelectOption(label="재생 대기열이 비어 있습니다", value="NONE")]
             self.jump_select.disabled = True
         else:
             opts = []
             total = len(self.player.tracks)
-            start_i = max(0, min(self.player.current_index - 5, max(0, total - 25)))
-            end_i = min(total, start_i + 25)
+            start_i = max(0, min(self.player.current_index - 4, max(0, total - 15)))
+            end_i = min(total, start_i + 15)
             for idx in range(start_i, end_i):
                 t = self.player.tracks[idx]
                 is_cur = (idx == self.player.current_index)
-                prefix = "▶️ [재생중]" if is_cur else f"#{idx + 1:02d}."
+                prefix = "▶" if is_cur else f"#{idx + 1:02d}"
                 t_plat = t.get("platform", "YouTube")
                 t_emoji = "🔊" if is_cur else core.PLAYLIST_PLATFORMS.get(t_plat, core.PLAYLIST_PLATFORMS["YouTube"])["emoji"]
                 opts.append(discord.SelectOption(
-                    label=f"{prefix} {t.get('title', '제목 없음')}"[:95],
+                    label=f"{prefix} {t.get('title', '제목 없음')}"[:24],
                     value=str(idx),
-                    description=f"아티스트: {t.get('artist', '-')} | 선택 시 이 순번부터 즉시 재생"[:95],
+                    description=f"{t.get('artist', '-')}"[:14],
                     emoji=t_emoji,
                     default=is_cur
                 ))
             self.jump_select.options = opts
             self.jump_select.disabled = not connected
-            self.jump_select.placeholder = f"🎵 곡 순번 바로 이동 (현재 {self.player.current_index + 1}번 / 총 {total}곡)..."
+            self.jump_select.placeholder = f"🎵 곡 이동 ({self.player.current_index + 1}/{total})"
 
-        # Row 3: 헤드셋 끄기(청각 차단) 토글, 오디오 재연결 및 배속 조절 버튼
+        # Row 3: 헤드셋 끄기(청각 차단) 토글, 오디오 재연결, 배속, 24/7 상주 모드(봇주 전용)
         self.toggle_deaf_btn.disabled = not connected
         if self.player.deaf_mode:
-            self.toggle_deaf_btn.label = "🎧 헤드셋: 끔 (차단 On)"
+            self.toggle_deaf_btn.label = "🎧 헤드셋: 끔"
             self.toggle_deaf_btn.style = discord.ButtonStyle.secondary
         else:
-            self.toggle_deaf_btn.label = "🎧 헤드셋: 켬 (차단 Off)"
+            self.toggle_deaf_btn.label = "🎧 헤드셋: 켬"
             self.toggle_deaf_btn.style = discord.ButtonStyle.success
         self.refresh_audio_btn.disabled = not connected
 
@@ -1615,6 +1943,10 @@ class VoicePlayerControlView(core.SafeView):
         self.speed_toggle_btn.label = f"⚡ 배속: {speed}x"
         self.speed_toggle_btn.style = discord.ButtonStyle.primary if abs(speed - 1.0) > 0.01 else discord.ButtonStyle.secondary
         self.speed_toggle_btn.disabled = not connected
+
+        self.toggle_247_btn.label = "📻 24/7: ON" if stay_247 else "📻 24/7: OFF"
+        self.toggle_247_btn.style = discord.ButtonStyle.success if stay_247 else discord.ButtonStyle.secondary
+        self.toggle_247_btn.disabled = not (connected or stay_247)
 
     def build_embed(self) -> discord.Embed:
         self.update_components()
@@ -1632,6 +1964,8 @@ class VoicePlayerControlView(core.SafeView):
         deaf_badge = "🎧 **헤드셋:** `끄기 (차단 On)`" if self.player.deaf_mode else "🎧 **헤드셋:** `켜기 (차단 Off)`"
         speed = getattr(self.player, "playback_speed", 1.0)
         speed_badge = f"⚡ **배속:** `{speed}x`" if abs(speed - 1.0) > 0.01 else "⚡ **배속:** `1.0x (기본)`"
+        stay_247 = bool(getattr(self.player, "stay_247", False))
+        mode_247_line = "\n• 📻 **24/7 상주 모드:** `ON` *(👑 봇주 전용 · 무인 유지 · 재시작 시 현재 플리 자동 이어재생)*" if stay_247 else ""
 
         if not connected or not cur_t:
             embed = discord.Embed(
@@ -1639,7 +1973,7 @@ class VoicePlayerControlView(core.SafeView):
                 description=(
                     "음성채널 자동재생이 정지되었거나 완료되었습니다.\n"
                     "`/설정` (`🌐 일반` ➔ `💿 플레이리스트 스튜디오`)에서 **`[🔊 음성채널 순차 자동재생]`** 버튼을 누르면 언제든 다시 시작할 수 있습니다!"
-                ),
+                ) + ("\n\n📻 **24/7 상주 모드가 켜져 있습니다.** 잠시 후 자동으로 원래 플레이리스트로 재접속합니다." if stay_247 else ""),
                 color=discord.Color.dark_grey(),
                 timestamp=datetime.datetime.now(core.KST)
             )
@@ -1661,7 +1995,7 @@ class VoicePlayerControlView(core.SafeView):
                 f"{status_badge}  ·  **순번 `{cur_num:02d} / {total_cnt:02d}번 곡`**  ·  {deaf_badge}\n\n"
                 f"### 🎶 [{t_norm['title']}]({t_norm['url']})\n"
                 f"• 🎤 **아티스트:** `{t_norm['artist']}`  |  ⏱️ **길이:** `{dur_str}`\n"
-                f"• 🎛️ **반복 설정:** `{loop_desc}`  |  🔊 **볼륨:** `{vol_pct}%`  |  {speed_badge}{sleep_str}\n"
+                f"• 🎛️ **반복 설정:** `{loop_desc}`  |  🔊 **볼륨:** `{vol_pct}%`  |  {speed_badge}{sleep_str}{mode_247_line}\n"
                 f"• 🔗 **원본 바로가기:** [📺YouTube]({t_norm['yt_url']}) · [🟢Spotify]({t_norm['sp_url']}) · [☁️SoundCloud]({t_norm['sc_url']})"
             ),
             color=discord.Color.from_rgb(r, g, b),
@@ -1673,7 +2007,7 @@ class VoicePlayerControlView(core.SafeView):
         for offset in range(1, min(6, total_cnt)):
             nxt_idx = self.player.current_index + offset
             if nxt_idx >= total_cnt:
-                if self.player.loop_mode == "all":
+                if self.player.loop_mode == "all" or stay_247:
                     nxt_idx = nxt_idx % total_cnt
                 else:
                     break
@@ -1690,7 +2024,7 @@ class VoicePlayerControlView(core.SafeView):
         else:
             embed.add_field(
                 name="⏭️ 다음 자동재생 순번 대기열",
-                value="현재 곡이 마지막 순번입니다." if self.player.loop_mode == "off" else "단일 곡 반복 재생 중입니다.",
+                value="현재 곡이 마지막 순번입니다." if (self.player.loop_mode == "off" and not stay_247) else "단일 곡 반복 재생 중입니다.",
                 inline=False
             )
 
@@ -1733,9 +2067,10 @@ class VoicePlayerControlView(core.SafeView):
 
     @discord.ui.button(label="🔁 순환", style=discord.ButtonStyle.success, row=0)
     async def loop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        order = ["all", "one", "off"]
+        order = ["all", "one"] if getattr(self.player, "stay_247", False) else ["all", "one", "off"]
         cur = self.player.loop_mode
         self.player.loop_mode = order[(order.index(cur) + 1) % len(order)] if cur in order else "all"
+        self.player._schedule_persist_247()
         try:
             await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
         except Exception:
@@ -1743,8 +2078,15 @@ class VoicePlayerControlView(core.SafeView):
 
     @discord.ui.button(label="⏹️ 퇴장", style=discord.ButtonStyle.danger, row=0)
     async def stop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if getattr(self.player, "stay_247", False) and not await _is_bot_owner(interaction.client, interaction.user):
+            await core.safe_send_response(
+                interaction,
+                "🔒 현재 **👑 봇 주인이 24/7 상주 모드**를 켜두어 일반 멤버는 퇴장시킬 수 없습니다.",
+                ephemeral=True,
+            )
+            return
         await core.safe_defer(interaction)
-        await self.player.stop_and_disconnect()
+        await self.player.stop_and_disconnect(clear_247=True)
         try:
             await interaction.edit_original_response(embed=self.build_embed(), view=self)
         except Exception:
@@ -1769,10 +2111,18 @@ class VoicePlayerControlView(core.SafeView):
             random.shuffle(rest)
             self.player.tracks = ([cur_track] if cur_track else []) + rest
             self.player.current_index = 0
+            self.player._schedule_persist_247()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🌙 취침", style=discord.ButtonStyle.secondary, row=1)
     async def sleep_timer_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if getattr(self.player, "stay_247", False) and not await _is_bot_owner(interaction.client, interaction.user):
+            await core.safe_send_response(
+                interaction,
+                "🔒 현재 **👑 봇 주인이 24/7 상주 모드**를 켜두어 일반 멤버는 취침 타이머를 설정할 수 없습니다.",
+                ephemeral=True,
+            )
+            return
         # 클릭 시 0분(해제) -> 15분 -> 30분 -> 60분 순환
         now_ts = time.time()
         rem = (self.player.sleep_until_ts - now_ts) / 60.0 if (self.player.sleep_until_ts and self.player.sleep_until_ts > now_ts) else 0
@@ -1827,7 +2177,7 @@ class VoicePlayerControlView(core.SafeView):
         except Exception:
             pass
 
-    # Row 3: 헤드셋(청각 차단) 토글 및 오디오 스트림 재연결
+    # Row 3: 헤드셋(청각 차단) 토글, 오디오 재연결, 배속, 24/7 상주 모드(봇주 전용)
     @discord.ui.button(label="🎧 헤드셋: 끔", style=discord.ButtonStyle.secondary, row=3)
     async def toggle_deaf_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
@@ -1837,7 +2187,7 @@ class VoicePlayerControlView(core.SafeView):
         except Exception:
             pass
 
-    @discord.ui.button(label="🔄 오디오 재연결", style=discord.ButtonStyle.primary, emoji="🔄", row=3)
+    @discord.ui.button(label="🔄 재연결", style=discord.ButtonStyle.primary, row=3)
     async def refresh_audio_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         await self.player.skip_to(self.player.current_index)
@@ -1859,6 +2209,29 @@ class VoicePlayerControlView(core.SafeView):
         await self.player.set_playback_speed(nxt_speed)
         try:
             await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        except Exception:
+            pass
+
+    @discord.ui.button(label="📻 24/7: OFF", style=discord.ButtonStyle.secondary, row=3)
+    async def toggle_247_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await _is_bot_owner(interaction.client, interaction.user):
+            await core.safe_send_response(
+                interaction,
+                "🚨 **권한 부족:** 24/7 상주 모드 ON/OFF는 **👑 봇 주인(소유자) 전용**입니다.",
+                ephemeral=True,
+            )
+            return
+        await core.safe_defer(interaction)
+        if interaction.message and getattr(interaction.message, "id", None):
+            self.player.control_message = interaction.message
+            self.player._last_control_message_id = int(interaction.message.id)
+        ok, msg = await self.player.set_stay_247(not self.player.stay_247)
+        try:
+            await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        except Exception:
+            pass
+        try:
+            await interaction.followup.send(msg, ephemeral=True)
         except Exception:
             pass
 
@@ -1908,6 +2281,9 @@ async def start_voice_playlist_from_interaction(
     ctrl_view = VoicePlayerControlView(player)
     sent_msg = await interaction.followup.send(content=msg, embed=ctrl_view.build_embed(), view=ctrl_view, wait=True)
     player.control_message = sent_msg
+    if getattr(sent_msg, "id", None):
+        player._last_control_message_id = int(sent_msg.id)
+        player._schedule_persist_247()
 
 
 async def start_voice_playlist_from_context(
@@ -1950,6 +2326,9 @@ async def start_voice_playlist_from_context(
     ctrl_view = VoicePlayerControlView(player)
     sent_msg = await ctx.send(content=msg, embed=ctrl_view.build_embed(), view=ctrl_view)
     player.control_message = sent_msg
+    if getattr(sent_msg, "id", None):
+        player._last_control_message_id = int(sent_msg.id)
+        player._schedule_persist_247()
 
 
 # ==========================================
@@ -2145,7 +2524,8 @@ class MoodRadioView(core.SafeView):
             if player and player.is_playing_flag and player.voice_client and player.voice_client.is_connected():
                 cur = player.get_current_track()
                 cur_title = cur.get("title", "재생 중") if cur else "재생 중"
-                vc_status = f"🔊 재생 중: **{player.playlist_emoji} {player.playlist_name}** — `{cur_title}`"
+                badge_247 = " · `📻 24/7 ON`" if getattr(player, "stay_247", False) else ""
+                vc_status = f"🔊 재생 중: **{player.playlist_emoji} {player.playlist_name}** — `{cur_title}`{badge_247}"
 
         embed = discord.Embed(
             title=f"📻 무드 음성 라디오 — {st['emoji']} {st['name']}",
@@ -2201,16 +2581,25 @@ class MoodRadioView(core.SafeView):
         if not interaction.guild:
             await core.safe_send_response(interaction, "❌ 서버 채널에서만 음성 라디오를 제어할 수 있습니다.", ephemeral=True)
             return
-        can_ctrl, ctrl_err = _can_control_voice_player(interaction.user, interaction.guild)
-        if not can_ctrl:
-            await core.safe_send_response(interaction, ctrl_err, ephemeral=True)
-            return
         player = _VOICE_PLAYERS.get(interaction.guild.id)
+        if player and getattr(player, "stay_247", False):
+            if not await _is_bot_owner(interaction.client, interaction.user):
+                await core.safe_send_response(
+                    interaction,
+                    "🔒 현재 **👑 봇 주인이 24/7 상주 모드**를 켜두어 일반 멤버는 재생을 정지할 수 없습니다.",
+                    ephemeral=True,
+                )
+                return
+        else:
+            can_ctrl, ctrl_err = _can_control_voice_player(interaction.user, interaction.guild)
+            if not can_ctrl:
+                await core.safe_send_response(interaction, ctrl_err, ephemeral=True)
+                return
         if not player or not (player.voice_client and player.voice_client.is_connected()):
             await core.safe_send_response(interaction, "ℹ️ 현재 음성채널에서 재생 중인 라디오가 없습니다.", ephemeral=True)
             return
         await core.safe_defer(interaction, ephemeral=True)
-        await player.stop_and_disconnect()
+        await player.stop_and_disconnect(clear_247=True)
         await interaction.followup.send("⏹️ 음성 라디오 재생을 정지하고 음성채널에서 퇴장했습니다.", ephemeral=True)
 
 
@@ -3951,21 +4340,106 @@ class PlaylistStudioView(core.SafeView):
 class MusicCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self._startup_247_restored = False
+
+    async def cog_load(self):
+        if not self._voice_247_watchdog.is_running():
+            self._voice_247_watchdog.start()
+
+    async def cog_unload(self):
+        if self._voice_247_watchdog.is_running():
+            self._voice_247_watchdog.cancel()
+
+    @tasks.loop(seconds=45)
+    async def _voice_247_watchdog(self):
+        """봇 재시작 시 원래 재생 중이던 24/7 플리를 자동 재입장·이어재생하고, 일시 단절 시 자동 복구합니다."""
+        try:
+            all_cfgs = await asyncio.to_thread(core.get_all_voice_247_configs)
+        except Exception:
+            return
+        if not all_cfgs:
+            self._startup_247_restored = True
+            return
+
+        now_ts = time.time()
+        for gid_str, cfg in list(all_cfgs.items()):
+            try:
+                gid = int(gid_str)
+            except (TypeError, ValueError):
+                continue
+            guild = self.bot.get_guild(gid)
+            if not guild:
+                continue
+
+            player = get_voice_player(self.bot, guild)
+            if player._stop_requested:
+                continue
+            player.stay_247 = True
+            if now_ts < player._next_retry_at:
+                continue
+
+            vc = guild.voice_client
+            if not vc or not vc.is_connected():
+                ok, reason = await player.restore_from_247_config(cfg)
+                if ok:
+                    print(
+                        f"✅ [24/7 자동복구] guild={guild.name}({gid}) pl={player.playlist_name} idx={player.current_index + 1}/{len(player.tracks)}",
+                        flush=True,
+                    )
+                elif reason.startswith("permanent:"):
+                    print(f"⚠️ [24/7 자동해제] guild={guild.name}({gid}) reason={reason}", flush=True)
+                    player.stay_247 = False
+                    await asyncio.to_thread(core.clear_voice_247_config, gid)
+                else:
+                    player._reconnect_failures = min(player._reconnect_failures + 1, 6)
+                    backoff = min(300.0, 45.0 * (2 ** (player._reconnect_failures - 1)))
+                    player._next_retry_at = time.time() + backoff
+                    print(f"⚠️ [24/7 재접속 지연] guild={guild.name}({gid}) reason={reason} retry_in={int(backoff)}s", flush=True)
+            elif not vc.is_playing() and not vc.is_paused() and not player.is_paused_flag:
+                if player.tracks and (now_ts - player._last_play_attempt_at) >= 20.0:
+                    try:
+                        async with player._skip_lock:
+                            if not player._stop_requested and not vc.is_playing() and not vc.is_paused() and not player.is_paused_flag:
+                                await player._play_current_index(initial=False)
+                    except Exception as e:
+                        print(f"⚠️ [24/7 이어재생 워치독 예외] guild={gid}: {e}", flush=True)
+                elif not player.tracks:
+                    await player.restore_from_247_config(cfg)
+
+        self._startup_247_restored = True
+
+    @_voice_247_watchdog.before_loop
+    async def _before_voice_247_watchdog(self):
+        await self.bot.wait_until_ready()
+        await asyncio.sleep(5)
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
-        """음성채널에 봇 혼자만 남겨졌을 때 리소스를 아끼고 자동으로 재생을 정리하는 편의 기능"""
+        """음성채널에 봇 혼자만 남겨졌을 때 자동 퇴장(24/7 상주 모드 ON 시 유지) 및 채널 이동 추적"""
         if not member.guild:
             return
+        player = _VOICE_PLAYERS.get(member.guild.id)
+
+        # 봇 자신이 관리자에 의해 다른 음성채널로 이동된 경우 24/7 대상 채널도 함께 갱신
+        if self.bot.user and member.id == self.bot.user.id:
+            if player and player.stay_247 and after.channel is not None and before.channel != after.channel:
+                player._last_voice_channel_id = int(after.channel.id)
+                player._schedule_persist_247()
+            return
+
         vc = member.guild.voice_client
         if not vc or not vc.is_connected() or not vc.channel:
             return
-        # 봇 자신이 강제 퇴장/이동된 경우 또는 채널 내 일반 유저가 0명이 된 경우 체크
+        if player and getattr(player, "stay_247", False):
+            return
+
+        # 채널 내 일반 유저가 0명이 된 경우 5초 유예 후 자동 퇴장
         human_cnt = sum(1 for m in vc.channel.members if not m.bot)
         if human_cnt == 0:
-            player = _VOICE_PLAYERS.get(member.guild.id)
-            if player and player.is_playing_flag:
+            if player and player.is_playing_flag and not player.stay_247:
                 await asyncio.sleep(5)
+                if player.stay_247:
+                    return
                 vc_now = member.guild.voice_client
                 if vc_now and vc_now.is_connected() and vc_now.channel:
                     if sum(1 for m in vc_now.channel.members if not m.bot) == 0:
@@ -3980,7 +4454,7 @@ class MusicCog(commands.Cog):
     @app_commands.command(name="플레이리스트", description="유튜브·스포티파이·사운드클라우드로 나만의 플레이리스트를 만들고 음성채널 순차 자동재생 및 공유를 실행합니다.")
     @app_commands.autocomplete(플리선택=core.user_playlist_autocomplete)
     @app_commands.describe(
-        동작="(선택) 스튜디오 열기 / 음성채널 순차 자동재생 / 곡 추가 / 플리 링크 통째로 가져오기 / 새 플리 생성 / 채널 공유",
+        동작="(선택) 스튜디오 열기 / 음성채널 순차 자동재생 / 리모컨 / 24/7 상주(봇주) / 곡 추가 / 플리 링크 가져오기 / 새 플리 / 공유",
         플랫폼="(선택) 기본 스트리밍 플랫폼 선택 (유튜브 / 스포티파이 / 사운드클라우드)",
         플리선택="(선택) 열거나 음성채널에서 재생/추가/공유할 내 플레이리스트 선택",
         곡제목또는링크="(곡 추가/가져오기 시) 곡 제목 또는 유튜브·스포티파이·사클 플리 링크 / (새 플리 생성 시) 플레이리스트 이름",
@@ -3993,6 +4467,7 @@ class MusicCog(commands.Cog):
             app_commands.Choice(name="🔗 링크로 플레이리스트 통째로 가져오기", value="import_url"),
             app_commands.Choice(name="🔊 음성채널에서 플리 1번 곡부터 순번대로 자동재생 시작", value="voice_play"),
             app_commands.Choice(name="🎛️ 현재 음성채널 재생 리모컨/대기열 열기", value="voice_remote"),
+            app_commands.Choice(name="📻 24/7 상주 모드 켜기/끄기 (봇주 전용 · 재시작 자동복구)", value="voice_247"),
             app_commands.Choice(name="⏹️ 음성채널 자동재생 정지 및 퇴장", value="voice_stop"),
             app_commands.Choice(name="➕ 선택한 플레이리스트에 빠른 곡 추가", value="add_track"),
             app_commands.Choice(name="🗑️ 선택한 플레이리스트에서 곡 삭제하기", value="delete_tracks"),
@@ -4027,17 +4502,93 @@ class MusicCog(commands.Cog):
             await core.safe_send_response(interaction, embed=ctrl_view.build_embed(), view=ctrl_view)
             return
 
+        if mode == "voice_247":
+            if not interaction.guild:
+                await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
+                return
+            if not await _is_bot_owner(self.bot, interaction.user):
+                await core.safe_send_response(
+                    interaction,
+                    "🚨 **권한 부족:** 24/7 상주 모드 ON/OFF는 **👑 봇 주인(소유자) 전용**입니다.",
+                    ephemeral=True,
+                )
+                return
+            player = get_voice_player(self.bot, interaction.guild)
+            if player.stay_247:
+                await core.safe_defer(interaction, ephemeral=True)
+                _, msg = await player.set_stay_247(False)
+                await player.refresh_control_panel()
+                await interaction.followup.send(msg, ephemeral=True)
+                return
+
+            vc = interaction.guild.voice_client
+            if vc and vc.is_connected() and player.tracks:
+                await core.safe_defer(interaction, ephemeral=True)
+                _, msg = await player.set_stay_247(True)
+                await player.refresh_control_panel()
+                await interaction.followup.send(msg, ephemeral=True)
+                return
+
+            # 재생 중이 아니라면, 봇 주인이 음성채널에 입장해 있고 플리에 곡이 있을 때 바로 재생 + 24/7 ON
+            voice_state = interaction.user.voice if isinstance(interaction.user, discord.Member) else None
+            if voice_state and voice_state.channel:
+                data = await asyncio.to_thread(core.load_data)
+                prof = core.ensure_user_profile(data, target_user.id, target_user.display_name)
+                pls = core.ensure_user_playlists(prof, target_user.display_name)
+                selected_pl = next((p for p in pls if p["id"] == 플리선택 or p["name"] == 플리선택), pls[0])
+                if selected_pl.get("tracks"):
+                    await core.safe_defer(interaction)
+                    ok, start_msg = await player.start_playlist(
+                        voice_channel=voice_state.channel,
+                        text_channel=interaction.channel,
+                        owner=target_user,
+                        playlist_data=selected_pl,
+                        start_index=0,
+                    )
+                    if not ok:
+                        await interaction.followup.send(f"❌ **음성채널 재생 실패:** {start_msg}", ephemeral=True)
+                        return
+                    _, msg_247 = await player.set_stay_247(True)
+                    ctrl_view = VoicePlayerControlView(player)
+                    sent_msg = await interaction.followup.send(
+                        content=f"{start_msg}\n{msg_247}",
+                        embed=ctrl_view.build_embed(),
+                        view=ctrl_view,
+                        wait=True,
+                    )
+                    player.control_message = sent_msg
+                    if getattr(sent_msg, "id", None):
+                        player._last_control_message_id = int(sent_msg.id)
+                        player._schedule_persist_247()
+                    return
+
+            await core.safe_send_response(
+                interaction,
+                "❌ 먼저 음성채널에 입장해 플레이리스트를 재생 중인 상태에서 24/7 상주 모드를 켜 주세요!",
+                ephemeral=True,
+            )
+            return
+
         if mode == "voice_stop":
             if not interaction.guild:
                 await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
                 return
-            can_ctrl, ctrl_err = _can_control_voice_player(interaction.user, interaction.guild)
-            if not can_ctrl:
-                await core.safe_send_response(interaction, ctrl_err, ephemeral=True)
-                return
-            await core.safe_defer(interaction)
             player = get_voice_player(self.bot, interaction.guild)
-            await player.stop_and_disconnect()
+            if getattr(player, "stay_247", False):
+                if not await _is_bot_owner(self.bot, interaction.user):
+                    await core.safe_send_response(
+                        interaction,
+                        "🔒 현재 **👑 봇 주인이 24/7 상주 모드**를 켜두어 일반 멤버는 퇴장시킬 수 없습니다.",
+                        ephemeral=True,
+                    )
+                    return
+            else:
+                can_ctrl, ctrl_err = _can_control_voice_player(interaction.user, interaction.guild)
+                if not can_ctrl:
+                    await core.safe_send_response(interaction, ctrl_err, ephemeral=True)
+                    return
+            await core.safe_defer(interaction)
+            await player.stop_and_disconnect(clear_247=True)
             await interaction.followup.send("⏹️ 음성채널 플레이리스트 자동재생을 정지하고 퇴장했습니다.")
             return
 

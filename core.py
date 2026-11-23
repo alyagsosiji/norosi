@@ -3413,6 +3413,7 @@ DEFAULT_CONFIG = {
         "terminal_log_channel_id": None,
         "emoji_upscale_guilds": {},
         "emoji_upscale_messages": {},
+        "voice_247_guilds": {},
     },
     "ddays": {},
     "music_prefs": {
@@ -3969,6 +3970,8 @@ def normalize_data(data):
         data["settings"]["emoji_upscale_guilds"] = coerce_dict_like(data["settings"].get("emoji_upscale_guilds"))
     if not isinstance(data["settings"].get("emoji_upscale_messages"), dict):
         data["settings"]["emoji_upscale_messages"] = coerce_dict_like(data["settings"].get("emoji_upscale_messages"))
+    if not isinstance(data["settings"].get("voice_247_guilds"), dict):
+        data["settings"]["voice_247_guilds"] = coerce_dict_like(data["settings"].get("voice_247_guilds"))
 
     if "ddays" not in data or not isinstance(data["ddays"], dict):
         data["ddays"] = coerce_dict_like(data.get("ddays"))
@@ -4673,6 +4676,55 @@ def remove_emoji_upscale_message(message_id: int | str | None):
         if key in msg_map:
             del msg_map[key]
             save_data(data)
+
+
+def get_voice_247_config(guild_id: int | str | None, data: dict | None = None) -> Optional[dict]:
+    """서버별 24/7 음성 플레이리스트 상주 설정을 조회합니다 (비활성/미설정 시 None)."""
+    if not guild_id:
+        return None
+    d = data if data is not None else get_cached_data_ro()
+    guilds_map = safe_get_dict(d, "settings", "voice_247_guilds")
+    cfg = guilds_map.get(str(guild_id))
+    if isinstance(cfg, dict) and cfg.get("enabled"):
+        return copy.deepcopy(cfg)
+    return None
+
+
+def get_all_voice_247_configs(data: dict | None = None) -> dict[str, dict]:
+    """활성화된 모든 서버의 24/7 음성 플레이리스트 상주 설정 사본을 반환합니다."""
+    d = data if data is not None else get_cached_data_ro()
+    guilds_map = safe_get_dict(d, "settings", "voice_247_guilds")
+    result: dict[str, dict] = {}
+    for gid_str, cfg in guilds_map.items():
+        if isinstance(cfg, dict) and cfg.get("enabled"):
+            result[str(gid_str)] = copy.deepcopy(cfg)
+    return result
+
+
+def set_voice_247_config(guild_id: int | str, config: dict) -> dict:
+    """서버별 24/7 음성 플레이리스트 상주 상태 및 현재 재생 플리 스냅샷을 저장합니다."""
+    with _DATA_LOCK:
+        data = load_data()
+        guilds_map = ensure_dict_path(data, "settings", "voice_247_guilds")
+        entry = copy.deepcopy(config) if isinstance(config, dict) else {}
+        entry["enabled"] = True
+        entry["updated_at"] = datetime.datetime.now(KST).isoformat()
+        guilds_map[str(guild_id)] = entry
+        save_data(data)
+        return copy.deepcopy(entry)
+
+
+def clear_voice_247_config(guild_id: int | str) -> bool:
+    """서버별 24/7 음성 플레이리스트 상주 설정을 해제(삭제)합니다."""
+    with _DATA_LOCK:
+        data = load_data()
+        guilds_map = ensure_dict_path(data, "settings", "voice_247_guilds")
+        key = str(guild_id)
+        existed = key in guilds_map
+        if existed:
+            del guilds_map[key]
+            save_data(data)
+        return existed
 
 
 
