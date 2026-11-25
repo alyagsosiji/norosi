@@ -3134,6 +3134,26 @@ class DDayCog(commands.Cog):
         msg = await ctx.send(embed=view.build_embed(), view=view)
         view.message = msg
 
+    @commands.command(name="출석", aliases=["출첵", "출석체크"])
+    async def prefix_attendance(self, ctx: commands.Context):
+        class _CtxShim:
+            def __init__(self, c: commands.Context):
+                self.guild_id = c.guild.id if c.guild else 0
+                self.guild = c.guild
+                self.user = c.author
+
+        embed, file_obj, view = await execute_and_build_attendance_response(_CtxShim(ctx), self.bot)  # type: ignore[arg-type]
+        if file_obj:
+            await ctx.send(embed=embed, file=file_obj, view=view)
+        else:
+            await ctx.send(embed=embed, view=view)
+
+    @commands.command(name="알림", aliases=["알림예약", "리마인더"])
+    async def prefix_reminder(self, ctx: commands.Context):
+        data = await asyncio.to_thread(core.load_data)
+        view = ReminderHubView(ctx.author, ctx.channel.id if ctx.channel else None, ctx.guild.id if ctx.guild else None, data)
+        await ctx.send(embed=view.build_embed(), view=view)
+
     @app_commands.command(name="비밀디데이", description="나만 볼 수 있는 비밀 디데이와 타임캡슐(목표일 오전 9시 DM 발송)을 관리합니다.")
     @app_commands.autocomplete(이름=core.secret_dday_name_autocomplete, 날짜=core.date_autocomplete)
     @app_commands.describe(
@@ -4331,12 +4351,18 @@ class ReminderAddModal(core.SafeModal, title="⏰ 새 스마트 알림 예약"):
 
 
 class ReminderHubView(core.SafeView):
-    def __init__(self, user: discord.User, channel_id: int | None, guild_id: int | None, data: dict):
+    def __init__(
+        self,
+        user: discord.abc.User | None = None,
+        channel_id: int | None = None,
+        guild_id: int | None = None,
+        data: dict | None = None,
+    ):
         super().__init__(timeout=300)
         self.user = user
         self.channel_id = channel_id
         self.guild_id = guild_id
-        self.data = data
+        self.data = data if isinstance(data, dict) else core.get_cached_data()
         self.update_select()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -4349,9 +4375,13 @@ class ReminderHubView(core.SafeView):
                 ephemeral=True,
             )
             return False
+        if self.user is None:
+            self.user = interaction.user
         return True
 
     def _get_user_reminders(self) -> list[dict]:
+        if not self.user:
+            return []
         all_rems = self.data.get("reminders", [])
         if not isinstance(all_rems, list):
             all_rems = []
@@ -4364,6 +4394,7 @@ class ReminderHubView(core.SafeView):
         if not my_rems:
             self.cancel_select.options = [discord.SelectOption(label="대기 중인 예약 알림이 없습니다", value="NONE")]
             self.cancel_select.disabled = True
+            self.clear_all_btn.disabled = True
         else:
             opts = []
             for r in my_rems[:25]:
@@ -4371,10 +4402,12 @@ class ReminderHubView(core.SafeView):
                 opts.append(discord.SelectOption(label=label, value=r.get("id", "NONE"), emoji="⏰"))
             self.cancel_select.options = opts
             self.cancel_select.disabled = False
+            self.clear_all_btn.disabled = False
 
     def build_embed(self) -> discord.Embed:
         my_rems = self._get_user_reminders()
         now_ts = time.time()
+        uname = self.user.display_name if self.user else "유저"
 
         lines = []
         for idx, r in enumerate(my_rems[:10], start=1):
@@ -4390,7 +4423,7 @@ class ReminderHubView(core.SafeView):
         list_str = "\n\n".join(lines) if lines else "현재 예약된 개인 알림이 없습니다.\n아래 **[➕ 새 알림 예약하기]** 버튼을 눌러 간편하게 등록해 보세요!"
 
         embed = discord.Embed(
-            title=f"⏰ {self.user.display_name}님의 스마트 개인 알리미 관리 보드",
+            title=f"⏰ {uname}님의 스마트 개인 알리미 관리 보드",
             description=(
                 "원하는 상대 시간(`30분 뒤`, `2시간 후`)이나 지정 시각(`15:30`, `오후 8시`)을 입력하면\n"
                 "정확한 시각에 **개인 DM 및 채널 멘션**으로 잊지 않게 챙겨드립니다!\n"
@@ -4400,7 +4433,7 @@ class ReminderHubView(core.SafeView):
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST)
         )
-        embed.set_footer(text="하단 버튼으로 새 알림을 추가하거나 드롭다운에서 기존 예약을 취소할 수 있습니다.")
+        embed.set_footer(text="하단 버튼으로 새 알림 추가 · 새로고침 · 전체 비우기를 실행할 수 있습니다.")
         return embed
 
     @discord.ui.select(
@@ -4430,12 +4463,43 @@ class ReminderHubView(core.SafeView):
         data = await asyncio.to_thread(_cancel_rem)
         self.data = data
         self.update_select()
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="➕ 새 알림 예약하기", style=discord.ButtonStyle.primary, row=1)
     async def add_reminder_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(ReminderAddModal(self))
 
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=1)
+    async def refresh_rem_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.data = await asyncio.to_thread(core.load_data)
+        self.update_select()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🗑️ 내 예약 전체 비우기", style=discord.ButtonStyle.danger, row=1)
+    async def clear_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction, ephemeral=True)
+        uid = interaction.user.id
+
+        def _clear_mine() -> tuple[int, dict]:
+            with core._DATA_LOCK:
+                data = core.load_data()
+                before_list = data.get("reminders", [])
+                if not isinstance(before_list, list):
+                    before_list = []
+                kept = [r for r in before_list if not (isinstance(r, dict) and r.get("user_id") == uid)]
+                removed_cnt = len(before_list) - len(kept)
+                data["reminders"] = kept
+                core.save_data(data)
+                return removed_cnt, data
+
+        removed_cnt, data = await asyncio.to_thread(_clear_mine)
+        self.data = data
+        self.update_select()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+        await interaction.followup.send(f"🗑️ 대기 중이던 내 예약 알림 `{removed_cnt}건`을 모두 비웠습니다.", ephemeral=True)
+
 
 async def setup(bot):
     await bot.add_cog(DDayCog(bot))
+

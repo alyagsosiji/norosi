@@ -845,12 +845,46 @@ class MiniBattleHubView(core.SafeView):
 
 
 # ==========================================
-# Cog 등록
+# Cog 등록 & 채팅창 빠른 실행 단축어
 # ==========================================
 class RoutineCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    @commands.command(name="일일루틴", aliases=["루틴", "일퀘"])
+    async def prefix_daily_routine(self, ctx: commands.Context):
+        gid = ctx.guild.id if ctx.guild else 0
+        st = await asyncio.to_thread(
+            routine_core.get_daily_routine_status, gid, ctx.author.id, ctx.author.display_name
+        )
+        view = DailyRoutineHubView(self.bot, ctx.author, gid, status=st)
+        await ctx.send(embed=view.build_embed(), view=view)
+
+    @commands.command(name="주간미션", aliases=["주간퀘"])
+    async def prefix_weekly_missions(self, ctx: commands.Context):
+        gid = ctx.guild.id if ctx.guild else 0
+        view = WeeklyMissionView(ctx.author, gid)
+        await ctx.send(embed=view.build_embed(), view=view)
+
+    @commands.command(name="환전", aliases=["환전소", "골드환전"])
+    async def prefix_currency_exchange(self, ctx: commands.Context):
+        gid = ctx.guild.id if ctx.guild else 0
+        view = CurrencyExchangeView(ctx.author, gid)
+        await ctx.send(embed=view.build_embed(), view=view)
+
+    @commands.command(name="쇼케이스", aliases=["수집품", "자랑"])
+    async def prefix_showcase(self, ctx: commands.Context, 유저: Optional[discord.Member] = None):
+        target = 유저 or ctx.author
+        gid = ctx.guild.id if ctx.guild else 0
+        view = ShowcaseView(target, gid)
+        await ctx.send(embed=view.build_embed(), view=view)
+
+    @commands.command(name="초성퀴즈", aliases=["초성", "미니대전"])
+    async def prefix_mini_battle(self, ctx: commands.Context):
+        view = MiniBattleHubView(ctx.author)
+        await ctx.send(embed=view.build_embed(), view=view)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(RoutineCog(bot))
+

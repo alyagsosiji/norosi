@@ -7943,6 +7943,102 @@ class GachaCog(commands.Cog):
         else:
             await interaction.followup.send(embed=embed, view=view, wait=True)
 
+    # ==========================================
+    # ⚡ 채팅창 빠른 실행 단축어 (!프세카, !프세카등록, !보관함, !프세카도감, !세카이라이브, !마이세카이)
+    # ==========================================
+    @commands.command(name="프세카등록", aliases=["프로세카등록", "가챠등록"])
+    async def prefix_proseka_register(self, ctx: commands.Context):
+        gid = ctx.guild.id if ctx.guild else 0
+        already = await asyncio.to_thread(core.is_proseka_gacha_registered, gid, ctx.author.id)
+        if already:
+            await ctx.send(
+                f"✅ **{ctx.author.display_name}**님은 이미 이 서버에 프로세카 가챠 등록이 완료되어 있습니다! (`!프세카` 또는 `/설정`에서 뽑기를 즐겨보세요)"
+            )
+            return
+        embed = discord.Embed(
+            title="🎤 프로젝트 세카이 가챠 사전 등록 안내",
+            description=(
+                "가챠를 시작하기 전에 **최초 1회 프로세카 가챠 등록**이 필요합니다!\n"
+                "아래 **`[✨ 프로세카 등록 & ★1 전종 받기]`** 버튼을 누르면 **전 캐릭터 ★1 카드 26종**이 기본 지급되고 모든 가챠가 해금됩니다."
+            ),
+            color=discord.Color.from_rgb(0, 204, 221),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        await ctx.send(embed=embed, view=ProsekaRegisterView(ctx.author, guild_id=gid))
+
+    @commands.command(name="프세카", aliases=["프로세카", "가챠", "뽑기", "프세카뽑기"])
+    async def prefix_proseka_hub(self, ctx: commands.Context):
+        gid = ctx.guild.id if ctx.guild else 0
+        registered = await asyncio.to_thread(core.is_proseka_gacha_registered, gid, ctx.author.id)
+        if not registered:
+            embed = discord.Embed(
+                title="🔒 프로세카 가챠 사전 등록 필요",
+                description=(
+                    "아직 이 서버에서 **프로세카 가챠 등록**을 하지 않으셨습니다!\n"
+                    "아래 버튼을 눌러 **★1 기본 카드 26종**을 지급받고 바로 가챠를 시작하세요."
+                ),
+                color=discord.Color.gold(),
+                timestamp=datetime.datetime.now(core.KST),
+            )
+            await ctx.send(embed=embed, view=ProsekaRegisterView(ctx.author, guild_id=gid))
+            return
+
+        data = await asyncio.to_thread(core.load_data)
+        pickup_cfg = core.as_dict(data.get("gacha_pickup")) or core.DEFAULT_CONFIG["gacha_pickup"]
+        banner_key = core.get_active_proseka_banner(pickup_cfg)
+        b_cfg = core.BANNER_CONFIGS.get(banner_key, core.BANNER_CONFIGS["normal"])
+        pity_info = core.get_user_gacha_pity_state(gid, ctx.author.id, data=data)
+        prof = core.safe_get_dict(data, "user_profiles", str(ctx.author.id))
+        crystals = int(prof.get("crystals", 0) or 0)
+
+        embed = discord.Embed(
+            title=f"🎰 {b_cfg['name']} — 빠른 뽑기 허브",
+            description=(
+                f"• **🎯 현재 픽업:** `{core.truncate_text(core.format_pickup_summary(pickup_cfg), 90)}`\n"
+                f"• **💎 보유 크리스탈:** `{crystals:,}💎`  ·  **🎫 가챠 배지:** `{pity_info.get('badges', 0)}/200`\n"
+                f"• **📊 보너스 게이지:** `{pity_info.get('bonus_gauge', 0.0):.1f}/100`\n\n"
+                "아래 버튼으로 **1회 단차 / 10연차 / 스킵 모드 전환**을 즉시 실행할 수 있습니다!"
+            ),
+            color=discord.Color.from_rgb(*b_cfg.get("color", (0, 204, 221))),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        view = GachaPullAgainView(ctx.author, banner_type=banner_key, skip_anim=False, guild_id=gid, pity_info=pity_info)
+        await ctx.send(embed=embed, view=view)
+
+    @commands.command(name="보관함", aliases=["프세카보관함", "카드보관함"])
+    async def prefix_proseka_inventory(self, ctx: commands.Context, 유저: Optional[discord.Member] = None):
+        target = 유저 or ctx.author
+        gid = ctx.guild.id if ctx.guild else 0
+        data = await asyncio.to_thread(core.load_data)
+        user_cards_dict = core.safe_get_dict(data, "gacha_users", str(gid), str(target.id), "cards")
+        view = MyInventoryView(
+            target,
+            [c for c in user_cards_dict.values() if isinstance(c, dict)],
+            items_per_page=10,
+            guild_id=gid,
+        )
+        await ctx.send(embed=view.build_embed(), view=view)
+
+    @commands.command(name="프세카도감", aliases=["프로세카도감", "카드도감"])
+    async def prefix_proseka_pokedex(self, ctx: commands.Context):
+        gid = ctx.guild.id if ctx.guild else 0
+        view = CardPokedexView(ctx.author, guild_id=gid)
+        await ctx.send(embed=view.build_embed(), view=view)
+
+    @commands.command(name="세카이라이브", aliases=["협동라이브"])
+    async def prefix_sekai_live(self, ctx: commands.Context):
+        gid = ctx.guild.id if ctx.guild else 0
+        view = SekaiLiveView(ctx.author, guild_id=gid)
+        await ctx.send(embed=view.build_embed(), view=view)
+
+    @commands.command(name="마이세카이", aliases=["마세카", "미니룸"])
+    async def prefix_my_sekai(self, ctx: commands.Context, 유저: Optional[discord.Member] = None):
+        target = 유저 or ctx.author
+        gid = ctx.guild.id if ctx.guild else 0
+        data = await asyncio.to_thread(core.load_data)
+        view = MySekaiHubView(ctx.author, target, gid, data)
+        await ctx.send(embed=view.build_embed(), view=view)
+
 
 class MySekaiGreetingModal(core.SafeModal, title="🪧 마이세카이 방 한줄 소개글 변경"):
     greeting_input = discord.ui.TextInput(
@@ -7958,12 +8054,20 @@ class MySekaiGreetingModal(core.SafeModal, title="🪧 마이세카이 방 한�
 
     async def on_submit(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        profile = core.ensure_user_profile(data, self.hub_view.owner.id, self.hub_view.owner.display_name)
-        ms = core.ensure_my_sekai(profile)
-        ms["greeting"] = self.greeting_input.value.strip() or "나만의 아늑한 마이세카이에 오신 것을 환영합니다! ✨"
-        await asyncio.to_thread(core.save_data, data)
-        self.hub_view.data = data
+        new_greeting = self.greeting_input.value.strip() or "나만의 아늑한 마이세카이에 오신 것을 환영합니다! ✨"
+        owner_id = self.hub_view.owner.id
+        owner_name = self.hub_view.owner.display_name
+
+        def _save_greeting() -> dict:
+            with core._DATA_LOCK:
+                data = core.load_data()
+                profile = core.ensure_user_profile(data, owner_id, owner_name)
+                ms = core.ensure_my_sekai(profile)
+                ms["greeting"] = new_greeting
+                core.save_data(data)
+                return data
+
+        self.hub_view.data = await asyncio.to_thread(_save_greeting)
         await interaction.edit_original_response(embed=self.hub_view.build_embed(), view=self.hub_view)
 
 
@@ -8131,37 +8235,50 @@ class MySekaiHubView(core.SafeView):
             return
 
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        profile = core.ensure_user_profile(data, self.owner.id, self.owner.display_name)
-        ms = core.ensure_my_sekai(profile)
-        owned_themes = ms.get("owned_themes")
-        if not isinstance(owned_themes, list):
-            owned_themes = ["default"]
-            ms["owned_themes"] = owned_themes
+        owner_id = self.owner.id
+        owner_name = self.owner.display_name
 
-        if t_key in owned_themes:
-            ms["theme"] = t_key
-            await asyncio.to_thread(core.save_data, data)
-            self.data = data
-            self.status_notice = f"✅ 배경 테마를 **{t_info['name']}**(으)로 변경했습니다!"
-            await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        def _apply_theme():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                profile = core.ensure_user_profile(data, owner_id, owner_name)
+                ms = core.ensure_my_sekai(profile)
+                owned_themes = ms.get("owned_themes")
+                if not isinstance(owned_themes, list):
+                    owned_themes = ["default"]
+                    ms["owned_themes"] = owned_themes
+
+                if t_key in owned_themes:
+                    ms["theme"] = t_key
+                    core.save_data(data)
+                    return True, f"✅ 배경 테마를 **{t_info['name']}**(으)로 변경했습니다!", data
+
+                cost = t_info["cost"]
+                cur_crystals = int(profile.get("crystals", 0) or 0)
+                if cur_crystals < cost:
+                    return (
+                        False,
+                        f"❌ **{t_info['name']}** 테마 구매에 필요한 크리스탈이 부족합니다! (필요: `{cost:,}💎` / 보유: `{cur_crystals:,}💎`)",
+                        data,
+                    )
+
+                profile["crystals"] = cur_crystals - cost
+                owned_themes.append(t_key)
+                ms["theme"] = t_key
+                core.save_data(data)
+                return (
+                    True,
+                    f"🎉 **{t_info['name']}** 테마를 구매하고 즉시 적용했습니다! (`-{cost:,}💎` · 출석 보너스 `+{t_info['bonus']}💎/일`)",
+                    data,
+                )
+
+        ok, notice_or_err, updated_data = await asyncio.to_thread(_apply_theme)
+        self.data = updated_data
+        if not ok:
+            await interaction.followup.send(notice_or_err, ephemeral=True)
             return
-
-        cost = t_info["cost"]
-        cur_crystals = profile.get("crystals", 0)
-        if cur_crystals < cost:
-            await interaction.followup.send(
-                f"❌ **{t_info['name']}** 테마 구매에 필요한 크리스탈이 부족합니다! (필요: `{cost:,}💎` / 보유: `{cur_crystals:,}💎`)",
-                ephemeral=True
-            )
-            return
-
-        profile["crystals"] = cur_crystals - cost
-        owned_themes.append(t_key)
-        ms["theme"] = t_key
-        await asyncio.to_thread(core.save_data, data)
-        self.data = data
-        self.status_notice = f"🎉 **{t_info['name']}** 테마를 구매하고 즉시 적용했습니다! (`-{cost:,}💎` · 출석 보너스 `+{t_info['bonus']}💎/일`)"
+        self.status_notice = notice_or_err
+        self._refresh_components()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     @discord.ui.select(
@@ -8184,39 +8301,52 @@ class MySekaiHubView(core.SafeView):
             return
 
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
-        profile = core.ensure_user_profile(data, self.owner.id, self.owner.display_name)
-        ms = core.ensure_my_sekai(profile)
-        furn_list = ms.get("furniture")
-        if not isinstance(furn_list, list):
-            furn_list = []
-            ms["furniture"] = furn_list
+        owner_id = self.owner.id
+        owner_name = self.owner.display_name
 
-        if f_key in furn_list:
-            await interaction.followup.send(
-                f"ℹ️ **{f_info['name']}** 가구는 이미 마이세카이에 배치되어 출석 보너스(`+{f_info['bonus']}💎/일`)를 제공하고 있습니다!",
-                ephemeral=True
-            )
+        def _apply_furniture():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                profile = core.ensure_user_profile(data, owner_id, owner_name)
+                ms = core.ensure_my_sekai(profile)
+                furn_list = ms.get("furniture")
+                if not isinstance(furn_list, list):
+                    furn_list = []
+                    ms["furniture"] = furn_list
+
+                if f_key in furn_list:
+                    return (
+                        False,
+                        f"ℹ️ **{f_info['name']}** 가구는 이미 마이세카이에 배치되어 출석 보너스(`+{f_info['bonus']}💎/일`)를 제공하고 있습니다!",
+                        data,
+                    )
+
+                cost = f_info["cost"]
+                cur_crystals = int(profile.get("crystals", 0) or 0)
+                if cur_crystals < cost:
+                    return (
+                        False,
+                        f"❌ **{f_info['name']}** 구매에 필요한 크리스탈이 부족합니다! (필요: `{cost:,}💎` / 보유: `{cur_crystals:,}💎`)",
+                        data,
+                    )
+
+                profile["crystals"] = cur_crystals - cost
+                furn_list.append(f_key)
+                core.save_data(data)
+                total_bonus = core.get_my_sekai_daily_bonus(profile)
+                return (
+                    True,
+                    f"🎊 **{f_info['name']}** 가구를 배치했습니다! (`-{cost:,}💎` · 일일 출석 이자 총 **`+{total_bonus}💎/일`**)",
+                    data,
+                )
+
+        ok, notice_or_err, updated_data = await asyncio.to_thread(_apply_furniture)
+        self.data = updated_data
+        if not ok:
+            await interaction.followup.send(notice_or_err, ephemeral=True)
             return
-
-        cost = f_info["cost"]
-        cur_crystals = profile.get("crystals", 0)
-        if cur_crystals < cost:
-            await interaction.followup.send(
-                f"❌ **{f_info['name']}** 구매에 필요한 크리스탈이 부족합니다! (필요: `{cost:,}💎` / 보유: `{cur_crystals:,}💎`)",
-                ephemeral=True
-            )
-            return
-
-        profile["crystals"] = cur_crystals - cost
-        furn_list.append(f_key)
-        await asyncio.to_thread(core.save_data, data)
-        self.data = data
-        total_bonus = core.get_my_sekai_daily_bonus(profile)
-        self.status_notice = (
-            f"🎊 **{f_info['name']}** 가구를 배치했습니다! "
-            f"(`-{cost:,}💎` · 일일 출석 이자 총 **`+{total_bonus}💎/일`**)"
-        )
+        self.status_notice = notice_or_err
+        self._refresh_components()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🌸 특훈 전", style=discord.ButtonStyle.secondary, row=2)

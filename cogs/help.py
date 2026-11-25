@@ -63,9 +63,9 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "name": "/로그채널설정",
         "perm": "admin",
         "settings_path": "⚙️ 고급 2p > 📜 실시간 감사로그",
-        "desc": "[서버 관리자] 메시지 삭제·수정, 멤버 입퇴장, 음성방 이동 등 7대 실시간 감사 로그 채널 설정",
-        "params": "채널: [#채널] 상태: [활성화/비활성화]",
-        "example": "/로그채널설정 채널:#서버-로그 상태:활성화",
+        "desc": "[서버 관리자] 메시지 삭제·수정, 멤버 입퇴장, 음성방 이동 등 7대 실시간 감사 로그 채널 및 상세/요약 버전 설정",
+        "params": "채널: [#채널] 상태: [활성화/비활성화] 버전: [상세/요약]",
+        "example": "/로그채널설정 채널:#서버-로그 상태:활성화 버전:요약",
         "source": "cogs/logger.py",
     },
     {
@@ -162,9 +162,9 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "name": "/터미널로그채널",
         "perm": "owner",
         "settings_path": "⚙️ 고급 4p > 🖥️ 터미널 로그 채널",
-        "desc": "[봇 주인 전용] 호스트 서버 실시간 콘솔 출력(stdout/stderr)을 전송할 디스코드 채널 지정 또는 해제",
-        "params": "채널: [#채널(선택, 미입력 시 해제)]",
-        "example": "/터미널로그채널 채널:#터미널-로그",
+        "desc": "[봇 주인 전용] 호스트 서버 실시간 콘솔(시스템) 로그를 상세 버전 또는 요약 버전으로 전송할 채널 지정·전환·해제",
+        "params": "채널: [#채널(선택)] 버전: [상세/요약] (또는 `!터미널로그 #채널 [상세|요약]`)",
+        "example": "!터미널로그 #터미널-로그 요약",
         "source": "bot.py",
     },
     {
@@ -1328,9 +1328,9 @@ COMMAND_CATALOG: List[Dict[str, Any]] = [
         "name": "/봇상태",
         "perm": "owner",
         "settings_path": "⚙️ 고급 4p > 🤖 [봇주인] 봇 상태 진단",
-        "desc": "[봇 주인 전용] 봇 호스트 시스템 리소스(RAM RSS, CPU 로드, 디스크 용량, 핑, 업타임, 보안) 실시간 확인",
-        "params": "없음",
-        "example": "/설정 > 고급 4p > [봇주인] 봇 상태 진단",
+        "desc": "[봇 주인 전용] 봇 호스트 시스템 리소스(RAM, CPU, 디스크, 핑, 업타임, 보안) 상태를 상세 버전 또는 요약 버전으로 진단",
+        "params": "버전: [상세/요약(선택)] (뷰 내 상세/요약 전환 버튼 제공)",
+        "example": "/봇상태 버전:요약",
         "source": "cogs/stats.py",
     },
 
@@ -1767,6 +1767,75 @@ class HelpCategorySelect(discord.ui.Select):
         await core.safe_edit_response(interaction, embed=embed, view=self.parent_view)
 
 
+def _parse_settings_path_to_tab_page(settings_path: str) -> tuple[str, int]:
+    """COMMAND_CATALOG의 settings_path(예: '👤 개인 4p > ...')를 (/설정 카테고리, 0-based 페이지)로 변환합니다."""
+    raw = str(settings_path or "")
+    cat_map = [
+        ("일반", "general"),
+        ("고급", "advanced"),
+        ("미니게임", "minigame"),
+        ("개인", "personal"),
+    ]
+    matched_cat = "home"
+    for ko_kw, cat_val in cat_map:
+        if ko_kw in raw:
+            matched_cat = cat_val
+            break
+    if matched_cat == "home":
+        return "home", 0
+    m = re.search(r"(\d+)\s*p", raw, flags=re.IGNORECASE)
+    page_idx = max(0, int(m.group(1)) - 1) if m else 0
+    return matched_cat, page_idx
+
+
+class HelpPageQuickOpenSelect(discord.ui.Select):
+    """현재 도움말 페이지에 표시된 항목의 /설정 위치로 1클릭 점프하는 드롭다운"""
+
+    def __init__(self, parent_view: "HelpCategoryView", page_items: list[dict]):
+        self.parent_view = parent_view
+        self._items = page_items[:25]
+        opts: list[discord.SelectOption] = []
+        for idx, it in enumerate(self._items):
+            nm = str(it.get("name") or "기능").lstrip("/")
+            spath = str(it.get("settings_path") or "/설정 홈").replace("`", "")
+            opts.append(
+                discord.SelectOption(
+                    label=f"{nm} — 바로 열기"[:95],
+                    value=str(idx),
+                    description=f"📍 {spath}"[:95],
+                    emoji="⚡",
+                )
+            )
+        super().__init__(
+            placeholder="⚡ 현재 페이지 기능을 /설정 해당 페이지로 바로 열기...",
+            min_values=1,
+            max_values=1,
+            options=opts,
+            row=4,
+            custom_id="norosi:HelpCategoryView:page_quick_open",
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        raw_idx = self.values[0]
+        if not raw_idx.isdigit() or not (0 <= int(raw_idx) < len(self._items)):
+            await core.safe_defer(interaction)
+            return
+        item = self._items[int(raw_idx)]
+        target_cat, target_page = _parse_settings_path_to_tab_page(item.get("settings_path", ""))
+        await core.safe_defer(interaction, ephemeral=True)
+        bot_ref = self.parent_view.bot_instance or interaction.client
+        data = await asyncio.to_thread(core.load_data)
+        from cogs.dashboard import MasterDashboardView
+        view = MasterDashboardView(bot_ref, interaction.user, interaction.guild, data, initial_tab=target_cat)
+        if target_cat != "home":
+            pages = view._pages_cache.get(target_cat, [])
+            if pages:
+                view.current_page = max(0, min(target_page, len(pages) - 1))
+                view.refresh_components()
+        msg = await interaction.followup.send(embed=view.build_current_embed(), view=view, ephemeral=True, wait=True)
+        view.message = msg
+
+
 class HelpCategoryView(core.SafeView):
     """페이지네이션(◀/▶), 권한별 필터(일반/관리자/봇주인), 키워드 검색, 통합 설정(/설정) 바로가기를 지원하는 도움말 뷰"""
     def __init__(
@@ -1784,6 +1853,7 @@ class HelpCategoryView(core.SafeView):
         self.author = author
         self.perm_filter = perm_filter
         self.page = 0
+        self.quick_open_select: Optional[HelpPageQuickOpenSelect] = None
         self.category_select = HelpCategorySelect(self)
         self.add_item(self.category_select)
         self.update_buttons()
@@ -1804,6 +1874,19 @@ class HelpCategoryView(core.SafeView):
             search_kw=self.search_kw,
             perm_filter=self.perm_filter,
         )
+
+    def _get_current_page_items(self) -> list[dict]:
+        is_all_home_capable = (self.category == "all" and not self.search_kw.strip() and self.perm_filter == "all")
+        if is_all_home_capable and self.page == 0:
+            return []
+        filtered = self._get_filtered()
+        if not filtered:
+            return []
+        total_pages = max(1, math.ceil(len(filtered) / HELP_PER_PAGE))
+        eff_page = (self.page - 1) if (is_all_home_capable and self.page > 0) else self.page
+        eff_page = max(0, min(eff_page, total_pages - 1))
+        start_i = eff_page * HELP_PER_PAGE
+        return filtered[start_i : start_i + HELP_PER_PAGE]
 
     def _total_pages(self) -> int:
         filtered = self._get_filtered()
@@ -1852,6 +1935,18 @@ class HelpCategoryView(core.SafeView):
             active_style=discord.ButtonStyle.primary,
             custom_id_prefix="norosi:Help:p",
         )
+
+        # Row 4: 현재 페이지 항목 /설정 해당 페이지로 1클릭 바로 열기 드롭다운
+        if self.quick_open_select is not None:
+            try:
+                self.remove_item(self.quick_open_select)
+            except Exception:
+                pass
+            self.quick_open_select = None
+        page_items = self._get_current_page_items()
+        if page_items:
+            self.quick_open_select = HelpPageQuickOpenSelect(self, page_items)
+            self.add_item(self.quick_open_select)
 
     async def _on_page_num_selected(self, interaction: discord.Interaction, target_page: int):
         self.page = target_page

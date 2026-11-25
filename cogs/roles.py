@@ -1754,10 +1754,16 @@ class Roles(commands.Cog, name="역할"):
         data = core.get_cached_data_ro()
         if mid_str in core.safe_get_dict(data, "reaction_roles"):
             async def _bg_clean():
+                def _do_clean() -> bool:
+                    with core._DATA_LOCK:
+                        d = core.load_data()
+                        if core.remove_reaction_role_entry(d, payload.message_id):
+                            core.save_data(d)
+                            return True
+                        return False
+
                 try:
-                    d = await asyncio.to_thread(core.load_data)
-                    if core.remove_reaction_role_entry(d, payload.message_id):
-                        await asyncio.to_thread(core.save_data, d)
+                    if await asyncio.to_thread(_do_clean):
                         print(f"🧹 [반응역할 자동정리] 메시지({payload.message_id}) 삭제 감지 -> DB 정리 완료", flush=True)
                 except Exception as ex:
                     print(f"⚠️ [반응역할 정리 예외]: {ex}", flush=True)
@@ -1784,15 +1790,19 @@ class Roles(commands.Cog, name="역할"):
 
         if has_changed:
             async def _bg_save_role_del():
+                def _do_role_del() -> None:
+                    with core._DATA_LOCK:
+                        d = core.load_data()
+                        for mid, cfg in list(core.safe_get_dict(d, "reaction_roles").items()):
+                            if not isinstance(cfg, dict):
+                                continue
+                            if int(cfg.get("guild_id", 0)) == guild_id:
+                                roles_arr = [r for r in (cfg.get("roles") or []) if isinstance(r, dict)]
+                                cfg["roles"] = [r for r in roles_arr if r.get("role_id") != role.id]
+                        core.save_data(d)
+
                 try:
-                    d = await asyncio.to_thread(core.load_data)
-                    for mid, cfg in list(core.safe_get_dict(d, "reaction_roles").items()):
-                        if not isinstance(cfg, dict):
-                            continue
-                        if int(cfg.get("guild_id", 0)) == guild_id:
-                            roles_arr = [r for r in (cfg.get("roles") or []) if isinstance(r, dict)]
-                            cfg["roles"] = [r for r in roles_arr if r.get("role_id") != role.id]
-                    await asyncio.to_thread(core.save_data, d)
+                    await asyncio.to_thread(_do_role_del)
                     print(f"🧹 [반응역할 자동정리] 역할({role.name}) 삭제 감지 -> 매핑 정리 완료", flush=True)
                 except Exception as ex:
                     print(f"⚠️ [반응역할 정리 예외]: {ex}", flush=True)

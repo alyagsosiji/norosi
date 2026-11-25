@@ -777,6 +777,7 @@ def buy_seed(
             cost_txt = f"`-{cost:,}🪙`"
 
         lu["seeds"][seed_id] = lu["seeds"].get(seed_id, 0) + qty
+        lu["last_seed_id"] = seed_id
         core.save_data(data)
         return True, f"🌱 {seed['emoji']} **{seed['name']} 씨앗 ×{qty}개** 구매 완료! ({cost_txt} · 보유 `{lu['seeds'][seed_id]}개`)"
 
@@ -825,6 +826,7 @@ def plant_crop(
         lu["seeds"][seed_id] = have_seed - 1
         if lu["seeds"][seed_id] <= 0:
             lu["seeds"].pop(seed_id, None)
+        lu["last_seed_id"] = seed_id
 
         plots[target_idx] = {
             "seed_id": seed_id,
@@ -837,6 +839,140 @@ def plant_crop(
         core.save_data(data)
         mins = max(1, int(round(dur / 60.0)))
         return True, f"🪴 **{target_idx + 1}번 밭**에 {seed['emoji']} **{seed['name']}**을(를) 심었습니다! (수확까지 약 `{mins}분`)"
+
+
+def plant_all_empty_plots(
+    guild_id: int | str,
+    user_id: int | str,
+    seed_id: str,
+    user_name: str = "",
+) -> Tuple[bool, str]:
+    """보유 중인 씨앗으로 비어 있는 모든 밭에 한 번에 파종합니다."""
+    seed = SEEDS.get(seed_id)
+    if not seed:
+        return False, "❌ 알 수 없는 작물입니다."
+
+    with _LIFE_LOCK:
+        data = core.load_data()
+        lu = ensure_life_user(data, guild_id, user_id, user_name)
+        have_seed = int(lu["seeds"].get(seed_id, 0) or 0)
+        if have_seed <= 0:
+            return False, f"❌ **{seed['name']} 씨앗**을 보유하고 있지 않습니다! 먼저 씨앗을 구매해 주세요."
+
+        empty_indices = [idx for idx, p in enumerate(lu["plots"]) if p.get("seed_id") is None]
+        if not empty_indices:
+            return False, "⚠️ 비어 있는 밭 슬롯이 없습니다! 다 자란 작물을 먼저 수확해 주세요."
+
+        to_plant = min(have_seed, len(empty_indices))
+        now_ts = time.time()
+        farm_lvl = max(1, _safe_int(lu.get("farm_level"), 1))
+        speed_mult = max(0.80, 1.0 - (farm_lvl - 1) * 0.015)
+        dur = seed["growth_min"] * 60.0 * speed_mult
+
+        for idx in empty_indices[:to_plant]:
+            lu["plots"][idx] = {
+                "seed_id": seed_id,
+                "planted_at": now_ts,
+                "ready_at": now_ts + dur,
+                "watered": False,
+                "fertilized": False,
+                "bonus_yield": 0,
+            }
+
+        rem_seed = have_seed - to_plant
+        if rem_seed <= 0:
+            lu["seeds"].pop(seed_id, None)
+        else:
+            lu["seeds"][seed_id] = rem_seed
+        lu["last_seed_id"] = seed_id
+
+        core.save_data(data)
+        mins = max(1, int(round(dur / 60.0)))
+        return True, f"🪴 빈 밭 **`{to_plant}`칸**에 {seed['emoji']} **{seed['name']}** 일괄 파종 완료! (수확까지 약 `{mins}분`)"
+
+
+def auto_buy_and_plant_empty_plots(
+    guild_id: int | str,
+    user_id: int | str,
+    seed_id: Optional[str] = None,
+    user_name: str = "",
+) -> Tuple[bool, str]:
+    """비어 있는 모든 밭에 맞춰 부족한 씨앗을 자동 구매하고 파종·물주기까지 원클릭으로 처리합니다."""
+    with _LIFE_LOCK:
+        data = core.load_data()
+        lu = ensure_life_user(data, guild_id, user_id, user_name)
+        prof = core.ensure_user_profile(data, user_id, user_name)
+
+        eff_sid = seed_id if (seed_id and seed_id in SEEDS) else str(lu.get("last_seed_id") or "")
+        if eff_sid not in SEEDS:
+            # 보유 중인 씨앗이 있으면 우선 선택, 없으면 기본 세카이 딸기
+            eff_sid = next((k for k, v in (lu.get("seeds") or {}).items() if k in SEEDS and int(v or 0) > 0), "strawberry")
+        seed = SEEDS[eff_sid]
+
+        empty_indices = [idx for idx, p in enumerate(lu["plots"]) if p.get("seed_id") is None]
+        if not empty_indices:
+            return False, "ℹ️ 현재 비어 있는 밭이 없습니다! 먼저 `[⚡ 일괄(수확+물)]`로 다 자란 작물을 수확해 보세요."
+
+        have_seed = max(0, int(lu["seeds"].get(eff_sid, 0) or 0))
+        need_buy = max(0, len(empty_indices) - have_seed)
+        bought_qty = 0
+        cost_note = ""
+
+        if need_buy > 0:
+            if seed["price_gold"] > 0:
+                unit_p = seed["price_gold"]
+                have_gold = _get_guild_gold(data, guild_id, user_id, user_name)
+                affordable = min(need_buy, have_gold // unit_p)
+                if affordable <= 0 and have_seed <= 0:
+                    return False, f"❌ **{seed['name']} 씨앗** 구매에 필요한 골드가 부족합니다! (1개당 `{unit_p:,}🪙` / 보유 `{have_gold:,}🪙`)"
+                if affordable > 0:
+                    _add_guild_gold(data, guild_id, user_id, -(affordable * unit_p), user_name)
+                    bought_qty = affordable
+                    cost_note = f" · 구매 `×{bought_qty}`(`-{affordable * unit_p:,}🪙`)"
+            else:
+                unit_c = seed["price_crystal"]
+                have_cry = max(0, _safe_int(prof.get("crystals"), 0))
+                affordable = min(need_buy, have_cry // unit_c)
+                if affordable <= 0 and have_seed <= 0:
+                    return False, f"❌ **{seed['name']} 씨앗** 구매에 필요한 크리스탈이 부족합니다! (1개당 `{unit_c:,}💎` / 보유 `{have_cry:,}💎`)"
+                if affordable > 0:
+                    prof["crystals"] = have_cry - (affordable * unit_c)
+                    bought_qty = affordable
+                    cost_note = f" · 구매 `×{bought_qty}`(`-{affordable * unit_c:,}💎`)"
+
+        total_avail = have_seed + bought_qty
+        plant_cnt = min(len(empty_indices), total_avail)
+        if plant_cnt <= 0:
+            return False, "❌ 심을 수 있는 씨앗이 없습니다."
+
+        now_ts = time.time()
+        farm_lvl = max(1, _safe_int(lu.get("farm_level"), 1))
+        speed_mult = max(0.80, 1.0 - (farm_lvl - 1) * 0.015)
+        watered_dur = seed["growth_min"] * 60.0 * speed_mult * 0.65
+
+        for idx in empty_indices[:plant_cnt]:
+            lu["plots"][idx] = {
+                "seed_id": eff_sid,
+                "planted_at": now_ts,
+                "ready_at": now_ts + watered_dur,
+                "watered": True,
+                "fertilized": False,
+                "bonus_yield": 0,
+            }
+
+        rem_after = total_avail - plant_cnt
+        if rem_after <= 0:
+            lu["seeds"].pop(eff_sid, None)
+        else:
+            lu["seeds"][eff_sid] = rem_after
+        lu["last_seed_id"] = eff_sid
+
+        core.save_data(data)
+        mins = max(1, int(round(watered_dur / 60.0)))
+        return (
+            True,
+            f"🌱 {seed['emoji']} **{seed['name']}** 빈 밭 **`{plant_cnt}칸`** 자동 파종 + 💧물주기 완료!{cost_note} (수확까지 약 `{mins}분`)",
+        )
 
 
 def water_farm_plot(
@@ -1435,3 +1571,112 @@ def consume_dish(
         core.save_data(data)
 
         return True, f"🍽️ {rec['emoji']} **{rec['name']}**을(를) 맛있게 먹었습니다! (`{rec['desc']}`)"
+
+
+def quick_care_pet(
+    guild_id: int | str,
+    user_id: int | str,
+    user_name: str = "",
+) -> Tuple[bool, str]:
+    """동반 펫에게 보유 간식 1개를 먹이고(가능 시), 남은 일일 놀아주기 횟수(최대 5회)를 한 번에 모두 채웁니다."""
+    today = core.get_today_str()
+    with _LIFE_LOCK:
+        data = core.load_data()
+        lu = ensure_life_user(data, guild_id, user_id, user_name)
+        target_id = lu.get("equipped_pet")
+        if not target_id or target_id not in lu["pets"]:
+            return False, "❌ 돌봐줄 동반 펫이 없습니다. 먼저 펫을 입양·장착해 주세요!"
+
+        pu = lu["pets"][target_id]
+        pm = PETS[target_id]
+        old_lvl = pu["level"]
+        total_exp = 0
+        total_int = 0
+        total_gold = 0
+        total_cry = 0
+        actions: List[str] = []
+
+        if lu.get("pet_food", 0) > 0:
+            lu["pet_food"] -= 1
+            total_exp += 35
+            total_int += 6
+            actions.append("🦴간식 1개")
+
+        if pu.get("play_date") != today:
+            pu["play_date"] = today
+            pu["play_count"] = 0
+
+        rem_plays = max(0, 5 - int(pu.get("play_count", 0) or 0))
+        cur_exp = pu["exp"] + total_exp
+        for _ in range(rem_plays):
+            pu["play_count"] += 1
+            cur_exp += 22
+            total_exp += 22
+            total_int += 8
+            cur_lvl, _, _ = _calc_pet_level(cur_exp)
+            total_gold += 35 + cur_lvl * 5
+            if pu["play_count"] == 1:
+                total_cry += 5
+
+        if rem_plays > 0:
+            actions.append(f"🎾놀아주기 {rem_plays}회")
+
+        if not actions:
+            return False, f"ℹ️ **{pm['name']}**의 오늘 놀아주기(5/5)가 이미 끝났고 보유 간식이 없습니다!"
+
+        pu["exp"] = cur_exp
+        pu["intimacy"] = pu.get("intimacy", 0) + total_int
+        new_lvl, _, _ = _calc_pet_level(pu["exp"])
+        pu["level"] = new_lvl
+
+        if total_gold > 0:
+            _add_guild_gold(data, guild_id, user_id, total_gold, user_name)
+        if total_cry > 0:
+            prof = core.ensure_user_profile(data, user_id, user_name)
+            prof["crystals"] = max(0, _safe_int(prof.get("crystals"), 0)) + total_cry
+
+        core.save_data(data)
+        rew_parts = [f"`+{total_exp} EXP`"]
+        if total_gold > 0:
+            rew_parts.append(f"`+{total_gold}🪙`")
+        if total_cry > 0:
+            rew_parts.append(f"`+{total_cry}💎`")
+        lvl_txt = f" 🎊 **Lv.{new_lvl} 성장!**" if new_lvl > old_lvl else ""
+        return True, f"💖 {pm['emoji']} **{pm['name']}** 일괄 돌보기 완료! ({' + '.join(actions)} ➔ {' · '.join(rew_parts)}){lvl_txt}"
+
+
+def can_cook_recipe(overview: Dict[str, Any], recipe_id: str) -> bool:
+    """현재 보유 재료로 해당 레시피 1회 조리가 가능한지 판별합니다."""
+    rec = RECIPES.get(recipe_id)
+    if not rec or not isinstance(overview, dict):
+        return False
+    lu = overview.get("user") or {}
+    crops = lu.get("crops") or {}
+    for cid, need_c in rec["crop_reqs"].items():
+        if int(crops.get(cid, 0) or 0) < need_c:
+            return False
+    r1 = int(overview.get("cookable_r1", 0) or 0)
+    r2 = int(overview.get("cookable_r2", 0) or 0)
+    need_r2 = int(rec.get("need_fish_r2", 0) or 0)
+    need_r1 = int(rec.get("need_fish_r1", 0) or 0)
+    if r2 < need_r2:
+        return False
+    rem_pool = r1 + (r2 - need_r2)
+    return rem_pool >= need_r1
+
+
+def cook_and_consume_recipe(
+    guild_id: int | str,
+    user_id: int | str,
+    recipe_id: str,
+    user_name: str = "",
+) -> Tuple[bool, str]:
+    """레시피 1개를 조리한 뒤 즉시 먹어서 생활 버프를 활성화합니다."""
+    ok, msg = cook_recipe(guild_id, user_id, recipe_id, 1, user_name)
+    if not ok:
+        return False, msg
+    ok_eat, msg_eat = consume_dish(guild_id, user_id, recipe_id, user_name)
+    if not ok_eat:
+        return True, msg
+    return True, f"{msg}\n└ {msg_eat}"
+

@@ -32,23 +32,64 @@ def _fmt_countdown(ready_at: float, now_ts: float) -> str:
     return f"⏳ `{mins}분 {secs:02d}초` 남음"
 
 
+def _add_life_tab_switcher(view: discord.ui.View, active_tab: str, guild_id: int, row: int = 4) -> None:
+    """개인농장 · 공동농장 · 펫 · 요리 간 1클릭 즉시 전환 탭 바를 하단에 부착합니다."""
+    tabs = [
+        ("farm", "🌾 개인농장"),
+        ("gfarm", "🤝 공동농장"),
+        ("pet", "🐾 펫"),
+        ("cook", "🍳 요리"),
+    ]
+    for key, label in tabs:
+        is_cur = key == active_tab
+        btn = discord.ui.Button(
+            label=label,
+            style=discord.ButtonStyle.success if is_cur else discord.ButtonStyle.secondary,
+            disabled=is_cur,
+            row=row,
+            custom_id=f"norosi:{type(view).__name__}:tab_{key}",
+        )
+
+        async def _switch_tab(interaction: discord.Interaction, _key: str = key):
+            await core.safe_defer(interaction)
+            gid = interaction.guild_id or guild_id or 0
+            ov = await asyncio.to_thread(
+                life_core.get_life_overview, gid, interaction.user.id, interaction.user.display_name
+            )
+            if _key == "farm":
+                nv: discord.ui.View = FarmView(interaction.user, gid, overview=ov)
+            elif _key == "gfarm":
+                nv = CommunityFarmView(interaction.user, interaction.guild, overview=ov)
+            elif _key == "pet":
+                nv = PetCareView(interaction.user, gid, overview=ov)
+            else:
+                nv = CookingView(interaction.user, gid, overview=ov)
+            await core.safe_edit_response(interaction, embed=nv.build_embed(), view=nv)  # type: ignore[attr-defined]
+
+        btn.callback = _switch_tab
+        view.add_item(btn)
+
+
 # ==========================================
 # 1. 개인 농장 View
 # ==========================================
 class FarmSeedBuySelect(discord.ui.Select):
-    def __init__(self, parent_view: "FarmView"):
+    def __init__(self, parent_view: "FarmView", empty_cnt: int = 1):
         self.parent_view = parent_view
+        self.buy_qty = max(1, empty_cnt)
         opts: List[discord.SelectOption] = []
         for sid, sp in life_core.SEEDS.items():
-            price_s = f"{sp['price_gold']:,}🪙" if sp["price_gold"] > 0 else f"{sp['price_crystal']:,}💎"
+            unit_price = sp["price_gold"] if sp["price_gold"] > 0 else sp["price_crystal"]
+            unit_sym = "🪙" if sp["price_gold"] > 0 else "💎"
+            total_s = f"{unit_price * self.buy_qty:,}{unit_sym}"
             opts.append(discord.SelectOption(
-                label=f"{sp['name']} 씨앗 구매 ({price_s})"[:95],
+                label=f"{sp['name']} 씨앗 ×{self.buy_qty}개 구매 ({total_s})"[:95],
                 value=sid,
-                description=f"{sp['growth_min']}분 성장 · 판매 {sp['sell_gold']:,}🪙"[:95],
+                description=f"{sp['growth_min']}분 성장 · 개당 판매 {sp['sell_gold']:,}🪙"[:95],
                 emoji=sp["emoji"],
             ))
         super().__init__(
-            placeholder="🛒 구매할 씨앗 선택 (1개 구매)",
+            placeholder=f"🛒 씨앗 구매 (빈 밭 맞춤 ×{self.buy_qty}개 구매)",
             min_values=1,
             max_values=1,
             options=opts,
@@ -62,7 +103,7 @@ class FarmSeedBuySelect(discord.ui.Select):
         sid = self.values[0]
         cur = "crystal" if life_core.SEEDS[sid]["price_gold"] <= 0 else "gold"
         ok, msg = await asyncio.to_thread(
-            life_core.buy_seed, pv.guild_id, interaction.user.id, sid, 1, cur, interaction.user.display_name
+            life_core.buy_seed, pv.guild_id, interaction.user.id, sid, self.buy_qty, cur, interaction.user.display_name
         )
         pv.status_msg = msg
         await pv.refresh()
@@ -79,20 +120,20 @@ class FarmPlantSelect(discord.ui.Select):
             cnt = int(seeds_owned.get(sid, 0) or 0)
             if cnt > 0:
                 opts.append(discord.SelectOption(
-                    label=f"🪴 {sp['name']} 심기 (보유 {cnt}개)"[:95],
+                    label=f"🪴 {sp['name']} 빈 밭 일괄 심기 (보유 {cnt}개)"[:95],
                     value=sid,
-                    description=f"빈 밭에 심기 · 성장 {sp['growth_min']}분"[:95],
+                    description=f"비어 있는 모든 밭에 파종 · 성장 {sp['growth_min']}분"[:95],
                     emoji=sp["emoji"],
                 ))
         if not opts:
             opts.append(discord.SelectOption(
-                label="보유 중인 씨앗이 없습니다 (위에서 구매해 주세요)",
+                label="보유 중인 씨앗이 없습니다 (위 드롭다운 또는 자동구매+파종 이용)",
                 value="__none__",
-                description="상단 드롭다운에서 씨앗을 먼저 구매해 주세요",
+                description="상단 드롭다운에서 씨앗을 구매하거나 [🌱 빈밭 자동구매+파종]을 눌러보세요",
                 emoji="🌱",
             ))
         super().__init__(
-            placeholder="🪴 빈 밭에 심을 보유 씨앗 선택...",
+            placeholder="🪴 빈 밭에 일괄 심을 보유 씨앗 선택...",
             min_values=1,
             max_values=1,
             options=opts[:25],
@@ -104,11 +145,11 @@ class FarmPlantSelect(discord.ui.Select):
         pv = self.parent_view
         sid = self.values[0]
         if sid == "__none__":
-            await core.safe_send_response(interaction, "🌱 상단 `씨앗 구매` 드롭다운에서 먼저 씨앗을 구매해 주세요!", ephemeral=True)
+            await core.safe_send_response(interaction, "🌱 상단 `씨앗 구매` 드롭다운 또는 `[🌱 빈밭 자동구매+파종]` 버튼을 이용해 주세요!", ephemeral=True)
             return
         await core.safe_defer(interaction)
         ok, msg = await asyncio.to_thread(
-            life_core.plant_crop, pv.guild_id, interaction.user.id, sid, None, interaction.user.display_name
+            life_core.plant_all_empty_plots, pv.guild_id, interaction.user.id, sid, interaction.user.display_name
         )
         pv.status_msg = msg
         await pv.refresh()
@@ -137,14 +178,16 @@ class FarmView(core.SafeView):
     def _rebuild(self):
         self.clear_items()
         lu = self.overview["user"]
-        self.add_item(FarmSeedBuySelect(self))
+        empty_cnt = sum(1 for p in (lu.get("plots") or []) if not p.get("seed_id"))
+        self.add_item(FarmSeedBuySelect(self, empty_cnt=max(1, empty_cnt)))
         self.add_item(FarmPlantSelect(self, lu.get("seeds") or {}))
 
         actions = [
             ("⚡ 일괄(수확+물)", discord.ButtonStyle.success, 2, "quick_manage", self._on_quick_manage),
+            ("🌱 빈밭 자동구매+파종", discord.ButtonStyle.success, 2, "auto_replant", self._on_auto_replant),
             ("💧 전체 물주기", discord.ButtonStyle.primary, 2, "water_all", self._on_water),
             ("✨ 전체 비료 (120🪙/칸)", discord.ButtonStyle.secondary, 2, "fert_all", self._on_fertilize),
-            ("🧺 전체 수확", discord.ButtonStyle.success, 2, "harvest_all", self._on_harvest),
+            ("🧺 전체 수확", discord.ButtonStyle.secondary, 3, "harvest_all", self._on_harvest),
             ("💰 작물 일괄 판매", discord.ButtonStyle.primary, 3, "sell_all", self._on_sell),
             ("🚜 밭 확장", discord.ButtonStyle.secondary, 3, "expand", self._on_expand),
             ("🔄 새로고침", discord.ButtonStyle.secondary, 3, "refresh", self._on_refresh),
@@ -153,6 +196,7 @@ class FarmView(core.SafeView):
             btn = discord.ui.Button(label=lbl, style=st, row=row, custom_id=f"norosi:FarmView:{cid_sfx}")
             btn.callback = cb
             self.add_item(btn)
+        _add_life_tab_switcher(self, "farm", self.guild_id, row=4)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if not await super().interaction_check(interaction):
@@ -273,6 +317,21 @@ class FarmView(core.SafeView):
         if not ok:
             await interaction.followup.send(msg, ephemeral=True)
 
+    async def _on_auto_replant(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        ok, msg = await asyncio.to_thread(
+            life_core.auto_buy_and_plant_empty_plots,
+            self.guild_id,
+            interaction.user.id,
+            None,
+            interaction.user.display_name,
+        )
+        self.status_msg = msg
+        await self.refresh()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+        if not ok:
+            await interaction.followup.send(msg, ephemeral=True)
+
     async def _on_refresh(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
         self.status_msg = "🔄 농장 성장 상태를 최신으로 갱신했습니다."
@@ -298,6 +357,7 @@ class CommunityFarmView(core.SafeView):
         self.overview: Dict[str, Any] = overview if overview is not None else life_core.get_life_overview(
             self.guild_id, user.id if user else 0, user.display_name if user else "주민"
         )
+        _add_life_tab_switcher(self, "gfarm", self.guild_id, row=4)
 
     async def refresh(self):
         uid = self.user.id if self.user else 0
@@ -480,9 +540,10 @@ class PetCareView(core.SafeView):
         self.add_item(PetSelect(self, lu))
 
         btns = [
-            ("🦴 간식 먹이기 (+35 EXP)", discord.ButtonStyle.success, 1, "feed_food", self._on_feed_food),
+            ("💖 일괄 돌보기 (간식+놀기)", discord.ButtonStyle.success, 1, "quick_care", self._on_quick_care),
+            ("🦴 간식 먹이기 (+35 EXP)", discord.ButtonStyle.primary, 1, "feed_food", self._on_feed_food),
             ("🐟 생선 먹이기 (★1~2)", discord.ButtonStyle.primary, 1, "feed_fish", self._on_feed_fish),
-            ("🎾 놀아주기 (일일 5회)", discord.ButtonStyle.success, 1, "play", self._on_play),
+            ("🎾 놀아주기 (1회)", discord.ButtonStyle.secondary, 1, "play", self._on_play),
             ("🛒 간식 5개 구매 (225🪙)", discord.ButtonStyle.secondary, 2, "buy_food", self._on_buy_food),
             ("🔄 새로고침", discord.ButtonStyle.secondary, 2, "refresh", self._on_refresh),
         ]
@@ -490,6 +551,7 @@ class PetCareView(core.SafeView):
             b = discord.ui.Button(label=lbl, style=st, row=r, custom_id=f"norosi:PetCareView:{cid_s}")
             b.callback = cb
             self.add_item(b)
+        _add_life_tab_switcher(self, "pet", self.guild_id, row=4)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if not await super().interaction_check(interaction):
@@ -538,6 +600,17 @@ class PetCareView(core.SafeView):
         )
         embed.set_footer(text="동반 펫은 낚시 출조 쿨타임·희귀 확률·판매가와 매일 출석 보너스에 실시간 적용됩니다!")
         return embed
+
+    async def _on_quick_care(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        ok, msg = await asyncio.to_thread(
+            life_core.quick_care_pet, self.guild_id, interaction.user.id, interaction.user.display_name
+        )
+        self.status_msg = msg
+        await self.refresh()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+        if not ok:
+            await interaction.followup.send(msg, ephemeral=True)
 
     async def _on_feed_food(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
@@ -589,15 +662,18 @@ class CookRecipeSelect(discord.ui.Select):
     def __init__(self, parent_view: "CookingView"):
         self.parent_view = parent_view
         opts: List[discord.SelectOption] = []
+        action_suffix = "조리+즉시취식" if parent_view.auto_eat else "조리(보관)"
         for rid, rec in life_core.RECIPES.items():
+            ready = life_core.can_cook_recipe(parent_view.overview, rid)
+            badge = "✅가능" if ready else "⏳재료확인"
             opts.append(discord.SelectOption(
-                label=f"🍳 {rec['name']} 조리하기"[:95],
+                label=f"[{badge}] {rec['name']} ({action_suffix})"[:95],
                 value=rid,
                 description=rec["desc"][:95],
                 emoji=rec["emoji"],
             ))
         super().__init__(
-            placeholder="🍳 조리할 생선 요리/디저트 레시피 선택...",
+            placeholder=f"🍳 레시피 선택 ({action_suffix})...",
             min_values=1,
             max_values=1,
             options=opts[:25],
@@ -609,7 +685,14 @@ class CookRecipeSelect(discord.ui.Select):
         pv = self.parent_view
         await core.safe_defer(interaction)
         rid = self.values[0]
-        ok, msg = await asyncio.to_thread(life_core.cook_recipe, pv.guild_id, interaction.user.id, rid, 1, interaction.user.display_name)
+        if pv.auto_eat:
+            ok, msg = await asyncio.to_thread(
+                life_core.cook_and_consume_recipe, pv.guild_id, interaction.user.id, rid, interaction.user.display_name
+            )
+        else:
+            ok, msg = await asyncio.to_thread(
+                life_core.cook_recipe, pv.guild_id, interaction.user.id, rid, 1, interaction.user.display_name
+            )
         pv.status_msg = msg
         await pv.refresh()
         await core.safe_edit_response(interaction, embed=pv.build_embed(), view=pv)
@@ -667,11 +750,13 @@ class CookingView(core.SafeView):
         user: Optional[discord.abc.User] = None,
         guild_id: int = 0,
         overview: Optional[Dict[str, Any]] = None,
+        auto_eat: bool = False,
     ):
         super().__init__(timeout=300)
         self.user = user
         self.guild_id = int(guild_id or 0)
         self.status_msg = ""
+        self.auto_eat = auto_eat
         self.overview: Dict[str, Any] = overview if overview is not None else life_core.get_life_overview(
             self.guild_id, user.id if user else 0, user.display_name if user else "주민"
         )
@@ -688,9 +773,29 @@ class CookingView(core.SafeView):
         lu = self.overview["user"]
         self.add_item(CookRecipeSelect(self))
         self.add_item(EatDishSelect(self, lu.get("dishes") or {}))
+        btn_auto = discord.ui.Button(
+            label="⚡ 조리 후 즉시 취식: ON" if self.auto_eat else "📦 조리 후 보관 모드 (클릭 시 즉시취식 ON)",
+            style=discord.ButtonStyle.success if self.auto_eat else discord.ButtonStyle.primary,
+            row=2,
+            custom_id="norosi:CookingView:toggle_auto_eat",
+        )
+        btn_auto.callback = self._on_toggle_auto_eat
+        self.add_item(btn_auto)
         btn_ref = discord.ui.Button(label="🔄 버프·재료 새로고침", style=discord.ButtonStyle.secondary, row=2, custom_id="norosi:CookingView:refresh")
         btn_ref.callback = self._on_refresh
         self.add_item(btn_ref)
+        _add_life_tab_switcher(self, "cook", self.guild_id, row=4)
+
+    async def _on_toggle_auto_eat(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        self.auto_eat = not self.auto_eat
+        self.status_msg = (
+            "⚡ **조리 후 즉시 취식 모드 ON:** 이제 레시피 선택 시 조리 후 바로 먹어 버프가 즉시 적용됩니다!"
+            if self.auto_eat
+            else "📦 **조리 후 보관 모드:** 레시피 선택 시 완성 요리를 주방에 먼저 보관합니다."
+        )
+        self._rebuild()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if not await super().interaction_check(interaction):

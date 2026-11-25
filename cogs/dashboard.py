@@ -1694,59 +1694,66 @@ class DashboardFeatureSearchModal(core.SafeModal, title="🔍 /설정 통합 기
         if not kw:
             await core.safe_send_response(interaction, "❌ 검색할 키워드를 입력해 주세요.", ephemeral=True)
             return
-        tokens = [t.lower() for t in kw.split() if t.strip()]
-        cat_labels = {
-            "general": "🌐 일반",
-            "advanced": "⚙️ 고급",
-            "minigame": "🎮 미니게임",
-            "personal": "👤 개인",
-        }
-        matches: List[Dict[str, Any]] = []
-        seen_labels: set[str] = set()
-        for cat_key, pages in (self.parent_view._pages_cache or {}).items():
-            for p_idx, page in enumerate(pages, start=1):
-                for item in page.get("items", []):
-                    lbl = str(item.get("label") or "")
-                    desc = str(item.get("desc") or "")
-                    haystack = f"{lbl} {desc} {page.get('page_title', '')}".lower()
-                    if all(tok in haystack for tok in tokens):
-                        if lbl in seen_labels:
-                            continue
-                        seen_labels.add(lbl)
-                        matches.append({
-                            "cat_label": cat_labels.get(cat_key, cat_key),
-                            "page_num": p_idx,
-                            "item": item,
-                        })
-        # 홈 단축키(업적/후원 등)도 함께 검색 보강
-        for sc_item in HOME_SHORTCUT_CATALOG:
-            if sc_item["key"] == "search":
-                continue
-            lbl = sc_item["label"]
-            haystack = f"{lbl} {sc_item['desc']}".lower()
-            if all(tok in haystack for tok in tokens) and lbl not in seen_labels:
-                cb = getattr(self.parent_view, sc_item["cb_name"], None)
-                if callable(cb):
-                    seen_labels.add(lbl)
-                    matches.append({
-                        "cat_label": "🏠 홈 바로가기",
-                        "page_num": 1,
-                        "item": {
-                            "label": lbl,
-                            "emoji": sc_item["emoji"],
-                            "style": sc_item["style"],
-                            "perm": PERM_USER,
-                            "desc": sc_item["desc"],
-                            "cb": cb,
-                        },
-                    })
-
+        matches = search_dashboard_features(self.parent_view, kw)
         view = DashboardSearchResultView(self.parent_view, kw, matches, owner_id=interaction.user.id)
         await core.safe_send_response(interaction, embed=view.build_embed(), view=view, ephemeral=True)
 
 
+def search_dashboard_features(dashboard_view: "MasterDashboardView", kw: str) -> List[Dict[str, Any]]:
+    """/설정 전체 4대 카테고리 페이지 및 홈 단축바에서 키워드와 일치하는 실행 항목을 검색합니다."""
+    tokens = [t.lower() for t in str(kw or "").split() if t.strip()]
+    if not tokens:
+        return []
+    cat_labels = {
+        "general": "🌐 일반",
+        "advanced": "⚙️ 고급",
+        "minigame": "🎮 미니게임",
+        "personal": "👤 개인",
+    }
+    matches: List[Dict[str, Any]] = []
+    seen_labels: set[str] = set()
+    for cat_key, pages in (dashboard_view._pages_cache or {}).items():
+        for p_idx, page in enumerate(pages, start=1):
+            for item in page.get("items", []):
+                lbl = str(item.get("label") or "")
+                desc = str(item.get("desc") or "")
+                haystack = f"{lbl} {desc} {page.get('page_title', '')}".lower()
+                if all(tok in haystack for tok in tokens):
+                    if lbl in seen_labels:
+                        continue
+                    seen_labels.add(lbl)
+                    matches.append({
+                        "cat_label": cat_labels.get(cat_key, cat_key),
+                        "page_num": p_idx,
+                        "item": item,
+                    })
+    # 홈 단축키(업적/후원 등)도 함께 검색 보강
+    for sc_item in HOME_SHORTCUT_CATALOG:
+        if sc_item["key"] == "search":
+            continue
+        lbl = sc_item["label"]
+        haystack = f"{lbl} {sc_item['desc']}".lower()
+        if all(tok in haystack for tok in tokens) and lbl not in seen_labels:
+            cb = getattr(dashboard_view, sc_item["cb_name"], None)
+            if callable(cb):
+                seen_labels.add(lbl)
+                matches.append({
+                    "cat_label": "🏠 홈 바로가기",
+                    "page_num": 1,
+                    "item": {
+                        "label": lbl,
+                        "emoji": sc_item["emoji"],
+                        "style": sc_item["style"],
+                        "perm": PERM_USER,
+                        "desc": sc_item["desc"],
+                        "cb": cb,
+                    },
+                })
+    return matches
+
+
 class DashboardSearchResultView(core.SafeView):
-    """통합 기능 검색 결과 즉시 실행 뷰 (최대 10개 원클릭 버튼 + 다시 검색)"""
+    """통합 기능 검색 결과 즉시 실행 뷰 (최대 10개 원클릭 버튼 + 다시 검색 + 설정 홈)"""
 
     def __init__(
         self,
@@ -1781,13 +1788,22 @@ class DashboardSearchResultView(core.SafeView):
             btn.callback = _on_click
             self.add_item(btn)
 
+        nav_row = 2 if len(self.matches) > 5 else (1 if self.matches else 0)
         again_btn = discord.ui.Button(
             label="🔍 다시 검색",
             style=discord.ButtonStyle.primary,
-            row=2 if len(self.matches) > 5 else 1,
+            row=nav_row,
         )
         again_btn.callback = self._on_search_again
         self.add_item(again_btn)
+
+        home_btn = discord.ui.Button(
+            label="🏠 /설정 홈 열기",
+            style=discord.ButtonStyle.secondary,
+            row=nav_row,
+        )
+        home_btn.callback = self._on_open_dashboard_home
+        self.add_item(home_btn)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if not await super().interaction_check(interaction):
@@ -1801,11 +1817,33 @@ class DashboardSearchResultView(core.SafeView):
             return False
         return True
 
-    async def _on_search_again(self, interaction: discord.Interaction):
+    async def _ensure_parent_view(self, interaction: discord.Interaction) -> "MasterDashboardView":
         if self.parent_view is None:
-            await core.safe_send_response(interaction, "⚠️ `/설정`을 다시 열어 검색해 주세요.", ephemeral=True)
-            return
-        await interaction.response.send_modal(DashboardFeatureSearchModal(self.parent_view))
+            data = await asyncio.to_thread(core.load_data)
+            self.parent_view = MasterDashboardView(
+                bot=interaction.client,
+                user=interaction.user,
+                guild=interaction.guild,
+                data=data,
+            )
+        return self.parent_view
+
+    async def _on_search_again(self, interaction: discord.Interaction):
+        pv = await self._ensure_parent_view(interaction)
+        await interaction.response.send_modal(DashboardFeatureSearchModal(pv))
+
+    async def _on_open_dashboard_home(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction, ephemeral=True)
+        data = await asyncio.to_thread(core.load_data)
+        view = MasterDashboardView(
+            bot=interaction.client,
+            user=interaction.user,
+            guild=interaction.guild,
+            data=data,
+            initial_tab="home",
+        )
+        msg = await interaction.followup.send(embed=view.build_current_embed(), view=view, ephemeral=True, wait=True)
+        view.message = msg
 
     def build_embed(self) -> discord.Embed:
         if not self.matches:
@@ -2673,7 +2711,7 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "📜",
                             "style": discord.ButtonStyle.secondary,
                             "perm": PERM_ADMIN,
-                            "desc": "[🛡️서버관리자] 메시지 삭제/수정·입퇴장·음성 등 7대 감사 로그 채널 설정",
+                            "desc": "[🛡️서버관리자] 메시지 삭제/수정·입퇴장·음성 등 7대 감사 로그 채널 · 상세/요약 버전 설정",
                             "cb": self._act_admin_audit_log,
                         },
                     ],
@@ -2765,7 +2803,7 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "🖥️",
                             "style": discord.ButtonStyle.danger,
                             "perm": PERM_OWNER,
-                            "desc": "[👑봇주인 전용] VM 서버 터미널(stdout/stderr) 로그 및 GitHub 배포알림 채널 연동",
+                            "desc": "[👑봇주인 전용] VM 서버 터미널 로그(상세/요약 버전) 및 GitHub 배포알림 채널 연동",
                             "cb": self._act_owner_terminal_hub,
                         },
                         {
@@ -2781,7 +2819,7 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "🤖",
                             "style": discord.ButtonStyle.danger,
                             "perm": PERM_OWNER,
-                            "desc": "[👑봇주인 전용] 봇 호스트 RAM, CPU, 디스크, 핑, 업타임 실시간 상태 진단",
+                            "desc": "[👑봇주인 전용] 봇 호스트 RAM, CPU, 디스크, 핑, 업타임 상태 진단 (상세/요약 버전)",
                             "cb": self._act_bot_host_status,
                         },
                     ],
@@ -3806,10 +3844,11 @@ class MasterDashboardView(core.SafeView):
             },
             "owner_terminal": {
                 "title": "🖥️ [봇 주인 전용] VM 터미널 로그 & GitHub 배포 알림 제어판",
-                "desc": "VM 서버의 실시간 터미널 출력(stdout/stderr) 중계 및 GitHub Push/Actions 배포 알림 채널을 연동·해제합니다.",
+                "desc": "VM 서버의 실시간 터미널 출력(stdout/stderr)을 상세 버전 또는 요약 버전으로 중계하고, GitHub 배포 알림 채널을 연동·해제합니다.",
                 "perm": PERM_OWNER,
                 "buttons": [
-                    ("현재 채널에 터미널로그 연동", "🟢", discord.ButtonStyle.success, self._sub_owner_term_bind),
+                    ("터미널로그 연동 · 상세 버전", "📋", discord.ButtonStyle.success, self._sub_owner_term_bind_detailed),
+                    ("터미널로그 연동 · 요약 버전", "⚡", discord.ButtonStyle.primary, self._sub_owner_term_bind_summary),
                     ("현재 서버 터미널로그 해제", "🛑", discord.ButtonStyle.danger, self._sub_owner_term_unbind),
                     ("현재 채널 GitHub 배포알림 연동", "🐙", discord.ButtonStyle.primary, self._act_admin_github_webhook),
                     ("현재 서버 GitHub 배포알림 해제", "🚫", discord.ButtonStyle.secondary, self._sub_owner_github_unbind),
@@ -5075,7 +5114,7 @@ class MasterDashboardView(core.SafeView):
             return
         await self._enter_sub_mode(interaction, "owner_terminal")
 
-    async def _sub_owner_term_bind(self, interaction: discord.Interaction):
+    async def _bind_owner_term_with_mode(self, interaction: discord.Interaction, mode: str = "detailed"):
         if not await self.check_bot_owner_permission(interaction, action_name="터미널 로그 채널 연동"):
             return
         if not isinstance(interaction.channel, discord.TextChannel):
@@ -5084,22 +5123,36 @@ class MasterDashboardView(core.SafeView):
         await core.safe_defer(interaction, ephemeral=True)
         g_key = str(interaction.guild_id or "global")
         ch_id = interaction.channel.id
+        norm_mode = "summary" if mode == "summary" else "detailed"
 
         def _bind():
             with core._DATA_LOCK:
                 data = core.load_data()
                 s_dict = core.ensure_dict_path(data, "settings")
                 t_map = core.ensure_dict_path(data, "settings", "terminal_log_channels")
+                t_modes = core.ensure_dict_path(data, "settings", "terminal_log_modes")
                 t_map[g_key] = ch_id
+                t_modes[g_key] = norm_mode
                 s_dict["terminal_log_channel_id"] = ch_id
+                s_dict["terminal_log_default_mode"] = norm_mode
                 core.save_data(data)
                 return len(t_map)
 
         cnt = await asyncio.to_thread(_bind)
+        mode_label = "⚡ 요약 버전" if norm_mode == "summary" else "📋 상세 버전"
         await interaction.followup.send(
-            f"🖥️ **VM 서버 터미널 실시간 로그 채널 지정 완료:** 이제부터 터미널(`stdout`/`stderr`) 로그가 {interaction.channel.mention} 채널에 기록됩니다! (연동 서버: `{cnt}개`)",
+            f"🖥️ **VM 서버 터미널 실시간 로그 채널 지정 완료:** 이제부터 터미널(`stdout`/`stderr`) 로그가 {interaction.channel.mention} 채널에 **{mode_label}**으로 기록됩니다! (연동 서버: `{cnt}개`)",
             ephemeral=True,
         )
+
+    async def _sub_owner_term_bind_detailed(self, interaction: discord.Interaction):
+        await self._bind_owner_term_with_mode(interaction, "detailed")
+
+    async def _sub_owner_term_bind_summary(self, interaction: discord.Interaction):
+        await self._bind_owner_term_with_mode(interaction, "summary")
+
+    async def _sub_owner_term_bind(self, interaction: discord.Interaction):
+        await self._bind_owner_term_with_mode(interaction, "detailed")
 
     async def _sub_owner_term_unbind(self, interaction: discord.Interaction):
         if not await self.check_bot_owner_permission(interaction, action_name="터미널 로그 채널 해제"):
@@ -5112,7 +5165,9 @@ class MasterDashboardView(core.SafeView):
                 data = core.load_data()
                 s_dict = core.ensure_dict_path(data, "settings")
                 t_map = core.ensure_dict_path(data, "settings", "terminal_log_channels")
+                t_modes = core.ensure_dict_path(data, "settings", "terminal_log_modes")
                 t_map.pop(g_key, None)
+                t_modes.pop(g_key, None)
                 if not t_map:
                     s_dict["terminal_log_channel_id"] = None
                 core.save_data(data)
@@ -6295,11 +6350,24 @@ class Dashboard(commands.Cog, name="설정"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    _CATEGORY_ALIASES = {
+        "home": "home", "홈": "home", "메인": "home",
+        "general": "general", "일반": "general",
+        "advanced": "advanced", "고급": "advanced", "관리자": "advanced",
+        "minigame": "minigame", "미니게임": "minigame", "게임": "minigame",
+        "personal": "personal", "개인": "personal",
+        "ranking": "ranking", "랭킹": "ranking", "순위": "ranking",
+        "pokedex": "pokedex", "도감": "pokedex", "확률": "pokedex",
+    }
+
     @app_commands.command(
         name="설정",
-        description="⚙️ [일반 · 고급 · 미니게임 · 개인] 4대 카테고리 및 통합 페이지네이션으로 모든 봇 기능을 제어합니다.",
+        description="⚙️ [일반 · 고급 · 미니게임 · 개인] 4대 카테고리 및 키워드 검색으로 모든 봇 기능을 제어합니다.",
     )
-    @app_commands.describe(카테고리="바로 진입할 카테고리 선택 (미선택 시 4대 카테고리 홈 화면 열림)")
+    @app_commands.describe(
+        카테고리="바로 진입할 카테고리 선택 (미선택 시 4대 카테고리 홈 화면 열림)",
+        검색="찾고 싶은 기능 키워드 입력 시 원클릭 실행 버튼 표시 (예: 로그, 환전, 일일루틴, 라디오, 복권)",
+    )
     @app_commands.choices(
         카테고리=[
             app_commands.Choice(name="🏠 [홈] 통합 설정 메인 (일반·고급·미니게임·개인)", value="home"),
@@ -6315,7 +6383,24 @@ class Dashboard(commands.Cog, name="설정"):
         self,
         interaction: discord.Interaction,
         카테고리: Optional[app_commands.Choice[str]] = None,
+        검색: Optional[str] = None,
     ):
+        kw_clean = (검색 or "").strip()
+        if kw_clean:
+            await core.safe_defer(interaction, ephemeral=True)
+            data = await asyncio.to_thread(core.load_data)
+            dash_view = MasterDashboardView(
+                bot=self.bot,
+                user=interaction.user,
+                guild=interaction.guild,
+                data=data,
+                initial_tab="home",
+            )
+            matches = search_dashboard_features(dash_view, kw_clean)
+            s_view = DashboardSearchResultView(dash_view, kw_clean, matches, owner_id=interaction.user.id)
+            await interaction.followup.send(embed=s_view.build_embed(), view=s_view, ephemeral=True, wait=True)
+            return
+
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
         init_cat = 카테고리.value if 카테고리 else "home"
@@ -6333,15 +6418,29 @@ class Dashboard(commands.Cog, name="설정"):
         name="설정",
         aliases=["settings", "config", "대시보드", "dashboard", "메뉴", "menu", "리모컨", "컨트롤타워"],
     )
-    async def prefix_settings(self, ctx: commands.Context, 카테고리: Optional[str] = None):
+    async def prefix_settings(self, ctx: commands.Context, *, 카테고리_또는_검색: Optional[str] = None):
         data = await asyncio.to_thread(core.load_data)
-        init_cat = 카테고리.strip() if 카테고리 else "home"
+        raw_arg = (카테고리_또는_검색 or "").strip()
+        resolved_cat = self._CATEGORY_ALIASES.get(raw_arg.lower()) if raw_arg else "home"
+        if raw_arg and resolved_cat is None:
+            dash_view = MasterDashboardView(
+                bot=self.bot,
+                user=ctx.author,
+                guild=ctx.guild,
+                data=data,
+                initial_tab="home",
+            )
+            matches = search_dashboard_features(dash_view, raw_arg)
+            s_view = DashboardSearchResultView(dash_view, raw_arg, matches, owner_id=ctx.author.id)
+            await ctx.send(embed=s_view.build_embed(), view=s_view)
+            return
+
         view = MasterDashboardView(
             bot=self.bot,
             user=ctx.author,
             guild=ctx.guild,
             data=data,
-            initial_tab=init_cat,
+            initial_tab=resolved_cat or "home",
         )
         msg = await ctx.send(embed=view.build_current_embed(), view=view)
         view.message = msg

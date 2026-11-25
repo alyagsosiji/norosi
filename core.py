@@ -4283,10 +4283,17 @@ def normalize_data(data):
     clean_logs = {}
     for g_key, g_cfg in raw_logs.items():
         if not isinstance(g_cfg, dict):
-            clean_logs[str(g_key)] = {"channel_id": None, "enabled": False, "events": {ev_k: True for ev_k in ("mod_admin", "channels", "messages", "members", "voice", "roles", "server")}}
+            clean_logs[str(g_key)] = {
+                "channel_id": None,
+                "enabled": False,
+                "detail_mode": "detailed",
+                "events": {ev_k: True for ev_k in ("mod_admin", "channels", "messages", "members", "voice", "roles", "server")},
+            }
         else:
             g_cfg.setdefault("channel_id", None)
             g_cfg.setdefault("enabled", False)
+            if g_cfg.get("detail_mode") not in ("detailed", "summary"):
+                g_cfg["detail_mode"] = "detailed"
             events = coerce_dict_like(g_cfg.get("events"))
             g_cfg["events"] = events
             for ev_key in ("mod_admin", "channels", "messages", "members", "voice", "roles", "server"):

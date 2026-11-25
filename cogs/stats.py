@@ -828,12 +828,32 @@ class SponsorView(core.SafeView):
 
 
 class BotStatusRefreshView(core.SafeView):
-    """봇 주인 전용 /봇상태 실시간 새로고침 및 메모리 정리 뷰"""
+    """봇 주인 전용 /봇상태 실시간 새로고침 · 상세/요약 전환 · 메모리 정리 뷰"""
 
-    def __init__(self, stats_cog: "StatsCog | None" = None, owner_id: int = 0):
+    def __init__(self, stats_cog: "StatsCog | None" = None, owner_id: int = 0, mode: str = "detailed"):
         super().__init__(timeout=300)
         self.stats_cog = stats_cog
         self.owner_id = owner_id
+        self.mode = "summary" if mode == "summary" else "detailed"
+        self._sync_mode_buttons()
+
+    def _sync_mode_buttons(self) -> None:
+        is_summary = self.mode == "summary"
+        self.btn_mode_detailed.style = discord.ButtonStyle.secondary if is_summary else discord.ButtonStyle.success
+        self.btn_mode_detailed.disabled = not is_summary
+        self.btn_mode_summary.style = discord.ButtonStyle.success if is_summary else discord.ButtonStyle.secondary
+        self.btn_mode_summary.disabled = is_summary
+
+    def _resolve_cog(self, interaction: discord.Interaction) -> "StatsCog | None":
+        if self.stats_cog is not None:
+            return self.stats_cog
+        bot_ref = interaction.client
+        if bot_ref and hasattr(bot_ref, "get_cog"):
+            cog = bot_ref.get_cog("StatsCog")
+            if isinstance(cog, StatsCog):
+                self.stats_cog = cog
+                return cog
+        return None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if not await super().interaction_check(interaction):
@@ -854,21 +874,47 @@ class BotStatusRefreshView(core.SafeView):
             return False
         return True
 
+    @discord.ui.button(label="📋 상세 버전", style=discord.ButtonStyle.success, row=0)
+    async def btn_mode_detailed(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        cog = self._resolve_cog(interaction)
+        if not cog:
+            return
+        self.mode = "detailed"
+        self._sync_mode_buttons()
+        embed = await cog._build_bot_status_embed(interaction.user.display_name, mode=self.mode)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
+
+    @discord.ui.button(label="⚡ 요약 버전", style=discord.ButtonStyle.secondary, row=0)
+    async def btn_mode_summary(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        cog = self._resolve_cog(interaction)
+        if not cog:
+            return
+        self.mode = "summary"
+        self._sync_mode_buttons()
+        embed = await cog._build_bot_status_embed(interaction.user.display_name, mode=self.mode)
+        await core.safe_edit_response(interaction, embed=embed, view=self)
+
     @discord.ui.button(label="🔄 상태·핑 새로고침", style=discord.ButtonStyle.primary, row=0)
     async def btn_refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
-        if not self.stats_cog:
+        cog = self._resolve_cog(interaction)
+        if not cog:
             return
-        embed = await self.stats_cog._build_detailed_bot_status_embed(interaction.user.display_name)
+        self._sync_mode_buttons()
+        embed = await cog._build_bot_status_embed(interaction.user.display_name, mode=self.mode)
         await core.safe_edit_response(interaction, embed=embed, view=self)
 
     @discord.ui.button(label="🧹 메모리(GC) 정리", style=discord.ButtonStyle.secondary, row=0)
     async def btn_gc_collect(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         collected = await asyncio.to_thread(gc.collect)
-        if not self.stats_cog:
+        cog = self._resolve_cog(interaction)
+        if not cog:
             return
-        embed = await self.stats_cog._build_detailed_bot_status_embed(interaction.user.display_name)
+        self._sync_mode_buttons()
+        embed = await cog._build_bot_status_embed(interaction.user.display_name, mode=self.mode)
         embed.set_footer(text=f"🧹 GC 정리 완료 ({collected:,}개 객체 회수) • 요청자: {interaction.user.display_name}")
         await core.safe_edit_response(interaction, embed=embed, view=self)
 
@@ -1355,12 +1401,97 @@ class StatsCog(commands.Cog):
             inline=False,
         )
 
-        embed.set_footer(text=f"요청자: {requester_name} • 민감 키/토큰은 출력하지 않는 보안 진단 모드")
+        embed.set_footer(text=f"📋 상세 버전 • 요청자: {requester_name} • 민감 키/토큰은 출력하지 않는 보안 진단 모드")
         return embed
 
-    @app_commands.command(name="봇상태", description="[봇 주인 전용] norosi 봇의 호스트 시스템 리소스(RAM, CPU, 디스크, 핑, 업타임, 보안) 상태를 상세 진단합니다.")
+    async def _build_summary_bot_status_embed(self, requester_name: str) -> discord.Embed:
+        t_loop = time.perf_counter()
+        await asyncio.sleep(0)
+        loop_lag_ms = round((time.perf_counter() - t_loop) * 1000, 2)
+        m = await asyncio.to_thread(self._collect_host_metrics_sync)
+
+        ws_raw = self.bot.latency
+        ws_latency = round(ws_raw * 1000, 1) if ws_raw == ws_raw and ws_raw >= 0 else -1.0
+        if ws_latency < 0:
+            ws_badge = "⚪ 측정 중"
+            embed_color = discord.Color.light_grey()
+        elif ws_latency < 80:
+            ws_badge = "🟢 최상"
+            embed_color = discord.Color.from_rgb(46, 204, 113)
+        elif ws_latency < 180:
+            ws_badge = "🟡 양호"
+            embed_color = discord.Color.from_rgb(0, 204, 221)
+        elif ws_latency < 300:
+            ws_badge = "🟠 보통"
+            embed_color = discord.Color.gold()
+        else:
+            ws_badge = "🔴 지연"
+            embed_color = discord.Color.red()
+
+        bot_start = getattr(self.bot, "start_time", None)
+        if isinstance(bot_start, datetime.datetime):
+            uptime_td = datetime.datetime.now(core.KST) - bot_start
+            up_hours, rem_s = divmod(uptime_td.seconds, 3600)
+            up_mins, _ = divmod(rem_s, 60)
+            uptime_str = f"{uptime_td.days}일 {up_hours}시간 {up_mins}분"
+        else:
+            uptime_str = "측정 중"
+
+        loop_names = (
+            "midnight_tasks",
+            "morning_music_alert",
+            "morning_text_alert",
+            "custom_music_schedules_loop",
+            "terminal_log_dispatch_loop",
+        )
+        running_loops = 0
+        total_loops = 0
+        for attr in loop_names:
+            lp = getattr(self.bot, attr, None)
+            if lp is not None:
+                total_loops += 1
+                if lp.is_running():
+                    running_loops += 1
+
+        guilds_cnt = len(self.bot.guilds)
+        users_cnt = sum(g.member_count or 0 for g in self.bot.guilds)
+        vc_cnt = len(getattr(self.bot, "voice_clients", []) or [])
+        host_mem_part = f" · 호스트 `{m['host_mem_pct']}%`" if m["host_mem_total_gb"] > 0 else ""
+        sec_ok = m["db_perm_ok"] and (getattr(getattr(self.bot, "allowed_mentions", None), "everyone", True) is False)
+
+        summary_lines = [
+            f"📡 **핑 / 루프:** WS `{ws_latency}ms` ({ws_badge}) · 루프 `{loop_lag_ms}ms` · DB `{m['data_io_ms']}ms`",
+            f"⚙️ **자원 요약:** 프로세스 RAM `{m['rss_mb']}MB`{host_mem_part} · CPU `{m['load_str']}` · 디스크 `{m['disk_pct']}%`",
+            f"🌐 **연결 / 루프:** `{guilds_cnt:,}서버` (`{users_cnt:,}명`) · 음성 `{vc_cnt}개` · 스케줄러 `{running_loops}/{total_loops}`",
+            f"⏱️ **업타임 / 보안:** `{uptime_str}` · DB `{m['db_size_kb']}KB` · 보안 가드 `{'✅ 정상' if sec_ok else '⚠️ 점검 필요'}`",
+        ]
+
+        embed = discord.Embed(
+            title="⚡ norosi 봇 시스템 상태 요약",
+            description="\n".join(summary_lines),
+            color=embed_color,
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.set_footer(text=f"⚡ 요약 버전 • 요청자: {requester_name} • [📋 상세 버전] 버튼으로 전체 지표 확인 가능")
+        return embed
+
+    async def _build_bot_status_embed(self, requester_name: str, mode: str = "detailed") -> discord.Embed:
+        if mode == "summary":
+            return await self._build_summary_bot_status_embed(requester_name)
+        return await self._build_detailed_bot_status_embed(requester_name)
+
+    @app_commands.command(name="봇상태", description="[봇 주인 전용] norosi 봇의 호스트 시스템 리소스(RAM, CPU, 디스크, 핑, 업타임, 보안) 상태를 진단합니다.")
+    @app_commands.describe(버전="출력 버전 선택 (상세 정밀 진단 / 핵심 지표 요약)")
+    @app_commands.choices(버전=[
+        app_commands.Choice(name="📋 상세 버전 (전체 정밀 진단)", value="detailed"),
+        app_commands.Choice(name="⚡ 요약 버전 (핵심 지표 요약)", value="summary"),
+    ])
     @app_commands.default_permissions(administrator=True)
-    async def host_system_stats_cmd(self, interaction: discord.Interaction):
+    async def host_system_stats_cmd(
+        self,
+        interaction: discord.Interaction,
+        버전: Optional[app_commands.Choice[str]] = None,
+    ):
         # 봇 주인(소유자) 전용 권한 안전 검증
         if not await self.bot.is_bot_owner_user(interaction.user):
             await core.safe_send_response(
@@ -1371,8 +1502,9 @@ class StatsCog(commands.Cog):
             return
 
         await core.safe_defer(interaction, ephemeral=True)
-        embed = await self._build_detailed_bot_status_embed(interaction.user.display_name)
-        view = BotStatusRefreshView(self, interaction.user.id)
+        selected_mode = "summary" if (버전 and 버전.value == "summary") else "detailed"
+        embed = await self._build_bot_status_embed(interaction.user.display_name, mode=selected_mode)
+        view = BotStatusRefreshView(self, interaction.user.id, mode=selected_mode)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     @app_commands.command(name="후원", description="💖 팀 봉화 (소유주 : 아시) 후원 안내 및 GitHub Sponsors 링크를 확인합니다.")
@@ -1386,6 +1518,27 @@ class StatsCog(commands.Cog):
         embed = build_sponsor_embed(self.bot.user)
         view = SponsorView()
         await ctx.reply(embed=embed, view=view, mention_author=False)
+
+    @commands.command(name="봇상태", aliases=["시스템상태", "서버상태"])
+    async def prefix_bot_status(self, ctx: commands.Context, 버전: Optional[str] = None):
+        if not await self.bot.is_bot_owner_user(ctx.author):
+            await ctx.reply("🚨 **권한 부족:** 봇 상태 조회는 **👑 봇 주인(소유자)** 만 실행할 수 있습니다.", delete_after=6)
+            return
+        norm = (버전 or "").strip().lower()
+        mode = "summary" if norm in ("summary", "compact", "요약", "요약본", "요약버전", "간략") else "detailed"
+        embed = await self._build_bot_status_embed(ctx.author.display_name, mode=mode)
+        view = BotStatusRefreshView(self, ctx.author.id, mode=mode)
+        await ctx.reply(embed=embed, view=view, mention_author=False)
+
+    @commands.command(name="날씨", aliases=["기상", "미세먼지"])
+    async def prefix_weather(self, ctx: commands.Context, *, 지역: str = "서울"):
+        clean_loc = (지역 or "서울").strip() or "서울"
+        w_info, err = await asyncio.to_thread(core.fetch_accurate_weather_sync, clean_loc)
+        if err or not w_info:
+            await ctx.reply(f"❌ **날씨 조회 실패:** {err}", mention_author=False)
+            return
+        view = WeatherRefreshView(clean_loc, w_info, user=ctx.author)
+        await ctx.reply(embed=view.build_embed(), view=view, mention_author=False)
 
     # ==========================================
     # 카테고리 5 - 4: /유저정보 (멤버 상세 프로필 조회기)

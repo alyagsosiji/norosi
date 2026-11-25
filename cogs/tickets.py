@@ -1103,5 +1103,51 @@ class TicketGroupCog(commands.GroupCog, name="티켓", description="🎫 1:1 비
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
+class TicketStandaloneCog(commands.Cog):
+    """!티켓 · !문의 · !티켓목록 빠른 조회 단축어 Cog"""
+
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+
+    @commands.command(name="티켓", aliases=["문의", "티켓목록"])
+    @commands.guild_only()
+    async def prefix_ticket_info(self, ctx: commands.Context):
+        if not ctx.guild or not ctx.channel:
+            return
+        cur_ticket = await asyncio.to_thread(ticket_core.get_ticket_by_channel, ctx.guild.id, ctx.channel.id)
+        if isinstance(cur_ticket, dict) and cur_ticket.get("status") == "open":
+            cl = f"<@{cur_ticket['claimed_by']}>" if cur_ticket.get("claimed_by") else "미배정"
+            embed = discord.Embed(
+                title=f"🎫 문의 티켓 #{int(cur_ticket.get('ticket_no', 1)):04d} — {cur_ticket.get('subject', '문의')}",
+                description=(
+                    f"• **개설자:** <@{cur_ticket.get('opener_id')}>  ·  **담당자:** {cl}\n"
+                    f"• **개설 시각:** `{cur_ticket.get('created_at', '-')}`\n"
+                    "• 티켓 상단 고정 제어판 버튼 또는 `/설정` (`⚙️ 고급 1p` ➔ `🎫 1:1 문의 티켓`)에서 닫기·멤버관리를 실행할 수 있습니다."
+                ),
+                color=0x38BDF8,
+                timestamp=datetime.datetime.now(core.KST),
+            )
+            await ctx.send(embed=embed)
+            return
+
+        if _is_ticket_staff(ctx.author, ctx.guild.id, self.bot):
+            rows = await asyncio.to_thread(ticket_core.list_guild_tickets, ctx.guild.id, "open")
+            lines = [
+                f"🟢 **`#{int(r['ticket_no']):04d}`** <#{r['channel_id']}> — `{r.get('subject', '-')}` (<@{r['opener_id']}>)"
+                for r in rows[:15]
+            ] or ["*(현재 열려 있는 문의 티켓이 없습니다.)*"]
+            embed = discord.Embed(
+                title=f"🎫 {ctx.guild.name} 진행 중 티켓 현황 ({len(rows)}건)",
+                description="\n".join(lines) + "\n\n💡 패널 생성·역할 설정은 `/설정` (`⚙️ 고급 1p` ➔ `🎫 1:1 문의 티켓`)에서 관리할 수 있습니다.",
+                color=0x38BDF8,
+                timestamp=datetime.datetime.now(core.KST),
+            )
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send("🎫 1:1 비공개 문의는 서버의 **문의 티켓 안내 채널 버튼**을 눌러 개설하실 수 있습니다!")
+
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(TicketGroupCog(bot))
+    await bot.add_cog(TicketStandaloneCog(bot))
+

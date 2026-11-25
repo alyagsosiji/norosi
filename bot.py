@@ -609,34 +609,87 @@ class NorosiBot(commands.Bot):
         if not self.terminal_log_dispatch_loop.is_running():
             self.terminal_log_dispatch_loop.start()
 
+    @staticmethod
+    def summarize_terminal_log_text(full_text: str) -> str:
+        """VM 시스템/터미널 로그를 요약 버전(트레이스백 압축 · 핵심 상태/경고/오류 위주 1줄 요약)으로 변환합니다."""
+        raw_lines = [ln.rstrip() for ln in (full_text or "").splitlines() if ln.strip()]
+        if not raw_lines:
+            return ""
+
+        noise_tokens = ("DEBUG:", "heartbeat", "keepalive", "Gateway", "shard ID")
+        condensed: list[str] = []
+        idx = 0
+        while idx < len(raw_lines):
+            ln = raw_lines[idx]
+            if ln.lstrip().startswith("Traceback (most recent call last):"):
+                tb_end = idx + 1
+                while tb_end < len(raw_lines) and (
+                    raw_lines[tb_end].startswith("  ") or raw_lines[tb_end].lstrip().startswith("File ")
+                ):
+                    tb_end += 1
+                err_line = raw_lines[tb_end].strip() if tb_end < len(raw_lines) else "Exception"
+                collapsed_cnt = max(1, tb_end - idx)
+                short_err = err_line[:130] + "..." if len(err_line) > 130 else err_line
+                condensed.append(f"[❌ 예외 요약] {short_err} (스택 {collapsed_cnt}줄 축약)")
+                idx = tb_end + 1
+                continue
+
+            if any(tok in ln for tok in noise_tokens):
+                idx += 1
+                continue
+
+            clean_ln = ln.strip()
+            if len(clean_ln) > 140:
+                clean_ln = clean_ln[:140].rstrip() + "..."
+            condensed.append(clean_ln)
+            idx += 1
+
+        if not condensed:
+            return ""
+
+        total_raw = len(raw_lines)
+        if len(condensed) > 10:
+            omitted = len(condensed) - 10
+            condensed = condensed[:5] + [f"... (중간 로그 {omitted}줄 요약 생략) ..."] + condensed[-5:]
+
+        header = (
+            f"[⚡ 시스템 로그 요약 · 원본 {total_raw}줄 ➔ 핵심 {len(condensed)}줄]\n"
+            if total_raw > len(condensed)
+            else "[⚡ 시스템 로그 요약]\n"
+        )
+        return header + "\n".join(condensed)
+
     @tasks.loop(seconds=3.0)
     async def terminal_log_dispatch_loop(self):
-        """3초마다 VM 터미널 출력 큐를 확인하여 지정된 모든 서버 채널로 안전하게 묶음 전송 (레이트 리밋 방어 탑재)"""
+        """3초마다 VM 터미널 출력 큐를 확인하여 서버별 설정 버전(상세/요약)에 맞춰 안전하게 전송합니다."""
         if not self.terminal_log_queue or self.terminal_log_queue.empty():
             return
 
         data = core.get_cached_data_ro()
-        target_channel_ids = set()
+        channel_modes: dict[int, str] = {}
 
-        # 1. 서버별 등록된 터미널 로그 채널 목록 수집
+        # 1. 서버별 등록된 터미널 로그 채널 및 출력 버전(detailed / summary) 수집
         settings_d = core.as_dict(data.get("settings"))
         t_channels = settings_d.get("terminal_log_channels", {})
+        t_modes = core.as_dict(settings_d.get("terminal_log_modes"))
+        default_mode = "summary" if settings_d.get("terminal_log_default_mode") == "summary" else "detailed"
+
         if isinstance(t_channels, dict):
-            for cid in t_channels.values():
+            for gk, cid in t_channels.items():
                 if cid and str(cid).isdigit():
-                    target_channel_ids.add(int(cid))
+                    m_val = "summary" if t_modes.get(str(gk)) == "summary" else "detailed"
+                    channel_modes[int(cid)] = m_val
         elif isinstance(t_channels, (list, set)):
             for cid in t_channels:
                 if cid and str(cid).isdigit():
-                    target_channel_ids.add(int(cid))
+                    channel_modes[int(cid)] = default_mode
 
         # 2. 레거시 단일 설정 채널 ID도 포함
         legacy_id = settings_d.get("terminal_log_channel_id")
         if legacy_id and str(legacy_id).isdigit():
-            target_channel_ids.add(int(legacy_id))
+            channel_modes.setdefault(int(legacy_id), default_mode)
 
-        if not target_channel_ids:
-            # 채널이 지정되지 않은 상태면 큐가 쌓이지 않도록 비움
+        if not channel_modes:
             while not self.terminal_log_queue.empty():
                 try:
                     self.terminal_log_queue.get_nowait()
@@ -644,16 +697,19 @@ class NorosiBot(commands.Bot):
                     break
             return
 
-        resolved_channels = []
-        for cid in list(target_channel_ids):
+        detailed_channels = []
+        summary_channels = []
+        for cid, mode_str in list(channel_modes.items()):
             ch = await self.resolve_channel(cid)
             if ch:
-                resolved_channels.append(ch)
+                if mode_str == "summary":
+                    summary_channels.append(ch)
+                else:
+                    detailed_channels.append(ch)
 
-        if not resolved_channels:
+        if not detailed_channels and not summary_channels:
             return
 
-        # 큐에서 쌓인 모든 로그 텍스트를 청크 단위로 추출
         chunks = []
         while not self.terminal_log_queue.empty():
             try:
@@ -665,51 +721,54 @@ class NorosiBot(commands.Bot):
         if not chunks:
             return
 
-        # 로그 텍스트 합치기 및 코드블록 특수문자·민감정보 치환
         full_text = core.redact_secrets("".join(chunks).replace("```", "'''"))
 
-        # 디스코드 2,000자 제한을 준수하도록 ~1,800자 단위 메시지 리스트로 분할
-        messages_to_send = []
-        buf = ""
-        for line in full_text.splitlines(keepends=True):
-            if len(buf) + len(line) > 1800:
-                if buf.strip():
-                    messages_to_send.append(buf.strip())
-                buf = line
-            else:
-                buf += line
-        if buf.strip():
-            messages_to_send.append(buf.strip())
+        def _chunk_log_text(src_text: str) -> list[str]:
+            out_msgs = []
+            buf = ""
+            for line in src_text.splitlines(keepends=True):
+                if len(buf) + len(line) > 1800:
+                    if buf.strip():
+                        out_msgs.append(buf.strip())
+                    buf = line
+                else:
+                    buf += line
+            if buf.strip():
+                out_msgs.append(buf.strip())
+            if len(out_msgs) > 2:
+                dropped_cnt = len(out_msgs) - 2
+                out_msgs = [
+                    out_msgs[0],
+                    f"... [⚠️ 터미널 출력 폭주 방어: 중간 로그 약 {dropped_cnt * 1800}자 생략됨. 서버 VM 콘솔 참조] ...\n" + out_msgs[-1],
+                ]
+            return out_msgs
 
-        if not messages_to_send:
-            return
+        async def _send_batch(target_chs: list, msg_list: list[str]):
+            if not target_chs or not msg_list:
+                return
+            for idx, msg in enumerate(msg_list):
+                if not msg.strip():
+                    continue
+                payload = f"```log\n{msg.strip()}\n```"
+                for ch in target_chs:
+                    try:
+                        await ch.send(payload)
+                    except discord.HTTPException as he:
+                        if he.status == 429:
+                            self._orig_stderr.write(f"[TerminalLogger] 채널 {ch.id} 전송 429 감지(일시대기): {he}\n")
+                        else:
+                            self._orig_stderr.write(f"[TerminalLogger] 채널 {ch.id} 전송 HTTP 오류: {he}\n")
+                    except Exception as e:
+                        self._orig_stderr.write(f"[TerminalLogger] 채널 {ch.id} 전송 실패: {e}\n")
+                if idx < len(msg_list) - 1:
+                    await asyncio.sleep(1.1)
 
-        # 과도한 출력(폭주) 발생 시 채널 도배 및 429 방지: 최대 2개 메시지만 전송하고 중간은 생략
-        if len(messages_to_send) > 2:
-            dropped_cnt = len(messages_to_send) - 2
-            messages_to_send = [
-                messages_to_send[0],
-                f"... [⚠️ 터미널 출력 폭주 방어: 중간 로그 약 {dropped_cnt * 1800}자 생략됨. 서버 VM 콘솔 참조] ...\n" + messages_to_send[-1]
-            ]
-
-        # 디스코드 채널 레이트 리밋(5초당 5회) 준수를 위해 메시지 간 1.1초 간격 전송
-        for idx, msg in enumerate(messages_to_send):
-            if not msg.strip():
-                continue
-            payload = f"```log\n{msg.strip()}\n```"
-            for ch in resolved_channels:
-                try:
-                    await ch.send(payload)
-                except discord.HTTPException as he:
-                    if he.status == 429:
-                        self._orig_stderr.write(f"[TerminalLogger] 채널 {ch.id} 전송 429 감지(일시대기): {he}\n")
-                    else:
-                        self._orig_stderr.write(f"[TerminalLogger] 채널 {ch.id} 전송 HTTP 오류: {he}\n")
-                except Exception as e:
-                    self._orig_stderr.write(f"[TerminalLogger] 채널 {ch.id} 전송 실패: {e}\n")
-
-            if idx < len(messages_to_send) - 1:
-                await asyncio.sleep(1.1)
+        if detailed_channels:
+            await _send_batch(detailed_channels, _chunk_log_text(full_text))
+        if summary_channels:
+            summary_txt = self.summarize_terminal_log_text(full_text)
+            if summary_txt:
+                await _send_batch(summary_channels, _chunk_log_text(summary_txt))
 
     @terminal_log_dispatch_loop.before_loop
     async def before_terminal_log_dispatch(self):
@@ -1867,26 +1926,46 @@ bot = NorosiBot()
 # ==========================================
 # 🖥️ VM 서버 터미널 로그 수신 채널 지정 명령어 (/설정 연동, !터미널로그)
 # ==========================================
-async def set_terminal_log_channel_slash(interaction: discord.Interaction, 채널: Optional[discord.TextChannel] = None):
+def _parse_terminal_log_mode_token(token: Optional[str]) -> Optional[str]:
+    if not token:
+        return None
+    norm = str(token).strip().lower()
+    if norm in ("summary", "compact", "brief", "short", "요약", "요약본", "요약모드", "요약버전", "간략"):
+        return "summary"
+    if norm in ("detailed", "detail", "full", "raw", "상세", "상세본", "상세모드", "상세버전", "전체"):
+        return "detailed"
+    return None
+
+
+async def set_terminal_log_channel_slash(
+    interaction: discord.Interaction,
+    채널: Optional[discord.TextChannel] = None,
+    버전: Optional[str] = None,
+):
     if not await bot.is_bot_owner_user(interaction.user):
-        await core.safe_send_response(interaction, "❌ 이 명령어는 **봇 소유자**(봇주)만 사용할 수 있습니다.", ephemeral=True)
+        await core.safe_send_response(interaction, "❌ 이 명령어는 **봇 소유자**만 사용할 수 있습니다.", ephemeral=True)
         return
 
     await core.safe_defer(interaction, ephemeral=True)
     g_key = str(interaction.guild_id) if interaction.guild_id else "global"
+    parsed_mode = _parse_terminal_log_mode_token(버전) or "detailed"
 
     def _update_tlog():
         with core._DATA_LOCK:
             data = core.load_data()
             settings_dict = core.ensure_dict_path(data, "settings")
             t_channels = core.ensure_dict_path(data, "settings", "terminal_log_channels")
+            t_modes = core.ensure_dict_path(data, "settings", "terminal_log_modes")
             if 채널 is None:
                 t_channels.pop(g_key, None)
+                t_modes.pop(g_key, None)
                 if not t_channels:
                     settings_dict["terminal_log_channel_id"] = None
             else:
                 t_channels[g_key] = 채널.id
+                t_modes[g_key] = parsed_mode
                 settings_dict["terminal_log_channel_id"] = 채널.id
+                settings_dict["terminal_log_default_mode"] = parsed_mode
             core.save_data(data)
             return len(t_channels)
 
@@ -1896,52 +1975,109 @@ async def set_terminal_log_channel_slash(interaction: discord.Interaction, 채�
         await interaction.followup.send(f"🛑 **현재 서버({interaction.guild.name if interaction.guild else '글로벌'})의 VM 서버 터미널 로그 채널 전송이 해제되었습니다.**", ephemeral=True)
         print(f"ℹ️ [System] {interaction.user}에 의해 {interaction.guild}의 터미널 로그 채널 전송이 비활성화되었습니다.", flush=True)
     else:
+        mode_badge = "⚡ 요약 버전 (핵심 라인·예외 스택 요약)" if parsed_mode == "summary" else "📋 상세 버전 (원문 전체 출력)"
         embed = discord.Embed(
             title="🖥️ VM 서버 터미널 실시간 로그 채널 지정 완료!",
             description=(
-                f"이제부터 VM 서버 터미널(`stdout` / `stderr` / `logging`)로 출력되는 모든 로그가 {채널.mention} 채널에도 실시간으로 기록됩니다.\n\n"
+                f"이제부터 VM 서버 터미널(`stdout` / `stderr` / `logging`) 로그가 {채널.mention} 채널에 실시간으로 기록됩니다.\n\n"
                 f"• **현재 채널:** {채널.mention} (`#{채널.name}`)\n"
+                f"• **출력 버전:** {mode_badge}\n"
                 f"• **전체 연동 서버:** 총 {total_ch_cnt}개 서버 채널에 실시간 동시 전송 중\n"
                 "• **전송 주기:** `3초` 단위 버퍼링 묶음 전송 (도배 및 Rate Limit 완벽 방어)\n"
-                "• **해제 방법:** `/설정` → `⚙️ 고급 (4p)` → `VM 터미널 로그`에서 해제"
+                "• **버전 전환 / 해제:** `/설정` → `⚙️ 고급 (4p)` → `VM 터미널 로그` 또는 `!터미널로그 [상세|요약|해제]`"
             ),
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST)
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
-        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{채널.name} (ID: {채널.id}, 서버: {interaction.guild})로 지정되었습니다. (총 {total_ch_cnt}개 서버 동시 전송)", flush=True)
+        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{채널.name} (ID: {채널.id}, 모드: {parsed_mode}, 서버: {interaction.guild})로 지정되었습니다. (총 {total_ch_cnt}개 서버 동시 전송)", flush=True)
 
 
 @bot.command(name="터미널로그", aliases=["터미널로그채널", "서버터미널", "vm로그", "콘솔로그"])
-async def set_terminal_log_channel_prefix(ctx: commands.Context, channel: Optional[discord.TextChannel] = None):
+async def set_terminal_log_channel_prefix(
+    ctx: commands.Context,
+    target_or_mode: Optional[str] = None,
+    mode_arg: Optional[str] = None,
+):
     if not await bot.is_bot_owner_user(ctx.author):
-        await ctx.send("❌ 이 명령어는 **봇 소유자**(봇주)만 사용할 수 있습니다.", delete_after=5)
+        await ctx.send("❌ 이 명령어는 **봇 소유자**만 사용할 수 있습니다.", delete_after=5)
         return
 
     g_key = str(ctx.guild.id) if ctx.guild else "global"
+    first_norm = (target_or_mode or "").strip().lower()
+    unbind_tokens = ("", "off", "disable", "stop", "none", "해제", "끄기", "중지", "비활성화")
+
+    channel: Optional[discord.TextChannel] = None
+    selected_mode: Optional[str] = None
+
+    if first_norm not in unbind_tokens:
+        direct_mode = _parse_terminal_log_mode_token(target_or_mode)
+        if direct_mode is not None and mode_arg is None:
+            selected_mode = direct_mode
+        else:
+            try:
+                channel = await commands.TextChannelConverter().convert(ctx, target_or_mode)  # type: ignore[arg-type]
+            except commands.BadArgument:
+                await ctx.send(
+                    "⚠️ 올바른 채널 또는 버전을 입력해 주세요.\n"
+                    "• 사용법: `!터미널로그 #채널 [상세|요약]` / `!터미널로그 상세` / `!터미널로그 요약` / `!터미널로그 해제`"
+                )
+                return
+            selected_mode = _parse_terminal_log_mode_token(mode_arg) or "detailed"
 
     def _update_tlog():
         with core._DATA_LOCK:
             data = core.load_data()
             settings_dict = core.ensure_dict_path(data, "settings")
             t_channels = core.ensure_dict_path(data, "settings", "terminal_log_channels")
-            if channel is None:
+            t_modes = core.ensure_dict_path(data, "settings", "terminal_log_modes")
+
+            if first_norm in unbind_tokens:
                 t_channels.pop(g_key, None)
+                t_modes.pop(g_key, None)
                 if not t_channels:
                     settings_dict["terminal_log_channel_id"] = None
-            else:
+                eff_ch_id = None
+                eff_mode = "detailed"
+            elif channel is not None:
+                eff_mode = selected_mode or "detailed"
                 t_channels[g_key] = channel.id
+                t_modes[g_key] = eff_mode
                 settings_dict["terminal_log_channel_id"] = channel.id
+                settings_dict["terminal_log_default_mode"] = eff_mode
+                eff_ch_id = channel.id
+            else:
+                # 모드만 단독 입력한 경우: 기존 연동 채널 유지, 없으면 현재 텍스트 채널 자동 연동
+                eff_mode = selected_mode or "detailed"
+                existing_ch_id = t_channels.get(g_key)
+                if not existing_ch_id and isinstance(ctx.channel, discord.TextChannel):
+                    existing_ch_id = ctx.channel.id
+                    t_channels[g_key] = existing_ch_id
+                    settings_dict["terminal_log_channel_id"] = existing_ch_id
+                if existing_ch_id:
+                    t_modes[g_key] = eff_mode
+                settings_dict["terminal_log_default_mode"] = eff_mode
+                eff_ch_id = existing_ch_id
+
             core.save_data(data)
-            return len(t_channels)
+            return len(t_channels), eff_ch_id, eff_mode
 
-    total_ch_cnt = await asyncio.to_thread(_update_tlog)
+    total_ch_cnt, bound_ch_id, active_mode = await asyncio.to_thread(_update_tlog)
 
-    if channel is None:
-        await ctx.send(f"🛑 **현재 서버({ctx.guild.name if ctx.guild else '글로벌'})의 VM 서버 터미널 로그 채널 기록이 비활성화되었습니다.** (특정 채널에 켜려면 `!터미널로그 #채널` 입력)")
+    if not bound_ch_id:
+        await ctx.send(
+            f"🛑 **현재 서버({ctx.guild.name if ctx.guild else '글로벌'})의 VM 서버 터미널 로그 채널 기록이 비활성화되었습니다.** "
+            "(켜려면 `!터미널로그 #채널 상세` 또는 `!터미널로그 #채널 요약` 입력)"
+        )
     else:
-        await ctx.send(f"🖥️ **VM 서버 터미널 로그 채널 지정 완료:** 이제부터 터미널 출력이 {channel.mention} 채널에 실시간으로 기록됩니다! (총 {total_ch_cnt}개 서버 채널 동시 전송)")
-        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{channel.name} (ID: {channel.id}, 서버: {ctx.guild})로 지정되었습니다. (총 {total_ch_cnt}개 서버 동시 전송)", flush=True)
+        ch_mention = f"<#{bound_ch_id}>"
+        mode_label = "⚡ 요약 버전" if active_mode == "summary" else "📋 상세 버전"
+        await ctx.send(
+            f"🖥️ **VM 서버 터미널 로그 설정 완료:** 이제부터 터미널 출력이 {ch_mention} 채널에 **{mode_label}**으로 실시간 기록됩니다! "
+            f"(총 {total_ch_cnt}개 서버 채널 동시 전송 · 전환: `!터미널로그 상세` / `!터미널로그 요약`)"
+        )
+        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널(ID: {bound_ch_id}, 모드: {active_mode}, 서버: {ctx.guild}) 설정 완료. (총 {total_ch_cnt}개 서버 동시 전송)", flush=True)
+
 
 
 # ==========================================

@@ -269,6 +269,12 @@ class ServerLogHubView(core.SafeView):
         self.guild_cfg = dict(guild_cfg)
         self.category_select = ServerLogCategorySelect(self)
         self.add_item(self.category_select)
+        self._sync_mode_buttons()
+
+    def _sync_mode_buttons(self):
+        cur_mode = self.guild_cfg.get("detail_mode", "detailed")
+        self.mode_detailed_btn.disabled = (cur_mode != "summary")
+        self.mode_summary_btn.disabled = (cur_mode == "summary")
 
     def refresh_select_options(self):
         events = self.guild_cfg.get("events", {})
@@ -284,12 +290,20 @@ class ServerLogHubView(core.SafeView):
                 )
             )
         self.category_select.options = new_opts
+        self._sync_mode_buttons()
 
     def build_embed(self):
+        self._sync_mode_buttons()
         enabled = self.guild_cfg.get("enabled", False)
         ch_id = self.guild_cfg.get("channel_id")
         ch_mention = f"<#{ch_id}>" if ch_id else "*(미지정)*"
         status_str = "✅ **활성화됨**" if (enabled and ch_id) else "❌ **비활성화됨**"
+        cur_mode = self.guild_cfg.get("detail_mode", "detailed")
+        mode_str = (
+            "⚡ **요약 모드** *(핵심 정보만 1~3줄 간결 요약)*"
+            if cur_mode == "summary"
+            else "📋 **상세 모드** *(원본 전문·코드블록·썸네일·미디어 포함)*"
+        )
 
         e = self.guild_cfg.get("events", {})
         mod_st = "🟢 ON" if e.get("mod_admin", True) else "🔴 OFF"
@@ -305,7 +319,8 @@ class ServerLogHubView(core.SafeView):
             title=f"🛡️ {guild_name} 7대 카테고리 통합 감사 로그 설정",
             description=(
                 f"📢 **로그 수신 채널:** {ch_mention}\n"
-                f"⚙️ **전체 로그 상태:** {status_str}\n\n"
+                f"⚙️ **전체 로그 상태:** {status_str}\n"
+                f"📄 **로그 출력 버전:** {mode_str}\n\n"
                 "### 📋 카테고리별 감지 현황\n"
                 f"• 🛡️ **Mod/Admin (제재·모더레이션·닉네임):** `{mod_st}`\n"
                 f"• 📢 **Channels (채널 생성/삭제/수정):** `{chan_st}`\n"
@@ -314,14 +329,35 @@ class ServerLogHubView(core.SafeView):
                 f"• 🔊 **Voice (음성 입장/퇴장/이동):** `{voice_st}`\n"
                 f"• 🛡️ **Roles (역할 생성/삭제/수정):** `{roles_st}`\n"
                 f"• 🌐 **Server (서버 설정 및 이모지 변동):** `{server_st}`\n\n"
-                "💡 **상단 드롭다운 메뉴**에서 원하는 카테고리를 체크/해제하여 1클릭으로 즉시 적용할 수 있습니다.\n"
-                "*(모든 이벤트 로그에는 이용자의 고유 유저 ID가 함께 기록됩니다)*"
+                "💡 상단 드롭다운으로 감지 항목을 선택하고, 하단 **`[📋 상세 버전]` / `[⚡ 요약 버전]`** 버튼으로 로그 형식을 전환할 수 있습니다."
             ),
             color=discord.Color.from_rgb(0, 204, 221) if (enabled and ch_id) else discord.Color.dark_grey(),
             timestamp=datetime.datetime.now(core.KST)
         )
         embed.set_footer(text="서버 관리자(Administrator) 전용 컨트롤 보드")
         return embed
+
+    async def _set_detail_mode(self, interaction: discord.Interaction, target_mode: str):
+        if not interaction.user.guild_permissions.administrator:
+            await core.safe_send_response(interaction, "❌ 서버 관리자만 변경할 수 있습니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+
+        def _save_mode() -> dict:
+            with core._DATA_LOCK:
+                data = core.load_data()
+                g_key = str(interaction.guild_id)
+                logs_root = core.ensure_dict_path(data, "server_logs")
+                if not isinstance(logs_root.get(g_key), dict):
+                    logs_root[g_key] = {"channel_id": None, "enabled": False}
+                guild_cfg = logs_root[g_key]
+                guild_cfg["detail_mode"] = "summary" if target_mode == "summary" else "detailed"
+                core.save_data(data)
+                return copy.deepcopy(guild_cfg)
+
+        self.guild_cfg = await asyncio.to_thread(_save_mode)
+        self.refresh_select_options()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="📢 현재 채널을 로그 채널로 지정", style=discord.ButtonStyle.primary, row=1)
     async def set_channel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -381,6 +417,14 @@ class ServerLogHubView(core.SafeView):
         self.guild_cfg = guild_cfg
         self.refresh_select_options()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="📋 상세 버전", style=discord.ButtonStyle.secondary, row=2)
+    async def mode_detailed_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._set_detail_mode(interaction, "detailed")
+
+    @discord.ui.button(label="⚡ 요약 버전", style=discord.ButtonStyle.primary, row=2)
+    async def mode_summary_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._set_detail_mode(interaction, "summary")
 
 
 AUDIT_LOG_ACTION_KOREAN = {
@@ -730,6 +774,74 @@ class GithubWebhookView(core.SafeView):
 GithubWebhookGuideView = GithubWebhookView
 
 
+def build_summary_server_log_embed(embed: discord.Embed) -> discord.Embed:
+    """상세 감사 로그 임베드를 핵심 정보(누가·어디서·무엇을)만 남긴 1~3줄 간결 요약 버전으로 변환합니다."""
+    raw_desc = embed.description or ""
+
+    def _collapse_codeblock(m: re.Match) -> str:
+        inner = (m.group(1) or "").strip()
+        one_line = " ⏎ ".join(s.strip() for s in inner.splitlines() if s.strip())
+        if not one_line:
+            return "`(내용 없음)`"
+        if len(one_line) > 70:
+            one_line = one_line[:70].rstrip() + "..."
+        return f"`{one_line.replace('`', 'ʼ')}`"
+
+    collapsed = re.sub(r"```[a-zA-Z0-9_-]*\n?(.*?)```", _collapse_codeblock, raw_desc, flags=re.DOTALL)
+    lines = [ln.strip() for ln in collapsed.splitlines() if ln.strip() and not ln.strip().startswith("📎")]
+
+    merged_lines: list[str] = []
+    i = 0
+    while i < len(lines):
+        cur = lines[i]
+        if cur.endswith(":") and i + 1 < len(lines) and lines[i + 1].startswith("`"):
+            merged_lines.append(f"{cur} {lines[i + 1]}")
+            i += 2
+        else:
+            merged_lines.append(cur)
+            i += 1
+
+    for f in getattr(embed, "fields", []):
+        f_collapsed = re.sub(r"```[a-zA-Z0-9_-]*\n?(.*?)```", _collapse_codeblock, f.value or "", flags=re.DOTALL)
+        f_first = next((s.strip() for s in f_collapsed.splitlines() if s.strip()), "")
+        if f_first:
+            if len(f_first) > 85:
+                f_first = f_first[:85].rstrip() + "..."
+            merged_lines.append(f"• **{f.name}:** {f_first}")
+
+    summary_desc = "\n".join(merged_lines[:5])
+    if len(merged_lines) > 5:
+        summary_desc += f"\n*(…외 `{len(merged_lines) - 5}건` 세부 항목 생략)*"
+
+    raw_title = (embed.title or "시스템 로그").strip()
+    out = discord.Embed(
+        title=f"⚡ [요약] {raw_title}"[:256],
+        description=summary_desc[:1024] or "*(내용 없음)*",
+        color=embed.color,
+        timestamp=embed.timestamp,
+    )
+    out.set_footer(text="⚡ 요약 로그 모드 • /로그채널설정에서 상세 버전 전환 가능")
+    return out
+
+
+class _ServerLogChannelDispatcher:
+    """서버별 detail_mode('detailed' | 'summary') 설정에 맞춰 상세 또는 요약 버전 임베드를 자동 전송합니다."""
+
+    def __init__(self, channel: discord.abc.Messageable, detail_mode: str = "detailed"):
+        self._ch = channel
+        self.detail_mode = "summary" if detail_mode == "summary" else "detailed"
+
+    def __getattr__(self, name: str):
+        return getattr(self._ch, name)
+
+    async def send(self, content=None, *, embed: discord.Embed | None = None, **kwargs):
+        if embed is not None and self.detail_mode == "summary":
+            embed = build_summary_server_log_embed(embed)
+        if embed is not None:
+            return await self._ch.send(content=content, embed=embed, **kwargs)
+        return await self._ch.send(content=content, **kwargs)
+
+
 class LoggerCog(commands.Cog):
     """디스코드 7대 카테고리 시스템 활동 실시간 감지 및 유저 ID 포함 로그 Cog"""
     def __init__(self, bot):
@@ -748,46 +860,127 @@ class LoggerCog(commands.Cog):
         events_map = core.as_dict(log_cfg.get("events"))
         if category_key and not events_map.get(category_key, True):
             return None
-        return guild.get_channel(ch_id)
+        ch = guild.get_channel(ch_id)
+        if not ch:
+            return None
+        detail_mode = str(log_cfg.get("detail_mode") or "detailed")
+        return _ServerLogChannelDispatcher(ch, detail_mode=detail_mode)
 
-    @app_commands.command(name="로그채널설정", description="[서버 관리자 전용] 7대 카테고리 실시간 감사 로그 수신 채널 및 항목을 설정합니다.")
+    @app_commands.command(name="로그채널설정", description="[서버 관리자 전용] 7대 카테고리 실시간 감사 로그 수신 채널·출력 버전(상세/요약) 및 항목을 설정합니다.")
     @app_commands.describe(
         채널="(선택) 실시간 감사 로그를 전송받을 텍스트 채널 (미지정 시 현재 설정 보드 표시)",
-        상태="(선택) 로그 기능 활성화 여부 (기본: 활성화)"
+        상태="(선택) 로그 기능 활성화 여부 (기본: 활성화)",
+        버전="(선택) 로그 출력 버전 선택 (상세 버전: 전문·원본 포함 / 요약 버전: 핵심 요약)"
     )
-    @app_commands.choices(상태=[
-        app_commands.Choice(name="✅ 서버 로그 활성화", value="enable"),
-        app_commands.Choice(name="❌ 서버 로그 비활성화", value="disable")
-    ])
+    @app_commands.choices(
+        상태=[
+            app_commands.Choice(name="✅ 서버 로그 활성화", value="enable"),
+            app_commands.Choice(name="❌ 서버 로그 비활성화", value="disable")
+        ],
+        버전=[
+            app_commands.Choice(name="📋 상세 버전 (원본 전문·코드블록·썸네일 포함)", value="detailed"),
+            app_commands.Choice(name="⚡ 요약 버전 (핵심 내역 1~3줄 간결 요약)", value="summary"),
+        ],
+    )
     @app_commands.default_permissions(administrator=True)
     async def set_server_log_channel_cmd(
         self,
         interaction: discord.Interaction,
         채널: discord.TextChannel = None,
-        상태: app_commands.Choice[str] = None
+        상태: app_commands.Choice[str] = None,
+        버전: app_commands.Choice[str] = None,
     ):
         if not interaction.guild or not interaction.user.guild_permissions.administrator:
             await core.safe_send_response(interaction, content="❌ 이 명령어는 **서버 관리자(Administrator)** 만 사용할 수 있습니다.", ephemeral=True)
             return
 
         await core.safe_defer(interaction, ephemeral=True)
-        data = await core.asyncio.to_thread(core.load_data)
         g_key = str(interaction.guild_id)
-        logs_dict = core.ensure_dict_path(data, "server_logs")
-        if not isinstance(logs_dict.get(g_key), dict):
-            logs_dict[g_key] = {"channel_id": None, "enabled": False}
-        guild_cfg = logs_dict[g_key]
 
-        if 채널:
-            guild_cfg["channel_id"] = 채널.id
-            guild_cfg["enabled"] = True
+        def _save_log_cfg() -> dict:
+            with core._DATA_LOCK:
+                data = core.load_data()
+                logs_dict = core.ensure_dict_path(data, "server_logs")
+                if not isinstance(logs_dict.get(g_key), dict):
+                    logs_dict[g_key] = {"channel_id": None, "enabled": False, "detail_mode": "detailed"}
+                guild_cfg = logs_dict[g_key]
+                if 채널:
+                    guild_cfg["channel_id"] = 채널.id
+                    guild_cfg["enabled"] = True
+                if 상태:
+                    guild_cfg["enabled"] = (상태.value != "disable")
+                if 버전:
+                    guild_cfg["detail_mode"] = 버전.value
+                core.save_data(data)
+                return dict(guild_cfg)
 
-        if 상태:
-            guild_cfg["enabled"] = (상태.value != "disable")
-
-        await core.asyncio.to_thread(core.save_data, data)
+        guild_cfg = await asyncio.to_thread(_save_log_cfg)
         hub_view = ServerLogHubView(interaction.guild, guild_cfg)
         await interaction.followup.send(embed=hub_view.build_embed(), view=hub_view, ephemeral=True, wait=True)
+
+    @commands.command(name="로그설정", aliases=["감사로그", "서버로그"])
+    @commands.guild_only()
+    async def prefix_server_log_config(
+        self,
+        ctx: commands.Context,
+        target_or_mode: Optional[str] = None,
+        mode_arg: Optional[str] = None,
+    ):
+        if not ctx.guild or not ctx.author.guild_permissions.administrator:
+            await ctx.reply("❌ 이 명령어는 **서버 관리자(Administrator)** 만 사용할 수 있습니다.", delete_after=7)
+            return
+
+        raw_first = (target_or_mode or "").strip().lower()
+        raw_second = (mode_arg or "").strip().lower()
+        ch_obj: Optional[discord.TextChannel] = None
+        new_mode: Optional[str] = None
+        new_enabled: Optional[bool] = None
+
+        def _parse_mode(tok: str) -> Optional[str]:
+            if tok in ("summary", "compact", "요약", "요약본", "요약모드", "요약버전", "간략"):
+                return "summary"
+            if tok in ("detailed", "detail", "full", "상세", "상세본", "상세모드", "상세버전", "전체"):
+                return "detailed"
+            return None
+
+        if raw_first:
+            if raw_first in ("off", "disable", "끄기", "해제", "비활성", "비활성화"):
+                new_enabled = False
+            elif raw_first in ("on", "enable", "켜기", "활성", "활성화"):
+                new_enabled = True
+            elif _parse_mode(raw_first) is not None:
+                new_mode = _parse_mode(raw_first)
+            else:
+                try:
+                    ch_obj = await commands.TextChannelConverter().convert(ctx, target_or_mode)  # type: ignore[arg-type]
+                except commands.BadArgument:
+                    await ctx.reply("⚠️ 사용법: `!로그설정` / `!로그설정 #채널 [상세|요약]` / `!로그설정 요약` / `!로그설정 상세` / `!로그설정 끄기`")
+                    return
+                if raw_second:
+                    new_mode = _parse_mode(raw_second)
+
+        g_key = str(ctx.guild.id)
+
+        def _apply_prefix_log_cfg() -> dict:
+            with core._DATA_LOCK:
+                data = core.load_data()
+                logs_dict = core.ensure_dict_path(data, "server_logs")
+                if not isinstance(logs_dict.get(g_key), dict):
+                    logs_dict[g_key] = {"channel_id": None, "enabled": False, "detail_mode": "detailed"}
+                cfg = logs_dict[g_key]
+                if ch_obj is not None:
+                    cfg["channel_id"] = ch_obj.id
+                    cfg["enabled"] = True
+                if new_enabled is not None:
+                    cfg["enabled"] = new_enabled
+                if new_mode is not None:
+                    cfg["detail_mode"] = new_mode
+                core.save_data(data)
+                return dict(cfg)
+
+        guild_cfg = await asyncio.to_thread(_apply_prefix_log_cfg)
+        hub_view = ServerLogHubView(ctx.guild, guild_cfg)
+        await ctx.send(embed=hub_view.build_embed(), view=hub_view)
 
     @app_commands.command(name="메시지삭제", description="[서버 관리자 전용] 채널 메시지를 조건별(유저, 봇, 미디어, 키워드)로 선택하여 일괄 삭제합니다.")
     @app_commands.describe(

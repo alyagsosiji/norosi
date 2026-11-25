@@ -574,6 +574,35 @@ class ProfileCardStandaloneCog(commands.Cog):
         msg = await ctx.send(embed=view.build_embed(), view=view)
         view.message = msg
 
+    @commands.command(name="송금", aliases=["크리스탈송금", "입금"])
+    async def prefix_transfer(self, ctx: commands.Context, 상대: Optional[discord.Member] = None, 금액: Optional[int] = None):
+        if 상대 is None or 금액 is None:
+            await ctx.send("💡 **사용법:** `!송금 @멤버 금액` *(예: `!송금 @친구 500` · 일일 한도 5,000💎, 수수료 5%)*")
+            return
+        if not (10 <= int(금액) <= 5000):
+            await ctx.send("❌ 송금 금액은 **`10💎 ~ 5,000💎`** 사이로 입력해 주세요.")
+            return
+        ok, msg, _ = await asyncio.to_thread(
+            economy_core.transfer_crystals,
+            ctx.author.id,
+            ctx.author.display_name,
+            상대.id,
+            상대.display_name,
+            int(금액),
+            bool(상대.bot),
+        )
+        if not ok:
+            await ctx.send(msg)
+            return
+        embed = discord.Embed(
+            title="💸 크리스탈 송금 영수증",
+            description=msg,
+            color=discord.Color.green(),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.set_footer(text="송금 수수료 5%가 자동 차감되며, 일일 최대 송금 한도는 5,000💎입니다.")
+        await ctx.send(embed=embed)
+
 
 class EconomyGroupCog(commands.GroupCog, name="경제", description="💳 통합 프로필 카드 · 크리스탈 송금 · 칭호 상점 · 주간 복권 · 통합 자산 랭킹"):
     def __init__(self, bot: commands.Bot):
