@@ -2421,17 +2421,6 @@ class CommunityCog(commands.Cog):
     async def _before_event_reminder_loop(self):
         await self.bot.wait_until_ready()
 
-    @commands.command(name="이벤트")
-    async def prefix_guild_events(self, ctx: commands.Context):
-        """채팅창에 !이벤트 입력 시 예약 이벤트 신청표 허브 호출"""
-        if not ctx.guild:
-            await ctx.send("❌ 예약 이벤트 기능은 서버 채널에서만 사용할 수 있습니다.")
-            return
-        data = await asyncio.to_thread(core.load_data)
-        events = community_core.get_guild_events(data, ctx.guild.id, include_closed=False)
-        view = EventHubView(guild=ctx.guild, user=ctx.author, events=events)
-        await ctx.send(embed=view.build_embed(), view=view)
-
     def _get_sticky_lock(self, channel_id: int) -> asyncio.Lock:
         lock = self._sticky_locks.get(channel_id)
         if lock is None:
@@ -3839,31 +3828,6 @@ class CommunityCog(commands.Cog):
         await core.safe_defer(interaction, ephemeral=True)
         setup_view = TempVoiceSetupView(interaction.user.id, interaction.guild, cfg)
         await interaction.followup.send(embed=setup_view.build_embed(), view=setup_view, ephemeral=True, wait=True)
-
-    @commands.command(name="임시음성방")
-    async def temp_voice_prefix_cmd(self, ctx: commands.Context):
-        if not ctx.guild:
-            return
-        data = await asyncio.to_thread(core.load_data)
-        cfg = community_core.get_temp_voice_config(data, ctx.guild.id)
-        voice_state = getattr(ctx.author, "voice", None)
-        vc = voice_state.channel if voice_state and isinstance(voice_state.channel, discord.VoiceChannel) else None
-        room = community_core.get_temp_voice_room(data, ctx.guild.id, vc.id) if vc else None
-
-        if vc and room:
-            await ctx.send(embed=_build_temp_voice_panel_embed(vc, room), view=TempVoiceControlView(vc.id))
-            return
-
-        if _is_guild_admin(ctx.author, perm_attr="manage_channels"):
-            setup_view = TempVoiceSetupView(ctx.author.id, ctx.guild, cfg)
-            await ctx.send(embed=setup_view.build_embed(), view=setup_view)
-            return
-
-        gen_id = cfg.get("generator_channel_id")
-        if gen_id and cfg.get("enabled"):
-            await ctx.send(f"🔊 <#{gen_id}> 음성 채널에 접속하시면 자동으로 개인 임시 음성방이 생성됩니다!")
-        else:
-            await ctx.send("ℹ️ 임시 음성방에 접속한 상태에서 `!임시음성방`을 입력하거나, 관리자가 `/설정` (`🔊 임시 음성방 자동생성 설정`)으로 생성기 채널을 설정할 수 있습니다.")
 
     @commands.Cog.listener()
     async def on_voice_state_update(

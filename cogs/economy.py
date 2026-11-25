@@ -1,9 +1,9 @@
 """
 cogs/economy.py - 통합 경제 & 커스터마이징 Cog (#2)
-- 통합 프로필 카드 PNG (/프로필카드, /경제 프로필카드, !프로필카드)
-- 칭호 상점 & 업적 배지 (/경제 칭호, !칭호)
+- 통합 프로필 카드 PNG (/프로필카드, /경제 프로필카드)
+- 칭호 상점 & 업적 배지 (/경제 칭호)
 - 크리스탈 송금 & 세금 (/경제 송금)
-- 통합 자산 랭킹 (/경제 랭킹, !경제랭킹)
+- 통합 자산 랭킹 (/경제 랭킹)
 """
 
 from __future__ import annotations
@@ -336,7 +336,7 @@ class LotteryStudioView(core.SafeView):
         if not await super().interaction_check(interaction):
             return False
         if self.user and interaction.user.id != self.user.id:
-            await core.safe_send_response(interaction, "❌ 본인의 복권 창구만 조작할 수 있습니다! (`!복권`으로 열기)", ephemeral=True)
+            await core.safe_send_response(interaction, "❌ 본인의 복권 창구만 조작할 수 있습니다! (`/설정`에서 직접 열어주세요)", ephemeral=True)
             return False
         if self.user is None:
             self.user = interaction.user
@@ -529,7 +529,7 @@ class EconomyLeaderboardView(core.SafeView):
 # 3. Cog 등록 (/프로필카드 & /경제 그룹)
 # ==========================================
 class ProfileCardStandaloneCog(commands.Cog):
-    """단독 슬래시 /프로필카드 및 접두사 !프로필카드 · !칭호 · !경제랭킹 단축어 Cog"""
+    """단독 슬래시 /프로필카드 Cog"""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -541,68 +541,6 @@ class ProfileCardStandaloneCog(commands.Cog):
         target = 유저 or interaction.user
         guild_id = interaction.guild_id or 0
         await _send_profile_card(interaction.followup.send, target, guild_id)
-
-    @commands.command(name="프로필카드")
-    async def prefix_profile_card(self, ctx: commands.Context, 유저: Optional[discord.Member] = None):
-        target = 유저 or ctx.author
-        guild_id = ctx.guild.id if ctx.guild else 0
-        await _send_profile_card(ctx.send, target, guild_id, is_interaction=False)
-
-    @commands.command(name="칭호")
-    async def prefix_titles(self, ctx: commands.Context):
-        guild_id = ctx.guild.id if ctx.guild else 0
-        stats = await asyncio.to_thread(
-            economy_core.get_title_shop_state, guild_id, ctx.author.id, ctx.author.display_name
-        )
-        view = TitleStudioView(ctx.author, guild_id, stats=stats)
-        msg = await ctx.send(embed=view.build_embed(), view=view)
-        view.message = msg
-
-    @commands.command(name="복권")
-    async def prefix_lottery(self, ctx: commands.Context):
-        guild_id = ctx.guild.id if ctx.guild else 0
-        ov = await asyncio.to_thread(economy_core.get_lottery_overview, ctx.author.id)
-        view = LotteryStudioView(ctx.author, guild_id, overview=ov)
-        msg = await ctx.send(embed=view.build_embed(), view=view)
-        view.message = msg
-
-    @commands.command(name="경제랭킹")
-    async def prefix_eco_ranking(self, ctx: commands.Context):
-        guild_id = ctx.guild.id if ctx.guild else 0
-        lb = await asyncio.to_thread(economy_core.get_economy_leaderboard, guild_id)
-        view = EconomyLeaderboardView(ctx.author, guild_id, "net_worth", lb=lb)
-        msg = await ctx.send(embed=view.build_embed(), view=view)
-        view.message = msg
-
-    @commands.command(name="송금")
-    async def prefix_transfer(self, ctx: commands.Context, 상대: Optional[discord.Member] = None, 금액: Optional[int] = None):
-        if 상대 is None or 금액 is None:
-            await ctx.send("💡 **사용법:** `!송금 @멤버 금액` *(예: `!송금 @친구 500` · 일일 한도 5,000💎, 수수료 5%)*")
-            return
-        if not (10 <= int(금액) <= 5000):
-            await ctx.send("❌ 송금 금액은 **`10💎 ~ 5,000💎`** 사이로 입력해 주세요.")
-            return
-        ok, msg, _ = await asyncio.to_thread(
-            economy_core.transfer_crystals,
-            ctx.author.id,
-            ctx.author.display_name,
-            상대.id,
-            상대.display_name,
-            int(금액),
-            bool(상대.bot),
-        )
-        if not ok:
-            await ctx.send(msg)
-            return
-        embed = discord.Embed(
-            title="💸 크리스탈 송금 영수증",
-            description=msg,
-            color=discord.Color.green(),
-            timestamp=datetime.datetime.now(core.KST),
-        )
-        embed.set_footer(text="송금 수수료 5%가 자동 차감되며, 일일 최대 송금 한도는 5,000💎입니다.")
-        await ctx.send(embed=embed)
-
 
 class EconomyGroupCog(commands.GroupCog, name="경제", description="💳 통합 프로필 카드 · 크리스탈 송금 · 칭호 상점 · 주간 복권 · 통합 자산 랭킹"):
     def __init__(self, bot: commands.Bot):

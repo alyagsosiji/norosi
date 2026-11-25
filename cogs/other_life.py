@@ -3,7 +3,6 @@ cogs/other_life.py - 「타인의인생」 0세~노년 풀 스토리 인생 시�
 - /타인의인생 플레이 [출신] [시간배율] : 실시간 시간 배율(60초=1년 표준 / 30초 쾌속 / 3분 슬로우 / 턴제) + 능동 분기 선택
 - /타인의인생 도감 : 1,000종 멀티 엔딩 도감(필터·검색·요약) & 내 과거 인생 전기 아카이브 열람
 - /타인의인생 랭킹 : 서버 엔딩 수집 · 최고 점수 · 최장 수명 랭킹 보드
-- !타인의인생 / !인생게임 / !타인 : 빠른 접두사 단축어 지원
 """
 
 from __future__ import annotations
@@ -1241,7 +1240,7 @@ class OtherLifeRankingView(core.SafeView):
             color=0xF59E0B,
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_footer(text="/설정 (🎮 미니게임 4p > 👶 타인의 삶 플레이) 또는 !타인의인생 으로 새로운 생애를 살아보세요!")
+        embed.set_footer(text="/설정 (🎮 미니게임 4p > 👶 타인의 삶 플레이) 으로 새로운 생애를 살아보세요!")
         return embed
 
     @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=0)
@@ -2013,35 +2012,10 @@ class OtherLifeCog(
 
 
 class OtherLifeStandaloneCog(commands.Cog):
-    """!타인의인생 · !인생도감 · !인생랭킹 접두사 단축어 Cog"""
+    """타인의 인생 보조 Cog"""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-
-    @commands.command(name="타인의인생")
-    async def prefix_other_life(self, ctx: commands.Context):
-        gid = ctx.guild.id if ctx.guild else 0
-        u_state, _, idle_logs = await asyncio.to_thread(
-            other_life_core.get_other_life_state, gid, ctx.author.id, ctx.author.display_name
-        )
-        view = OtherLifeGameView(ctx.author, gid, user_state=u_state, idle_logs=idle_logs)
-        msg = await ctx.send(embed=view.build_embed(), view=view)
-        view.message = msg
-
-    @commands.command(name="인생도감")
-    async def prefix_other_life_collection(self, ctx: commands.Context):
-        gid = ctx.guild.id if ctx.guild else 0
-        u_state, _, _ = await asyncio.to_thread(
-            other_life_core.get_other_life_state, gid, ctx.author.id, ctx.author.display_name
-        )
-        view = OtherLifeCollectionView(ctx.author, gid, user_state=u_state)
-        view.message = await ctx.send(embed=view.build_embed(), view=view)
-
-    @commands.command(name="인생랭킹")
-    async def prefix_other_life_ranking(self, ctx: commands.Context):
-        view = OtherLifeRankingView(ctx.author, ctx.guild.id if ctx.guild else 0)
-        view.message = await ctx.send(embed=view.build_embed(), view=view)
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(OtherLifeCog(bot))

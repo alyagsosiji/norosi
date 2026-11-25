@@ -59,7 +59,7 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
     if not guild:
         embed = discord.Embed(
             title="📊 서버 활성도 통계 안내",
-            description="❌ **서버 통계** 기능(`/설정` · `!서버통계`)은 디스코드 서버(길드) 채널 내에서만 사용할 수 있습니다.",
+            description="❌ **서버 통계** 기능(`/설정`)은 디스코드 서버(길드) 채널 내에서만 사용할 수 있습니다.",
             color=discord.Color.red()
         )
         return embed
@@ -1513,33 +1513,6 @@ class StatsCog(commands.Cog):
         view = SponsorView()
         await core.safe_send_response(interaction, embed=embed, view=view, ephemeral=False)
 
-    @commands.command(name="후원")
-    async def sponsor_prefix_cmd(self, ctx: commands.Context):
-        embed = build_sponsor_embed(self.bot.user)
-        view = SponsorView()
-        await ctx.reply(embed=embed, view=view, mention_author=False)
-
-    @commands.command(name="봇상태")
-    async def prefix_bot_status(self, ctx: commands.Context, 버전: Optional[str] = None):
-        if not await self.bot.is_bot_owner_user(ctx.author):
-            await ctx.reply("🚨 **권한 부족:** 봇 상태 조회는 **👑 봇 주인(소유자)** 만 실행할 수 있습니다.", delete_after=6)
-            return
-        norm = (버전 or "").strip().lower()
-        mode = "summary" if norm in ("summary", "compact", "요약", "요약본", "요약버전", "간략") else "detailed"
-        embed = await self._build_bot_status_embed(ctx.author.display_name, mode=mode)
-        view = BotStatusRefreshView(self, ctx.author.id, mode=mode)
-        await ctx.reply(embed=embed, view=view, mention_author=False)
-
-    @commands.command(name="날씨")
-    async def prefix_weather(self, ctx: commands.Context, *, 지역: str = "서울"):
-        clean_loc = (지역 or "서울").strip() or "서울"
-        w_info, err = await asyncio.to_thread(core.fetch_accurate_weather_sync, clean_loc)
-        if err or not w_info:
-            await ctx.reply(f"❌ **날씨 조회 실패:** {err}", mention_author=False)
-            return
-        view = WeatherRefreshView(clean_loc, w_info, user=ctx.author)
-        await ctx.reply(embed=view.build_embed(), view=view, mention_author=False)
-
     # ==========================================
     # 카테고리 5 - 4: /유저정보 (멤버 상세 프로필 조회기)
     # ==========================================
@@ -1845,7 +1818,7 @@ class StatsCog(commands.Cog):
         is_owner = (interaction.user.id == core.BOT_OWNER_ID) or (await self.bot.is_bot_owner_user(interaction.user) if hasattr(self.bot, 'is_bot_owner_user') else False)
         if not is_owner:
             await interaction.followup.send(
-                "❌ **권한 부족:** **서버 백업** 기능(`/설정` · `!서버백업`)은 봇 소유자(Bot Owner)만 실행할 수 있습니다.",
+                "❌ **권한 부족:** **서버 백업** 기능(`/설정`)은 봇 소유자(Bot Owner)만 실행할 수 있습니다.",
                 ephemeral=True
             )
             return

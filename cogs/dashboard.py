@@ -1908,7 +1908,7 @@ class HomeShortcutEditView(core.SafeView):
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(
                 interaction,
-                "❌ 본인이 연 즐겨찾기 편집창만 조작할 수 있습니다. `!즐겨찾기` 또는 `/설정`에서 직접 열어주세요.",
+                "❌ 본인이 연 즐겨찾기 편집창만 조작할 수 있습니다. `/설정`에서 직접 열어주세요.",
                 ephemeral=True,
             )
             return False
@@ -6413,44 +6413,6 @@ class Dashboard(commands.Cog, name="설정"):
         )
         msg = await interaction.followup.send(embed=view.build_current_embed(), view=view, wait=True)
         view.message = msg
-
-    @commands.command(
-        name="설정",
-    )
-    async def prefix_settings(self, ctx: commands.Context, *, 카테고리_또는_검색: Optional[str] = None):
-        data = await asyncio.to_thread(core.load_data)
-        raw_arg = (카테고리_또는_검색 or "").strip()
-        resolved_cat = self._CATEGORY_ALIASES.get(raw_arg.lower()) if raw_arg else "home"
-        if raw_arg and resolved_cat is None:
-            dash_view = MasterDashboardView(
-                bot=self.bot,
-                user=ctx.author,
-                guild=ctx.guild,
-                data=data,
-                initial_tab="home",
-            )
-            matches = search_dashboard_features(dash_view, raw_arg)
-            s_view = DashboardSearchResultView(dash_view, raw_arg, matches, owner_id=ctx.author.id)
-            await ctx.send(embed=s_view.build_embed(), view=s_view)
-            return
-
-        view = MasterDashboardView(
-            bot=self.bot,
-            user=ctx.author,
-            guild=ctx.guild,
-            data=data,
-            initial_tab=resolved_cat or "home",
-        )
-        msg = await ctx.send(embed=view.build_current_embed(), view=view)
-        view.message = msg
-
-    @commands.command(name="즐겨찾기")
-    async def prefix_home_shortcuts(self, ctx: commands.Context):
-        """채팅창에 !즐겨찾기 입력 시 나만의 /설정 홈 단축바(최대 5개) 편집기 호출"""
-        data = await asyncio.to_thread(core.load_data)
-        view = HomeShortcutEditView(bot=self.bot, user=ctx.author, guild=ctx.guild, data=data)
-        await ctx.send(embed=view.build_embed(), view=view)
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Dashboard(bot))

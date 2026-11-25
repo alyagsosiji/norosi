@@ -1,6 +1,6 @@
 """원신 (Genshin Impact) 기원 · 성유물 감정 · 보관함 · 도감 · 페이몬의 상점 · 파티 원소 공명 Cog
 
-- 그룹 커맨드 `/원신` (11개 서브커맨드 + `!원신기원` 등 프리픽스 단축어)
+- 그룹 커맨드 `/원신` (11개 서브커맨드)
 - 티바트 성좌 네이비-골드 스타일 UI · 유성 승격 3.5초 연출 · 공유 가챠 쿨타임 (일반 3.5초 / 스킵 5.0초)
 - 시각별 KST 2시간 자동 로테이션 (캐릭터 · 전용 무기 · 비경 성유물 동시 회전)
 - 봇 주인 전용 `/원신 픽업설정` + 운명의 궤도(1/1) + 포착된 광휘 + 페이몬의 상점 + 4인 원소 공명 파티
@@ -1931,59 +1931,6 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
             view=v,
             ephemeral=True,
         )
-
-    # 프리픽스 단축어 (!원신기원 / !원신뽑기 / !원신도감)
-    @commands.command(name="원신기원")
-    async def prefix_wish(self, ctx: commands.Context, banner: str = "char1", count: int = 10):
-        banner_map = {"1": "char1", "2": "char2", "무기": "weapon", "성유물": "artifact", "상시": "standard"}
-        bk = banner_map.get(banner, banner if banner in genshin_core.GENSHIN_BANNER_CONFIGS else "char1")
-        cnt = 10 if count >= 10 else 1
-        ok, rem = core.check_and_update_gacha_cooldown(ctx.author.id, skip_anim=False)
-        if not ok:
-            return await ctx.reply(f"⏳ 가챠 쿨타임 중입니다! **`{rem:.1f}초`** 후 다시 시도해 주세요.")
-        res = await asyncio.to_thread(genshin_core.execute_genshin_pull, ctx.guild.id if ctx.guild else 0, ctx.author.id, bk, cnt, False)
-        emb, high_items = _build_genshin_result_embed(res, ctx.author)
-        grid_res = await asyncio.to_thread(genshin_core.build_genshin_10pull_grid_bytes, res["drawn"], bk, f"{res['user_state'].get('total_pulls', 0)}회") if cnt >= 2 else (None, None)
-        files = []
-        g_bytes, g_fn = grid_res if isinstance(grid_res, tuple) else (grid_res.getvalue() if grid_res else None, "genshin_grid.png")
-        if g_bytes:
-            safe_g_fn = g_fn or "genshin_grid.png"
-            files.append(discord.File(io.BytesIO(g_bytes), filename=safe_g_fn))
-            emb.set_image(url=f"attachment://{safe_g_fn}")
-        elif high_items:
-            sb, sfn = await asyncio.to_thread(genshin_core.fetch_genshin_item_image_bytes, high_items[0], True)
-            if sb:
-                files.append(discord.File(io.BytesIO(sb), filename=sfn))
-                emb.set_image(url=f"attachment://{sfn}")
-        v = GenshinPullAgainView(ctx.author, banner_key=bk, last_count=cnt)
-        await ctx.reply(embed=emb, files=files, view=v)
-
-    @commands.command(name="원신도감")
-    async def prefix_pokedex(self, ctx: commands.Context):
-        v = GenshinPokedexView(ctx.guild.id if ctx.guild else 0, ctx.author, tab="owned")
-        await ctx.reply(embed=v.build_embed(), view=v)
-
-    @commands.command(name="원신보관함")
-    async def prefix_inventory(self, ctx: commands.Context, filter_mode: str = "all"):
-        fmap = {"전체": "all", "캐릭터": "char", "5성": "r5", "4성": "r4", "잠금": "locked"}
-        v = GenshinInventoryView(ctx.guild.id if ctx.guild else 0, ctx.author, filter_mode=fmap.get(filter_mode, filter_mode))
-        await ctx.reply(embed=v.build_embed(), view=v)
-
-    @commands.command(name="원신상점")
-    async def prefix_shop(self, ctx: commands.Context):
-        v = GenshinShopView(ctx.guild.id if ctx.guild else 0, ctx.author)
-        await ctx.reply(embed=v.build_embed(), view=v)
-
-    @commands.command(name="원신파티")
-    async def prefix_party(self, ctx: commands.Context):
-        v = GenshinPartyView(ctx.guild.id if ctx.guild else 0, ctx.author)
-        await ctx.reply(embed=v.build_embed(), view=v)
-
-    @commands.command(name="원신랭킹")
-    async def prefix_ranking(self, ctx: commands.Context):
-        v = GenshinRankingView(ctx.guild.id if ctx.guild else 0, mode="ranking")
-        await ctx.reply(embed=v.build_embed(ctx.guild), view=v)
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(GenshinCog(bot))

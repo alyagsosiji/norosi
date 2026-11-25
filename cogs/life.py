@@ -1,9 +1,9 @@
 """
 cogs/life.py - 방치형 · 생활 컨텐츠 확장 Cog (#6)
-- 개인 농장 (/생활 농장, !농장): 4~6칸 밭 · 6종 씨앗 · 물주기 · 비료 · 수확 · 판매
-- 서버 공동 농장 (/생활 공동농장, !공동농장): 길드 협동 Lv.1~10 · 무료 물주기 · 기부 · 일일 배당 · 공용 버프
+- 개인 농장 (/생활 농장): 4~6칸 밭 · 6종 씨앗 · 물주기 · 비료 · 수확 · 판매
+- 서버 공동 농장 (/생활 공동농장): 길드 협동 Lv.1~10 · 무료 물주기 · 기부 · 일일 배당 · 공용 버프
 - 펫 키우기 (/생활 펫, !펫): 6종 펫 입양 · 장착 · 간식/★1~2 생선 먹이기 · 놀아주기 · 패시브 버프
-- 생선 요리 & 버프 (/생활 요리, /생활 버프, !요리, !버프): ★1~2 미잠금 생선 + 농작물 조리 · 낚시/출석 버프
+- 생선 요리 & 버프 (/생활 요리, /생활 버프): ★1~2 미잠금 생선 + 농작물 조리 · 낚시/출석 버프
 """
 
 from __future__ import annotations
@@ -1033,43 +1033,10 @@ class LifeGroupCog(commands.GroupCog, name="생활", description="🌾 개인 �
 
 
 class LifeStandaloneCog(commands.Cog):
-    """!농장 · !공동농장 · !펫 · !요리 · !버프 접두사 단축어 Cog"""
+    """생활 보조 Cog"""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-
-    @commands.command(name="농장")
-    async def prefix_farm(self, ctx: commands.Context):
-        gid = ctx.guild.id if ctx.guild else 0
-        ov = await asyncio.to_thread(life_core.get_life_overview, gid, ctx.author.id, ctx.author.display_name)
-        v = FarmView(ctx.author, gid, overview=ov)
-        msg = await ctx.send(embed=v.build_embed(), view=v)
-        v.message = msg
-
-    @commands.command(name="공동농장")
-    async def prefix_community_farm(self, ctx: commands.Context):
-        gid = ctx.guild.id if ctx.guild else 0
-        ov = await asyncio.to_thread(life_core.get_life_overview, gid, ctx.author.id, ctx.author.display_name)
-        v = CommunityFarmView(ctx.author, ctx.guild, overview=ov)
-        msg = await ctx.send(embed=v.build_embed(), view=v)
-        v.message = msg
-
-    @commands.command(name="펫")
-    async def prefix_pet(self, ctx: commands.Context):
-        gid = ctx.guild.id if ctx.guild else 0
-        ov = await asyncio.to_thread(life_core.get_life_overview, gid, ctx.author.id, ctx.author.display_name)
-        v = PetCareView(ctx.author, gid, overview=ov)
-        msg = await ctx.send(embed=v.build_embed(), view=v)
-        v.message = msg
-
-    @commands.command(name="요리")
-    async def prefix_cook(self, ctx: commands.Context):
-        gid = ctx.guild.id if ctx.guild else 0
-        ov = await asyncio.to_thread(life_core.get_life_overview, gid, ctx.author.id, ctx.author.display_name)
-        v = CookingView(ctx.author, gid, overview=ov)
-        msg = await ctx.send(embed=v.build_embed(), view=v)
-        v.message = msg
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(LifeGroupCog(bot))

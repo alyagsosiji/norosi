@@ -2531,7 +2531,7 @@ class PartnerAcceptView(core.SafeView):
             description=(
                 f"🎉 {self.requester.mention}님과 {self.target.mention}님이 **파트너**가 되었습니다!\n\n"
                 "• `/설정` (`👤 개인` ➔ `💑 파트너 스튜디오`)에서 두 사람만의 공동 D-Day와 공유 음악 보관함을 바로 열어보세요.\n"
-                "• `/설정` (`👤 개인` ➔ `🎁 카드 선물`) 또는 `!카드선물`로 파트너에게 보유 카드를 선물(50 크리스탈)할 수 있습니다."
+                "• `/설정` (`👤 개인` ➔ `🎁 카드 선물`)로 파트너에게 보유 카드를 선물(50 크리스탈)할 수 있습니다."
             ),
             color=discord.Color.from_rgb(255, 105, 180),
             timestamp=datetime.datetime.now(core.KST)
@@ -3119,40 +3119,6 @@ class DDayCog(commands.Cog):
         view = DDayListBoardView(self.bot, interaction.user, data, guild=interaction.guild, initial_filter="past")
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         view.message = msg
-
-    @commands.command(name="디데이목록")
-    async def list_dday_prefix(self, ctx: commands.Context):
-        data = await asyncio.to_thread(core.load_data)
-        view = DDayListBoardView(self.bot, ctx.author, data, guild=ctx.guild)
-        msg = await ctx.send(embed=view.build_embed(), view=view)
-        view.message = msg
-
-    @commands.command(name="지나간디데이")
-    async def past_dday_prefix(self, ctx: commands.Context):
-        data = await asyncio.to_thread(core.load_data)
-        view = DDayListBoardView(self.bot, ctx.author, data, guild=ctx.guild, initial_filter="past")
-        msg = await ctx.send(embed=view.build_embed(), view=view)
-        view.message = msg
-
-    @commands.command(name="출석")
-    async def prefix_attendance(self, ctx: commands.Context):
-        class _CtxShim:
-            def __init__(self, c: commands.Context):
-                self.guild_id = c.guild.id if c.guild else 0
-                self.guild = c.guild
-                self.user = c.author
-
-        embed, file_obj, view = await execute_and_build_attendance_response(_CtxShim(ctx), self.bot)  # type: ignore[arg-type]
-        if file_obj:
-            await ctx.send(embed=embed, file=file_obj, view=view)
-        else:
-            await ctx.send(embed=embed, view=view)
-
-    @commands.command(name="알림")
-    async def prefix_reminder(self, ctx: commands.Context):
-        data = await asyncio.to_thread(core.load_data)
-        view = ReminderHubView(ctx.author, ctx.channel.id if ctx.channel else None, ctx.guild.id if ctx.guild else None, data)
-        await ctx.send(embed=view.build_embed(), view=view)
 
     @app_commands.command(name="비밀디데이", description="나만 볼 수 있는 비밀 디데이와 타임캡슐(목표일 오전 9시 DM 발송)을 관리합니다.")
     @app_commands.autocomplete(이름=core.secret_dday_name_autocomplete, 날짜=core.date_autocomplete)

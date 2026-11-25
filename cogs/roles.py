@@ -1,6 +1,6 @@
 """
 norosi Bot - 이모지 반응 역할 (Reaction Roles) 종합 관리 Cog
-- 서버 관리자 전용 대화형 스튜디오 패널 (/반응역할, !반응역할)
+- 서버 관리자 전용 대화형 스튜디오 패널
 - 한 번에 발행하는 슬래시 커맨드 (/반응역할생성, /반응역할추가, /반응역할목록, /반응역할삭제)
 - 유니코드 및 커스텀 이모지 완벽 지원, 봇 자동 리액션 추가
 - 다중 선택(multiple) 및 단일 선택(unique) 모드 지원
@@ -1148,7 +1148,7 @@ class Roles(commands.Cog, name="역할"):
         self.bot = bot
 
     # ----------------------------------------------------
-    # 관리자 명령어 (/반응역할, !반응역할)
+    # 관리자 명령어
     # ----------------------------------------------------
     @app_commands.command(name="반응역할", description="[관리자 전용] 이모지 반응 역할 생성, 조회, 삭제 종합 스튜디오를 엽니다.")
     async def slash_reaction_role_studio(self, interaction: discord.Interaction):
@@ -1166,20 +1166,6 @@ class Roles(commands.Cog, name="역할"):
 
         studio = ReactionRoleStudioView(interaction.guild, interaction.user)
         await core.safe_send_response(interaction, embed=studio.build_dashboard_embed(), view=studio, ephemeral=True)
-
-    @commands.command(name="반응역할")
-    async def prefix_reaction_role(self, ctx: commands.Context):
-        """[관리자 전용] 채팅창에서 반응역할 마스터 스튜디오 호출"""
-        if not ctx.guild or not isinstance(ctx.author, discord.Member):
-            await ctx.send("❌ 서버 채널에서만 사용할 수 있습니다.")
-            return
-
-        if not _is_admin_user(ctx.author, ctx.guild, self.bot):
-            await ctx.send("❌ 이 명령어는 **서버 관리자** 또는 **'역할 관리' 권한**을 보유한 멤버만 실행할 수 있습니다.")
-            return
-
-        studio = ReactionRoleStudioView(ctx.guild, ctx.author)
-        await ctx.send(embed=studio.build_dashboard_embed(), view=studio)
 
     # ----------------------------------------------------
     # 사진 스타일 역할 버튼 패널 생성 (/역할버튼제작, /역할버튼생성)

@@ -1,6 +1,6 @@
 """붕괴: 스타레일 (Honkai: Star Rail) 워프 · 유물 감정 · 보관함 · 도감 · 별빛/헤르타 상점 · 편대 시너지 Cog
 
-- 그룹 커맨드 `/스타레일` (11개 서브커맨드 + `!스타레일워프` 등 프리픽스 단축어)
+- 그룹 커맨드 `/스타레일` (11개 서브커맨드)
 - 은하열차 코스믹 보라-골드-홀로그램 테마 · 승차권 3.5초 승격 연출 · 공유 가챠 쿨타임 (일반 3.5초 / 스킵 5.0초)
 - 시각별 KST 2시간 자동 로테이션 (캐릭터 · 전용 광추 · 침식된 터널/차원 장신구 유물 동시 회전)
 - 봇 주인 전용 `/스타레일 픽업설정` + 상시 300회 5성 선택권 + 별빛/헤르타/잔재 상점 + 4인 편대 시너지
@@ -2004,57 +2004,6 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
             view=v,
             ephemeral=True,
         )
-
-    # 프리픽스 단축어 (!스타레일워프 / !스타레일뽑기 / !스타레일도감)
-    @commands.command(name="스타레일워프")
-    async def prefix_warp(self, ctx: commands.Context, banner: str = "char1", count: int = 10):
-        bmap = {"1": "char1", "2": "char2", "광추": "lc", "유물": "relic", "상시": "standard"}
-        bk = bmap.get(banner, banner if banner in hsr_core.HSR_BANNER_CONFIGS else "char1")
-        cnt = 10 if count >= 10 else 1
-        ok, rem = core.check_and_update_gacha_cooldown(ctx.author.id, skip_anim=False)
-        if not ok:
-            return await ctx.reply(f"⏳ 가챠 쿨타임 중입니다! **`{rem:.1f}초`** 후 다시 시도해 주세요.")
-        res = await asyncio.to_thread(hsr_core.execute_hsr_warp, ctx.guild.id if ctx.guild else 0, ctx.author.id, bk, cnt, False)
-        emb, high_items = _build_hsr_result_embed(res, ctx.author)
-        grid_buf = await asyncio.to_thread(hsr_core.build_hsr_10pull_grid_bytes, res["drawn"], bk, f"{res['user_state'].get('total_pulls', 0)}회") if cnt >= 2 else None
-        files = []
-        if grid_buf and grid_buf.getbuffer().nbytes > 0:
-            files.append(discord.File(grid_buf, filename="hsr_grid.png"))
-            emb.set_image(url="attachment://hsr_grid.png")
-        elif high_items:
-            sb, sfn = await asyncio.to_thread(hsr_core.fetch_hsr_item_image_bytes, high_items[0], True)
-            if sb:
-                files.append(discord.File(io.BytesIO(sb), filename=sfn))
-                emb.set_image(url=f"attachment://{sfn}")
-        v = HSRWarpAgainView(ctx.author, banner_key=bk, last_count=cnt)
-        await ctx.reply(embed=emb, files=files, view=v)
-
-    @commands.command(name="스타레일도감")
-    async def prefix_pokedex(self, ctx: commands.Context):
-        v = HSRPokedexView(ctx.guild.id if ctx.guild else 0, ctx.author, tab="owned")
-        await ctx.reply(embed=v.build_embed(), view=v)
-
-    @commands.command(name="스타레일보관함")
-    async def prefix_inventory(self, ctx: commands.Context, filter_mode: str = "all"):
-        fmap = {"전체": "all", "캐릭터": "char", "5성": "r5", "4성": "r4", "잠금": "locked"}
-        v = HSRInventoryView(ctx.guild.id if ctx.guild else 0, ctx.author, filter_mode=fmap.get(filter_mode, filter_mode))
-        await ctx.reply(embed=v.build_embed(), view=v)
-
-    @commands.command(name="스타레일상점")
-    async def prefix_shop(self, ctx: commands.Context):
-        v = HSRShopView(ctx.guild.id if ctx.guild else 0, ctx.author)
-        await ctx.reply(embed=v.build_embed(), view=v)
-
-    @commands.command(name="스타레일파티")
-    async def prefix_party(self, ctx: commands.Context):
-        v = HSRPartyView(ctx.guild.id if ctx.guild else 0, ctx.author)
-        await ctx.reply(embed=v.build_embed(), view=v)
-
-    @commands.command(name="스타레일랭킹")
-    async def prefix_ranking(self, ctx: commands.Context):
-        v = HSRRankingView(ctx.guild.id if ctx.guild else 0, mode="ranking")
-        await ctx.reply(embed=v.build_embed(ctx.guild), view=v)
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(HSRCog(bot))

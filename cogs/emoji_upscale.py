@@ -3003,7 +3003,7 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         if not await _can_manage_upscale(self.bot, interaction):
             await core.safe_send_response(
                 interaction,
-                "🚨 **권한 부족:** 이모지 업스케일 설정(`/설정` → **⚙️ 고급** · `!이모지업스케일`)은 **서버 관리자**(`Administrator` / `서버 관리`)만 사용할 수 있습니다.",
+                "🚨 **권한 부족:** 이모지 업스케일 설정(`/설정` → **⚙️ 고급**)은 **서버 관리자**(`Administrator` / `서버 관리`)만 사용할 수 있습니다.",
                 ephemeral=True,
             )
             return
@@ -3020,27 +3020,6 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         view = EmojiUpscaleConfigView(bot=self.bot, guild_id=interaction.guild.id)
         emb = build_emoji_upscale_embed(interaction.guild, interaction.channel, enabled)
         await interaction.followup.send(embed=emb, view=view, ephemeral=True, wait=True)
-
-    @commands.command(name="이모지업스케일")
-    @commands.guild_only()
-    async def prefix_emoji_upscale(self, ctx: commands.Context, 동작: Optional[str] = None):
-        is_owner = await self.bot.is_bot_owner_user(ctx.author) if hasattr(self.bot, "is_bot_owner_user") else False
-        if not (_is_guild_admin(ctx.author) or is_owner):
-            await ctx.reply("🚨 **권한 부족:** 서버 관리자(Administrator / 서버 관리)만 사용할 수 있습니다.", delete_after=8)
-            return
-
-        arg = (동작 or "").strip().lower()
-        if arg in ("on", "켜기", "활성", "활성화", "true", "1"):
-            enabled = await asyncio.to_thread(core.set_emoji_upscale_enabled, ctx.guild.id, True)
-        elif arg in ("off", "끄기", "비활성", "비활성화", "false", "0"):
-            enabled = await asyncio.to_thread(core.set_emoji_upscale_enabled, ctx.guild.id, False)
-        else:
-            enabled = core.is_emoji_upscale_enabled(ctx.guild.id)
-
-        view = EmojiUpscaleConfigView(bot=self.bot, guild_id=ctx.guild.id)
-        emb = build_emoji_upscale_embed(ctx.guild, ctx.channel, enabled)
-        await ctx.send(embed=emb, view=view)
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(EmojiUpscaleCog(bot))

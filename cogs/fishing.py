@@ -4835,26 +4835,8 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
         )
         await interaction.followup.send(embed=embed)
 
-    @commands.command(name="낚시")
-    async def prefix_fishing(self, ctx: commands.Context, 장소: Optional[str] = None):
-        """채팅창에 !낚시 [호수|강|바다] 입력 시 낚시 출조 패널을 즉시 오픈합니다"""
-        hab_map = {"호수": "lake", "lake": "lake", "강": "river", "river": "river", "바다": "sea", "sea": "sea"}
-        hab_val = hab_map.get((장소 or "").strip().lower())
-        guild_id = ctx.guild.id if ctx.guild else 0
-        summary = await asyncio.to_thread(
-            fishing_core.update_user_fishing_prefs,
-            guild_id,
-            ctx.author.id,
-            ctx.author.display_name,
-            habitat=hab_val,
-        )
-        view = FishingCastView(ctx.author, guild_id=guild_id, summary=summary)
-        msg = await ctx.send(embed=view.build_dashboard_embed(), view=view)
-        view.message = msg
-
-
 class FishingStandaloneCog(commands.Cog):
-    """/낚시랭킹 · /낚시대회 슬래시 및 !낚시랭킹 · !낚시대회 접두사 단축 명령어 Cog"""
+    """/낚시랭킹 · /낚시대회 슬래시 명령어 Cog"""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -4910,58 +4892,6 @@ class FishingStandaloneCog(commands.Cog):
         view = FishingTournamentView(interaction.user, guild_id=guild_id, status=status, tab=tab_val)
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         view.message = msg
-
-
-    @commands.command(name="낚시랭킹")
-    async def prefix_fishing_ranking(self, ctx: commands.Context, 장소: Optional[str] = None):
-        """채팅창에 !낚시랭킹 [호수|강|바다] 입력 시 서버 대물 랭킹 보드를 즉시 출력합니다"""
-        hab_map = {"호수": "lake", "lake": "lake", "강": "river", "river": "river", "바다": "sea", "sea": "sea"}
-        hab_val = hab_map.get((장소 or "").strip().lower(), "all")
-        guild_id = ctx.guild.id if ctx.guild else 0
-        view = FishingRankingView(ctx.author, guild_id=guild_id, mode="length", habitat_filter=hab_val)
-        msg = await ctx.send(embed=view.build_embed(), view=view)
-        view.message = msg
-
-    @commands.command(name="낚시대회")
-    async def prefix_fishing_tournament(self, ctx: commands.Context):
-        """채팅창에 !낚시대회 입력 시 실시간 낚시 토너먼트 현황 보드를 출력합니다"""
-        guild_id = ctx.guild.id if ctx.guild else 0
-        status = await asyncio.to_thread(fishing_core.get_fishing_tournament_status, guild_id)
-        view = FishingTournamentView(ctx.author, guild_id=guild_id, status=status, tab="live")
-        msg = await ctx.send(embed=view.build_embed(), view=view)
-        view.message = msg
-
-    @commands.command(name="낚시가방")
-    async def prefix_fishing_bag(self, ctx: commands.Context, 장소: Optional[str] = None):
-        """!낚시가방 [호수|강|바다] — 잡은 물고기 가방을 바로 엽니다"""
-        hab_map = {"호수": "lake", "강": "river", "바다": "sea"}
-        hab = hab_map.get((장소 or "").strip(), "all")
-        guild_id = ctx.guild.id if ctx.guild else 0
-        summary = await asyncio.to_thread(fishing_core.get_user_fishing_summary, guild_id, ctx.author.id, ctx.author.display_name)
-        view = FishingBagView(ctx.author, guild_id, hab, 0, summary=summary)
-        view.message = await ctx.send(embed=view.build_embed(), view=view)
-
-    @commands.command(name="낚시상점")
-    async def prefix_fishing_shop(self, ctx: commands.Context):
-        """!낚시상점 — 장비·미끼·확장 상점을 바로 엽니다"""
-        guild_id = ctx.guild.id if ctx.guild else 0
-        summary = await asyncio.to_thread(fishing_core.get_user_fishing_summary, guild_id, ctx.author.id, ctx.author.display_name)
-        view = FishingShopView(ctx.author, guild_id, "rod", summary=summary)
-        view.message = await ctx.send(embed=view.build_embed(), view=view)
-
-    @commands.command(name="어시장")
-    async def prefix_fishing_market(self, ctx: commands.Context):
-        """!어시장 — 실시간 어시장 시세 & 즉시 판매"""
-        view = FishingMarketView(ctx.author, ctx.guild.id if ctx.guild else 0)
-        view.message = await ctx.send(embed=view.build_embed(), view=view)
-
-    @commands.command(name="낚시퀘스트")
-    async def prefix_fishing_quest(self, ctx: commands.Context):
-        """!낚시퀘스트 — 일일 낚시 의뢰 확인 및 보상 수령"""
-        guild_id = ctx.guild.id if ctx.guild else 0
-        summary = await asyncio.to_thread(fishing_core.get_user_fishing_summary, guild_id, ctx.author.id, ctx.author.display_name)
-        view = FishingQuestView(ctx.author, guild_id, summary=summary)
-        view.message = await ctx.send(embed=view.build_embed(), view=view)
 
 
 async def setup(bot: commands.Bot):

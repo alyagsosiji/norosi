@@ -1554,7 +1554,7 @@ class NorosiBot(commands.Bot):
                         color=discord.Color.gold(),
                         timestamp=datetime.datetime.now(core.KST),
                     )
-                    lot_embed.set_footer(text=f"다음 회차 시작 잭팟: {draw_rec.get('next_jackpot', 1000):,}💎 • !복권 으로 참여해 보세요!")
+                    lot_embed.set_footer(text=f"다음 회차 시작 잭팟: {draw_rec.get('next_jackpot', 1000):,}💎 • /설정에서 참여해 보세요!")
 
                     ann_map = draw_rec.get("announce_channels") or {}
                     sent_lot_chs: set[int] = set()
@@ -1907,7 +1907,7 @@ class NorosiBot(commands.Bot):
                 )
 
             if archived_count > 0:
-                embed.set_footer(text=f"📦 7일 이상 경과한 지난 일정 {archived_count}개는 !지나간디데이 또는 /설정 (D-Day 전광판 ➔ 지나간 D-Day)에서 확인할 수 있습니다.")
+                embed.set_footer(text=f"📦 7일 이상 경과한 지난 일정 {archived_count}개는 /설정 (D-Day 전광판 ➔ 지나간 D-Day)에서 확인할 수 있습니다.")
 
             embed.color = core.get_embed_color(min_diff if upcoming_lines else -1)
             try:
@@ -2553,9 +2553,9 @@ async def sync_guild_command(ctx: commands.Context, *args):
                 f"{reg_status}\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
                 "💡 **핵심 슬래시 명령어 3종 안내**\n"
-                "• `/설정` (`!설정`) : 일반 · 고급 · 미니게임 · 개인 4대 분류 통합 설정 대시보드\n"
-                "• `/도움말` (`!도움말`) : 전체 기능의 `/설정` 경로 및 권한별 가독성 가이드\n"
-                "• `/후원` (`!후원`) : norosi 24시간 서버 운영비 후원 안내"
+                "• `/설정` : 일반 · 고급 · 미니게임 · 개인 4대 분류 통합 설정 대시보드\n"
+                "• `/도움말` : 전체 기능의 `/설정` 경로 및 권한별 가독성 가이드\n"
+                "• `/후원` : norosi 24시간 서버 운영비 후원 안내"
             ),
             color=discord.Color.green(),
             timestamp=datetime.datetime.now(core.KST)
