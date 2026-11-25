@@ -450,11 +450,15 @@ async def _build_gacha_result_payload(
         mode_note=mode_note,
         pity_info=pity_info,
     )
-    high_cards = [c for c in drawn if c.get("star_num", 0) >= 4] if has_4star else []
+    # ★4 / 생일 / ★3 모두 일러스트 임베드로 표시 (★4·생일 우선 정렬 후 최대 9장)
+    high_cards = sorted(
+        [c for c in drawn if c.get("star_num", 0) >= 3 or c.get("rarity_type") == "rarity_birthday"],
+        key=lambda c: 0 if (c.get("star_num", 0) >= 4 or c.get("rarity_type") == "rarity_birthday") else 1,
+    )
     total_high = len(high_cards)
     display_high = high_cards[:9]
     want_grid = len(drawn) >= 2
-    want_single_img = (not has_4star) and (not want_grid) and len(drawn) == 1
+    want_single_img = (not display_high) and (not want_grid) and len(drawn) == 1
     eff_mode = "after_training" if illust_mode == "after_training" else "normal"
 
     async def _fetch_one(card_obj: dict):
@@ -488,7 +492,7 @@ async def _build_gacha_result_payload(
         total_bytes += len(grid_bytes)
         embed.set_image(url=f"attachment://{grid_fn}")
 
-    if not has_4star:
+    if not display_high:
         single_pairs: list[tuple[discord.Embed, dict, str]] = []
         if want_single_img and results:
             c0 = drawn[0]
@@ -522,7 +526,8 @@ async def _build_gacha_result_payload(
 
     for idx, (c, (c_mode, (img_bytes, img_fn))) in enumerate(zip(display_high, results), start=1):
         is_bday_card = (c.get("rarity_type") == "rarity_birthday")
-        card_badge = "🎂 생일" if is_bday_card else "🌟 ★4"
+        is_3star_card = (not is_bday_card) and int(c.get("star_num", 4)) == 3
+        card_badge = "🎂 생일" if is_bday_card else ("💫 ★3" if is_3star_card else "🌟 ★4")
         trig = c.get("bonus_trigger")
         title_tags = []
         if trig == "select_list":
@@ -558,7 +563,7 @@ async def _build_gacha_result_payload(
         card_embed = discord.Embed(
             title=card_title[:256],
             description="\n\n".join(desc_parts),
-            color=discord.Color.from_rgb(255, 105, 180),
+            color=discord.Color.from_rgb(242, 184, 48) if is_3star_card else discord.Color.from_rgb(255, 105, 180),
             timestamp=datetime.datetime.now(core.KST)
         )
         card_embed.add_field(name="🏷️ 유닛", value=f"`{unit_str}`", inline=True)
@@ -574,13 +579,14 @@ async def _build_gacha_result_payload(
                 inline=False,
             )
 
+        star_lbl = "★3" if is_3star_card else "★4"
         if awakenable:
             if c_mode == "after_training":
-                card_embed.set_footer(text="프로세카 ★4 특훈 후 (After Training) 공식 일러스트")
+                card_embed.set_footer(text=f"프로세카 {star_lbl} 특훈 후 (After Training) 공식 일러스트")
             else:
-                card_embed.set_footer(text="프로세카 ★4 특훈 전 (Normal) 공식 일러스트 • 하단 버튼으로 특훈 전·후 전환")
+                card_embed.set_footer(text=f"프로세카 {star_lbl} 특훈 전 (Normal) 공식 일러스트 • 하단 버튼으로 특훈 전·후 전환")
         else:
-            footer_kind = "🎂 생일 한정" if is_bday_card else "★4"
+            footer_kind = "🎂 생일 한정" if is_bday_card else star_lbl
             card_embed.set_footer(text=f"프로세카 {footer_kind} 공식 일러스트")
 
         if img_bytes and img_fn and len(file_specs) < MAX_FILES and (total_bytes + len(img_bytes) <= MAX_TOTAL_BYTES):
@@ -924,10 +930,7 @@ class GachaPullAgainView(core.SafeView):
     def _has_awakenable_result(self) -> bool:
         if not self.drawn_cards:
             return False
-        has_4star = any(c.get("star_num", 0) >= 4 for c in self.drawn_cards)
-        if has_4star:
-            return any(core.can_card_awaken(c) for c in self.drawn_cards if c.get("star_num", 0) >= 4)
-        return len(self.drawn_cards) == 1 and core.can_card_awaken(self.drawn_cards[0])
+        return any(core.can_card_awaken(c) for c in self.drawn_cards)
 
     def bind_pull_result(
         self,
