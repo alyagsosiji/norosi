@@ -2801,15 +2801,15 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "🌈",
                             "style": discord.ButtonStyle.success,
                             "perm": PERM_USER,
-                            "desc": "한섭 10연차 (50/100pt 보너스 게이지 · 200배지 천장 · 승격/대사 연출)",
+                            "desc": "한섭 10연차 (사전등록 ★1 지급 · 50/100pt 게이지 · 200배지 천장 · 특훈 전/후 전환)",
                             "cb": self._act_sekai_pull_10,
                         },
                         {
-                            "label": "특수뽑기·천장·셀렉트",
+                            "label": "가챠등록·천장·셀렉트",
                             "emoji": "🔮",
                             "style": discord.ButtonStyle.primary,
                             "perm": PERM_USER,
-                            "desc": "1회 단차 · 200배지 천장 · 셀렉트리스트(특수티켓) · 캐랭 깃발 · 운명 · 연습 · 생일",
+                            "desc": "사전등록(★1 지급) · 단차 · 200배지 천장 · 셀렉트(특수티켓) · 캐랭 · 운명 · 연습",
                             "cb": self._act_sekai_pull_hub,
                         },
                         {
@@ -2817,7 +2817,7 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "⚔️",
                             "style": discord.ButtonStyle.success,
                             "perm": PERM_USER,
-                            "desc": "5인 유닛 덱 & 3D 의상 시너지 라이브 플레이 (일일 3회 보상 & 스탬프)",
+                            "desc": "5인 유닛 덱 & 3D 의상 시너지 라이브 플레이 (전체 랭크 상승 · 스탬프 보상)",
                             "cb": self._act_sekai_live,
                         },
                         {
@@ -2825,7 +2825,7 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "🏆",
                             "style": discord.ButtonStyle.primary,
                             "perm": PERM_USER,
-                            "desc": "중복 카드(0💎) 또는 크리스탈로 마스터 랭크(✦1~5) 돌파 & 헤어 해금",
+                            "desc": "중복 카드(0💎)·크리스탈 마스터 랭크(✦1~5) 돌파 & 특훈 전·후 감상 · 헤어 해금",
                             "cb": self._act_sekai_master_rank,
                         },
                         {
@@ -2833,7 +2833,7 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "👗",
                             "style": discord.ButtonStyle.secondary,
                             "perm": PERM_USER,
-                            "desc": "캐릭터별 3D 의상 착용, 어나더 컬러 전환 및 새 의상 제작(300💎)",
+                            "desc": "캐릭터별 3D 의상 착용, 어나더 컬러·특훈 전/후 전환 및 새 의상 제작(300💎)",
                             "cb": self._act_sekai_wardrobe,
                         },
                         {
@@ -2841,7 +2841,7 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "🏠",
                             "style": discord.ButtonStyle.secondary,
                             "perm": PERM_USER,
-                            "desc": "나만의 세카이 미니룸 테마·가구 배치 및 출석 추가 크리스탈 보너스",
+                            "desc": "세카이 미니룸 테마·가구 배치, 오시 액자(특훈 전/후) 및 출석 추가 크리스탈 보너스",
                             "cb": self._act_sekai_myroom,
                         },
                     ],
@@ -3031,7 +3031,7 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "🎸",
                             "style": discord.ButtonStyle.primary,
                             "perm": PERM_USER,
-                            "desc": "오시 일러스트, 5인 덱, 마이세카이, 라이브, 출석, 잔디 종합 프로필",
+                            "desc": "오시 일러스트(특훈 전/후), 5인 덱, 마이세카이, 라이브·전체 랭크 종합 프로필",
                             "cb": self._act_sekai_profile,
                         },
                         {
@@ -3077,7 +3077,7 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "🎒",
                             "style": discord.ButtonStyle.primary,
                             "perm": PERM_USER,
-                            "desc": "보유 프로세카 카드 조회, 일러스트(각성 전·후) 전환 및 🔒잠금 관리",
+                            "desc": "보유 카드 조회(★3·★4 기본 특훈 전 · 특훈 전/후 버튼 전환 · ★3 우선 정렬 · 🔒잠금)",
                             "cb": self._act_sekai_inv,
                         },
                         {
@@ -3857,8 +3857,8 @@ class MasterDashboardView(core.SafeView):
                 ],
             },
             "sekai_pull_hub": {
-                "title": "🔮 프로세카 뽑기 · 천장 교환 · 셀렉트 리스트 · 캐랭 깃발 허브",
-                "desc": "10연차/단차(50·100pt 보너스 게이지) · 200배지 천장교환 · 셀렉트 리스트(특수 티켓) · 캐랭 깃발 · 운명 · 연습 · 생일 무료단차를 실행합니다.",
+                "title": "🔮 프로세카 가챠 등록 · 뽑기 · 천장 교환 · 셀렉트 리스트 · 캐랭 허브",
+                "desc": "사전 등록(★1 26종 기본 지급) · 10연차/단차(기본 특훈 전 표시 & 특훈 전·후 버튼 전환) · 200배지 천장교환 · 셀렉트 리스트 · 캐랭 깃발 · 운명 · 연습 · 생일 무료단차를 실행합니다.",
                 "perm": PERM_USER,
                 "buttons": [
                     ("프로세카 가챠 등록 (★1 지급)", "📝", discord.ButtonStyle.success, self._act_sekai_register),

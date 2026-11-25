@@ -2491,7 +2491,7 @@ def fetch_proseka_card_image_bytes(card: dict, mode: str = "auto"):
         return None, None
 
     awakenable = can_card_awaken(card)
-    if mode == "normal" or not awakenable:
+    if not awakenable or mode not in ("after_training", "after_training_strict"):
         target_sfx = "normal"
         suffixes = ["normal"]
     elif mode == "after_training_strict":
@@ -2580,14 +2580,14 @@ def fetch_proseka_card_image_bytes(card: dict, mode: str = "auto"):
     return None, None
 
 
-def get_proseka_card_image_url(card: dict, mode: str = "auto") -> str:
+def get_proseka_card_image_url(card: dict, mode: str = "normal") -> str:
     """카드의 직접 퍼블릭 CDN 이미지 URL을 반환 (바이트 다운로드 실패 시에도 임베드에 100% 표시 보장)"""
     if not card:
         return "https://storage.sekai.best/sekai-jp-assets/character/member/res017_no001/card_normal.webp"
 
     asset_name = _resolve_card_asset_name(card) or "res017_no001"
 
-    target_sfx = "after_training" if (mode != "normal" and can_card_awaken(card)) else "normal"
+    target_sfx = "after_training" if (mode in ("after_training", "after_training_strict") and can_card_awaken(card)) else "normal"
     with _IMAGE_CACHE_LOCK:
         cached = _ASSET_URL_CACHE.get(f"{asset_name}:{target_sfx}")
         if cached:
