@@ -6416,7 +6416,6 @@ class Dashboard(commands.Cog, name="설정"):
 
     @commands.command(
         name="설정",
-        aliases=["settings", "config", "대시보드", "dashboard", "메뉴", "menu", "리모컨", "컨트롤타워"],
     )
     async def prefix_settings(self, ctx: commands.Context, *, 카테고리_또는_검색: Optional[str] = None):
         data = await asyncio.to_thread(core.load_data)
@@ -6445,7 +6444,7 @@ class Dashboard(commands.Cog, name="설정"):
         msg = await ctx.send(embed=view.build_current_embed(), view=view)
         view.message = msg
 
-    @commands.command(name="즐겨찾기", aliases=["단축바", "홈편집", "shortcuts"])
+    @commands.command(name="즐겨찾기")
     async def prefix_home_shortcuts(self, ctx: commands.Context):
         """채팅창에 !즐겨찾기 입력 시 나만의 /설정 홈 단축바(최대 5개) 편집기 호출"""
         data = await asyncio.to_thread(core.load_data)

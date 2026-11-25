@@ -2421,7 +2421,7 @@ class CommunityCog(commands.Cog):
     async def _before_event_reminder_loop(self):
         await self.bot.wait_until_ready()
 
-    @commands.command(name="이벤트", aliases=["예약이벤트", "신청표", "rsvp"])
+    @commands.command(name="이벤트")
     async def prefix_guild_events(self, ctx: commands.Context):
         """채팅창에 !이벤트 입력 시 예약 이벤트 신청표 허브 호출"""
         if not ctx.guild:
@@ -3840,7 +3840,7 @@ class CommunityCog(commands.Cog):
         setup_view = TempVoiceSetupView(interaction.user.id, interaction.guild, cfg)
         await interaction.followup.send(embed=setup_view.build_embed(), view=setup_view, ephemeral=True, wait=True)
 
-    @commands.command(name="임시음성방", aliases=["음성방", "보이스방", "음성채널생성"])
+    @commands.command(name="임시음성방")
     async def temp_voice_prefix_cmd(self, ctx: commands.Context):
         if not ctx.guild:
             return

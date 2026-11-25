@@ -1109,7 +1109,7 @@ class TicketStandaloneCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @commands.command(name="티켓", aliases=["문의", "티켓목록"])
+    @commands.command(name="티켓")
     @commands.guild_only()
     async def prefix_ticket_info(self, ctx: commands.Context):
         if not ctx.guild or not ctx.channel:

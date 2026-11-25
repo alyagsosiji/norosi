@@ -1933,7 +1933,7 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
         )
 
     # 프리픽스 단축어 (!원신기원 / !원신뽑기 / !원신도감)
-    @commands.command(name="원신기원", aliases=["원신뽑기"])
+    @commands.command(name="원신기원")
     async def prefix_wish(self, ctx: commands.Context, banner: str = "char1", count: int = 10):
         banner_map = {"1": "char1", "2": "char2", "무기": "weapon", "성유물": "artifact", "상시": "standard"}
         bk = banner_map.get(banner, banner if banner in genshin_core.GENSHIN_BANNER_CONFIGS else "char1")

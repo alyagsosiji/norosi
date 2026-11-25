@@ -1513,13 +1513,13 @@ class StatsCog(commands.Cog):
         view = SponsorView()
         await core.safe_send_response(interaction, embed=embed, view=view, ephemeral=False)
 
-    @commands.command(name="후원", aliases=["스폰서", "sponsor"])
+    @commands.command(name="후원")
     async def sponsor_prefix_cmd(self, ctx: commands.Context):
         embed = build_sponsor_embed(self.bot.user)
         view = SponsorView()
         await ctx.reply(embed=embed, view=view, mention_author=False)
 
-    @commands.command(name="봇상태", aliases=["시스템상태", "서버상태"])
+    @commands.command(name="봇상태")
     async def prefix_bot_status(self, ctx: commands.Context, 버전: Optional[str] = None):
         if not await self.bot.is_bot_owner_user(ctx.author):
             await ctx.reply("🚨 **권한 부족:** 봇 상태 조회는 **👑 봇 주인(소유자)** 만 실행할 수 있습니다.", delete_after=6)
@@ -1530,7 +1530,7 @@ class StatsCog(commands.Cog):
         view = BotStatusRefreshView(self, ctx.author.id, mode=mode)
         await ctx.reply(embed=embed, view=view, mention_author=False)
 
-    @commands.command(name="날씨", aliases=["기상", "미세먼지"])
+    @commands.command(name="날씨")
     async def prefix_weather(self, ctx: commands.Context, *, 지역: str = "서울"):
         clean_loc = (지역 or "서울").strip() or "서울"
         w_info, err = await asyncio.to_thread(core.fetch_accurate_weather_sync, clean_loc)

@@ -2006,7 +2006,7 @@ class HSRCog(commands.GroupCog, group_name="스타레일", group_description="�
         )
 
     # 프리픽스 단축어 (!스타레일워프 / !스타레일뽑기 / !스타레일도감)
-    @commands.command(name="스타레일워프", aliases=["스타레일뽑기"])
+    @commands.command(name="스타레일워프")
     async def prefix_warp(self, ctx: commands.Context, banner: str = "char1", count: int = 10):
         bmap = {"1": "char1", "2": "char2", "광추": "lc", "유물": "relic", "상시": "standard"}
         bk = bmap.get(banner, banner if banner in hsr_core.HSR_BANNER_CONFIGS else "char1")

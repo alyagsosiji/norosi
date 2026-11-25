@@ -7946,7 +7946,7 @@ class GachaCog(commands.Cog):
     # ==========================================
     # ⚡ 채팅창 빠른 실행 단축어 (!프세카, !프세카등록, !보관함, !프세카도감, !세카이라이브, !마이세카이)
     # ==========================================
-    @commands.command(name="프세카등록", aliases=["프로세카등록", "가챠등록"])
+    @commands.command(name="프세카등록")
     async def prefix_proseka_register(self, ctx: commands.Context):
         gid = ctx.guild.id if ctx.guild else 0
         already = await asyncio.to_thread(core.is_proseka_gacha_registered, gid, ctx.author.id)
@@ -7966,7 +7966,7 @@ class GachaCog(commands.Cog):
         )
         await ctx.send(embed=embed, view=ProsekaRegisterView(ctx.author, guild_id=gid))
 
-    @commands.command(name="프세카", aliases=["프로세카", "가챠", "뽑기", "프세카뽑기"])
+    @commands.command(name="프세카")
     async def prefix_proseka_hub(self, ctx: commands.Context):
         gid = ctx.guild.id if ctx.guild else 0
         registered = await asyncio.to_thread(core.is_proseka_gacha_registered, gid, ctx.author.id)
@@ -8005,7 +8005,7 @@ class GachaCog(commands.Cog):
         view = GachaPullAgainView(ctx.author, banner_type=banner_key, skip_anim=False, guild_id=gid, pity_info=pity_info)
         await ctx.send(embed=embed, view=view)
 
-    @commands.command(name="보관함", aliases=["프세카보관함", "카드보관함"])
+    @commands.command(name="보관함")
     async def prefix_proseka_inventory(self, ctx: commands.Context, 유저: Optional[discord.Member] = None):
         target = 유저 or ctx.author
         gid = ctx.guild.id if ctx.guild else 0
@@ -8019,19 +8019,19 @@ class GachaCog(commands.Cog):
         )
         await ctx.send(embed=view.build_embed(), view=view)
 
-    @commands.command(name="프세카도감", aliases=["프로세카도감", "카드도감"])
+    @commands.command(name="프세카도감")
     async def prefix_proseka_pokedex(self, ctx: commands.Context):
         gid = ctx.guild.id if ctx.guild else 0
         view = CardPokedexView(ctx.author, guild_id=gid)
         await ctx.send(embed=view.build_embed(), view=view)
 
-    @commands.command(name="세카이라이브", aliases=["협동라이브"])
+    @commands.command(name="세카이라이브")
     async def prefix_sekai_live(self, ctx: commands.Context):
         gid = ctx.guild.id if ctx.guild else 0
         view = SekaiLiveView(ctx.author, guild_id=gid)
         await ctx.send(embed=view.build_embed(), view=view)
 
-    @commands.command(name="마이세카이", aliases=["마세카", "미니룸"])
+    @commands.command(name="마이세카이")
     async def prefix_my_sekai(self, ctx: commands.Context, 유저: Optional[discord.Member] = None):
         target = 유저 or ctx.author
         gid = ctx.guild.id if ctx.guild else 0

@@ -918,7 +918,7 @@ class LoggerCog(commands.Cog):
         hub_view = ServerLogHubView(interaction.guild, guild_cfg)
         await interaction.followup.send(embed=hub_view.build_embed(), view=hub_view, ephemeral=True, wait=True)
 
-    @commands.command(name="로그설정", aliases=["감사로그", "서버로그"])
+    @commands.command(name="로그설정")
     @commands.guild_only()
     async def prefix_server_log_config(
         self,

@@ -4835,7 +4835,7 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
         )
         await interaction.followup.send(embed=embed)
 
-    @commands.command(name="낚시", aliases=["fishing", "출조"])
+    @commands.command(name="낚시")
     async def prefix_fishing(self, ctx: commands.Context, 장소: Optional[str] = None):
         """채팅창에 !낚시 [호수|강|바다] 입력 시 낚시 출조 패널을 즉시 오픈합니다"""
         hab_map = {"호수": "lake", "lake": "lake", "강": "river", "river": "river", "바다": "sea", "sea": "sea"}
@@ -4912,7 +4912,7 @@ class FishingStandaloneCog(commands.Cog):
         view.message = msg
 
 
-    @commands.command(name="낚시랭킹", aliases=["fishingrank", "대물랭킹"])
+    @commands.command(name="낚시랭킹")
     async def prefix_fishing_ranking(self, ctx: commands.Context, 장소: Optional[str] = None):
         """채팅창에 !낚시랭킹 [호수|강|바다] 입력 시 서버 대물 랭킹 보드를 즉시 출력합니다"""
         hab_map = {"호수": "lake", "lake": "lake", "강": "river", "river": "river", "바다": "sea", "sea": "sea"}
@@ -4922,7 +4922,7 @@ class FishingStandaloneCog(commands.Cog):
         msg = await ctx.send(embed=view.build_embed(), view=view)
         view.message = msg
 
-    @commands.command(name="낚시대회", aliases=["fishingtourney", "낚시토너먼트"])
+    @commands.command(name="낚시대회")
     async def prefix_fishing_tournament(self, ctx: commands.Context):
         """채팅창에 !낚시대회 입력 시 실시간 낚시 토너먼트 현황 보드를 출력합니다"""
         guild_id = ctx.guild.id if ctx.guild else 0

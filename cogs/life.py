@@ -1038,7 +1038,7 @@ class LifeStandaloneCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @commands.command(name="농장", aliases=["farm"])
+    @commands.command(name="농장")
     async def prefix_farm(self, ctx: commands.Context):
         gid = ctx.guild.id if ctx.guild else 0
         ov = await asyncio.to_thread(life_core.get_life_overview, gid, ctx.author.id, ctx.author.display_name)
@@ -1046,7 +1046,7 @@ class LifeStandaloneCog(commands.Cog):
         msg = await ctx.send(embed=v.build_embed(), view=v)
         v.message = msg
 
-    @commands.command(name="공동농장", aliases=["길드농장", "communityfarm"])
+    @commands.command(name="공동농장")
     async def prefix_community_farm(self, ctx: commands.Context):
         gid = ctx.guild.id if ctx.guild else 0
         ov = await asyncio.to_thread(life_core.get_life_overview, gid, ctx.author.id, ctx.author.display_name)
@@ -1054,7 +1054,7 @@ class LifeStandaloneCog(commands.Cog):
         msg = await ctx.send(embed=v.build_embed(), view=v)
         v.message = msg
 
-    @commands.command(name="펫", aliases=["pet"])
+    @commands.command(name="펫")
     async def prefix_pet(self, ctx: commands.Context):
         gid = ctx.guild.id if ctx.guild else 0
         ov = await asyncio.to_thread(life_core.get_life_overview, gid, ctx.author.id, ctx.author.display_name)
@@ -1062,7 +1062,7 @@ class LifeStandaloneCog(commands.Cog):
         msg = await ctx.send(embed=v.build_embed(), view=v)
         v.message = msg
 
-    @commands.command(name="요리", aliases=["cook", "버프"])
+    @commands.command(name="요리")
     async def prefix_cook(self, ctx: commands.Context):
         gid = ctx.guild.id if ctx.guild else 0
         ov = await asyncio.to_thread(life_core.get_life_overview, gid, ctx.author.id, ctx.author.display_name)

@@ -3021,7 +3021,7 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
         emb = build_emoji_upscale_embed(interaction.guild, interaction.channel, enabled)
         await interaction.followup.send(embed=emb, view=view, ephemeral=True, wait=True)
 
-    @commands.command(name="이모지업스케일", aliases=["emojiupscale", "이모지확대"])
+    @commands.command(name="이모지업스케일")
     @commands.guild_only()
     async def prefix_emoji_upscale(self, ctx: commands.Context, 동작: Optional[str] = None):
         is_owner = await self.bot.is_bot_owner_user(ctx.author) if hasattr(self.bot, "is_bot_owner_user") else False

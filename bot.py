@@ -1993,7 +1993,7 @@ async def set_terminal_log_channel_slash(
         print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{채널.name} (ID: {채널.id}, 모드: {parsed_mode}, 서버: {interaction.guild})로 지정되었습니다. (총 {total_ch_cnt}개 서버 동시 전송)", flush=True)
 
 
-@bot.command(name="터미널로그", aliases=["터미널로그채널", "서버터미널", "vm로그", "콘솔로그"])
+@bot.command(name="터미널로그")
 async def set_terminal_log_channel_prefix(
     ctx: commands.Context,
     target_or_mode: Optional[str] = None,
@@ -2239,7 +2239,7 @@ async def set_bot_banner_slash(
         await interaction.followup.send(f"⚠️ 봇 배너 변경 중 예외 발생: `{e}`", ephemeral=True)
 
 
-@bot.command(name="봇배너", aliases=["배너", "봇배너변경", "botbanner"])
+@bot.command(name="봇배너")
 async def set_bot_banner_prefix(ctx: commands.Context, arg: Optional[str] = None):
     if not await bot.is_bot_owner_user(ctx.author):
         await ctx.send("❌ 이 명령어는 **봇 소유자**(봇주)만 사용할 수 있습니다.", delete_after=5)
@@ -2470,9 +2470,9 @@ class SyncControlView(core.SafeView):
 
 
 # ==========================================
-# 봇 슬래시 명령어 동기화 마스터 (!싱크, !sync, !동기화)
+# 봇 슬래시 명령어 동기화 마스터 (!sync)
 # ==========================================
-@bot.command(name="sync", aliases=["싱크", "동기화", "재동기화", "명령어동기화", "싱크초기화", "동기화초기화", "중복해결", "중복정리"])
+@bot.command(name="sync")
 async def sync_guild_command(ctx: commands.Context, *args):
     if not await bot.is_bot_owner_user(ctx.author):
         await ctx.send("❌ 이 명령어는 **봇주**(Bot Owner)만 사용할 수 있습니다.", delete_after=5)

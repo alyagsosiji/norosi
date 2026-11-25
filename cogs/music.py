@@ -5552,7 +5552,7 @@ class MusicCog(commands.Cog):
     # ==========================================
     # 디스코드 캐시 문제와 무관하게 100% 즉시 작동하는 텍스트 접두사 명령어 (Prefix: !)
     # ==========================================
-    @commands.command(name="오디오테스트", aliases=["소리테스트", "audiotest", "test", "비프음"])
+    @commands.command(name="오디오테스트")
     async def prefix_audio_test(self, ctx: commands.Context):
         """채팅창에 !오디오테스트 입력 시 즉시 880Hz 펄스 비프음 5.0초 재생 및 오디오 파이프라인 정밀 진단"""
         voice_state = ctx.author.voice if isinstance(ctx.author, discord.Member) else None
@@ -5736,7 +5736,7 @@ class MusicCog(commands.Cog):
         embed.set_footer(text="오디오 진단 완료 • 5.0초 후 테스트 톤이 종료됩니다. (!플레이리스트로 음악 바로 재생)")
         await status_msg.edit(content=None, embed=embed)
 
-    @commands.command(name="플레이리스트", aliases=["플리", "playlist"])
+    @commands.command(name="플레이리스트")
     async def prefix_playlist_studio(self, ctx: commands.Context, *, 링크또는곡: Optional[str] = None):
         """채팅창에 !플레이리스트 또는 !플리 [링크] 입력 시 즉시 플레이리스트 스튜디오 패널 호출 또는 링크에서 플레이리스트 자동 생성"""
         data = await asyncio.to_thread(core.load_data)
@@ -5813,7 +5813,7 @@ class MusicCog(commands.Cog):
         msg = await ctx.send(embed=embed, view=view)
         view.message = msg
 
-    @commands.command(name="플리재생", aliases=["플레이리스트재생", "플리자동재생", "playpl", "plplay"])
+    @commands.command(name="플리재생")
     async def prefix_play_playlist(self, ctx: commands.Context, *, 순번또는이름: Optional[str] = None):
         """채팅창에 !플리재생 또는 !플리재생 [순번/이름] 입력 시 음성채널에서 플레이리스트 자동재생 즉시 시작"""
         data = await asyncio.to_thread(core.load_data)
@@ -5834,7 +5834,7 @@ class MusicCog(commands.Cog):
 
         await start_voice_playlist_from_context(ctx, ctx.author, target_pl, start_index=start_idx)
 
-    @commands.command(name="플리추가", aliases=["곡추가", "addtrack", "pladd", "플리곡추가"])
+    @commands.command(name="플리추가")
     async def prefix_add_track(self, ctx: commands.Context, *, 곡제목또는링크: str):
         """채팅창에 !플리추가 [곡제목 또는 링크] 입력 시 내 대표 플레이리스트에 즉시 곡 추가"""
         raw_val = (곡제목또는링크 or "").strip()
@@ -5910,7 +5910,7 @@ class MusicCog(commands.Cog):
             view=studio
         )
 
-    @commands.command(name="플리목록", aliases=["플리리스트", "내플리", "pllist", "playlists"])
+    @commands.command(name="플리목록")
     async def prefix_list_playlists(self, ctx: commands.Context):
         """채팅창에 !플리목록 입력 시 내 모든 플레이리스트 목록과 수록곡 현황 확인"""
         data = await asyncio.to_thread(core.load_data)
@@ -5940,7 +5940,7 @@ class MusicCog(commands.Cog):
         studio = PlaylistStudioView(ctx.author, ctx.author, data, initial_pl_id=pls[0]["id"])
         await ctx.send(embed=embed, view=studio)
 
-    @commands.command(name="플리가져오기", aliases=["플레이리스트가져오기", "플리링크", "importpl"])
+    @commands.command(name="플리가져오기")
     async def prefix_playlist_import(self, ctx: commands.Context, 링크: str, *, 이름: Optional[str] = None):
         """채팅창에 !플리가져오기 [링크] [새 플리 이름] 입력 시 링크를 통째로 플레이리스트로 자동 생성"""
         raw_url = (링크 or "").strip()
@@ -5991,7 +5991,7 @@ class MusicCog(commands.Cog):
         )
         studio.message = status_msg
 
-    @commands.command(name="플리곡삭제", aliases=["플리삭제", "곡삭제", "deltrack", "trackdel"])
+    @commands.command(name="플리곡삭제")
     async def prefix_delete_track(self, ctx: commands.Context, *, 곡번호또는이름: Optional[str] = None):
         """채팅창에 !플리삭제 [번호 또는 곡제목] 입력 시 해당 곡 즉시 삭제 (미입력 시 곡 선택 삭제창 호출)"""
         data = await asyncio.to_thread(core.load_data)
@@ -6042,7 +6042,7 @@ class MusicCog(commands.Cog):
             f"{_format_removed_preview(removed)}"
         )
 
-    @commands.command(name="헤드셋", aliases=["deaf", "청각차단", "헤드폰"])
+    @commands.command(name="헤드셋")
     async def prefix_headset_toggle(self, ctx: commands.Context):
         """채팅창에 !헤드셋 입력 시 봇의 헤드셋 끄기(청각 차단 / deafen) 즉시 토글"""
         if not ctx.guild:
@@ -6056,7 +6056,7 @@ class MusicCog(commands.Cog):
         st = "🎧 **헤드셋 끄기 (청각 차단 On / 빨간 사선)**" if new_state else "🔊 **헤드셋 켜기 (청각 차단 Off / 일반)**"
         await ctx.send(f"✅ 봇의 음성 상태가 {st} 상태로 변경되었습니다.")
 
-    @commands.command(name="배속", aliases=["속도", "speed", "배속설정"])
+    @commands.command(name="배속")
     async def prefix_playback_speed(self, ctx: commands.Context, 속도: Optional[str] = None):
         """채팅창에 !배속 [0.5 ~ 2.0] 입력 시 음성 재생 배속 변경 (기본값: 1.0)"""
         if not ctx.guild:
@@ -6078,7 +6078,7 @@ class MusicCog(commands.Cog):
         ok, msg = await player.set_playback_speed(val)
         await ctx.send(f"✅ {msg}")
 
-    @commands.command(name="라디오", aliases=["무드라디오", "분위기라디오", "radio", "bgm"])
+    @commands.command(name="라디오")
     async def prefix_mood_radio(self, ctx: commands.Context, 분위기: Optional[str] = None):
         """채팅창에 !라디오 입력 시 원클릭 분위기(무드) 음성 라디오 패널 호출"""
         mood_key = "lofi"

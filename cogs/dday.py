@@ -3134,7 +3134,7 @@ class DDayCog(commands.Cog):
         msg = await ctx.send(embed=view.build_embed(), view=view)
         view.message = msg
 
-    @commands.command(name="출석", aliases=["출첵", "출석체크"])
+    @commands.command(name="출석")
     async def prefix_attendance(self, ctx: commands.Context):
         class _CtxShim:
             def __init__(self, c: commands.Context):
@@ -3148,7 +3148,7 @@ class DDayCog(commands.Cog):
         else:
             await ctx.send(embed=embed, view=view)
 
-    @commands.command(name="알림", aliases=["알림예약", "리마인더"])
+    @commands.command(name="알림")
     async def prefix_reminder(self, ctx: commands.Context):
         data = await asyncio.to_thread(core.load_data)
         view = ReminderHubView(ctx.author, ctx.channel.id if ctx.channel else None, ctx.guild.id if ctx.guild else None, data)

@@ -2081,9 +2081,9 @@ class HelpCog(commands.Cog):
         )
         await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
 
-    @commands.command(name="도움말", aliases=["help", "도움", "명령어", "가이드"])
+    @commands.command(name="도움말")
     async def prefix_help(self, ctx: commands.Context, *, 검색: Optional[str] = ""):
-        """채팅창에 !도움말 또는 !help 입력 시 즉시 통합 도움말 & /설정 가이드 호출"""
+        """채팅창에 !도움말 입력 시 즉시 통합 도움말 & /설정 가이드 호출"""
         embed = build_help_embed(category="all", search_kw=검색 or "", page=0, perm_filter="all")
         view = HelpCategoryView(
             bot_instance=self.bot,

@@ -1167,7 +1167,7 @@ class Roles(commands.Cog, name="역할"):
         studio = ReactionRoleStudioView(interaction.guild, interaction.user)
         await core.safe_send_response(interaction, embed=studio.build_dashboard_embed(), view=studio, ephemeral=True)
 
-    @commands.command(name="반응역할", aliases=["반응역할스튜디오", "리액션롤", "역할지급", "이모지역할"])
+    @commands.command(name="반응역할")
     async def prefix_reaction_role(self, ctx: commands.Context):
         """[관리자 전용] 채팅창에서 반응역할 마스터 스튜디오 호출"""
         if not ctx.guild or not isinstance(ctx.author, discord.Member):

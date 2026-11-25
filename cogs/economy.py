@@ -542,13 +542,13 @@ class ProfileCardStandaloneCog(commands.Cog):
         guild_id = interaction.guild_id or 0
         await _send_profile_card(interaction.followup.send, target, guild_id)
 
-    @commands.command(name="프로필카드", aliases=["통합프로필", "profilecard"])
+    @commands.command(name="프로필카드")
     async def prefix_profile_card(self, ctx: commands.Context, 유저: Optional[discord.Member] = None):
         target = 유저 or ctx.author
         guild_id = ctx.guild.id if ctx.guild else 0
         await _send_profile_card(ctx.send, target, guild_id, is_interaction=False)
 
-    @commands.command(name="칭호", aliases=["칭호상점", "배지"])
+    @commands.command(name="칭호")
     async def prefix_titles(self, ctx: commands.Context):
         guild_id = ctx.guild.id if ctx.guild else 0
         stats = await asyncio.to_thread(
@@ -558,7 +558,7 @@ class ProfileCardStandaloneCog(commands.Cog):
         msg = await ctx.send(embed=view.build_embed(), view=view)
         view.message = msg
 
-    @commands.command(name="복권", aliases=["로또", "주간복권"])
+    @commands.command(name="복권")
     async def prefix_lottery(self, ctx: commands.Context):
         guild_id = ctx.guild.id if ctx.guild else 0
         ov = await asyncio.to_thread(economy_core.get_lottery_overview, ctx.author.id)
@@ -566,7 +566,7 @@ class ProfileCardStandaloneCog(commands.Cog):
         msg = await ctx.send(embed=view.build_embed(), view=view)
         view.message = msg
 
-    @commands.command(name="경제랭킹", aliases=["자산랭킹"])
+    @commands.command(name="경제랭킹")
     async def prefix_eco_ranking(self, ctx: commands.Context):
         guild_id = ctx.guild.id if ctx.guild else 0
         lb = await asyncio.to_thread(economy_core.get_economy_leaderboard, guild_id)
@@ -574,7 +574,7 @@ class ProfileCardStandaloneCog(commands.Cog):
         msg = await ctx.send(embed=view.build_embed(), view=view)
         view.message = msg
 
-    @commands.command(name="송금", aliases=["크리스탈송금", "입금"])
+    @commands.command(name="송금")
     async def prefix_transfer(self, ctx: commands.Context, 상대: Optional[discord.Member] = None, 금액: Optional[int] = None):
         if 상대 is None or 금액 is None:
             await ctx.send("💡 **사용법:** `!송금 @멤버 금액` *(예: `!송금 @친구 500` · 일일 한도 5,000💎, 수수료 5%)*")

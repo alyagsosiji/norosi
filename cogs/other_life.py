@@ -2018,7 +2018,7 @@ class OtherLifeStandaloneCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @commands.command(name="타인의인생", aliases=["인생게임", "타인"])
+    @commands.command(name="타인의인생")
     async def prefix_other_life(self, ctx: commands.Context):
         gid = ctx.guild.id if ctx.guild else 0
         u_state, _, idle_logs = await asyncio.to_thread(
