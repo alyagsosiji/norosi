@@ -2013,7 +2013,7 @@ class OtherLifeCog(
 
 
 class OtherLifeStandaloneCog(commands.Cog):
-    """!타인의인생 · !인생게임 · !타인 접두사 단축어 Cog"""
+    """!타인의인생 · !인생도감 · !인생랭킹 접두사 단축어 Cog"""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -2027,6 +2027,20 @@ class OtherLifeStandaloneCog(commands.Cog):
         view = OtherLifeGameView(ctx.author, gid, user_state=u_state, idle_logs=idle_logs)
         msg = await ctx.send(embed=view.build_embed(), view=view)
         view.message = msg
+
+    @commands.command(name="인생도감")
+    async def prefix_other_life_collection(self, ctx: commands.Context):
+        gid = ctx.guild.id if ctx.guild else 0
+        u_state, _, _ = await asyncio.to_thread(
+            other_life_core.get_other_life_state, gid, ctx.author.id, ctx.author.display_name
+        )
+        view = OtherLifeCollectionView(ctx.author, gid, user_state=u_state)
+        view.message = await ctx.send(embed=view.build_embed(), view=view)
+
+    @commands.command(name="인생랭킹")
+    async def prefix_other_life_ranking(self, ctx: commands.Context):
+        view = OtherLifeRankingView(ctx.author, ctx.guild.id if ctx.guild else 0)
+        view.message = await ctx.send(embed=view.build_embed(), view=view)
 
 
 async def setup(bot: commands.Bot):

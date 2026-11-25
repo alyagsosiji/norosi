@@ -1963,6 +1963,27 @@ class GenshinCog(commands.GroupCog, group_name="원신", group_description="🌠
         v = GenshinPokedexView(ctx.guild.id if ctx.guild else 0, ctx.author, tab="owned")
         await ctx.reply(embed=v.build_embed(), view=v)
 
+    @commands.command(name="원신보관함")
+    async def prefix_inventory(self, ctx: commands.Context, filter_mode: str = "all"):
+        fmap = {"전체": "all", "캐릭터": "char", "5성": "r5", "4성": "r4", "잠금": "locked"}
+        v = GenshinInventoryView(ctx.guild.id if ctx.guild else 0, ctx.author, filter_mode=fmap.get(filter_mode, filter_mode))
+        await ctx.reply(embed=v.build_embed(), view=v)
+
+    @commands.command(name="원신상점")
+    async def prefix_shop(self, ctx: commands.Context):
+        v = GenshinShopView(ctx.guild.id if ctx.guild else 0, ctx.author)
+        await ctx.reply(embed=v.build_embed(), view=v)
+
+    @commands.command(name="원신파티")
+    async def prefix_party(self, ctx: commands.Context):
+        v = GenshinPartyView(ctx.guild.id if ctx.guild else 0, ctx.author)
+        await ctx.reply(embed=v.build_embed(), view=v)
+
+    @commands.command(name="원신랭킹")
+    async def prefix_ranking(self, ctx: commands.Context):
+        v = GenshinRankingView(ctx.guild.id if ctx.guild else 0, mode="ranking")
+        await ctx.reply(embed=v.build_embed(ctx.guild), view=v)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(GenshinCog(bot))

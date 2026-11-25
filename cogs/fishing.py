@@ -4931,6 +4931,38 @@ class FishingStandaloneCog(commands.Cog):
         msg = await ctx.send(embed=view.build_embed(), view=view)
         view.message = msg
 
+    @commands.command(name="낚시가방")
+    async def prefix_fishing_bag(self, ctx: commands.Context, 장소: Optional[str] = None):
+        """!낚시가방 [호수|강|바다] — 잡은 물고기 가방을 바로 엽니다"""
+        hab_map = {"호수": "lake", "강": "river", "바다": "sea"}
+        hab = hab_map.get((장소 or "").strip(), "all")
+        guild_id = ctx.guild.id if ctx.guild else 0
+        summary = await asyncio.to_thread(fishing_core.get_user_fishing_summary, guild_id, ctx.author.id, ctx.author.display_name)
+        view = FishingBagView(ctx.author, guild_id, hab, 0, summary=summary)
+        view.message = await ctx.send(embed=view.build_embed(), view=view)
+
+    @commands.command(name="낚시상점")
+    async def prefix_fishing_shop(self, ctx: commands.Context):
+        """!낚시상점 — 장비·미끼·확장 상점을 바로 엽니다"""
+        guild_id = ctx.guild.id if ctx.guild else 0
+        summary = await asyncio.to_thread(fishing_core.get_user_fishing_summary, guild_id, ctx.author.id, ctx.author.display_name)
+        view = FishingShopView(ctx.author, guild_id, "rod", summary=summary)
+        view.message = await ctx.send(embed=view.build_embed(), view=view)
+
+    @commands.command(name="어시장")
+    async def prefix_fishing_market(self, ctx: commands.Context):
+        """!어시장 — 실시간 어시장 시세 & 즉시 판매"""
+        view = FishingMarketView(ctx.author, ctx.guild.id if ctx.guild else 0)
+        view.message = await ctx.send(embed=view.build_embed(), view=view)
+
+    @commands.command(name="낚시퀘스트")
+    async def prefix_fishing_quest(self, ctx: commands.Context):
+        """!낚시퀘스트 — 일일 낚시 의뢰 확인 및 보상 수령"""
+        guild_id = ctx.guild.id if ctx.guild else 0
+        summary = await asyncio.to_thread(fishing_core.get_user_fishing_summary, guild_id, ctx.author.id, ctx.author.display_name)
+        view = FishingQuestView(ctx.author, guild_id, summary=summary)
+        view.message = await ctx.send(embed=view.build_embed(), view=view)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(FishingCog(bot))
