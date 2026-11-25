@@ -978,6 +978,8 @@ class NorosiBot(commands.Bot):
                         target_btn = view.refresh_audio_btn
                     elif "배속" in cl:
                         target_btn = view.speed_toggle_btn
+                    elif "24/7" in cl or "상주" in cl:
+                        target_btn = view.toggle_247_btn
                     elif component_type in (3, 5, 6, 7, 8):
                         target_btn = view.jump_select
 
@@ -1216,8 +1218,8 @@ class NorosiBot(commands.Bot):
 
     async def _safe_startup_sync(self):
         """
-        봇 부팅 시 백그라운드에서 슬래시 명령어를 '/설정'과 '/도움말' 2개로 단일화하여 동기화합니다.
-        기존 길드별 잔류 슬래시 캐시도 정리하여 디스코드에서 '/설정', '/도움말' 외의 슬래시 명령어가 남지 않게 합니다.
+        봇 부팅 시 백그라운드에서 슬래시 명령어를 핵심 3종('/설정', '/도움말', '/후원')으로 단일화하여 동기화합니다.
+        기존 길드별 잔류 슬래시 캐시도 정리하여 디스코드에서 핵심 슬래시 명령어 외의 항목이 남지 않게 합니다.
         """
         try:
             kept = self.prune_slash_tree_to_core()
@@ -1230,7 +1232,7 @@ class NorosiBot(commands.Bot):
                 except Exception:
                     pass
             synced_cmds = await self.tree.sync()
-            print(f"✅ [동기화 완료] 슬래시 명령어 총 {len(synced_cmds)}개(/설정, /도움말) 글로벌 등록 완료!", flush=True)
+            print(f"✅ [동기화 완료] 슬래시 명령어 총 {len(synced_cmds)}개(/설정, /도움말, /후원) 글로벌 등록 완료!", flush=True)
         except discord.HTTPException as e:
             if e.status == 429:
                 print(f"⏳ [동기화 알림] Discord API 속도 제한(429 Rate Limit) 감지: {e}. 백그라운드에서 대기 후 자동 재시도됩니다.", flush=True)
@@ -1245,14 +1247,14 @@ class NorosiBot(commands.Bot):
 
         await self.change_presence(
             status=discord.Status.online,
-            activity=discord.Game(name="🌠ㅣ/설정 · /도움말")
+            activity=discord.Game(name="🌠ㅣ/설정 · /도움말 · /후원")
         )
 
         if not self._commands_synced:
             self._commands_synced = True
             asyncio.create_task(self._safe_startup_sync())
 
-        await self.update_all_dday_channels()
+        asyncio.create_task(self.update_all_dday_channels())
 
     async def on_guild_join(self, guild: discord.Guild):
         """새 디스코드 서버에 초대되었을 때 길드 명령어 캐시를 비우고 글로벌 명령어만 깔끔하게 단일 노출"""
@@ -1264,44 +1266,60 @@ class NorosiBot(commands.Bot):
             print(f"⚠️ 신규 서버 명령어 클린업 오류 ({guild.name}): {e}", flush=True)
 
     async def update_all_dday_channels(self):
-        data = await asyncio.to_thread(core.load_data)
-        ddays = core.as_dict(data.get("ddays"))
-        if not ddays:
+        if getattr(self, "_dday_update_running", False):
             return
+        self._dday_update_running = True
+        try:
+            data = await asyncio.to_thread(core.load_data)
+            ddays = core.as_dict(data.get("ddays"))
+            if not ddays:
+                return
 
-        alert_ch_id = core.as_dict(data.get("settings")).get("dday_alert_channel_id")
-        alert_channel = await self.resolve_channel(alert_ch_id) if alert_ch_id else None
+            last_renames: dict[int, float] = getattr(self, "_dday_last_rename_ts", None)
+            if last_renames is None:
+                last_renames = {}
+                self._dday_last_rename_ts = last_renames
 
-        for name, info in list(ddays.items()):
-            if not isinstance(info, dict):
-                continue
-            ch_id = info.get("channel_id")
-            if not ch_id:
-                continue
-            channel = await self.resolve_channel(ch_id)
-            if not channel or "date" not in info:
-                continue
+            alert_ch_id = core.as_dict(data.get("settings")).get("dday_alert_channel_id")
+            alert_channel = await self.resolve_channel(alert_ch_id) if alert_ch_id else None
 
-            emoji = info.get("emoji", "🌠")
-            plus_one_val = bool(info.get("plus_one", False))
-            display_name = core.get_dday_display_name(name, info)
-            new_name = core.format_dday_channel_name(display_name, info["date"], emoji, plus_one=plus_one_val)
-            if getattr(channel, "name", None) != new_name:
-                try:
-                    await channel.edit(name=new_name)
-                except discord.Forbidden:
-                    ch_guild_id = getattr(getattr(channel, "guild", None), "id", None) or info.get("guild_id")
-                    guild_alert_id = core.get_guild_setting(data, ch_guild_id, "dday_alert_channel_id")
-                    target_alert = await self.resolve_channel(guild_alert_id) if guild_alert_id else alert_channel
-                    if target_alert:
-                        try:
-                            await target_alert.send(
-                                f"🚨 **권한 오류:** 봇에게 `{channel.name}` 채널의 **'채널 관리'** 권한이 없습니다."
-                            )
-                        except Exception:
-                            pass
-                except Exception as e:
-                    print(f"전광판 업데이트 오류 ({display_name}): {e}", flush=True)
+            for name, info in list(ddays.items()):
+                if not isinstance(info, dict):
+                    continue
+                ch_id = info.get("channel_id")
+                if not ch_id:
+                    continue
+                channel = await self.resolve_channel(ch_id)
+                if not channel or "date" not in info:
+                    continue
+
+                emoji = info.get("emoji", "🌠")
+                plus_one_val = bool(info.get("plus_one", False))
+                display_name = core.get_dday_display_name(name, info)
+                new_name = core.format_dday_channel_name(display_name, info["date"], emoji, plus_one=plus_one_val)
+                if getattr(channel, "name", None) != new_name:
+                    now_m = time.monotonic()
+                    # 디스코드 채널명 변경 버킷(10분당 2회) 과부하 방지: 동일 채널은 최소 310초 간격 보장
+                    if now_m - last_renames.get(channel.id, 0.0) < 310.0:
+                        continue
+                    try:
+                        await channel.edit(name=new_name)
+                        last_renames[channel.id] = time.monotonic()
+                    except discord.Forbidden:
+                        ch_guild_id = getattr(getattr(channel, "guild", None), "id", None) or info.get("guild_id")
+                        guild_alert_id = core.get_guild_setting(data, ch_guild_id, "dday_alert_channel_id")
+                        target_alert = await self.resolve_channel(guild_alert_id) if guild_alert_id else alert_channel
+                        if target_alert:
+                            try:
+                                await target_alert.send(
+                                    f"🚨 **권한 오류:** 봇에게 `{channel.name}` 채널의 **'채널 관리'** 권한이 없습니다."
+                                )
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        print(f"전광판 업데이트 오류 ({display_name}): {e}", flush=True)
+        finally:
+            self._dday_update_running = False
 
     def build_music_embed_and_view(self, track_info: dict, prefs: dict, is_morning: bool = False, custom_title: Optional[str] = None):
         """추천 음악 임베드 및 MusicRecommendView를 생성하는 헬퍼 메서드 (누락되었던 함수 선언부 복원)"""
@@ -1449,6 +1467,54 @@ class NorosiBot(commands.Bot):
                     await user_obj.send(embed=bday_embed)
             except Exception:
                 pass
+
+        # 매주 월요일 자정(00:00 KST) 주간 로또 복권 자동 추첨 및 당첨 발표
+        if today.weekday() == 0:
+            try:
+                import economy_core
+                ov = await asyncio.to_thread(economy_core.get_lottery_overview, 0)
+                last_draw = ov.get("last_draw") if isinstance(ov.get("last_draw"), dict) else {}
+                cur_wk = datetime.datetime.now(core.KST).strftime("%Y-W%W")
+                if ov.get("total_tickets", 0) > 0 and last_draw.get("week_key") != cur_wk:
+                    draw_rec = await asyncio.to_thread(economy_core.execute_lottery_draw, "auto_monday")
+                    win_nums_str = ", ".join(str(x) for x in (draw_rec.get("winning_numbers") or []))
+                    winners = draw_rec.get("winners") or []
+                    win_lines = [
+                        f"• **{w['best_rank']}등** <@{w['user_id']}> (`{w['user_name']}`) — **`+{w['total_prize']:,}💎`**"
+                        for w in winners[:5]
+                    ] or ["• 이번 회차 당첨자가 없어 1등 잭팟이 다음 회차로 이월되었습니다!"]
+                    lot_embed = discord.Embed(
+                        title=f"🎟️ 제 {draw_rec['round']}회차 주간 크리스탈 복권 추첨 결과!",
+                        description=(
+                            f"🎱 **당첨 번호:** **`[ {win_nums_str} ]`**\n"
+                            f"💰 **총 상금 풀:** `{draw_rec['total_pot']:,}💎` · **판매 티켓:** `{draw_rec['ticket_count']:,}장`\n"
+                            f"🏆 **1등({draw_rec['rank1_count']}명)** · **2등({draw_rec['rank2_count']}명)** · **3등({draw_rec['rank3_count']}명)**\n"
+                            "━━━━━━━━━━━━━━━━━━━━━━\n"
+                            + "\n".join(win_lines)
+                        ),
+                        color=discord.Color.gold(),
+                        timestamp=datetime.datetime.now(core.KST),
+                    )
+                    lot_embed.set_footer(text=f"다음 회차 시작 잭팟: {draw_rec.get('next_jackpot', 1000):,}💎 • !복권 으로 참여해 보세요!")
+
+                    ann_map = draw_rec.get("announce_channels") or {}
+                    sent_lot_chs: set[int] = set()
+                    for ch_val in ann_map.values():
+                        if ch_val and int(ch_val) not in sent_lot_chs:
+                            ch_obj = await self.resolve_channel(int(ch_val))
+                            if ch_obj:
+                                try:
+                                    await ch_obj.send(embed=lot_embed)
+                                    sent_lot_chs.add(int(ch_val))
+                                except Exception:
+                                    pass
+                    if not sent_lot_chs and alert_ch:
+                        try:
+                            await alert_ch.send(embed=lot_embed)
+                        except Exception:
+                            pass
+            except Exception as lot_err:
+                print(f"⚠️ [주간 복권 자동 추첨 예외] {lot_err}", flush=True)
 
         await self.update_all_dday_channels()
 
@@ -2330,18 +2396,18 @@ async def sync_guild_command(ctx: commands.Context, *args):
         view = SyncControlView(author=ctx.author, guild=ctx.guild)
         if is_guild_only:
             reg_status = (
-                f"• 🏠 현재 서버({g_name}) 즉시 등록: **`{guild_cnt}개`** (`/설정`, `/도움말`)\n"
+                f"• 🏠 현재 서버({g_name}) 즉시 등록: **`{guild_cnt}개`** (`/설정`, `/도움말`, `/후원`)\n"
                 f"• 💡 길드 전용 즉시 동기화 모드로 반영되었습니다."
             )
             title_text = f"⚡ [{g_name}] 길드 슬래시 명령어 동기화 완료!"
             desc_lead = f"🎉 **현재 서버에 길드 전용 슬래시 명령어 총 `{guild_cnt}개`가 등록되었습니다!**"
         else:
             reg_status = (
-                f"• 🌐 글로벌 전역 명령어: **`{len(synced_global)}개`** (`/설정`, `/도움말`)\n"
+                f"• 🌐 글로벌 전역 명령어: **`{len(synced_global)}개`** (`/설정`, `/도움말`, `/후원`)\n"
                 f"• 🧹 길드 캐시 정리: 중복 및 구 슬래시 커맨드 완전 제거 완료"
             )
             title_text = f"⚡ [{g_name}] 글로벌 슬래시 명령어 동기화 완료!"
-            desc_lead = f"🎉 **글로벌 슬래시 명령어 총 `{len(synced_global)}개`(`/설정`, `/도움말`)로 단일화 동기화되었습니다!**"
+            desc_lead = f"🎉 **글로벌 슬래시 명령어 총 `{len(synced_global)}개`(`/설정`, `/도움말`, `/후원`)로 단일화 동기화되었습니다!**"
 
         embed = discord.Embed(
             title=title_text,
@@ -2350,9 +2416,10 @@ async def sync_guild_command(ctx: commands.Context, *args):
                 "📊 **등록 상태:**\n"
                 f"{reg_status}\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
-                "💡 **핵심 슬래시 명령어 2종 안내**\n"
+                "💡 **핵심 슬래시 명령어 3종 안내**\n"
                 "• `/설정` (`!설정`) : 일반 · 고급 · 미니게임 · 개인 4대 분류 통합 설정 대시보드\n"
-                "• `/도움말` (`!도움말`) : 전체 기능의 `/설정` 경로 및 권한별 가독성 가이드"
+                "• `/도움말` (`!도움말`) : 전체 기능의 `/설정` 경로 및 권한별 가독성 가이드\n"
+                "• `/후원` (`!후원`) : norosi 24시간 서버 운영비 후원 안내"
             ),
             color=discord.Color.green(),
             timestamp=datetime.datetime.now(core.KST)

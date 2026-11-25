@@ -3734,6 +3734,18 @@ class FishingTournamentView(core.SafeView):
 
     @discord.ui.button(label="🏁 새 대회 개최", style=discord.ButtonStyle.primary, row=1)
     async def btn_start_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
+        active = self.status.get("active") if isinstance(self.status, dict) else None
+        is_admin = False
+        if isinstance(interaction.user, discord.Member):
+            perms = interaction.user.guild_permissions
+            is_admin = bool(perms.administrator or perms.manage_guild)
+        if isinstance(active, dict) and not active.get("settled") and active.get("is_auto_weekend") and not is_admin:
+            await core.safe_send_response(
+                interaction,
+                "🗓️ 현재 **주말 정규 토너먼트**가 진행 중입니다! 진행 중인 주말 대회를 덮어쓰고 새 대회를 여는 것은 **서버 관리자**만 가능합니다.",
+                ephemeral=True,
+            )
+            return
         await interaction.response.send_modal(FishingTournamentStartModal(self, guild_id=self.guild_id))
 
     @discord.ui.button(label="🏅 대회 종료 및 시상", style=discord.ButtonStyle.danger, row=1)
@@ -3747,10 +3759,10 @@ class FishingTournamentView(core.SafeView):
             perms = interaction.user.guild_permissions
             is_admin = bool(perms.administrator or perms.manage_guild)
         host_id = int(active.get("host_id") or 0)
-        if not is_admin and host_id != 0 and interaction.user.id != host_id:
+        if not is_admin and (host_id == 0 or interaction.user.id != host_id):
             await core.safe_send_response(
                 interaction,
-                "🚨 대회 수동 마감은 **대회 개최자** 또는 **서버 관리자**만 실행할 수 있습니다. (시간 만료 시에는 자동 정산됩니다!)",
+                "🚨 대회 수동 마감은 **대회 개최자** 또는 **서버 관리자**만 실행할 수 있습니다. (주말 정규 대회 및 시간 만료 시에는 자동 정산됩니다!)",
                 ephemeral=True,
             )
             return
@@ -4018,18 +4030,37 @@ class FishingDuelView(core.SafeView):
         opponent: Optional[discord.abc.User] = None,
         wager: int = 0,
     ):
-        super().__init__(timeout=600)
+        super().__init__(timeout=120 if (wager or 0) > 0 else 600)
         self.user = user
         self.challenger = user
         self.opponent = opponent or user
         self.guild_id = int(guild_id or 0)
         self.wager = max(0, int(wager or 0))
         self.phase = "pending"  # pending -> active -> finished / cancelled
+        self.escrowed = False
         self.p1_rolls: List[Dict[str, Any]] = []
         self.p2_rolls: List[Dict[str, Any]] = []
         self.result_banner: str = ""
         self._lock = asyncio.Lock()
         self.sync_controls()
+
+    async def on_timeout(self):
+        async with self._lock:
+            if self.phase == "active" and self.escrowed and self.wager > 0:
+                self.escrowed = False
+                self.phase = "cancelled"
+                self.result_banner = "⌛ 시간 만료로 대결이 중단되어 예치된 내기 골드가 양측에 전액 환불되었습니다."
+                self.sync_controls()
+                await asyncio.to_thread(
+                    fishing_core.refund_fishing_duel_wager,
+                    self.guild_id,
+                    self.challenger.id,
+                    self.challenger.display_name,
+                    self.opponent.id,
+                    self.opponent.display_name,
+                    self.wager,
+                )
+        await super().on_timeout()
 
     def sync_controls(self):
         self.btn_accept.disabled = (self.phase != "pending")
@@ -4106,20 +4137,26 @@ class FishingDuelView(core.SafeView):
         async with self._lock:
             if self.phase != "pending":
                 return
-            if interaction.user.id != self.opponent.id and self.challenger.id != self.opponent.id:
+            if self.challenger.id == self.opponent.id:
+                await interaction.followup.send("❌ 자기 자신과는 1:1 낚시 대결을 진행할 수 없습니다! 다른 서버 멤버를 지정해 주세요.", ephemeral=True)
+                return
+            if interaction.user.id != self.opponent.id:
                 await interaction.followup.send(f"❌ 대결 수락은 상대방(**{self.opponent.display_name}**)만 누를 수 있습니다!", ephemeral=True)
                 return
             if self.wager > 0:
-                s1 = await asyncio.to_thread(fishing_core.get_user_fishing_summary, self.guild_id, self.challenger.id, self.challenger.display_name)
-                s2 = await asyncio.to_thread(fishing_core.get_user_fishing_summary, self.guild_id, self.opponent.id, self.opponent.display_name)
-                g1 = int(s1["user"].get("gold", 0))
-                g2 = int(s2["user"].get("gold", 0))
-                if g1 < self.wager or g2 < self.wager:
-                    await interaction.followup.send(
-                        f"❌ 내기 골드(`{self.wager:,}🪙`)가 부족한 참가자가 있습니다! ({self.challenger.display_name}: `{g1:,}🪙` / {self.opponent.display_name}: `{g2:,}🪙`)",
-                        ephemeral=True,
-                    )
+                ok, err = await asyncio.to_thread(
+                    fishing_core.escrow_fishing_duel_wager,
+                    self.guild_id,
+                    self.challenger.id,
+                    self.challenger.display_name,
+                    self.opponent.id,
+                    self.opponent.display_name,
+                    self.wager,
+                )
+                if not ok:
+                    await interaction.followup.send(err, ephemeral=True)
                     return
+                self.escrowed = True
             self.phase = "active"
             self.sync_controls()
         await _safe_update_message_or_interaction(interaction, interaction.message, embed=self.build_embed(), view=self)
@@ -4161,6 +4198,8 @@ class FishingDuelView(core.SafeView):
                     winner_id = self.opponent.id
                 else:
                     winner_id = None
+                was_escrowed = self.escrowed
+                self.escrowed = False
                 _, settle_msg, _ = await asyncio.to_thread(
                     fishing_core.settle_fishing_duel,
                     self.guild_id,
@@ -4170,6 +4209,7 @@ class FishingDuelView(core.SafeView):
                     self.opponent.display_name,
                     winner_id,
                     self.wager,
+                    was_escrowed,
                 )
                 self.phase = "finished"
                 self.result_banner = f"{settle_msg} (`{p1_tot:,}pt` vs `{p2_tot:,}pt`)"

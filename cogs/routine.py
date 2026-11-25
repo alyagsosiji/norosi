@@ -530,22 +530,30 @@ class ShowcaseView(core.SafeView):
 # ==========================================
 class DiceDuelView(core.SafeView):
     def __init__(self, host: Optional[discord.abc.User] = None, bet: int = 0):
-        super().__init__(timeout=300)
+        super().__init__(timeout=120 if bet > 0 else 300)
         self.host = host
         self.bet = max(0, int(bet))
         self.rolls: Dict[int, Tuple[str, int, int]] = {}
+        self.escrowed: Dict[int, Tuple[str, int]] = {}
         self.finished = False
         self.result_summary = ""
+        self._lock = asyncio.Lock()
 
     def build_embed(self) -> discord.Embed:
         mode_txt = f"💎 `{self.bet:,}💎` 친선 내기" if self.bet > 0 else "🎉 무료 친선전"
         host_name = self.host.display_name if self.host else "방장"
         if self.rolls:
-            sorted_r = sorted(self.rolls.items(), key=lambda kv: -(kv[1][1] + kv[1][2]))
-            lines = [
-                f"• **{name}** — 🎲 `{d1}` + `{d2}` = **`{d1 + d2}점`**"
-                for _, (name, d1, d2) in sorted_r
-            ]
+            if self.bet > 0 and not self.finished:
+                lines = [
+                    f"• **{name}** — 🎲 `[ 굴림 완료 · 정산 시 공개 ({self.bet:,}💎 예치됨) ]`"
+                    for _, (name, _, _) in self.rolls.items()
+                ]
+            else:
+                sorted_r = sorted(self.rolls.items(), key=lambda kv: -(kv[1][1] + kv[1][2]))
+                lines = [
+                    f"• **{name}** — 🎲 `{d1}` + `{d2}` = **`{d1 + d2}점`**"
+                    for _, (name, d1, d2) in sorted_r
+                ]
             body = "\n".join(lines)
         else:
             body = "*(아직 참가자가 없습니다! 아래 `[🎲 참가 & 주사위 굴리기]` 버튼을 눌러주세요)*"
@@ -561,51 +569,77 @@ class DiceDuelView(core.SafeView):
             color=0x22C55E if self.finished else 0x6366F1,
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_footer(text="2개 주사위(2d6) 합계가 가장 높은 사람이 승리합니다! (최대 6명)")
+        embed.set_footer(text="2개 주사위(2d6) 합계가 가장 높은 사람이 승리합니다! (최대 6명 · 유료 내기는 정산 시 눈금 공개)")
         return embed
+
+    async def on_timeout(self):
+        async with self._lock:
+            if not self.finished and self.escrowed:
+                to_refund = dict(self.escrowed)
+                self.escrowed.clear()
+                self.finished = True
+                self.result_summary = "⌛ 시간 만료로 대결이 종료되어 참가비 크리스탈이 전액 환불되었습니다."
+                await asyncio.to_thread(routine_core.refund_dice_bets, to_refund)
+        await super().on_timeout()
 
     @discord.ui.button(label="🎲 참가 & 주사위 굴리기", style=discord.ButtonStyle.success, row=0)
     async def btn_roll(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.finished:
-            await core.safe_send_response(interaction, "🏁 이미 종료된 대결입니다.", ephemeral=True)
-            return
-        if interaction.user.id in self.rolls:
-            await core.safe_send_response(interaction, "🎲 이미 주사위를 굴렸습니다! 다른 참가자를 기다려주세요.", ephemeral=True)
-            return
-        if len(self.rolls) >= 6:
-            await core.safe_send_response(interaction, "⚠️ 최대 6명까지 참가할 수 있습니다.", ephemeral=True)
-            return
-
         await core.safe_defer(interaction)
-        d1, d2 = random.randint(1, 6), random.randint(1, 6)
-        self.rolls[interaction.user.id] = (interaction.user.display_name, d1, d2)
+        async with self._lock:
+            if self.finished:
+                await interaction.followup.send("🏁 이미 종료된 대결입니다.", ephemeral=True)
+                return
+            if interaction.user.id in self.rolls:
+                await interaction.followup.send("🎲 이미 주사위를 굴렸습니다! 다른 참가자를 기다려주세요.", ephemeral=True)
+                return
+            if len(self.rolls) >= 6:
+                await interaction.followup.send("⚠️ 최대 6명까지 참가할 수 있습니다.", ephemeral=True)
+                return
+
+            if self.bet > 0:
+                ok, err = await asyncio.to_thread(
+                    routine_core.escrow_dice_bet,
+                    interaction.user.id,
+                    interaction.user.display_name,
+                    self.bet,
+                )
+                if not ok:
+                    await interaction.followup.send(err, ephemeral=True)
+                    return
+                self.escrowed[interaction.user.id] = (interaction.user.display_name, self.bet)
+
+            d1, d2 = random.randint(1, 6), random.randint(1, 6)
+            self.rolls[interaction.user.id] = (interaction.user.display_name, d1, d2)
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🏁 결과 정산", style=discord.ButtonStyle.primary, row=0)
     async def btn_settle(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.finished:
-            await core.safe_send_response(interaction, "🏁 이미 정산 완료된 대결입니다.", ephemeral=True)
-            return
         if self.host and interaction.user.id != self.host.id:
             await core.safe_send_response(interaction, "❌ 결과 정산은 방장만 실행할 수 있습니다.", ephemeral=True)
             return
-        if len(self.rolls) < 2:
-            await core.safe_send_response(interaction, "⚠️ 최소 2명 이상 참가해야 정산할 수 있습니다!", ephemeral=True)
-            return
-
         await core.safe_defer(interaction)
-        res = await asyncio.to_thread(routine_core.settle_dice_duel, self.rolls, self.bet)
-        self.finished = True
-        for item in self.children:
-            if isinstance(item, discord.ui.Button):
-                item.disabled = True
+        async with self._lock:
+            if self.finished:
+                await interaction.followup.send("🏁 이미 정산 완료된 대결입니다.", ephemeral=True)
+                return
+            if len(self.rolls) < 2:
+                await interaction.followup.send("⚠️ 최소 2명 이상 참가해야 정산할 수 있습니다!", ephemeral=True)
+                return
 
-        winners = res.get("winners") or []
-        win_names = ", ".join(f"**{w[1]}** (`{w[4]}점`)" for w in winners)
-        if self.bet > 0 and res.get("pot", 0) > 0:
-            self.result_summary = f"🏆 **승자:** {win_names}\n💰 총 상금 `{res['pot']:,}💎` 중 인당 **`+{res['payout_each']:,}💎`** 지급 완료!"
-        else:
-            self.result_summary = f"🏆 **승자:** {win_names} — 축하합니다!"
+            had_escrow = bool(self.escrowed)
+            self.escrowed.clear()
+            res = await asyncio.to_thread(routine_core.settle_dice_duel, self.rolls, self.bet, had_escrow)
+            self.finished = True
+            for item in self.children:
+                if isinstance(item, discord.ui.Button):
+                    item.disabled = True
+
+            winners = res.get("winners") or []
+            win_names = ", ".join(f"**{w[1]}** (`{w[4]}점`)" for w in winners)
+            if self.bet > 0 and res.get("pot", 0) > 0:
+                self.result_summary = f"🏆 **승자:** {win_names}\n💰 총 상금 `{res['pot']:,}💎` 중 인당 **`+{res['payout_each']:,}💎`** 지급 완료!"
+            else:
+                self.result_summary = f"🏆 **승자:** {win_names} — 축하합니다!"
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="❌ 대결 취소", style=discord.ButtonStyle.danger, row=0)
@@ -614,11 +648,21 @@ class DiceDuelView(core.SafeView):
             await core.safe_send_response(interaction, "❌ 대결 취소는 방장만 할 수 있습니다.", ephemeral=True)
             return
         await core.safe_defer(interaction)
-        self.finished = True
-        self.result_summary = "🛑 방장이 대결을 취소했습니다."
-        for item in self.children:
-            if isinstance(item, discord.ui.Button):
-                item.disabled = True
+        async with self._lock:
+            if self.finished:
+                await interaction.followup.send("🏁 이미 종료된 대결입니다.", ephemeral=True)
+                return
+            self.finished = True
+            to_refund = dict(self.escrowed)
+            self.escrowed.clear()
+            if to_refund:
+                await asyncio.to_thread(routine_core.refund_dice_bets, to_refund)
+                self.result_summary = "🛑 방장이 대결을 취소하여 참가비 크리스탈이 전액 환불되었습니다."
+            else:
+                self.result_summary = "🛑 방장이 대결을 취소했습니다."
+            for item in self.children:
+                if isinstance(item, discord.ui.Button):
+                    item.disabled = True
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
 
@@ -649,6 +693,16 @@ class ChosungQuizView(core.SafeView):
         self.solved = False
         self.last_log = ""
         self.round_num = 1
+        self._lock = asyncio.Lock()
+
+    def _is_host_or_admin(self, interaction: discord.Interaction) -> bool:
+        if not self.host or interaction.user.id == self.host.id:
+            return True
+        if isinstance(interaction.user, discord.Member):
+            perms = interaction.user.guild_permissions
+            if perms.administrator or perms.manage_guild or perms.manage_messages:
+                return True
+        return False
 
     def build_embed(self) -> discord.Embed:
         q = self.question
@@ -678,17 +732,25 @@ class ChosungQuizView(core.SafeView):
 
         norm_guess = guess.replace(" ", "").lower()
         norm_ans = self.question["answer"].replace(" ", "").lower()
-        if norm_guess == norm_ans:
-            await core.safe_defer(interaction)
+        if norm_guess != norm_ans:
+            await core.safe_send_response(interaction, f"❌ **`{guess}`** — 오답입니다! 다시 도전해 보세요.", ephemeral=True)
+            return
+
+        await core.safe_defer(interaction)
+        async with self._lock:
+            if self.solved:
+                await interaction.followup.send("✅ 간발의 차로 이미 다른 분이 정답을 맞혔습니다!", ephemeral=True)
+                return
+            if guess.replace(" ", "").lower() != self.question["answer"].replace(" ", "").lower():
+                await interaction.followup.send(f"❌ **`{guess}`** — 오답입니다!", ephemeral=True)
+                return
             self.solved = True
             paid, amt, today_cnt = await asyncio.to_thread(
                 routine_core.grant_chosung_reward, interaction.user.id, interaction.user.display_name
             )
             reward_txt = f" (`+{amt}💎`, 오늘 `{today_cnt}/{routine_core.CHOSUNG_DAILY_REWARD_CAP}회`)" if paid else " *(오늘 보상 한도 도달 — 명예 정답!)*"
             self.last_log = f"🎉 **{interaction.user.display_name}**님 정답! ➔ **`{self.question['answer']}`**{reward_txt}"
-            await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
-        else:
-            await core.safe_send_response(interaction, f"❌ **`{guess}`** — 오답입니다! 다시 도전해 보세요.", ephemeral=True)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="✏️ 정답 입력", style=discord.ButtonStyle.success, row=0)
     async def btn_answer(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -705,25 +767,41 @@ class ChosungQuizView(core.SafeView):
 
     @discord.ui.button(label="⏭️ 다음 문제", style=discord.ButtonStyle.secondary, row=0)
     async def btn_next(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.solved and not self._is_host_or_admin(interaction):
+            await core.safe_send_response(
+                interaction,
+                "❌ 아직 풀리지 않은 문제 넘기기는 **개설자** 또는 **서버 관리자**만 가능합니다!",
+                ephemeral=True,
+            )
+            return
         await core.safe_defer(interaction)
-        prev_ans = self.question["answer"]
-        was_solved = self.solved
-        self.round_num += 1
-        self.question = routine_core.pick_chosung_question(self.used_answers)
-        self.used_answers.add(self.question["answer"])
-        self.hint_level = 0
-        self.solved = False
-        self.last_log = "" if was_solved else f"ℹ️ 이전 문제 정답: **`{prev_ans}`**"
+        async with self._lock:
+            prev_ans = self.question["answer"]
+            was_solved = self.solved
+            self.round_num += 1
+            self.question = routine_core.pick_chosung_question(self.used_answers)
+            self.used_answers.add(self.question["answer"])
+            self.hint_level = 0
+            self.solved = False
+            self.last_log = "" if was_solved else f"ℹ️ 이전 문제 정답: **`{prev_ans}`**"
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🛑 퀴즈 종료", style=discord.ButtonStyle.danger, row=0)
     async def btn_stop(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self._is_host_or_admin(interaction):
+            await core.safe_send_response(
+                interaction,
+                "❌ 퀴즈 종료는 **개설자** 또는 **서버 관리자**만 실행할 수 있습니다!",
+                ephemeral=True,
+            )
+            return
         await core.safe_defer(interaction)
-        self.solved = True
-        self.last_log = f"🛑 초성 퀴즈가 종료되었습니다. *(마지막 정답: **`{self.question['answer']}`**)*"
-        for item in self.children:
-            if isinstance(item, discord.ui.Button):
-                item.disabled = True
+        async with self._lock:
+            self.solved = True
+            self.last_log = f"🛑 초성 퀴즈가 종료되었습니다. *(마지막 정답: **`{self.question['answer']}`**)*"
+            for item in self.children:
+                if isinstance(item, discord.ui.Button):
+                    item.disabled = True
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
 

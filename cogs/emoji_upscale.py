@@ -2634,6 +2634,18 @@ class EmojiUpscaleCog(commands.Cog, name="이모지업스케일"):
             return
         if chat_text and (getattr(message, "mention_everyone", False) or getattr(message, "role_mentions", None)):
             return
+        if chat_text and "http" in chat_text:
+            try:
+                import community_core
+                link_cfg = community_core.get_link_preview_config(core.get_cached_data_ro(), message.guild.id)
+                if link_cfg.get("enabled", False) and message.channel.id not in link_cfg.get("ignored_channels", []):
+                    _, clean_items = community_core.replace_urls_with_clean_links(
+                        message.content, link_cfg, canonical_plain=False
+                    )
+                    if clean_items:
+                        return
+            except Exception:
+                pass
 
         # 중복 이벤트 방어
         if not self._mark_processed(message.id):

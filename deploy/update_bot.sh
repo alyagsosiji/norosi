@@ -36,6 +36,9 @@ echo "🔄 [3/4] norosi 봇 재시작..."
 if [ -d /run/systemd/system ] && sudo -n systemctl restart norosi 2>/dev/null; then
     echo "✅ [4/4] systemd 서비스 상태 확인:"
     sudo systemctl status norosi --no-pager -l
+elif systemctl --user restart norosi 2>/dev/null; then
+    echo "✅ [4/4] systemd --user 서비스 상태 확인:"
+    systemctl --user status norosi --no-pager -l
 else
     echo "ℹ️ 컨테이너/비-systemd 환경 감지됨 -> 24/7 백그라운드 데몬 모드로 재기동합니다."
     if [ -f "$BOT_DIR/.norosi_supervisor.pid" ]; then
@@ -52,8 +55,10 @@ else
     sleep 1
     pkill -9 -f "[p]ython.*bot\.py" 2>/dev/null || true
 
+    umask 077
     cat << 'DAEMON_EOF' > "$BOT_DIR/.norosi_keepalive.sh"
 #!/usr/bin/env bash
+umask 077
 cd "$(dirname "$0")"
 WORK_DIR="$(pwd)"
 echo $$ > "$WORK_DIR/.norosi_supervisor.pid"
@@ -74,8 +79,9 @@ while true; do
   sleep 5
 done
 DAEMON_EOF
-    chmod +x "$BOT_DIR/.norosi_keepalive.sh"
+    chmod 700 "$BOT_DIR/.norosi_keepalive.sh"
     : > "$BOT_DIR/bot.log"
+    chmod 600 "$BOT_DIR/bot.log"
     setsid nohup bash -c "exec -a norosi_keepalive '$BOT_DIR/.norosi_keepalive.sh'" </dev/null >/dev/null 2>&1 &
     sleep 3
     echo "✅ [4/4] 백그라운드 데몬 가동 상태 및 최근 로그:"

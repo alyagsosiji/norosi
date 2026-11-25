@@ -285,21 +285,22 @@ def bulk_claim_daily_rewards(guild_id: int, user_id: int, user_name: str = "유�
     # 4) 일일 루틴 완주 보너스 (3개 이상 완료 시 1일 1회)
     st = get_daily_routine_status(guild_id, user_id, user_name)
     if st["bonus_eligible"]:
-        data = core.load_data()
-        prof = core.ensure_user_profile(data, user_id, user_name)
-        fu = fishing_core.ensure_fishing_user(data, guild_id, user_id, user_name)
-        rb = _ensure_routine_bucket(prof)
-        today = core.get_today_str()
-        if rb.get("last_daily_bonus_date") != today:
-            rb["last_daily_bonus_date"] = today
-            prof["crystals"] = int(prof.get("crystals", 0) or 0) + DAILY_ROUTINE_BONUS_CRYSTALS
-            fu["gold"] = int(fu.get("gold", 0) or 0) + DAILY_ROUTINE_BONUS_GOLD
-            record_weekly_activity(data, user_id, user_name, "daily_bonus", 1)
-            core.save_data(data)
-            logs.append(
-                f"☀️ **일일 루틴 완주 보너스({st['completed_cnt']}/{st['total_cnt']}):** "
-                f"`+{DAILY_ROUTINE_BONUS_CRYSTALS:,}💎` `+{DAILY_ROUTINE_BONUS_GOLD:,}🪙`"
-            )
+        with core._DATA_LOCK:
+            data = core.load_data()
+            prof = core.ensure_user_profile(data, user_id, user_name)
+            fu = fishing_core.ensure_fishing_user(data, guild_id, user_id, user_name)
+            rb = _ensure_routine_bucket(prof)
+            today = core.get_today_str()
+            if rb.get("last_daily_bonus_date") != today:
+                rb["last_daily_bonus_date"] = today
+                prof["crystals"] = int(prof.get("crystals", 0) or 0) + DAILY_ROUTINE_BONUS_CRYSTALS
+                fu["gold"] = int(fu.get("gold", 0) or 0) + DAILY_ROUTINE_BONUS_GOLD
+                record_weekly_activity(data, user_id, user_name, "daily_bonus", 1)
+                core.save_data(data)
+                logs.append(
+                    f"☀️ **일일 루틴 완주 보너스({st['completed_cnt']}/{st['total_cnt']}):** "
+                    f"`+{DAILY_ROUTINE_BONUS_CRYSTALS:,}💎` `+{DAILY_ROUTINE_BONUS_GOLD:,}🪙`"
+                )
 
     if not logs:
         return False, ["ℹ️ 현재 즉시 수령하거나 처리할 일일 보상이 없습니다. (출석·낚시·농장 활동 후 다시 눌러주세요!)"]
@@ -330,50 +331,51 @@ def get_exchange_state(guild_id: int, user_id: int, user_name: str = "유저") -
 
 def exchange_currency(guild_id: int, user_id: int, direction: str, user_name: str = "유저") -> Tuple[bool, str]:
     """direction: 'gold_to_crystal' | 'crystal_to_gold'"""
-    data = core.load_data()
-    today = core.get_today_str()
-    prof = core.ensure_user_profile(data, user_id, user_name)
-    fu = fishing_core.ensure_fishing_user(data, guild_id, user_id, user_name)
-    rb = _ensure_routine_bucket(prof)
-    ex = rb.get("exchange")
-    if not isinstance(ex, dict) or ex.get("date") != today:
-        ex = {"date": today, "g2c": 0, "c2g": 0}
-        rb["exchange"] = ex
+    with core._DATA_LOCK:
+        data = core.load_data()
+        today = core.get_today_str()
+        prof = core.ensure_user_profile(data, user_id, user_name)
+        fu = fishing_core.ensure_fishing_user(data, guild_id, user_id, user_name)
+        rb = _ensure_routine_bucket(prof)
+        ex = rb.get("exchange")
+        if not isinstance(ex, dict) or ex.get("date") != today:
+            ex = {"date": today, "g2c": 0, "c2g": 0}
+            rb["exchange"] = ex
 
-    crystals = int(prof.get("crystals", 0) or 0)
-    gold = int(fu.get("gold", 0) or 0)
+        crystals = int(prof.get("crystals", 0) or 0)
+        gold = int(fu.get("gold", 0) or 0)
 
-    if direction == "gold_to_crystal":
-        if int(ex.get("g2c", 0) or 0) >= EXCHANGE_DAILY_LIMIT:
-            return False, f"⏳ 오늘 **골드 ➔ 크리스탈** 환전 한도(`{EXCHANGE_DAILY_LIMIT}회`)를 모두 사용했습니다. 내일 자정(KST)에 초기화됩니다."
-        if gold < EXCHANGE_GOLD_TO_CRYSTAL_COST:
-            return False, f"❌ 낚시 골드가 부족합니다. (필요 `{EXCHANGE_GOLD_TO_CRYSTAL_COST:,}🪙` · 보유 `{gold:,}🪙`)"
-        fu["gold"] = gold - EXCHANGE_GOLD_TO_CRYSTAL_COST
-        prof["crystals"] = crystals + EXCHANGE_GOLD_TO_CRYSTAL_GAIN
-        ex["g2c"] = int(ex.get("g2c", 0) or 0) + 1
-        record_weekly_activity(data, user_id, user_name, "exchange", 1)
-        core.save_data(data)
-        return True, (
-            f"✅ 환전 완료! **`{EXCHANGE_GOLD_TO_CRYSTAL_COST:,}🪙`** ➔ **`+{EXCHANGE_GOLD_TO_CRYSTAL_GAIN:,}💎`** "
-            f"(잔액: `{fu['gold']:,}🪙` · `{prof['crystals']:,}💎` · 오늘 `{ex['g2c']}/{EXCHANGE_DAILY_LIMIT}회`)"
-        )
+        if direction == "gold_to_crystal":
+            if int(ex.get("g2c", 0) or 0) >= EXCHANGE_DAILY_LIMIT:
+                return False, f"⏳ 오늘 **골드 ➔ 크리스탈** 환전 한도(`{EXCHANGE_DAILY_LIMIT}회`)를 모두 사용했습니다. 내일 자정(KST)에 초기화됩니다."
+            if gold < EXCHANGE_GOLD_TO_CRYSTAL_COST:
+                return False, f"❌ 낚시 골드가 부족합니다. (필요 `{EXCHANGE_GOLD_TO_CRYSTAL_COST:,}🪙` · 보유 `{gold:,}🪙`)"
+            fu["gold"] = gold - EXCHANGE_GOLD_TO_CRYSTAL_COST
+            prof["crystals"] = crystals + EXCHANGE_GOLD_TO_CRYSTAL_GAIN
+            ex["g2c"] = int(ex.get("g2c", 0) or 0) + 1
+            record_weekly_activity(data, user_id, user_name, "exchange", 1)
+            core.save_data(data)
+            return True, (
+                f"✅ 환전 완료! **`{EXCHANGE_GOLD_TO_CRYSTAL_COST:,}🪙`** ➔ **`+{EXCHANGE_GOLD_TO_CRYSTAL_GAIN:,}💎`** "
+                f"(잔액: `{fu['gold']:,}🪙` · `{prof['crystals']:,}💎` · 오늘 `{ex['g2c']}/{EXCHANGE_DAILY_LIMIT}회`)"
+            )
 
-    if direction == "crystal_to_gold":
-        if int(ex.get("c2g", 0) or 0) >= EXCHANGE_DAILY_LIMIT:
-            return False, f"⏳ 오늘 **크리스탈 ➔ 골드** 환전 한도(`{EXCHANGE_DAILY_LIMIT}회`)를 모두 사용했습니다. 내일 자정(KST)에 초기화됩니다."
-        if crystals < EXCHANGE_CRYSTAL_TO_GOLD_COST:
-            return False, f"❌ 크리스탈이 부족합니다. (필요 `{EXCHANGE_CRYSTAL_TO_GOLD_COST:,}💎` · 보유 `{crystals:,}💎`)"
-        prof["crystals"] = crystals - EXCHANGE_CRYSTAL_TO_GOLD_COST
-        fu["gold"] = gold + EXCHANGE_CRYSTAL_TO_GOLD_GAIN
-        ex["c2g"] = int(ex.get("c2g", 0) or 0) + 1
-        record_weekly_activity(data, user_id, user_name, "exchange", 1)
-        core.save_data(data)
-        return True, (
-            f"✅ 환전 완료! **`{EXCHANGE_CRYSTAL_TO_GOLD_COST:,}💎`** ➔ **`+{EXCHANGE_CRYSTAL_TO_GOLD_GAIN:,}🪙`** "
-            f"(잔액: `{prof['crystals']:,}💎` · `{fu['gold']:,}🪙` · 오늘 `{ex['c2g']}/{EXCHANGE_DAILY_LIMIT}회`)"
-        )
+        if direction == "crystal_to_gold":
+            if int(ex.get("c2g", 0) or 0) >= EXCHANGE_DAILY_LIMIT:
+                return False, f"⏳ 오늘 **크리스탈 ➔ 골드** 환전 한도(`{EXCHANGE_DAILY_LIMIT}회`)를 모두 사용했습니다. 내일 자정(KST)에 초기화됩니다."
+            if crystals < EXCHANGE_CRYSTAL_TO_GOLD_COST:
+                return False, f"❌ 크리스탈이 부족합니다. (필요 `{EXCHANGE_CRYSTAL_TO_GOLD_COST:,}💎` · 보유 `{crystals:,}💎`)"
+            prof["crystals"] = crystals - EXCHANGE_CRYSTAL_TO_GOLD_COST
+            fu["gold"] = gold + EXCHANGE_CRYSTAL_TO_GOLD_GAIN
+            ex["c2g"] = int(ex.get("c2g", 0) or 0) + 1
+            record_weekly_activity(data, user_id, user_name, "exchange", 1)
+            core.save_data(data)
+            return True, (
+                f"✅ 환전 완료! **`{EXCHANGE_CRYSTAL_TO_GOLD_COST:,}💎`** ➔ **`+{EXCHANGE_CRYSTAL_TO_GOLD_GAIN:,}🪙`** "
+                f"(잔액: `{prof['crystals']:,}💎` · `{fu['gold']:,}🪙` · 오늘 `{ex['c2g']}/{EXCHANGE_DAILY_LIMIT}회`)"
+            )
 
-    return False, "❌ 알 수 없는 환전 방향입니다."
+        return False, "❌ 알 수 없는 환전 방향입니다."
 
 
 # ==========================================
@@ -397,33 +399,43 @@ def _compute_weekly_progress(data: dict, guild_id: int, user_id: int, user_name:
     prof = core.ensure_user_profile(data, user_id, user_name)
     rb = _ensure_routine_bucket(prof)
     wmap = rb.setdefault("weekly", {})
+    had_prior_weeks = any(k != wk for k in wmap.keys())
+    dirty = wk not in wmap
     wcur = wmap.setdefault(wk, {"claimed": [], "counts": {}})
     claimed = set(wcur.get("claimed") or [])
 
-    # 1) 이번 주 출석 일수
-    g_att = core.safe_get_dict(data, "guild_attendance", g_key, u_key) if guild_id else core.as_dict(prof.get("attendance"))
-    att_dates = set(g_att.get("dates") or [])
-    if g_att.get("last_date"):
-        att_dates.add(g_att["last_date"])
+    # 1) 이번 주 출석 일수 (guild_attendance.monthly_dates + user_profiles.attendance.monthly_dates 통합 집계)
+    g_att = core.safe_get_dict(data, "guild_attendance", g_key, u_key) if guild_id else {}
+    p_att = core.as_dict(prof.get("attendance"))
+    att_dates: set[str] = set()
+    for src_att in (g_att, p_att):
+        if isinstance(src_att, dict):
+            for d_key in ("monthly_dates", "dates"):
+                raw_ds = src_att.get(d_key)
+                if isinstance(raw_ds, (list, set, tuple)):
+                    att_dates.update(str(x) for x in raw_ds if x)
+            if src_att.get("last_date"):
+                att_dates.add(str(src_att["last_date"]))
     w_att_cnt = len(att_dates & week_dates)
 
-    # 2) 낚시 포획 수 (누적 + 주간 스냅샷 대비 또는 누적 기준)
+    # 2) 낚시 포획 수 (최초 주간 진입 시에만 기존 누적 일부 인정, 이후 새 주간은 주간 시작 기준점 기록)
     fu = fishing_core.ensure_fishing_user(data, guild_id, user_id, user_name)
     total_catches = int(fu.get("total_catches", 0) or 0)
     base_catches = wcur.get("base_catches")
     if base_catches is None:
-        # 첫 주간 진입 시 기존 유저는 현재 누적의 일부를 즉시 반영하되, 신규 기준점 기록
-        base_catches = max(0, total_catches - min(total_catches, 10))
+        base_catches = total_catches if had_prior_weeks else max(0, total_catches - min(total_catches, 10))
         wcur["base_catches"] = base_catches
+        dirty = True
     w_fish_cnt = max(0, total_catches - int(base_catches))
 
-    # 3) 농장/생활 활동 (농장 레벨/수확/물주기/일일 보너스/파트너 물주기 종합)
+    # 3) 농장/생활 활동 (농장 수확 + 일일 보너스 + 파트너 물주기 종합)
     lu = life_core.ensure_life_user(data, guild_id, user_id, user_name)
     farm_harvests = int(lu.get("total_harvests", 0) or 0)
     base_harvests = wcur.get("base_harvests")
     if base_harvests is None:
-        base_harvests = max(0, farm_harvests - min(farm_harvests, 3))
+        base_harvests = farm_harvests if had_prior_weeks else max(0, farm_harvests - min(farm_harvests, 3))
         wcur["base_harvests"] = base_harvests
+        dirty = True
     counts = wcur.get("counts") or {}
     w_farm_cnt = max(0, farm_harvests - int(base_harvests)) + int(counts.get("partner_water", 0) or 0) + int(counts.get("daily_bonus", 0) or 0)
 
@@ -463,42 +475,50 @@ def _compute_weekly_progress(data: dict, guild_id: int, user_id: int, user_name:
         "missions": missions,
         "claimable_cnt": sum(1 for m in missions if m["claimable"]),
         "done_cnt": sum(1 for m in missions if m["done"]),
+        "_dirty": dirty,
     }
 
 
 def get_weekly_mission_status(guild_id: int, user_id: int, user_name: str = "유저") -> Dict[str, Any]:
-    data = core.load_data()
-    return _compute_weekly_progress(data, guild_id, user_id, user_name)
+    with core._DATA_LOCK:
+        data = core.load_data()
+        res = _compute_weekly_progress(data, guild_id, user_id, user_name)
+        if res.pop("_dirty", False):
+            core.save_data(data)
+        return res
 
 
 def claim_weekly_missions(guild_id: int, user_id: int, user_name: str = "유저") -> Tuple[bool, str]:
-    data = core.load_data()
-    st = _compute_weekly_progress(data, guild_id, user_id, user_name)
-    claimables = [m for m in st["missions"] if m["claimable"]]
-    if not claimables:
-        return False, "ℹ️ 현재 수령 가능한 완료 주간 미션이 없습니다."
+    with core._DATA_LOCK:
+        data = core.load_data()
+        st = _compute_weekly_progress(data, guild_id, user_id, user_name)
+        claimables = [m for m in st["missions"] if m["claimable"]]
+        if not claimables:
+            if st.get("_dirty"):
+                core.save_data(data)
+            return False, "ℹ️ 현재 수령 가능한 완료 주간 미션이 없습니다."
 
-    prof = core.ensure_user_profile(data, user_id, user_name)
-    fu = fishing_core.ensure_fishing_user(data, guild_id, user_id, user_name)
-    rb = _ensure_routine_bucket(prof)
-    wk = st["week_key"]
-    wcur = rb.setdefault("weekly", {}).setdefault(wk, {"claimed": [], "counts": {}})
-    claimed_list = list(wcur.get("claimed") or [])
+        prof = core.ensure_user_profile(data, user_id, user_name)
+        fu = fishing_core.ensure_fishing_user(data, guild_id, user_id, user_name)
+        rb = _ensure_routine_bucket(prof)
+        wk = st["week_key"]
+        wcur = rb.setdefault("weekly", {}).setdefault(wk, {"claimed": [], "counts": {}})
+        claimed_list = list(wcur.get("claimed") or [])
 
-    tot_c = 0
-    tot_g = 0
-    names = []
-    for m in claimables:
-        if m["id"] not in claimed_list:
-            claimed_list.append(m["id"])
-            tot_c += int(m["crystals"])
-            tot_g += int(m["gold"])
-            names.append(f"{m['emoji']} {m['title']}")
+        tot_c = 0
+        tot_g = 0
+        names = []
+        for m in claimables:
+            if m["id"] not in claimed_list:
+                claimed_list.append(m["id"])
+                tot_c += int(m["crystals"])
+                tot_g += int(m["gold"])
+                names.append(f"{m['emoji']} {m['title']}")
 
-    wcur["claimed"] = claimed_list
-    prof["crystals"] = int(prof.get("crystals", 0) or 0) + tot_c
-    fu["gold"] = int(fu.get("gold", 0) or 0) + tot_g
-    core.save_data(data)
+        wcur["claimed"] = claimed_list
+        prof["crystals"] = int(prof.get("crystals", 0) or 0) + tot_c
+        fu["gold"] = int(fu.get("gold", 0) or 0) + tot_g
+        core.save_data(data)
 
     reward_parts = []
     if tot_c:
@@ -512,41 +532,42 @@ def claim_weekly_missions(guild_id: int, user_id: int, user_name: str = "유저"
 # 4. 파트너 시너지 — 파트너 농장 대신 물주기
 # ==========================================
 def water_partner_farm(guild_id: int, user_id: int, user_name: str = "유저") -> Tuple[bool, str]:
-    data = core.load_data()
     today = core.get_today_str()
-    prof = core.ensure_user_profile(data, user_id, user_name)
-    partner_id = prof.get("partner_id")
-    if not partner_id:
-        return False, "💔 등록된 파트너가 없습니다. `/설정` (`👤 개인` ➔ `💑 내 생일 & 파트너`)에서 파트너를 먼저 맺어보세요!"
+    with core._DATA_LOCK:
+        data = core.load_data()
+        prof = core.ensure_user_profile(data, user_id, user_name)
+        partner_id = prof.get("partner_id")
+        if not partner_id:
+            return False, "💔 등록된 파트너가 없습니다. `/설정` (`👤 개인` ➔ `💑 내 생일 & 파트너`)에서 파트너를 먼저 맺어보세요!"
 
-    rb = _ensure_routine_bucket(prof)
-    if rb.get("last_partner_water_date") == today:
-        return False, "💧 오늘은 이미 파트너의 농장에 물을 주었습니다! 내일 다시 도와줄 수 있어요."
+        rb = _ensure_routine_bucket(prof)
+        if rb.get("last_partner_water_date") == today:
+            return False, "💧 오늘은 이미 파트너의 농장에 물을 주었습니다! 내일 다시 도와줄 수 있어요."
 
-    p_uid = int(partner_id)
-    p_prof = core.ensure_user_profile(data, p_uid, f"파트너({p_uid})")
-    p_name = p_prof.get("name") or f"<@{p_uid}>"
+        p_uid = int(partner_id)
+        p_prof = core.ensure_user_profile(data, p_uid, f"파트너({p_uid})")
+        p_name = p_prof.get("name") or f"<@{p_uid}>"
+        rb["last_partner_water_date"] = today
+        core.save_data(data)
 
     # 파트너 농장에 물주기 적용
-    w_ok, w_msg = life_core.water_farm_plot(guild_id, p_uid, None, p_name)
+    w_ok, _ = life_core.water_farm_plot(guild_id, p_uid, None, p_name)
 
     # 우정 보너스 지급 (양쪽 모두!)
-    data = core.load_data()
-    prof = core.ensure_user_profile(data, user_id, user_name)
-    p_prof = core.ensure_user_profile(data, p_uid, p_name)
-    fu_me = fishing_core.ensure_fishing_user(data, guild_id, user_id, user_name)
-    fu_pt = fishing_core.ensure_fishing_user(data, guild_id, p_uid, p_name)
+    with core._DATA_LOCK:
+        data = core.load_data()
+        prof = core.ensure_user_profile(data, user_id, user_name)
+        p_prof = core.ensure_user_profile(data, p_uid, p_name)
+        fu_me = fishing_core.ensure_fishing_user(data, guild_id, user_id, user_name)
+        fu_pt = fishing_core.ensure_fishing_user(data, guild_id, p_uid, p_name)
 
-    rb = _ensure_routine_bucket(prof)
-    rb["last_partner_water_date"] = today
+        prof["crystals"] = int(prof.get("crystals", 0) or 0) + PARTNER_WATER_BONUS_CRYSTALS
+        fu_me["gold"] = int(fu_me.get("gold", 0) or 0) + PARTNER_WATER_BONUS_GOLD
+        p_prof["crystals"] = int(p_prof.get("crystals", 0) or 0) + PARTNER_WATER_BONUS_CRYSTALS
+        fu_pt["gold"] = int(fu_pt.get("gold", 0) or 0) + PARTNER_WATER_BONUS_GOLD
 
-    prof["crystals"] = int(prof.get("crystals", 0) or 0) + PARTNER_WATER_BONUS_CRYSTALS
-    fu_me["gold"] = int(fu_me.get("gold", 0) or 0) + PARTNER_WATER_BONUS_GOLD
-    p_prof["crystals"] = int(p_prof.get("crystals", 0) or 0) + PARTNER_WATER_BONUS_CRYSTALS
-    fu_pt["gold"] = int(fu_pt.get("gold", 0) or 0) + PARTNER_WATER_BONUS_GOLD
-
-    record_weekly_activity(data, user_id, user_name, "partner_water", 1)
-    core.save_data(data)
+        record_weekly_activity(data, user_id, user_name, "partner_water", 1)
+        core.save_data(data)
 
     water_note = "파트너의 성장 중인 밭에 물을 주었습니다!" if w_ok else "파트너의 농장을 응원 방문했습니다! *(현재 물이 필요한 작물은 없었지만 우정 보너스가 지급됩니다)*"
     return True, (
@@ -626,26 +647,64 @@ def build_showcase_data(guild_id: int, user_id: int, user_name: str = "유저") 
 # ==========================================
 def grant_chosung_reward(user_id: int, user_name: str = "유저") -> Tuple[bool, int, int]:
     """초성 퀴즈 정답 시 일일 한도 내 크리스탈 보상 지급. 반환: (보상지급여부, 지급액, 오늘횟수)"""
-    data = core.load_data()
-    today = core.get_today_str()
-    prof = core.ensure_user_profile(data, user_id, user_name)
-    rb = _ensure_routine_bucket(prof)
-    ch = rb.get("chosung")
-    if not isinstance(ch, dict) or ch.get("date") != today:
-        ch = {"date": today, "count": 0}
-        rb["chosung"] = ch
+    with core._DATA_LOCK:
+        data = core.load_data()
+        today = core.get_today_str()
+        prof = core.ensure_user_profile(data, user_id, user_name)
+        rb = _ensure_routine_bucket(prof)
+        ch = rb.get("chosung")
+        if not isinstance(ch, dict) or ch.get("date") != today:
+            ch = {"date": today, "count": 0}
+            rb["chosung"] = ch
 
-    cnt = int(ch.get("count", 0) or 0)
-    if cnt >= CHOSUNG_DAILY_REWARD_CAP:
-        return False, 0, cnt
+        cnt = int(ch.get("count", 0) or 0)
+        if cnt >= CHOSUNG_DAILY_REWARD_CAP:
+            return False, 0, cnt
 
-    ch["count"] = cnt + 1
-    prof["crystals"] = int(prof.get("crystals", 0) or 0) + CHOSUNG_REWARD_CRYSTALS
-    core.save_data(data)
-    return True, CHOSUNG_REWARD_CRYSTALS, ch["count"]
+        ch["count"] = cnt + 1
+        prof["crystals"] = int(prof.get("crystals", 0) or 0) + CHOSUNG_REWARD_CRYSTALS
+        core.save_data(data)
+        return True, CHOSUNG_REWARD_CRYSTALS, ch["count"]
 
 
-def settle_dice_duel(rolls: Dict[int, Tuple[str, int, int]], bet: int = 0) -> Dict[str, Any]:
+def escrow_dice_bet(user_id: int, user_name: str, bet: int) -> Tuple[bool, str]:
+    """주사위 내기 참가 시 베팅 크리스탈을 즉시 에스크로 예치합니다."""
+    safe_bet = max(0, int(bet or 0))
+    if safe_bet <= 0:
+        return True, ""
+    with core._DATA_LOCK:
+        data = core.load_data()
+        prof = core.ensure_user_profile(data, user_id, user_name)
+        cur = int(prof.get("crystals", 0) or 0)
+        if cur < safe_bet:
+            return False, f"❌ 참가비 크리스탈이 부족합니다! (필요: `{safe_bet:,}💎` / 보유: `{cur:,}💎`)"
+        prof["crystals"] = cur - safe_bet
+        core.save_data(data)
+        return True, ""
+
+
+def refund_dice_bets(escrowed: Dict[int, Tuple[str, int]]) -> None:
+    """주사위 내기 취소·만료 시 에스크로된 베팅 크리스탈을 참가자 전원에게 전액 환불합니다."""
+    if not escrowed:
+        return
+    with core._DATA_LOCK:
+        data = core.load_data()
+        changed = False
+        for uid, (name, amt) in escrowed.items():
+            safe_amt = max(0, int(amt or 0))
+            if safe_amt > 0:
+                prof = core.ensure_user_profile(data, uid, name)
+                prof["crystals"] = int(prof.get("crystals", 0) or 0) + safe_amt
+                changed = True
+        if changed:
+            core.save_data(data)
+
+
+def settle_dice_duel(
+    rolls: Dict[int, Tuple[str, int, int]],
+    bet: int = 0,
+    already_escrowed: bool = False,
+) -> Dict[str, Any]:
     """
     주사위 대결 결과 정산.
     rolls: {user_id: (display_name, d1, d2)}
@@ -662,6 +721,8 @@ def settle_dice_duel(rolls: Dict[int, Tuple[str, int, int]], bet: int = 0) -> Di
     winners = [row for row in scored if row[4] == top_sum]
 
     if bet <= 0 or len(scored) < 2:
+        if already_escrowed and bet > 0:
+            refund_dice_bets({uid: (name, bet) for uid, (name, _, _) in rolls.items()})
         return {
             "ok": True,
             "scored": scored,
@@ -671,25 +732,26 @@ def settle_dice_duel(rolls: Dict[int, Tuple[str, int, int]], bet: int = 0) -> Di
             "is_tie": len(winners) > 1,
         }
 
-    # 내기 정산: 참가자 중 잔액이 충분한 사람 기준으로 안전 정산
-    data = core.load_data()
-    pot = 0
-    paid_uids = []
-    for uid, name, _, _, _ in scored:
-        prof = core.ensure_user_profile(data, uid, name)
-        cur = int(prof.get("crystals", 0) or 0)
-        deduct = min(cur, bet)
-        prof["crystals"] = cur - deduct
-        pot += deduct
-        paid_uids.append((uid, name, deduct))
+    with core._DATA_LOCK:
+        data = core.load_data()
+        pot = 0
+        if already_escrowed:
+            pot = int(bet) * len(scored)
+        else:
+            for uid, name, _, _, _ in scored:
+                prof = core.ensure_user_profile(data, uid, name)
+                cur = int(prof.get("crystals", 0) or 0)
+                deduct = min(cur, bet)
+                prof["crystals"] = cur - deduct
+                pot += deduct
 
-    payout_each = pot // len(winners) if winners else 0
-    rem = pot - payout_each * len(winners)
-    for idx, (uid, name, _, _, _) in enumerate(winners):
-        prof = core.ensure_user_profile(data, uid, name)
-        prof["crystals"] = int(prof.get("crystals", 0) or 0) + payout_each + (rem if idx == 0 else 0)
+        payout_each = pot // len(winners) if winners else 0
+        rem = pot - payout_each * len(winners)
+        for idx, (uid, name, _, _, _) in enumerate(winners):
+            prof = core.ensure_user_profile(data, uid, name)
+            prof["crystals"] = int(prof.get("crystals", 0) or 0) + payout_each + (rem if idx == 0 else 0)
 
-    core.save_data(data)
+        core.save_data(data)
     return {
         "ok": True,
         "scored": scored,

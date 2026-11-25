@@ -3247,6 +3247,58 @@ def roll_duel_cast(guild_id: int | str, user_id: int | str, user_name: str = "")
         }
 
 
+def escrow_fishing_duel_wager(
+    guild_id: int | str,
+    p1_id: int | str,
+    p1_name: str,
+    p2_id: int | str,
+    p2_name: str,
+    wager: int = 0,
+) -> Tuple[bool, str]:
+    """1:1 낚시 대결 수락 시 양측 내기 골드를 즉시 에스크로 예치합니다."""
+    safe_wager = max(0, int(wager or 0))
+    if safe_wager <= 0:
+        return True, ""
+    if str(p1_id) == str(p2_id):
+        return False, "❌ 자기 자신과는 내기 대결을 진행할 수 없습니다!"
+    with _FISHING_LOCK:
+        data = core.load_data()
+        u1 = ensure_fishing_user(data, guild_id, p1_id, p1_name)
+        u2 = ensure_fishing_user(data, guild_id, p2_id, p2_name)
+        g1 = max(0, _safe_int(u1.get("gold"), 0))
+        g2 = max(0, _safe_int(u2.get("gold"), 0))
+        if g1 < safe_wager or g2 < safe_wager:
+            return (
+                False,
+                f"❌ 내기 골드(`{safe_wager:,}🪙`)가 부족한 참가자가 있습니다! ({p1_name}: `{g1:,}🪙` / {p2_name}: `{g2:,}🪙`)",
+            )
+        u1["gold"] = g1 - safe_wager
+        u2["gold"] = g2 - safe_wager
+        core.save_data(data)
+        return True, ""
+
+
+def refund_fishing_duel_wager(
+    guild_id: int | str,
+    p1_id: int | str,
+    p1_name: str,
+    p2_id: int | str,
+    p2_name: str,
+    wager: int = 0,
+) -> None:
+    """1:1 낚시 대결 취소·시간만료 시 예치된 내기 골드를 양측에 환불합니다."""
+    safe_wager = max(0, int(wager or 0))
+    if safe_wager <= 0:
+        return
+    with _FISHING_LOCK:
+        data = core.load_data()
+        u1 = ensure_fishing_user(data, guild_id, p1_id, p1_name)
+        u2 = ensure_fishing_user(data, guild_id, p2_id, p2_name)
+        u1["gold"] = max(0, _safe_int(u1.get("gold"), 0)) + safe_wager
+        u2["gold"] = max(0, _safe_int(u2.get("gold"), 0)) + safe_wager
+        core.save_data(data)
+
+
 def settle_fishing_duel(
     guild_id: int | str,
     p1_id: int | str,
@@ -3255,6 +3307,7 @@ def settle_fishing_duel(
     p2_name: str,
     winner_id: Optional[int | str],
     wager: int = 0,
+    already_escrowed: bool = False,
 ) -> Tuple[bool, str, int]:
     """1:1 낚시 대결 승패 기록 및 내기 골드 안전 정산"""
     safe_wager = max(0, int(wager or 0))
@@ -3263,6 +3316,9 @@ def settle_fishing_duel(
         u1 = ensure_fishing_user(data, guild_id, p1_id, p1_name)
         u2 = ensure_fishing_user(data, guild_id, p2_id, p2_name)
         if winner_id is None:
+            if already_escrowed and safe_wager > 0:
+                u1["gold"] = max(0, _safe_int(u1.get("gold"), 0)) + safe_wager
+                u2["gold"] = max(0, _safe_int(u2.get("gold"), 0)) + safe_wager
             core.save_data(data)
             return True, "🤝 극적인 **무승부!** 내기 골드는 변동 없이 양측 모두 반환되었습니다.", 0
 
@@ -3271,11 +3327,17 @@ def settle_fishing_duel(
         else:
             win_u, lose_u = u2, u1
 
-        transferred = min(safe_wager, max(0, _safe_int(lose_u.get("gold"), 0)))
-        if transferred > 0:
-            lose_u["gold"] -= transferred
-            win_u["gold"] += transferred
-            win_u["total_gold_earned"] = _safe_int(win_u.get("total_gold_earned"), 0) + transferred
+        if already_escrowed:
+            transferred = safe_wager
+            if safe_wager > 0:
+                win_u["gold"] = max(0, _safe_int(win_u.get("gold"), 0)) + (safe_wager * 2)
+                win_u["total_gold_earned"] = _safe_int(win_u.get("total_gold_earned"), 0) + safe_wager
+        else:
+            transferred = min(safe_wager, max(0, _safe_int(lose_u.get("gold"), 0)))
+            if transferred > 0:
+                lose_u["gold"] -= transferred
+                win_u["gold"] += transferred
+                win_u["total_gold_earned"] = _safe_int(win_u.get("total_gold_earned"), 0) + transferred
         win_u["duel_wins"] = _safe_int(win_u.get("duel_wins"), 0) + 1
         lose_u["duel_losses"] = _safe_int(lose_u.get("duel_losses"), 0) + 1
         core.save_data(data)
@@ -4692,7 +4754,24 @@ def _rank_tournament_participants(tourney: Dict[str, Any]) -> List[Dict[str, Any
 def _settle_tournament_unlocked(data: Dict[str, Any], guild_id: int | str, tourney: Dict[str, Any]) -> Dict[str, Any]:
     """락 내부에서 만료/종료된 대회 보상을 참가자들에게 지급하고 히스토리에 기록합니다."""
     ranked = _rank_tournament_participants(tourney)
-    now_iso = datetime.datetime.now(core.KST).isoformat()
+    now_dt = datetime.datetime.now(core.KST)
+    now_iso = now_dt.isoformat()
+    is_auto_wk = bool(tourney.get("is_auto_weekend"))
+    solo_custom = (not is_auto_wk) and (len(ranked) < 2)
+    early_solo_abort = False
+    if solo_custom:
+        try:
+            st_dt = datetime.datetime.fromisoformat(str(tourney.get("started_at")))
+            if st_dt.tzinfo is None:
+                st_dt = st_dt.replace(tzinfo=core.KST)
+            end_dt = datetime.datetime.fromisoformat(str(tourney.get("ends_at")))
+            if end_dt.tzinfo is None:
+                end_dt = end_dt.replace(tzinfo=core.KST)
+            if now_dt < end_dt and (now_dt - st_dt).total_seconds() < 300:
+                early_solo_abort = True
+        except Exception:
+            pass
+
     awarded: List[Dict[str, Any]] = []
     for row in ranked:
         uid = row["user_id"]
@@ -4701,7 +4780,15 @@ def _settle_tournament_unlocked(data: Dict[str, Any], guild_id: int | str, tourn
         prof = core.ensure_user_profile(data, uid, uname)
         rank = row["rank"]
         prize = next((p for p in TOURNAMENT_PRIZES if p["rank"] == rank), None)
-        if prize:
+        if early_solo_abort:
+            g_gain, c_gain, t_gain = 0, 0, 0
+            badge = "ℹ️ 조기 마감 (단독 5분 미만)"
+        elif solo_custom:
+            g_gain = int(TOURNAMENT_PARTICIPATION_PRIZE["gold"])
+            c_gain = int(TOURNAMENT_PARTICIPATION_PRIZE["crystals"])
+            t_gain = 0
+            badge = "🎖️ 단독 완주상 (2인 이상 시 정규 시상)"
+        elif prize:
             g_gain = int(prize["gold"])
             c_gain = int(prize["crystals"])
             t_gain = int(prize["trophy"])
@@ -4950,6 +5037,12 @@ def start_fishing_tournament(
         if isinstance(active, dict) and not active.get("settled") and not active.get("is_auto_weekend"):
             return False, f"⚠️ 이미 진행 중인 `{active.get('title', '낚시 대회')}`가 있습니다! 먼저 종료하거나 정산해 주세요.", copy.deepcopy(active)
 
+        last_custom_ts = float(root.get("last_custom_started_ts") or 0.0)
+        elapsed_custom = now_dt.timestamp() - last_custom_ts
+        if elapsed_custom < 1800.0:
+            rem_min = max(1, int((1800.0 - elapsed_custom + 59) // 60))
+            return False, f"⏳ 최근에 번개 대회가 개최되었습니다! 약 `{rem_min}분` 뒤에 새 번개 대회를 열 수 있습니다.", copy.deepcopy(active or {})
+
         # 주말 자동 대회가 진행 중이었는데 커스텀 대회를 여는 경우 기존 주말 대회 참가 기록 보존 정산
         if isinstance(active, dict) and active.get("is_auto_weekend") and active.get("participants"):
             _settle_tournament_unlocked(data, guild_id, active)
@@ -4980,6 +5073,7 @@ def start_fishing_tournament(
             "participants": {},
         }
         root["active"] = new_tourney
+        root["last_custom_started_ts"] = now_dt.timestamp()
         core.save_data(data)
         return True, f"🎉 **`{title}`** 대회가 시작되었습니다! (`{dur}분` 진행 · 종료: `{end_dt.strftime('%H:%M')} KST`)", copy.deepcopy(new_tourney)
 

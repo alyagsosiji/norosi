@@ -184,9 +184,10 @@ def collect_user_unified_stats(
 
     crystals = max(0, _safe_int(prof.get("crystals"), 0))
     att = core.as_dict(prof.get("attendance"))
-    att_total = _safe_int(att.get("total_days"), 0)
-    att_streak = _safe_int(att.get("streak"), 0)
-    att_max_streak = _safe_int(att.get("max_streak"), 0)
+    g_att = core.safe_get_dict(data, "guild_attendance", g_key, u_key) if guild_id else {}
+    att_total = max(_safe_int(att.get("total_days"), 0), _safe_int(g_att.get("total_days"), 0))
+    att_streak = max(_safe_int(att.get("streak"), 0), _safe_int(g_att.get("streak"), 0))
+    att_max_streak = max(_safe_int(att.get("max_streak"), 0), _safe_int(g_att.get("max_streak"), 0))
 
     # 1. 프로세카 (카드/덱/오시/누적뽑기)
     g_user = core.safe_get_dict(data, "gacha_users", g_key, u_key)
@@ -299,11 +300,36 @@ def collect_user_unified_stats(
             newly_unlocked_titles.append(tid)
 
     # 추가 크로스 기능 지표 (타인의 삶 엔딩 · 오늘 목표 잔디 누적 완료)
-    ol_user = core.safe_get_dict(data, "other_life_users", g_key, u_key)
-    ol_endings_cnt = len(ol_user.get("endings") or []) if isinstance(ol_user.get("endings"), (list, dict, set)) else 0
-    todo_u = core.safe_get_dict(data, "user_todos", u_key)
-    todo_history = core.as_dict(todo_u.get("history"))
-    todo_total_done = sum(max(0, _safe_int(v, 0)) for v in todo_history.values())
+    ol_unlocked_keys: set[str] = set()
+    for ol_g in ({g_key, "0"} if g_key != "0" else {"0"}):
+        ol_u = core.safe_get_dict(data, "other_life_users", ol_g, u_key)
+        u_ends = ol_u.get("unlocked_endings")
+        if isinstance(u_ends, dict):
+            for ek, ev in u_ends.items():
+                if (isinstance(ev, (int, float)) and ev > 0) or (isinstance(ev, dict) and ev) or ev is True:
+                    ol_unlocked_keys.add(str(ek))
+        raw_ends = ol_u.get("endings")
+        if isinstance(raw_ends, (list, set, tuple)):
+            ol_unlocked_keys.update(str(ek) for ek in raw_ends if ek)
+        elif isinstance(raw_ends, dict):
+            ol_unlocked_keys.update(str(ek) for ek, ev in raw_ends.items() if ev)
+    ol_endings_cnt = len(ol_unlocked_keys)
+
+    prof_todo = core.as_dict(prof.get("todo"))
+    prof_todo_hist = core.as_dict(prof_todo.get("history"))
+    legacy_todo_hist = core.as_dict(core.safe_get_dict(data, "user_todos", u_key).get("history"))
+    merged_todo_dates: Dict[str, int] = {}
+    for src_hist in (legacy_todo_hist, prof_todo_hist):
+        for d_str, rec in src_hist.items():
+            done_v = _safe_int(rec.get("done"), 0) if isinstance(rec, dict) else _safe_int(rec, 0)
+            if done_v > 0:
+                merged_todo_dates[str(d_str)] = max(merged_todo_dates.get(str(d_str), 0), done_v)
+    cur_todo_date = str(prof_todo.get("date") or "")
+    cur_tasks = [t for t in (prof_todo.get("tasks") or []) if isinstance(t, dict)]
+    cur_done = sum(1 for t in cur_tasks if t.get("done"))
+    if cur_todo_date and cur_done > 0:
+        merged_todo_dates[cur_todo_date] = max(merged_todo_dates.get(cur_todo_date, 0), cur_done)
+    todo_total_done = sum(merged_todo_dates.values())
 
     # 12종 크로스 기능 업적/배지 평가
     att_best = max(att_total, att_max_streak)

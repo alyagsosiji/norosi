@@ -13,6 +13,7 @@ ddays_data.json
 *.log
 .DS_Store
 .idea/
+*.iml
 .vscode/
 proseka_kr_cache.json
 genshin_kr_cache.json

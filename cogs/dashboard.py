@@ -3861,6 +3861,7 @@ class MasterDashboardView(core.SafeView):
                 "desc": "10연차/단차(50·100pt 보너스 게이지) · 200배지 천장교환 · 셀렉트 리스트(특수 티켓) · 캐랭 깃발 · 운명 · 연습 · 생일 무료단차를 실행합니다.",
                 "perm": PERM_USER,
                 "buttons": [
+                    ("프로세카 가챠 등록 (★1 지급)", "📝", discord.ButtonStyle.success, self._act_sekai_register),
                     ("프로세카 10회 연속뽑기", "🌈", discord.ButtonStyle.success, self._act_sekai_pull_10),
                     ("프로세카 1회 단차뽑기", "🎵", discord.ButtonStyle.primary, self._act_sekai_pull_1),
                     ("200배지 천장 교환소", "🏅", discord.ButtonStyle.success, self._sub_sekai_ceiling_exchange),
@@ -5139,7 +5140,7 @@ class MasterDashboardView(core.SafeView):
             return
         stats_cog = self._find_cog_with_attr("server_backup_cmd")
         if stats_cog:
-            choice_db = app_commands.Choice(name="🗄️ 봇 전체 DB 백업", value="full_db")
+            choice_db = app_commands.Choice(name="🗄️ 봇 전체 DB 백업", value="db")
             await stats_cog.server_backup_cmd.callback(stats_cog, interaction, 모드=choice_db)
         else:
             await core.safe_send_response(interaction, "❌ 백업 모듈을 찾을 수 없습니다.", ephemeral=True)
@@ -6037,11 +6038,22 @@ class MasterDashboardView(core.SafeView):
             return
         await interaction.response.send_modal(DashboardHSROwnerPickupModal(self.bot or interaction.client))
 
+    async def _act_sekai_register(self, interaction: discord.Interaction):
+        try:
+            ok, msg, _ = await asyncio.to_thread(
+                core.register_proseka_gacha_user, interaction.guild_id or 0, interaction.user.id
+            )
+            await core.safe_send_response(interaction, f"{'🎉' if ok else 'ℹ️'} {msg}", ephemeral=True)
+        except Exception as e:
+            await core.safe_send_response(interaction, f"❌ 프로세카 등록 오류: {e}", ephemeral=True)
+
     async def _act_sekai_pull_hub(self, interaction: discord.Interaction):
         await self._enter_sub_mode(interaction, "sekai_pull_hub")
 
     async def _sub_sekai_ceiling_exchange(self, interaction: discord.Interaction):
         try:
+            if not await gacha.ensure_proseka_registered(interaction):
+                return
             await core.safe_defer(interaction)
             view = gacha.GachaCeilingExchangeView(interaction.user, guild_id=interaction.guild_id or 0)
             await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
@@ -6050,6 +6062,8 @@ class MasterDashboardView(core.SafeView):
 
     async def _sub_sekai_select_list(self, interaction: discord.Interaction):
         try:
+            if not await gacha.ensure_proseka_registered(interaction):
+                return
             await core.safe_defer(interaction)
             view = gacha.SelectListGachaView(interaction.user, guild_id=interaction.guild_id or 0)
             await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)

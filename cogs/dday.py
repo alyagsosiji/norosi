@@ -648,17 +648,26 @@ class TodoAddModal(core.SafeModal, title="🌱 오늘의 새 목표 추가"):
 
     async def on_submit(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
         u_key = str(self.tracker_view.user.id)
-        profile = core.ensure_user_profile(data, u_key, self.tracker_view.user.display_name)
-        todo = core.ensure_user_todo_today(profile)
-        if len(todo["tasks"]) >= 15:
+        u_disp = self.tracker_view.user.display_name
+        clean_title = self.task_title.value.strip()
+
+        def _add_todo_task() -> tuple[bool, dict]:
+            with core._DATA_LOCK:
+                data = core.load_data()
+                profile = core.ensure_user_profile(data, u_key, u_disp)
+                todo = core.ensure_user_todo_today(profile)
+                if len(todo["tasks"]) >= 15:
+                    return False, profile
+                todo["tasks"].append({"title": clean_title, "done": False})
+                core.sync_todo_history_today(todo)
+                core.save_data(data)
+                return True, profile
+
+        added, profile = await asyncio.to_thread(_add_todo_task)
+        if not added:
             await interaction.followup.send("❌ 하루 목표는 최대 15개까지 등록할 수 있습니다.", ephemeral=True)
             return
-
-        todo["tasks"].append({"title": self.task_title.value.strip(), "done": False})
-        core.sync_todo_history_today(todo)
-        await asyncio.to_thread(core.save_data, data)
 
         self.tracker_view.profile = profile
         self.tracker_view.update_select_options()
@@ -672,6 +681,18 @@ class TodoTrackerView(core.SafeView):
         self.user = user
         self.profile = profile
         self.update_select_options()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        if self.user and interaction.user.id != self.user.id:
+            await core.safe_send_response(
+                interaction,
+                "❌ 본인의 목표 보드만 조작할 수 있습니다.",
+                ephemeral=True,
+            )
+            return False
+        return True
 
     def update_select_options(self):
         todo = core.ensure_user_todo_today(self.profile)
@@ -753,16 +774,21 @@ class TodoTrackerView(core.SafeView):
 
         await core.safe_defer(interaction)
         idx = int(val)
-        data = await asyncio.to_thread(core.load_data)
         u_key = str(self.user.id)
-        profile = core.ensure_user_profile(data, u_key, self.user.display_name)
-        todo = core.ensure_user_todo_today(profile)
-        if 0 <= idx < len(todo["tasks"]):
-            todo["tasks"][idx]["done"] = not todo["tasks"][idx].get("done", False)
-            core.sync_todo_history_today(todo)
-            await asyncio.to_thread(core.save_data, data)
+        u_disp = self.user.display_name
 
-        self.profile = profile
+        def _toggle_todo() -> dict:
+            with core._DATA_LOCK:
+                data = core.load_data()
+                profile = core.ensure_user_profile(data, u_key, u_disp)
+                todo = core.ensure_user_todo_today(profile)
+                if 0 <= idx < len(todo["tasks"]):
+                    todo["tasks"][idx]["done"] = not todo["tasks"][idx].get("done", False)
+                    core.sync_todo_history_today(todo)
+                    core.save_data(data)
+                return profile
+
+        self.profile = await asyncio.to_thread(_toggle_todo)
         self.update_select_options()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
@@ -780,16 +806,20 @@ class TodoTrackerView(core.SafeView):
             return
 
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
         u_key = str(self.user.id)
-        profile = core.ensure_user_profile(data, u_key, self.user.display_name)
-        todo = core.ensure_user_todo_today(profile)
+        u_disp = self.user.display_name
 
-        todo["tasks"] = [t for t in todo.get("tasks", []) if not t.get("done")]
-        core.sync_todo_history_today(todo)
-        await asyncio.to_thread(core.save_data, data)
+        def _clear_done_todo() -> dict:
+            with core._DATA_LOCK:
+                data = core.load_data()
+                profile = core.ensure_user_profile(data, u_key, u_disp)
+                todo = core.ensure_user_todo_today(profile)
+                todo["tasks"] = [t for t in todo.get("tasks", []) if not t.get("done")]
+                core.sync_todo_history_today(todo)
+                core.save_data(data)
+                return profile
 
-        self.profile = profile
+        self.profile = await asyncio.to_thread(_clear_done_todo)
         self.update_select_options()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
@@ -800,20 +830,27 @@ class TodoTrackerView(core.SafeView):
             return
 
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
         u_key = str(self.user.id)
-        profile = core.ensure_user_profile(data, u_key, self.user.display_name)
-        todo = core.ensure_user_todo_today(profile)
+        u_disp = self.user.display_name
 
-        tasks_list = [t for t in todo.get("tasks", []) if isinstance(t, dict)]
-        if not tasks_list:
+        def _complete_all_todo() -> tuple[bool, dict]:
+            with core._DATA_LOCK:
+                data = core.load_data()
+                profile = core.ensure_user_profile(data, u_key, u_disp)
+                todo = core.ensure_user_todo_today(profile)
+                tasks_list = [t for t in todo.get("tasks", []) if isinstance(t, dict)]
+                if not tasks_list:
+                    return False, profile
+                for t in tasks_list:
+                    t["done"] = True
+                core.sync_todo_history_today(todo)
+                core.save_data(data)
+                return True, profile
+
+        has_tasks, profile = await asyncio.to_thread(_complete_all_todo)
+        if not has_tasks:
             await interaction.followup.send("📭 완료 처리할 목표가 없습니다. 먼저 새 목표를 추가해 보세요!", ephemeral=True)
             return
-
-        for t in tasks_list:
-            t["done"] = True
-        core.sync_todo_history_today(todo)
-        await asyncio.to_thread(core.save_data, data)
 
         self.profile = profile
         self.update_select_options()
@@ -821,6 +858,9 @@ class TodoTrackerView(core.SafeView):
 
     @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=1)
     async def refresh_todo_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 본인의 목표 보드만 조작할 수 있습니다.", ephemeral=True)
+            return
         await core.safe_defer(interaction)
         data = await asyncio.to_thread(core.load_data)
         u_key = str(self.user.id)
@@ -2083,22 +2123,28 @@ class SecretDDayAddModal(core.SafeModal, title="🔒 비밀 디데이 & 타임�
         plus_one_val = core.parse_dday_plus_one_flag(self.s_plus_one.value)
 
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
         u_key = str(self.hub_view.user.id)
-        profile = core.ensure_user_profile(data, u_key, self.hub_view.user.display_name)
-        s_ddays = core.ensure_dict_path(profile, "secret_ddays")
+        u_disp = self.hub_view.user.display_name
         today_str = core.get_today_str()
+        s_name_clean = self.s_name.value.strip()
+        s_memo_clean = self.s_memo.value.strip() if self.s_memo.value else ""
 
-        s_ddays[self.s_name.value.strip()] = {
-            "date": d_val,
-            "memo": self.s_memo.value.strip() if self.s_memo.value else "",
-            "start_date": today_str,
-            "plus_one": plus_one_val,
-            "notified_date": ""
-        }
-        await asyncio.to_thread(core.save_data, data)
+        def _do_add_secret():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                profile = core.ensure_user_profile(data, u_key, u_disp)
+                s_ddays = core.ensure_dict_path(profile, "secret_ddays")
+                s_ddays[s_name_clean] = {
+                    "date": d_val,
+                    "memo": s_memo_clean,
+                    "start_date": today_str,
+                    "plus_one": plus_one_val,
+                    "notified_date": ""
+                }
+                core.save_data(data)
+                return {k: dict(v) for k, v in s_ddays.items() if isinstance(v, dict)}
 
-        self.hub_view.s_ddays = {k: v for k, v in s_ddays.items() if isinstance(v, dict)}
+        self.hub_view.s_ddays = await asyncio.to_thread(_do_add_secret)
         self.hub_view.update_delete_select()
         await interaction.edit_original_response(embed=self.hub_view.build_embed(), view=self.hub_view)
 
@@ -2110,6 +2156,18 @@ class SecretDDayHubView(core.SafeView):
         self.user = user
         self.s_ddays = {k: v for k, v in core.as_dict(s_ddays).items() if isinstance(v, dict)}
         self.update_delete_select()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        if self.user and interaction.user.id != self.user.id:
+            await core.safe_send_response(
+                interaction,
+                "❌ 본인의 비밀 디데이 보드만 조작할 수 있습니다.",
+                ephemeral=True,
+            )
+            return False
+        return True
 
     def update_delete_select(self):
         if not self.s_ddays:
@@ -2544,6 +2602,11 @@ class DDayDeleteSelect(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
+        is_owner = bool(core.BOT_OWNER_ID and interaction.user.id == core.BOT_OWNER_ID)
+        if interaction.guild and (not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.administrator) and not is_owner:
+            await core.safe_send_response(interaction, "❌ 디데이 일정 삭제는 **서버 관리자**만 실행할 수 있습니다.", ephemeral=True)
+            return
+
         selected_name = self.values[0]
         if selected_name == "NONE":
             await core.safe_defer(interaction, ephemeral=True)
@@ -2635,13 +2698,14 @@ class ResetConfirmView(core.SafeView):
             return
         await core.safe_defer(interaction, ephemeral=True)
 
-        old_data = await asyncio.to_thread(core.load_data)
+        snapshot = await asyncio.to_thread(core.load_data)
         deleted_ch_count = 0
         guild_id = interaction.guild_id
+        guild_channel_ids = {c.id for c in interaction.guild.channels} if interaction.guild else set()
 
-        ddays = core.as_dict(old_data.get("ddays"))
-        remaining_ddays = {}
-        for name, info in ddays.items():
+        ddays_snap = core.as_dict(snapshot.get("ddays"))
+        keys_to_remove = set()
+        for name, info in ddays_snap.items():
             if not isinstance(info, dict):
                 continue
             d_guild_id = info.get("guild_id")
@@ -2649,14 +2713,13 @@ class ResetConfirmView(core.SafeView):
             is_this_guild = False
             if d_guild_id and guild_id and d_guild_id == guild_id:
                 is_this_guild = True
-            elif ch_id and interaction.guild:
-                ch = interaction.guild.get_channel(int(ch_id))
-                if ch:
-                    is_this_guild = True
+            elif ch_id and int(ch_id) in guild_channel_ids:
+                is_this_guild = True
             elif not d_guild_id and not guild_id:
                 is_this_guild = True
 
             if is_this_guild:
+                keys_to_remove.add(name)
                 if ch_id:
                     ch = self.bot_instance.get_channel(int(ch_id))
                     if ch:
@@ -2665,20 +2728,28 @@ class ResetConfirmView(core.SafeView):
                             deleted_ch_count += 1
                         except Exception:
                             pass
-            else:
-                remaining_ddays[name] = info
 
-        old_data["ddays"] = remaining_ddays
-        if guild_id:
-            if isinstance(old_data.get("guild_music_prefs"), dict):
-                old_data["guild_music_prefs"].pop(str(guild_id), None)
-            if isinstance(old_data.get("guild_settings"), dict):
-                old_data["guild_settings"].pop(str(guild_id), None)
-        else:
-            old_data["music_prefs"] = copy.deepcopy(core.DEFAULT_CONFIG["music_prefs"])
-            old_data["music_schedules"] = []
+        def _apply_guild_reset():
+            with core._DATA_LOCK:
+                latest = core.load_data()
+                cur_ddays = core.as_dict(latest.get("ddays"))
+                latest["ddays"] = {
+                    k: v for k, v in cur_ddays.items()
+                    if isinstance(v, dict)
+                    and k not in keys_to_remove
+                    and not (guild_id and v.get("guild_id") == guild_id)
+                }
+                if guild_id:
+                    if isinstance(latest.get("guild_music_prefs"), dict):
+                        latest["guild_music_prefs"].pop(str(guild_id), None)
+                    if isinstance(latest.get("guild_settings"), dict):
+                        latest["guild_settings"].pop(str(guild_id), None)
+                else:
+                    latest["music_prefs"] = copy.deepcopy(core.DEFAULT_CONFIG["music_prefs"])
+                    latest["music_schedules"] = []
+                core.save_data(latest)
 
-        await asyncio.to_thread(core.save_data, old_data)
+        await asyncio.to_thread(_apply_guild_reset)
         embed = discord.Embed(
             title="🔄 D-Day 및 음악 설정 초기화 완료",
             description=(
@@ -2904,17 +2975,22 @@ class DDayCog(commands.Cog):
     )
     async def todo_grass_cmd(self, interaction: discord.Interaction, 새목표: str = None):
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
         u_key = str(interaction.user.id)
-        profile = core.ensure_user_profile(data, u_key, interaction.user.display_name)
-        todo = core.ensure_user_todo_today(profile)
+        u_disp = interaction.user.display_name
+        clean_goal = 새목표.strip() if (새목표 and 새목표.strip()) else ""
 
-        if 새목표 and 새목표.strip():
-            if len(todo["tasks"]) < 15:
-                todo["tasks"].append({"title": 새목표.strip(), "done": False})
-                core.sync_todo_history_today(todo)
+        def _load_or_add_todo() -> dict:
+            with core._DATA_LOCK:
+                data = core.load_data()
+                profile = core.ensure_user_profile(data, u_key, u_disp)
+                todo = core.ensure_user_todo_today(profile)
+                if clean_goal and len(todo["tasks"]) < 15:
+                    todo["tasks"].append({"title": clean_goal, "done": False})
+                    core.sync_todo_history_today(todo)
+                core.save_data(data)
+                return profile
 
-        await asyncio.to_thread(core.save_data, data)
+        profile = await asyncio.to_thread(_load_or_add_todo)
         view = TodoTrackerView(interaction.user, profile)
         await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
@@ -3083,27 +3159,27 @@ class DDayCog(commands.Cog):
         플러스1: bool = False,
     ):
         await core.safe_defer(interaction, ephemeral=True)
-        data = await asyncio.to_thread(core.load_data)
         u_key = str(interaction.user.id)
-        profile = core.ensure_user_profile(data, u_key, interaction.user.display_name)
-        s_ddays = core.ensure_dict_path(profile, "secret_ddays")
-
+        u_disp = interaction.user.display_name
         mode = 동작.value if 동작 else ("add" if (이름 and 날짜) else "hub")
-        if mode in ("hub", "list"):
-            hub_view = SecretDDayHubView(interaction.user, s_ddays)
-            await interaction.followup.send(embed=hub_view.build_embed(), view=hub_view, ephemeral=True, wait=True)
-            return
 
-        if mode == "add":
-            if not 이름 or not 날짜:
-                hub_view = SecretDDayHubView(interaction.user, s_ddays)
+        if mode in ("hub", "list") or (mode == "add" and (not 이름 or not 날짜)):
+            data = await asyncio.to_thread(core.load_data)
+            profile = core.ensure_user_profile(data, u_key, u_disp)
+            s_ddays = core.ensure_dict_path(profile, "secret_ddays")
+            hub_view = SecretDDayHubView(interaction.user, s_ddays)
+            if mode == "add":
                 await interaction.followup.send(
                     "ℹ️ 아래 **`[➕ 비밀 디데이 & 타임캡슐 추가]`** 버튼을 눌러 간편하게 등록해 보세요!",
                     embed=hub_view.build_embed(),
                     view=hub_view,
                     ephemeral=True, wait=True
                 )
-                return
+            else:
+                await interaction.followup.send(embed=hub_view.build_embed(), view=hub_view, ephemeral=True, wait=True)
+            return
+
+        if mode == "add":
             try:
                 datetime.datetime.strptime(날짜, "%Y-%m-%d")
             except ValueError:
@@ -3111,25 +3187,43 @@ class DDayCog(commands.Cog):
                 return
 
             today_str = core.get_today_str()
-            s_ddays[이름] = {
-                "date": 날짜,
-                "memo": 타임캡슐메시지 or "",
-                "start_date": today_str,
-                "plus_one": bool(플러스1),
-                "notified_date": ""
-            }
-            await asyncio.to_thread(core.save_data, data)
+
+            def _add_secret_cmd() -> dict:
+                with core._DATA_LOCK:
+                    data = core.load_data()
+                    profile = core.ensure_user_profile(data, u_key, u_disp)
+                    s_ddays = core.ensure_dict_path(profile, "secret_ddays")
+                    s_ddays[이름] = {
+                        "date": 날짜,
+                        "memo": 타임캡슐메시지 or "",
+                        "start_date": today_str,
+                        "plus_one": bool(플러스1),
+                        "notified_date": ""
+                    }
+                    core.save_data(data)
+                    return {k: dict(v) for k, v in s_ddays.items() if isinstance(v, dict)}
+
+            s_ddays = await asyncio.to_thread(_add_secret_cmd)
             hub_view = SecretDDayHubView(interaction.user, s_ddays)
             await interaction.followup.send(embed=hub_view.build_embed(), view=hub_view, ephemeral=True, wait=True)
 
         elif mode == "delete":
-            if not 이름 or 이름 not in s_ddays:
-                hub_view = SecretDDayHubView(interaction.user, s_ddays)
+            def _del_secret_cmd() -> tuple[bool, dict]:
+                with core._DATA_LOCK:
+                    data = core.load_data()
+                    profile = core.ensure_user_profile(data, u_key, u_disp)
+                    s_ddays = core.ensure_dict_path(profile, "secret_ddays")
+                    if not 이름 or 이름 not in s_ddays:
+                        return False, {k: dict(v) for k, v in s_ddays.items() if isinstance(v, dict)}
+                    del s_ddays[이름]
+                    core.save_data(data)
+                    return True, {k: dict(v) for k, v in s_ddays.items() if isinstance(v, dict)}
+
+            removed, s_ddays = await asyncio.to_thread(_del_secret_cmd)
+            hub_view = SecretDDayHubView(interaction.user, s_ddays)
+            if not removed:
                 await interaction.followup.send("ℹ️ 아래 드롭다운에서 삭제할 비밀 디데이를 선택해 주세요.", embed=hub_view.build_embed(), view=hub_view, ephemeral=True, wait=True)
                 return
-            del s_ddays[이름]
-            await asyncio.to_thread(core.save_data, data)
-            hub_view = SecretDDayHubView(interaction.user, s_ddays)
             await interaction.followup.send(f"🗑️ 비밀 디데이 **`{이름}`** 일정이 삭제되었습니다.", embed=hub_view.build_embed(), view=hub_view, ephemeral=True, wait=True)
 
     @app_commands.command(name="디데이삭제", description="드롭다운 메뉴에서 일정을 선택해 삭제합니다. (생성된 디데이 채널도 함께 삭제됩니다)")
@@ -3769,27 +3863,34 @@ class DDayCog(commands.Cog):
                         pass
 
                 # 데이터베이스 업데이트: 은하수 보라잔디(🟪) 기록 + 대량 크리스탈 지급
-                data = await asyncio.to_thread(core.load_data)
                 u_key = str(interaction.user.id)
-                profile = core.ensure_user_profile(data, u_key, interaction.user.display_name)
-                todo = core.ensure_user_todo_today(profile)
-                history = core.ensure_dict_path(todo, "history")
+                u_disp = interaction.user.display_name
                 today_str = core.get_today_str()
 
-                today_rec = core.ensure_dict_path(history, today_str)
-                today_rec.setdefault("done", 0)
-                today_rec.setdefault("total", 0)
-                today_rec["hardcore_completed"] = True
-                today_rec["hardcore_mins"] = today_rec.get("hardcore_mins", 0) + actual_study_mins
-                today_rec["hardcore_topic"] = 목표
+                def _record_hardcore_study():
+                    with core._DATA_LOCK:
+                        data = core.load_data()
+                        profile = core.ensure_user_profile(data, u_key, u_disp)
+                        todo = core.ensure_user_todo_today(profile)
+                        history = core.ensure_dict_path(todo, "history")
 
-                profile["crystals"] = profile.get("crystals", 0) + reward_crystals
-                stats = core.ensure_dict_path(profile, "hardcore_study_stats")
-                stats["total_mins"] = stats.get("total_mins", 0) + actual_study_mins
-                stats["total_sets"] = stats.get("total_sets", 0) + num_sets
-                stats["completed_days"] = stats.get("completed_days", 0) + 1
+                        today_rec = core.ensure_dict_path(history, today_str)
+                        today_rec.setdefault("done", 0)
+                        today_rec.setdefault("total", 0)
+                        today_rec["hardcore_completed"] = True
+                        today_rec["hardcore_mins"] = today_rec.get("hardcore_mins", 0) + actual_study_mins
+                        today_rec["hardcore_topic"] = 목표
 
-                await asyncio.to_thread(core.save_data, data)
+                        profile["crystals"] = profile.get("crystals", 0) + reward_crystals
+                        stats = core.ensure_dict_path(profile, "hardcore_study_stats")
+                        stats["total_mins"] = stats.get("total_mins", 0) + actual_study_mins
+                        stats["total_sets"] = stats.get("total_sets", 0) + num_sets
+                        stats["completed_days"] = stats.get("completed_days", 0) + 1
+
+                        core.save_data(data)
+                        return profile
+
+                profile = await asyncio.to_thread(_record_hardcore_study)
 
                 grass_bar, _ = core.get_todo_galaxy_grass(profile)
 
@@ -3876,15 +3977,22 @@ class DDayCog(commands.Cog):
         메모: str = None
     ):
         await core.safe_defer(interaction, ephemeral=False)
-        data = await asyncio.to_thread(core.load_data)
         u_key = str(interaction.user.id)
-        b_map = core.ensure_dict_path(data, "birthdays")
         action_val = 동작.value if 동작 else ("register" if (월 and 일) else "list")
 
         if action_val == "delete":
-            if u_key in b_map:
-                del b_map[u_key]
-                await asyncio.to_thread(core.save_data, data)
+            def _del_bday() -> bool:
+                with core._DATA_LOCK:
+                    data = core.load_data()
+                    b_map = core.ensure_dict_path(data, "birthdays")
+                    if u_key in b_map:
+                        del b_map[u_key]
+                        core.save_data(data)
+                        return True
+                    return False
+
+            deleted = await asyncio.to_thread(_del_bday)
+            if deleted:
                 await interaction.followup.send("🗑️ 등록된 생일 정보가 삭제되었습니다.", ephemeral=True)
             else:
                 await interaction.followup.send("ℹ️ 아직 등록된 생일 정보가 없습니다.", ephemeral=True)
@@ -3898,16 +4006,25 @@ class DDayCog(commands.Cog):
                 await interaction.followup.send(f"❌ `{월}월 {일}일`은 존재하지 않는 날짜입니다. 올바른 날짜를 입력해 주세요!", ephemeral=True)
                 return
 
-            b_map[u_key] = {
-                "user_id": interaction.user.id,
-                "user_name": interaction.user.display_name,
-                "guild_id": interaction.guild_id or 0,
-                "month": 월,
-                "day": 일,
-                "memo": (메모 or "").strip()[:60],
-                "last_celebrated_year": 0
-            }
-            await asyncio.to_thread(core.save_data, data)
+            def _reg_bday() -> dict:
+                with core._DATA_LOCK:
+                    data = core.load_data()
+                    b_map = core.ensure_dict_path(data, "birthdays")
+                    b_map[u_key] = {
+                        "user_id": interaction.user.id,
+                        "user_name": interaction.user.display_name,
+                        "guild_id": interaction.guild_id or 0,
+                        "month": 월,
+                        "day": 일,
+                        "memo": (메모 or "").strip()[:60],
+                        "last_celebrated_year": 0
+                    }
+                    core.save_data(data)
+                    return data
+
+            data = await asyncio.to_thread(_reg_bday)
+        else:
+            data = await asyncio.to_thread(core.load_data)
 
         view = BirthdayBoardView(interaction.user, interaction.guild, data)
         await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
@@ -3934,7 +4051,6 @@ class DDayCog(commands.Cog):
         방식: app_commands.Choice[str] = None
     ):
         await core.safe_defer(interaction, ephemeral=True)
-        data = await asyncio.to_thread(core.load_data)
 
         if 시간 and 내용:
             target_dt, err = core.parse_natural_reminder_time(시간)
@@ -3942,26 +4058,34 @@ class DDayCog(commands.Cog):
                 await interaction.followup.send(f"❌ **시간 설정 오류:** {err}", ephemeral=True)
                 return
 
-            reminders = data.get("reminders")
-            if not isinstance(reminders, list):
-                reminders = []
-                data["reminders"] = reminders
             rem_id = f"rem_{int(time.time())}_{interaction.user.id % 1000}"
             mode_val = 방식.value if 방식 else "both"
 
-            reminders.append({
-                "id": rem_id,
-                "user_id": interaction.user.id,
-                "user_name": interaction.user.display_name,
-                "channel_id": interaction.channel_id or 0,
-                "guild_id": interaction.guild_id or 0,
-                "content": 내용.strip()[:200],
-                "trigger_ts": target_dt.timestamp(),
-                "trigger_str": target_dt.strftime("%Y-%m-%d %H:%M:%S KST"),
-                "mode": mode_val,
-                "created_at": core.get_now_datetime_str()
-            })
-            await asyncio.to_thread(core.save_data, data)
+            def _add_rem() -> dict:
+                with core._DATA_LOCK:
+                    data = core.load_data()
+                    reminders = data.get("reminders")
+                    if not isinstance(reminders, list):
+                        reminders = []
+                        data["reminders"] = reminders
+                    reminders.append({
+                        "id": rem_id,
+                        "user_id": interaction.user.id,
+                        "user_name": interaction.user.display_name,
+                        "channel_id": interaction.channel_id or 0,
+                        "guild_id": interaction.guild_id or 0,
+                        "content": 내용.strip()[:200],
+                        "trigger_ts": target_dt.timestamp(),
+                        "trigger_str": target_dt.strftime("%Y-%m-%d %H:%M:%S KST"),
+                        "mode": mode_val,
+                        "created_at": core.get_now_datetime_str()
+                    })
+                    core.save_data(data)
+                    return data
+
+            data = await asyncio.to_thread(_add_rem)
+        else:
+            data = await asyncio.to_thread(core.load_data)
 
         view = ReminderHubView(interaction.user, interaction.channel_id, interaction.guild_id, data)
         await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
@@ -4003,18 +4127,24 @@ class BirthdayRegisterModal(core.SafeModal, title="🎂 내 생일 등록 및 �
             return
 
         await core.safe_defer(interaction)
-        data = await asyncio.to_thread(core.load_data)
         u_key = str(interaction.user.id)
-        core.ensure_dict_path(data, "birthdays")[u_key] = {
-            "user_id": interaction.user.id,
-            "user_name": interaction.user.display_name,
-            "guild_id": interaction.guild_id or 0,
-            "month": month,
-            "day": day,
-            "memo": (self.memo_input.value or "").strip(),
-            "last_celebrated_year": 0
-        }
-        await asyncio.to_thread(core.save_data, data)
+
+        def _save_modal_bday() -> dict:
+            with core._DATA_LOCK:
+                data = core.load_data()
+                core.ensure_dict_path(data, "birthdays")[u_key] = {
+                    "user_id": interaction.user.id,
+                    "user_name": interaction.user.display_name,
+                    "guild_id": interaction.guild_id or 0,
+                    "month": month,
+                    "day": day,
+                    "memo": (self.memo_input.value or "").strip(),
+                    "last_celebrated_year": 0
+                }
+                core.save_data(data)
+                return data
+
+        data = await asyncio.to_thread(_save_modal_bday)
         self.board_view.data = data
         self.board_view.user = interaction.user
         try:
@@ -4110,13 +4240,21 @@ class BirthdayBoardView(core.SafeView):
     @discord.ui.button(label="🗑️ 내 생일 삭제", style=discord.ButtonStyle.danger, row=0)
     async def delete_bday_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
-        data = await asyncio.to_thread(core.load_data)
         u_key = str(interaction.user.id)
-        b_map = core.ensure_dict_path(data, "birthdays")
         self.user = interaction.user
-        if u_key in b_map:
-            del b_map[u_key]
-            await asyncio.to_thread(core.save_data, data)
+
+        def _del_board_bday() -> tuple[bool, dict]:
+            with core._DATA_LOCK:
+                data = core.load_data()
+                b_map = core.ensure_dict_path(data, "birthdays")
+                if u_key in b_map:
+                    del b_map[u_key]
+                    core.save_data(data)
+                    return True, data
+                return False, data
+
+        deleted, data = await asyncio.to_thread(_del_board_bday)
+        if deleted:
             self.data = data
             if interaction.message:
                 try:
@@ -4162,26 +4300,31 @@ class ReminderAddModal(core.SafeModal, title="⏰ 새 스마트 알림 예약"):
             return
 
         await core.safe_defer(interaction, ephemeral=True)
-        data = await asyncio.to_thread(core.load_data)
-        reminders = data.get("reminders")
-        if not isinstance(reminders, list):
-            reminders = []
-            data["reminders"] = reminders
         rem_id = f"rem_{int(time.time())}_{interaction.user.id % 1000}"
 
-        reminders.append({
-            "id": rem_id,
-            "user_id": interaction.user.id,
-            "user_name": interaction.user.display_name,
-            "channel_id": interaction.channel_id or self.hub_view.channel_id or 0,
-            "guild_id": interaction.guild_id or self.hub_view.guild_id or 0,
-            "content": self.content_input.value.strip()[:200],
-            "trigger_ts": target_dt.timestamp(),
-            "trigger_str": target_dt.strftime("%Y-%m-%d %H:%M:%S KST"),
-            "mode": "both",
-            "created_at": core.get_now_datetime_str()
-        })
-        await asyncio.to_thread(core.save_data, data)
+        def _add_modal_rem() -> dict:
+            with core._DATA_LOCK:
+                data = core.load_data()
+                reminders = data.get("reminders")
+                if not isinstance(reminders, list):
+                    reminders = []
+                    data["reminders"] = reminders
+                reminders.append({
+                    "id": rem_id,
+                    "user_id": interaction.user.id,
+                    "user_name": interaction.user.display_name,
+                    "channel_id": interaction.channel_id or self.hub_view.channel_id or 0,
+                    "guild_id": interaction.guild_id or self.hub_view.guild_id or 0,
+                    "content": self.content_input.value.strip()[:200],
+                    "trigger_ts": target_dt.timestamp(),
+                    "trigger_str": target_dt.strftime("%Y-%m-%d %H:%M:%S KST"),
+                    "mode": "both",
+                    "created_at": core.get_now_datetime_str()
+                })
+                core.save_data(data)
+                return data
+
+        data = await asyncio.to_thread(_add_modal_rem)
         self.hub_view.data = data
         self.hub_view.update_select()
         await interaction.edit_original_response(embed=self.hub_view.build_embed(), view=self.hub_view)
@@ -4273,12 +4416,18 @@ class ReminderHubView(core.SafeView):
             await core.safe_defer(interaction)
             return
         await core.safe_defer(interaction, ephemeral=True)
-        data = await asyncio.to_thread(core.load_data)
-        before_list = data.get("reminders", [])
-        if not isinstance(before_list, list):
-            before_list = []
-        data["reminders"] = [r for r in before_list if isinstance(r, dict) and r.get("id") != target_id]
-        await asyncio.to_thread(core.save_data, data)
+
+        def _cancel_rem() -> dict:
+            with core._DATA_LOCK:
+                data = core.load_data()
+                before_list = data.get("reminders", [])
+                if not isinstance(before_list, list):
+                    before_list = []
+                data["reminders"] = [r for r in before_list if isinstance(r, dict) and r.get("id") != target_id]
+                core.save_data(data)
+                return data
+
+        data = await asyncio.to_thread(_cancel_rem)
         self.data = data
         self.update_select()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)

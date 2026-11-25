@@ -197,6 +197,15 @@ class TitleStudioView(core.SafeView):
         btn_card.callback = self._on_preview_card
         self.add_item(btn_card)
 
+        btn_lotto = discord.ui.Button(
+            label="🎟️ 주간 복권",
+            style=discord.ButtonStyle.success,
+            row=1,
+            custom_id="norosi:TitleStudioView:open_lottery",
+        )
+        btn_lotto.callback = self._on_open_lottery
+        self.add_item(btn_lotto)
+
         btn_ref = discord.ui.Button(
             label="🔄 새로고침",
             style=discord.ButtonStyle.secondary,
@@ -211,6 +220,15 @@ class TitleStudioView(core.SafeView):
         target = self.user or interaction.user
         gid = self.guild_id or (interaction.guild_id or 0)
         await _send_profile_card(interaction.followup.send, target, gid, is_interaction=True)
+
+    async def _on_open_lottery(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        target = self.user or interaction.user
+        gid = self.guild_id or (interaction.guild_id or 0)
+        ov = await asyncio.to_thread(economy_core.get_lottery_overview, target.id)
+        lot_view = LotteryStudioView(target, gid, overview=ov)
+        msg = await interaction.followup.send(embed=lot_view.build_embed(), view=lot_view, wait=True)
+        lot_view.message = msg
 
     async def _on_refresh(self, interaction: discord.Interaction):
         await core.safe_defer(interaction)
@@ -255,6 +273,168 @@ class TitleStudioView(core.SafeView):
         )
         embed.set_footer(text="아래 드롭다운에서 보유 칭호를 즉시 장착하거나 새 칭호를 구매할 수 있습니다 (/설정 ➔ 👤 개인 프로필카드 반영)")
         return embed
+
+
+# ==========================================
+# 2-A. 주간 크리스탈 복권 스튜디오 뷰
+# ==========================================
+class LotteryManualPickModal(core.SafeModal, title="🔢 주간 복권 수동 번호 선택 (1~20 중 4개)"):
+    nums_input = discord.ui.TextInput(
+        label="1~20 사이의 중복 없는 숫자 4개 입력",
+        placeholder="예: 3 7 12 19 (공백 또는 쉼표로 구분)",
+        required=True,
+        max_length=25,
+    )
+
+    def __init__(self, studio_view: "LotteryStudioView"):
+        super().__init__()
+        self.studio_view = studio_view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        import re
+        raw_parts = [p for p in re.split(r"[\s,]+", (self.nums_input.value or "").strip()) if p]
+        try:
+            picks = [int(x) for x in raw_parts]
+        except ValueError:
+            await core.safe_send_response(
+                interaction,
+                "❌ 숫자만 입력해 주세요! (예: `3 7 12 19`)",
+                ephemeral=True,
+            )
+            return
+
+        await core.safe_defer(interaction)
+        ok, msg, _ = await asyncio.to_thread(
+            economy_core.buy_lottery_tickets,
+            interaction.user.id,
+            interaction.user.display_name,
+            1,
+            picks,
+        )
+        if not ok:
+            await interaction.followup.send(msg, ephemeral=True)
+            return
+        self.studio_view.status_msg = msg
+        self.studio_view.overview = await asyncio.to_thread(economy_core.get_lottery_overview, interaction.user.id)
+        await core.safe_edit_response(interaction, embed=self.studio_view.build_embed(), view=self.studio_view)
+
+
+class LotteryStudioView(core.SafeView):
+    def __init__(
+        self,
+        user: Optional[discord.abc.User] = None,
+        guild_id: int = 0,
+        overview: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(timeout=300)
+        self.user = user
+        self.guild_id = int(guild_id or 0)
+        self.overview = overview or economy_core.get_lottery_overview(user.id if user else 0)
+        self.status_msg = ""
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        if self.user and interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 본인의 복권 창구만 조작할 수 있습니다! (`!복권`으로 열기)", ephemeral=True)
+            return False
+        if self.user is None:
+            self.user = interaction.user
+        return True
+
+    def build_embed(self) -> discord.Embed:
+        ov = self.overview or economy_core.get_lottery_overview(self.user.id if self.user else 0)
+        my_tickets = ov.get("my_tickets") or []
+        total_pot = int(ov.get("jackpot", 1000)) + int(ov.get("pool", 0))
+        uname = self.user.display_name if self.user else "유저"
+
+        my_lines = [
+            f"• `#{t['ticket_id']}` — **`[ {', '.join(str(n) for n in (t.get('numbers') or []))} ]`**"
+            for t in my_tickets[:10]
+        ] or ["*(이번 회차 구매한 복권이 없습니다 — 아래 버튼으로 행운에 도전해 보세요!)*"]
+
+        last_draw = ov.get("last_draw")
+        if isinstance(last_draw, dict) and last_draw.get("winning_numbers"):
+            w_str = ", ".join(str(n) for n in last_draw["winning_numbers"])
+            last_txt = (
+                f"제 `{last_draw.get('round', '-')}`회차 당첨번호 **`[ {w_str} ]`** "
+                f"(1등 `{last_draw.get('rank1_count', 0)}명` · 2등 `{last_draw.get('rank2_count', 0)}명` · 3등 `{last_draw.get('rank3_count', 0)}명`)"
+            )
+        else:
+            last_txt = "*(아직 추첨 기록이 없습니다 — 매주 월요일 자정 00:00 KST 자동 추첨!)*"
+
+        notice = f"\n\n{self.status_msg}" if self.status_msg else ""
+        embed = discord.Embed(
+            title=f"🎟️ 제 {ov.get('round', 1)}회차 세카이 주간 크리스탈 복권",
+            description=(
+                f"• **💰 현재 총 상금 풀:** **`{total_pot:,}💎`** *(기본·이월 `{ov.get('jackpot', 1000):,}💎` + 누적 판매·세금 풀 `{ov.get('pool', 0):,}💎`)*\n"
+                f"• **🎟️ 전체 판매 티켓:** `{ov.get('total_tickets', 0):,}장`  ·  **내 보유 크리스탈:** **`{ov.get('crystals', 0):,}💎`**\n"
+                f"• **🏆 당첨 기준 (1~{economy_core.LOTTERY_POOL_MAX_NUM} 중 {economy_core.LOTTERY_PICK_COUNT}개 일치):** "
+                "4개 일치 **1등(상금풀 70%+칭호)** · 3개 **2등(+500💎+칭호)** · 2개 **3등(+120💎)**"
+                f"{notice}"
+            )[:4096],
+            color=discord.Color.gold(),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.add_field(
+            name=f"🎫 {uname}님의 이번 회차 복권 ({len(my_tickets)}/{economy_core.LOTTERY_MAX_TICKETS_PER_ROUND}장)",
+            value="\n".join(my_lines)[:1024],
+            inline=False,
+        )
+        embed.add_field(name="📜 직전 회차 추첨 결과", value=last_txt[:1024], inline=False)
+        embed.set_footer(text=f"1장당 {economy_core.LOTTERY_TICKET_PRICE}💎 • 회차당 최대 {economy_core.LOTTERY_MAX_TICKETS_PER_ROUND}장 • 매주 월요일 00:00 KST 자동 추첨")
+        return embed
+
+    @discord.ui.button(label="🎲 자동 1장 (100💎)", style=discord.ButtonStyle.success, row=0)
+    async def btn_auto_1(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        ok, msg, _ = await asyncio.to_thread(
+            economy_core.buy_lottery_tickets, interaction.user.id, interaction.user.display_name, 1, None
+        )
+        if not ok:
+            await interaction.followup.send(msg, ephemeral=True)
+            return
+        self.status_msg = msg
+        self.overview = await asyncio.to_thread(economy_core.get_lottery_overview, interaction.user.id)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🎲 자동 5장 (500💎)", style=discord.ButtonStyle.primary, row=0)
+    async def btn_auto_5(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        ok, msg, _ = await asyncio.to_thread(
+            economy_core.buy_lottery_tickets, interaction.user.id, interaction.user.display_name, 5, None
+        )
+        if not ok:
+            await interaction.followup.send(msg, ephemeral=True)
+            return
+        self.status_msg = msg
+        self.overview = await asyncio.to_thread(economy_core.get_lottery_overview, interaction.user.id)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🔢 수동 번호 선택", style=discord.ButtonStyle.secondary, row=0)
+    async def btn_manual(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(LotteryManualPickModal(self))
+
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=1)
+    async def btn_refresh_lotto(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.status_msg = ""
+        self.overview = await asyncio.to_thread(economy_core.get_lottery_overview, interaction.user.id)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="📢 이 채널에 발표 설정", style=discord.ButtonStyle.secondary, row=1)
+    async def btn_set_announce_ch(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member) or not (
+            interaction.user.guild_permissions.administrator or interaction.user.guild_permissions.manage_guild
+        ):
+            await core.safe_send_response(interaction, "❌ 추첨 발표 채널 지정은 **서버 관리자**만 설정할 수 있습니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        await asyncio.to_thread(economy_core.set_lottery_announce_channel, interaction.guild.id, interaction.channel_id)
+        await interaction.followup.send(
+            f"✅ 매주 월요일 자정 복권 추첨 결과 발표 채널이 <#{interaction.channel_id}>로 설정되었습니다!",
+            ephemeral=True,
+        )
 
 
 # ==========================================
@@ -378,6 +558,14 @@ class ProfileCardStandaloneCog(commands.Cog):
         msg = await ctx.send(embed=view.build_embed(), view=view)
         view.message = msg
 
+    @commands.command(name="복권", aliases=["로또", "주간복권"])
+    async def prefix_lottery(self, ctx: commands.Context):
+        guild_id = ctx.guild.id if ctx.guild else 0
+        ov = await asyncio.to_thread(economy_core.get_lottery_overview, ctx.author.id)
+        view = LotteryStudioView(ctx.author, guild_id, overview=ov)
+        msg = await ctx.send(embed=view.build_embed(), view=view)
+        view.message = msg
+
     @commands.command(name="경제랭킹", aliases=["자산랭킹"])
     async def prefix_eco_ranking(self, ctx: commands.Context):
         guild_id = ctx.guild.id if ctx.guild else 0
@@ -387,7 +575,7 @@ class ProfileCardStandaloneCog(commands.Cog):
         view.message = msg
 
 
-class EconomyGroupCog(commands.GroupCog, name="경제", description="💳 통합 프로필 카드 · 크리스탈 송금 · 칭호 상점 · 통합 자산 랭킹"):
+class EconomyGroupCog(commands.GroupCog, name="경제", description="💳 통합 프로필 카드 · 크리스탈 송금 · 칭호 상점 · 주간 복권 · 통합 자산 랭킹"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
@@ -438,6 +626,14 @@ class EconomyGroupCog(commands.GroupCog, name="경제", description="💳 통합
             interaction.user.display_name,
         )
         view = TitleStudioView(interaction.user, interaction.guild_id or 0, stats=stats)
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
+        view.message = msg
+
+    @app_commands.command(name="복권", description="🎟️ 매주 월요일 추첨되는 주간 크리스탈 로또 복권을 구매·확인합니다.")
+    async def eco_lottery(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction)
+        ov = await asyncio.to_thread(economy_core.get_lottery_overview, interaction.user.id)
+        view = LotteryStudioView(interaction.user, interaction.guild_id or 0, overview=ov)
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
         view.message = msg
 

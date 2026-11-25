@@ -1,12 +1,16 @@
 [Unit]
 Description=norosi Discord Bot (24/7 Background Service)
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/Desktop/norosi
-EnvironmentFile=-%h/Desktop/norosi/.env
-ExecStart=%h/Desktop/norosi/venv/bin/python3 %h/Desktop/norosi/bot.py
+# 시스템 서비스(/etc/systemd/system/) 등록 시 아래 User 및 경로를 실제 서버 계정명/설치 경로로 맞춰주세요.
+# (자동 배포 시 deploy/setup_gcp.sh 가 현재 유저와 경로를 자동으로 기입합니다.)
+User=ubuntu
+WorkingDirectory=/home/ubuntu/norosi
+EnvironmentFile=-/home/ubuntu/norosi/.env
+ExecStart=/bin/bash -lc 'if [ -x "./.venv/bin/python3" ]; then exec ./.venv/bin/python3 bot.py; elif [ -x "./venv/bin/python3" ]; then exec ./venv/bin/python3 bot.py; else exec python3 bot.py; fi'
 Restart=always
 RestartSec=5
 StandardOutput=journal

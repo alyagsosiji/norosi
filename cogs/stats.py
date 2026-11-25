@@ -403,7 +403,21 @@ class RecruitEditModal(core.SafeModal, title="✏️ 파티 모집 정보 수정
         lv.capacity = new_cap
         lv.goal = self.goal_input.value.strip() or lv.goal
         lv.departure_time = self.departure_input.value.strip() if self.departure_input.value and self.departure_input.value.strip() else None
-        lv.memo = self.memo_input.value.strip() if self.memo_input.value and self.memo_input.value.strip() else None
+
+        raw_memo = (self.memo_input.value or "").strip()
+        if raw_memo:
+            lines = raw_memo.splitlines()
+            first_line = lines[0].strip()
+            if first_line.startswith("방코드:"):
+                parsed_code = first_line.split(":", 1)[1].strip()
+                lv.room_code = parsed_code or None
+                rest_memo = "\n".join(lines[1:]).strip()
+                lv.memo = rest_memo or None
+            else:
+                lv.memo = raw_memo
+        else:
+            lv.room_code = None
+            lv.memo = None
 
         if lv.status not in ("departed", "cancelled"):
             lv.status = "ready" if len(lv.members) >= lv.capacity else "recruiting"
@@ -2077,17 +2091,22 @@ class WordChainGameView(core.SafeView):
         self.rally_count += 1
         self.chain_history.append(f"👤 `{clean_w}`")
 
+        def _grant_wordchain_crystals(uid: int, uname: str, amount: int) -> int:
+            with core._DATA_LOCK:
+                data = core.load_data()
+                prof = core.ensure_user_profile(data, str(uid), uname)
+                prof["crystals"] = prof.get("crystals", 0) + amount
+                core.save_data(data)
+                return prof["crystals"]
+
         # 1) 봇과의 1:1 대결 모드
         if self.opponent is None:
             if self.rally_count >= 7:
                 self.finished = True
                 self.input_btn.disabled = True
                 self.surrender_btn.disabled = True
-                data = await asyncio.to_thread(core.load_data)
-                prof = core.ensure_user_profile(data, str(self.host_user.id), self.host_user.display_name)
-                prof["crystals"] = prof.get("crystals", 0) + 150
-                await asyncio.to_thread(core.save_data, data)
-                self.status_notice = f"🎊 **축하합니다!** 7랠리를 모두 돌파하여 **{self.host_user.display_name}**님이 승리했습니다! (**`+150 💎`** 지급 완료, 보유: `{prof['crystals']:,}💎`)"
+                new_bal = await asyncio.to_thread(_grant_wordchain_crystals, self.host_user.id, self.host_user.display_name, 150)
+                self.status_notice = f"🎊 **축하합니다!** 7랠리를 모두 돌파하여 **{self.host_user.display_name}**님이 승리했습니다! (**`+150 💎`** 지급 완료, 보유: `{new_bal:,}💎`)"
                 await interaction.edit_original_response(embed=self.build_embed(), view=self)
                 return
 
@@ -2096,10 +2115,7 @@ class WordChainGameView(core.SafeView):
                 self.finished = True
                 self.input_btn.disabled = True
                 self.surrender_btn.disabled = True
-                data = await asyncio.to_thread(core.load_data)
-                prof = core.ensure_user_profile(data, str(self.host_user.id), self.host_user.display_name)
-                prof["crystals"] = prof.get("crystals", 0) + 150
-                await asyncio.to_thread(core.save_data, data)
+                await asyncio.to_thread(_grant_wordchain_crystals, self.host_user.id, self.host_user.display_name, 150)
                 self.status_notice = f"🏆 봇이 `{clean_w[-1]}`(으)로 시작하는 단어를 찾지 못해 기권했습니다! **{self.host_user.display_name}**님 완벽 승리! (**`+150 💎`** 지급 완료)"
                 await interaction.edit_original_response(embed=self.build_embed(), view=self)
                 return
@@ -2144,10 +2160,14 @@ class WordChainGameView(core.SafeView):
         if self.opponent:
             winner = self.opponent if interaction.user.id == self.host_user.id else self.host_user
             if self.rally_count >= 5:
-                data = await asyncio.to_thread(core.load_data)
-                prof = core.ensure_user_profile(data, str(winner.id), winner.display_name)
-                prof["crystals"] = prof.get("crystals", 0) + 100
-                await asyncio.to_thread(core.save_data, data)
+                def _grant_surrender_bonus():
+                    with core._DATA_LOCK:
+                        data = core.load_data()
+                        prof = core.ensure_user_profile(data, str(winner.id), winner.display_name)
+                        prof["crystals"] = prof.get("crystals", 0) + 100
+                        core.save_data(data)
+
+                await asyncio.to_thread(_grant_surrender_bonus)
                 self.status_notice = f"🏳️ **{interaction.user.display_name}**님이 기권하여 **{winner.display_name}**님이 승리했습니다! (승리 보상 **`+100 💎`** 지급)"
             else:
                 self.status_notice = f"🏳️ **{interaction.user.display_name}**님이 기권하여 **{winner.display_name}**님이 승리했습니다! (5랠리 미만 기권으로 크리스탈 보상은 지급되지 않습니다)"
@@ -2175,7 +2195,7 @@ class WordChainCustomSetupModal(core.SafeModal, title="⚙️ 끝말잇기 맞�
         max_length=15,
     )
 
-    def __init__(self, game_view: WordChainGameView):
+    def __init__(self, game_view: Optional[WordChainGameView] = None):
         super().__init__()
         self.game_view = game_view
 
@@ -2215,9 +2235,18 @@ class WordChainCustomSetupModal(core.SafeModal, title="⚙️ 끝말잇기 맞�
         else:
             start_w = random.choice(["세카이", "음악", "별자리", "피아노", "출석", "콘서트", "하늘", "무지개", "기차", "바다"])
 
-        await core.safe_defer(interaction)
+        gv = self.game_view
+        can_replace = (
+            gv is None
+            or gv.finished
+            or (gv.host_user and gv.host_user.id == interaction.user.id and gv.rally_count == 0)
+        )
         new_view = WordChainGameView(interaction.user, target_member, start_w)
-        await interaction.edit_original_response(embed=new_view.build_embed(), view=new_view)
+        if can_replace:
+            await core.safe_defer(interaction)
+            await interaction.edit_original_response(embed=new_view.build_embed(), view=new_view)
+        else:
+            await core.safe_send_response(interaction, embed=new_view.build_embed(), view=new_view)
 
 
 # ==========================================
@@ -2246,7 +2275,24 @@ class RussianRouletteView(core.SafeView):
         self.pot_crystals = bet_crystals
         self.participants = []
         self.finished = False
+        self._lock = asyncio.Lock()
         self.last_log = "🔫 6연발 리볼버 실린더가 회전하며 장전되었습니다. 용기 있는 분이 방아쇠를 당겨주세요!"
+
+    async def on_timeout(self):
+        async with self._lock:
+            if not self.finished and self.bet_crystals > 0 and self.current_idx == 0 and self.host_user:
+                self.finished = True
+                refund_amt = self.bet_crystals
+
+                def _refund_unplayed():
+                    with core._DATA_LOCK:
+                        data = core.load_data()
+                        prof = core.ensure_user_profile(data, str(self.host_user.id), self.host_user.display_name)
+                        prof["crystals"] = prof.get("crystals", 0) + refund_amt
+                        core.save_data(data)
+
+                await asyncio.to_thread(_refund_unplayed)
+        await super().on_timeout()
 
     def _cylinder_visual(self) -> str:
         icons = []
@@ -2292,52 +2338,59 @@ class RussianRouletteView(core.SafeView):
             return
 
         await core.safe_defer(interaction)
-        is_bullet = self.chambers[self.current_idx]
+        async with self._lock:
+            if self.finished:
+                return
+            is_bullet = self.chambers[self.current_idx]
 
-        if is_bullet:
-            self.finished = True
-            self.last_survivor_user = None
-            self.pull_trigger_btn.disabled = True
-            self.cashout_btn.disabled = True
-            self.spin_btn.disabled = True
-            penalty = random.choice(ROULETTE_PENALTIES)
-            self.last_log = (
-                f"💥 **빵야!! ({self.current_idx + 1}번째 약실 실탄 격발!)**\n"
-                f"> 😱 당첨자: {interaction.user.mention}님이 실탄에 맞았습니다!\n"
-                f"> 🎲 **오늘의 미니 벌칙:** `{penalty}`"
-            )
-            await interaction.edit_original_response(embed=self.build_embed(), view=self)
-        else:
-            self.current_idx += 1
-            self.survivor_streak += 1
-            self.last_survivor_user = interaction.user
-            bonus = (30 * self.bullets + (self.survivor_streak * 20)) if self.bet_crystals > 0 else 0
-            self.pot_crystals += bonus
-            if interaction.user.display_name not in self.participants:
-                self.participants.append(interaction.user.display_name)
-
-            # 남은 약실이 모두 실탄인 경우 자동 생존 올클리어 승리!
-            rem_slots = 6 - self.current_idx
-            if rem_slots <= self.bullets:
+            if is_bullet:
                 self.finished = True
+                self.last_survivor_user = None
                 self.pull_trigger_btn.disabled = True
                 self.cashout_btn.disabled = True
                 self.spin_btn.disabled = True
-                if self.pot_crystals > 0:
-                    data = await asyncio.to_thread(core.load_data)
-                    prof = core.ensure_user_profile(data, str(interaction.user.id), interaction.user.display_name)
-                    prof["crystals"] = prof.get("crystals", 0) + self.pot_crystals
-                    await asyncio.to_thread(core.save_data, data)
+                penalty = random.choice(ROULETTE_PENALTIES)
                 self.last_log = (
-                    f"💨 **찰칵! ({self.current_idx}번째 약실 생존!)**\n"
-                    f"🎊 **퍼펙트 서바이벌!** 빈 약실을 모두 찾아내어 {interaction.user.mention}님이 최종 상금 `+{self.pot_crystals:,} 💎`를 획득했습니다!"
+                    f"💥 **빵야!! ({self.current_idx + 1}번째 약실 실탄 격발!)**\n"
+                    f"> 😱 당첨자: {interaction.user.mention}님이 실탄에 맞았습니다!\n"
+                    f"> 🎲 **오늘의 미니 벌칙:** `{penalty}`"
                 )
             else:
-                self.last_log = (
-                    f"💨 **찰칵! ({self.current_idx}번째 약실은 빈 약실이었습니다!)**\n"
-                    f"> 😮‍💨 {interaction.user.mention}님 생존 성공! 상금이 **`{self.pot_crystals:,} 💎`**(`+{bonus}💎`)로 상승했습니다!"
-                )
-            await interaction.edit_original_response(embed=self.build_embed(), view=self)
+                self.current_idx += 1
+                self.survivor_streak += 1
+                self.last_survivor_user = interaction.user
+                bonus = (30 * self.bullets + (self.survivor_streak * 20)) if self.bet_crystals > 0 else 0
+                self.pot_crystals += bonus
+                if interaction.user.display_name not in self.participants:
+                    self.participants.append(interaction.user.display_name)
+
+                # 남은 약실이 모두 실탄인 경우 자동 생존 올클리어 승리!
+                rem_slots = 6 - self.current_idx
+                if rem_slots <= self.bullets:
+                    self.finished = True
+                    self.pull_trigger_btn.disabled = True
+                    self.cashout_btn.disabled = True
+                    self.spin_btn.disabled = True
+                    payout = self.pot_crystals
+                    if payout > 0:
+                        def _payout_clear():
+                            with core._DATA_LOCK:
+                                data = core.load_data()
+                                prof = core.ensure_user_profile(data, str(interaction.user.id), interaction.user.display_name)
+                                prof["crystals"] = prof.get("crystals", 0) + payout
+                                core.save_data(data)
+
+                        await asyncio.to_thread(_payout_clear)
+                    self.last_log = (
+                        f"💨 **찰칵! ({self.current_idx}번째 약실 생존!)**\n"
+                        f"🎊 **퍼펙트 서바이벌!** 빈 약실을 모두 찾아내어 {interaction.user.mention}님이 최종 상금 `+{payout:,} 💎`를 획득했습니다!"
+                    )
+                else:
+                    self.last_log = (
+                        f"💨 **찰칵! ({self.current_idx}번째 약실은 빈 약실이었습니다!)**\n"
+                        f"> 😮‍💨 {interaction.user.mention}님 생존 성공! 상금이 **`{self.pot_crystals:,} 💎`**(`+{bonus}💎`)로 상승했습니다!"
+                    )
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="💰 스톱 & 상금", style=discord.ButtonStyle.success, row=0)
     async def cashout_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2356,21 +2409,29 @@ class RussianRouletteView(core.SafeView):
             return
 
         await core.safe_defer(interaction)
-        self.finished = True
-        self.pull_trigger_btn.disabled = True
-        self.cashout_btn.disabled = True
-        self.spin_btn.disabled = True
+        async with self._lock:
+            if self.finished:
+                return
+            self.finished = True
+            self.pull_trigger_btn.disabled = True
+            self.cashout_btn.disabled = True
+            self.spin_btn.disabled = True
+            payout = self.pot_crystals
 
-        data = await asyncio.to_thread(core.load_data)
-        prof = core.ensure_user_profile(data, str(interaction.user.id), interaction.user.display_name)
-        if self.pot_crystals > 0:
-            prof["crystals"] = prof.get("crystals", 0) + self.pot_crystals
-            await asyncio.to_thread(core.save_data, data)
+            def _payout_cashout() -> int:
+                with core._DATA_LOCK:
+                    data = core.load_data()
+                    prof = core.ensure_user_profile(data, str(interaction.user.id), interaction.user.display_name)
+                    if payout > 0:
+                        prof["crystals"] = prof.get("crystals", 0) + payout
+                        core.save_data(data)
+                    return prof.get("crystals", 0)
 
-        self.last_log = (
-            f"💰 **생존 스톱 성공!** {interaction.user.mention}님이 `{self.survivor_streak}연속` 생존 후 멈추어 "
-            f"누적 상금 `+{self.pot_crystals:,} 💎`를 안전하게 수령했습니다! (보유: `{prof.get('crystals', 0):,}💎`)"
-        )
+            new_bal = await asyncio.to_thread(_payout_cashout)
+            self.last_log = (
+                f"💰 **생존 스톱 성공!** {interaction.user.mention}님이 `{self.survivor_streak}연속` 생존 후 멈추어 "
+                f"누적 상금 `+{payout:,} 💎`를 안전하게 수령했습니다! (보유: `{new_bal:,}💎`)"
+            )
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🔄 실린더 돌리기", style=discord.ButtonStyle.secondary, row=1)
@@ -2382,17 +2443,20 @@ class RussianRouletteView(core.SafeView):
             await core.safe_send_response(interaction, content="❌ 유료 러시안룰렛에서는 개설자만 실린더를 다시 돌릴 수 있습니다.", ephemeral=True)
             return
         await core.safe_defer(interaction)
-        random.shuffle(self.chambers)
-        self.current_idx = 0
-        self.survivor_streak = 0
-        self.last_survivor_user = None
-        self.spin_btn.disabled = True
-        self.last_log = f"🔄 {interaction.user.mention}님이 리볼버 실린더를 힘껏 돌려 약실 위치를 다시 섞었습니다! (생존 콤보가 초기화되었습니다)"
+        async with self._lock:
+            if self.finished:
+                return
+            random.shuffle(self.chambers)
+            self.current_idx = 0
+            self.survivor_streak = 0
+            self.last_survivor_user = None
+            self.spin_btn.disabled = True
+            self.last_log = f"🔄 {interaction.user.mention}님이 리볼버 실린더를 힘껏 돌려 약실 위치를 다시 섞었습니다! (생존 콤보가 초기화되었습니다)"
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="⚙️ 맞춤 개설", style=discord.ButtonStyle.secondary, row=1)
     async def custom_roulette_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(RouletteCustomSetupModal())
+        await interaction.response.send_modal(RouletteCustomSetupModal(self))
 
 
 class RouletteCustomSetupModal(core.SafeModal, title="🔫 러시안룰렛 실탄수 & 크리스탈 베팅 설정"):
@@ -2411,6 +2475,10 @@ class RouletteCustomSetupModal(core.SafeModal, title="🔫 러시안룰렛 실�
         max_length=5,
     )
 
+    def __init__(self, parent_view: Optional[RussianRouletteView] = None):
+        super().__init__()
+        self.parent_view = parent_view
+
     async def on_submit(self, interaction: discord.Interaction):
         try:
             b_cnt = max(1, min(5, int(self.bullets_input.value.strip())))
@@ -2421,19 +2489,32 @@ class RouletteCustomSetupModal(core.SafeModal, title="🔫 러시안룰렛 실�
 
         await core.safe_defer(interaction)
         if bet_val > 0:
-            data = await asyncio.to_thread(core.load_data)
-            prof = core.ensure_user_profile(data, str(interaction.user.id), interaction.user.display_name)
-            if prof.get("crystals", 0) < bet_val:
+            def _deduct_bet() -> tuple[bool, int]:
+                with core._DATA_LOCK:
+                    data = core.load_data()
+                    prof = core.ensure_user_profile(data, str(interaction.user.id), interaction.user.display_name)
+                    cur_crystals = prof.get("crystals", 0)
+                    if cur_crystals < bet_val:
+                        return False, cur_crystals
+                    prof["crystals"] = cur_crystals - bet_val
+                    core.save_data(data)
+                    return True, prof["crystals"]
+
+            ok, cur_bal = await asyncio.to_thread(_deduct_bet)
+            if not ok:
                 await interaction.followup.send(
-                    f"❌ 보유 크리스탈이 부족합니다! (보유: `{prof.get('crystals', 0):,}💎` / 필요: `{bet_val:,}💎`)",
+                    f"❌ 보유 크리스탈이 부족합니다! (보유: `{cur_bal:,}💎` / 필요: `{bet_val:,}💎`)",
                     ephemeral=True,
                 )
                 return
-            prof["crystals"] -= bet_val
-            await asyncio.to_thread(core.save_data, data)
 
         new_view = RussianRouletteView(interaction.user, bullets=b_cnt, bet_crystals=bet_val)
-        await interaction.edit_original_response(embed=new_view.build_embed(), view=new_view)
+        pv = self.parent_view
+        can_replace = pv is None or pv.finished or (pv.bet_crystals == 0 and pv.current_idx == 0)
+        if can_replace:
+            await interaction.edit_original_response(embed=new_view.build_embed(), view=new_view)
+        else:
+            await interaction.followup.send(embed=new_view.build_embed(), view=new_view)
 
 
 # ==========================================
@@ -2460,27 +2541,32 @@ async def save_and_notify_suggestion(
     attachment_url: str = None,
     attachment_name: str = None
 ) -> dict:
-    data = await asyncio.to_thread(core.load_data)
-    suggestions = data.setdefault("suggestions", [])
     now_kst = datetime.datetime.now(core.KST)
-    sugg_id = f"SUGG-{now_kst.strftime('%Y%m%d')}-{len(suggestions) + 1:04d}"
 
-    entry = {
-        "id": sugg_id,
-        "is_anonymous": is_anonymous,
-        "user_id": 0 if is_anonymous else user.id,
-        "user_name": "익명의 세카이 멤버" if is_anonymous else user.display_name,
-        "guild_id": guild.id if guild else 0,
-        "guild_name": guild.name if guild else "개인 DM",
-        "title": title.strip()[:100],
-        "content": content.strip()[:1500],
-        "attachment_url": (attachment_url or "").strip() or None,
-        "attachment_name": (attachment_name or "첨부 파일").strip(),
-        "created_at": now_kst.strftime("%Y-%m-%d %H:%M:%S KST"),
-        "status": "접수 완료"
-    }
-    suggestions.append(entry)
-    await asyncio.to_thread(core.save_data, data)
+    def _save_suggestion_atomic() -> tuple[str, dict]:
+        with core._DATA_LOCK:
+            data = core.load_data()
+            suggestions = data.setdefault("suggestions", [])
+            sugg_id = f"SUGG-{now_kst.strftime('%Y%m%d')}-{len(suggestions) + 1:04d}"
+            entry = {
+                "id": sugg_id,
+                "is_anonymous": is_anonymous,
+                "user_id": 0 if is_anonymous else user.id,
+                "user_name": "익명의 세카이 멤버" if is_anonymous else user.display_name,
+                "guild_id": guild.id if guild else 0,
+                "guild_name": guild.name if guild else "개인 DM",
+                "title": title.strip()[:100],
+                "content": content.strip()[:1500],
+                "attachment_url": (attachment_url or "").strip() or None,
+                "attachment_name": (attachment_name or "첨부 파일").strip(),
+                "created_at": now_kst.strftime("%Y-%m-%d %H:%M:%S KST"),
+                "status": "접수 완료"
+            }
+            suggestions.append(entry)
+            core.save_data(data)
+            return sugg_id, entry
+
+    sugg_id, entry = await asyncio.to_thread(_save_suggestion_atomic)
 
     # 봇 개발자(BOT_OWNER_ID)에게 DM 알림 전송 시도
     if core.BOT_OWNER_ID:

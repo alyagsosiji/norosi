@@ -453,18 +453,45 @@ async def send_gacha_pull_result(
     )
     high_cards = [c for c in drawn if c.get("star_num", 0) >= 4] if has_4star else []
     total_high = len(high_cards)
+    display_high = high_cards[:9]
     want_grid = len(drawn) >= 2
     want_single_img = (not has_4star) and (not want_grid) and len(drawn) == 1
+    single_awakenable = bool(want_single_img and core.can_card_awaken(drawn[0]))
+
+    # 디스코드 메시지당 최대 10개 임베드/첨부파일 제한 계산:
+    # 요약 임베드 1개 + 특훈 가능 ★4 카드당 2개(특훈 전 + 특훈 후) <= 10개이면 개별 풀사이즈 임베드 2장씩 표시,
+    # ★4가 5장 이상 한꺼번에 뜬 경우에는 상·하 2단 합본 고화질 이미지(1장당 1임베드·1파일)로 자동 전환!
+    separate_dual_embeds_needed = 1 + sum(2 if core.can_card_awaken(c) else 1 for c in display_high)
+    separate_dual_files_needed = (1 if want_grid else 0) + sum(2 if core.can_card_awaken(c) else 1 for c in display_high)
+    use_dual_composite = bool(
+        display_high and (separate_dual_embeds_needed > 10 or separate_dual_files_needed > 10)
+    )
+
+    async def _fetch_one_card_pair(card_obj: dict):
+        if not core.can_card_awaken(card_obj):
+            only_pair = await asyncio.to_thread(core.fetch_proseka_card_image_bytes, card_obj, "normal")
+            return ("single", only_pair, (None, None))
+        if use_dual_composite:
+            comp_pair = await asyncio.to_thread(core.build_dual_proseka_card_image_bytes, card_obj)
+            return ("composite", comp_pair, (None, None))
+        norm_pair, train_pair = await asyncio.gather(
+            asyncio.to_thread(core.fetch_proseka_card_image_bytes, card_obj, "normal"),
+            asyncio.to_thread(core.fetch_proseka_card_image_bytes, card_obj, "after_training"),
+        )
+        return ("dual", norm_pair, train_pair)
 
     async def _fetch_images():
-        if high_cards:
-            return await asyncio.gather(
-                *(asyncio.to_thread(core.fetch_proseka_card_image_bytes, c, "auto") for c in high_cards[:9])
-            )
+        if display_high:
+            return await asyncio.gather(*(_fetch_one_card_pair(c) for c in display_high))
         if want_single_img:
-            return await asyncio.gather(
-                asyncio.to_thread(core.fetch_proseka_card_image_bytes, drawn[0], "auto")
-            )
+            if single_awakenable:
+                norm_pair, train_pair = await asyncio.gather(
+                    asyncio.to_thread(core.fetch_proseka_card_image_bytes, drawn[0], "normal"),
+                    asyncio.to_thread(core.fetch_proseka_card_image_bytes, drawn[0], "after_training"),
+                )
+                return [("dual", norm_pair, train_pair)]
+            only_pair = await asyncio.to_thread(core.fetch_proseka_card_image_bytes, drawn[0], "normal")
+            return [("single", only_pair, (None, None))]
         return []
 
     async def _fetch_grid():
@@ -516,19 +543,38 @@ async def send_gacha_pull_result(
         return [discord.File(io.BytesIO(b), filename=fn) for b, fn in specs]
 
     if not has_4star:
-        if want_single_img:
-            s_bytes, s_fn = results[0] if results else (None, None)
-            if s_bytes and s_fn and len(file_specs) < MAX_FILES and (total_bytes + len(s_bytes) <= MAX_TOTAL_BYTES):
-                safe_fn = f"pull_1_{s_fn}"
-                file_specs.append((s_bytes, safe_fn))
-                total_bytes += len(s_bytes)
-                embed.set_image(url=f"attachment://{safe_fn}")
+        non4_embeds = [embed]
+        if want_single_img and results:
+            c0 = drawn[0]
+            mode_kind, (n_bytes, n_fn), (t_bytes, t_fn) = results[0]
+            if n_bytes and n_fn and len(file_specs) < MAX_FILES and (total_bytes + len(n_bytes) <= MAX_TOTAL_BYTES):
+                safe_n_fn = f"pull_1_norm_{n_fn}"
+                file_specs.append((n_bytes, safe_n_fn))
+                total_bytes += len(n_bytes)
+                embed.set_image(url=f"attachment://{safe_n_fn}")
             else:
-                embed.set_image(url=core.get_proseka_card_image_url(drawn[0], "auto"))
+                embed.set_image(url=core.get_proseka_card_image_url(c0, "normal"))
+
+            if mode_kind == "dual":
+                embed.set_footer(text=f"{embed.footer.text or ''} • 🌸 특훈 전 & ✨ 특훈 후 일러스트".strip(" •"))
+                t_embed = discord.Embed(
+                    title=f"✨ [특훈 후] {c0.get('rarity_label', '★★★')} [{c0.get('prefix', '')}] {c0.get('char_name', '')}"[:256],
+                    color=discord.Color.from_rgb(242, 184, 48),
+                    timestamp=datetime.datetime.now(core.KST),
+                )
+                t_embed.set_footer(text="프로세카 ★3 특훈 후 (After Training) 공식 일러스트")
+                if t_bytes and t_fn and len(file_specs) < MAX_FILES and (total_bytes + len(t_bytes) <= MAX_TOTAL_BYTES):
+                    safe_t_fn = f"pull_1_train_{t_fn}"
+                    file_specs.append((t_bytes, safe_t_fn))
+                    total_bytes += len(t_bytes)
+                    t_embed.set_image(url=f"attachment://{safe_t_fn}")
+                else:
+                    t_embed.set_image(url=core.get_proseka_card_image_url(c0, "after_training"))
+                non4_embeds.append(t_embed)
 
         if intro_msg is not None:
             try:
-                await intro_msg.edit(embed=embed, attachments=_build_files(file_specs), view=view)
+                await intro_msg.edit(embeds=non4_embeds, attachments=_build_files(file_specs), view=view)
                 return
             except Exception:
                 try:
@@ -538,28 +584,30 @@ async def send_gacha_pull_result(
 
         try:
             if file_specs:
-                await interaction.followup.send(embed=embed, files=_build_files(file_specs), view=view, wait=True)
+                await interaction.followup.send(embeds=non4_embeds, files=_build_files(file_specs), view=view, wait=True)
             else:
-                await interaction.followup.send(embed=embed, view=view, wait=True)
+                await interaction.followup.send(embeds=non4_embeds, view=view, wait=True)
         except discord.HTTPException:
             if want_single_img:
-                embed.set_image(url=core.get_proseka_card_image_url(drawn[0], "auto"))
+                embed.set_image(url=core.get_proseka_card_image_url(drawn[0], "normal"))
+                if len(non4_embeds) > 1:
+                    non4_embeds[1].set_image(url=core.get_proseka_card_image_url(drawn[0], "after_training"))
             else:
                 embed.set_image(url=None)
-            await interaction.followup.send(embed=embed, view=view, wait=True)
+            await interaction.followup.send(embeds=non4_embeds, view=view, wait=True)
         return
 
     embeds = [embed]
-    card_embed_pairs: list[tuple[discord.Embed, dict]] = []
+    card_embed_pairs: list[tuple[discord.Embed, dict, str]] = []
     if total_high > 9:
         rest = ", ".join(f"[{c.get('prefix', '')}] {c.get('char_name', '')}" for c in high_cards[9:])
         embed.add_field(
             name=f"🖼️ 일러스트 미표시 {total_high - 9}장 (디스코드 10개 제한)",
-            value=core.truncate_text(rest, 1000) + "\n└ 내 카드 목록에서 일러스트를 확인할 수 있어요",
+            value=core.truncate_text(rest, 1000) + "\n└ 내 카드 보관함에서 특훈 전·후 일러스트를 모두 확인할 수 있어요",
             inline=False,
         )
 
-    for idx, (c, (img_bytes, filename)) in enumerate(zip(high_cards[:9], results), start=1):
+    for idx, (c, (mode_kind, (n_bytes, n_fn), (t_bytes, t_fn))) in enumerate(zip(display_high, results), start=1):
         is_bday_card = (c.get("rarity_type") == "rarity_birthday")
         card_badge = "🎂 생일" if is_bday_card else "🌟 ★4"
         trig = c.get("bonus_trigger")
@@ -579,7 +627,8 @@ async def send_gacha_pull_result(
         order_txt = f" ({idx}/{total_high})" if total_high > 1 else ""
         unit_str = f"{c.get('unit', '')}" + (f" ({c.get('support_unit')})" if c.get("support_unit") else "")
 
-        card_title = f"{card_badge} [{c.get('prefix', '')}] {c.get('char_name', '')}{order_txt}"
+        stage_prefix = "🌸 [특훈 전] " if mode_kind == "dual" else ("🖼️ [특훈 전·후] " if mode_kind == "composite" else "")
+        card_title = f"{card_badge} {stage_prefix}[{c.get('prefix', '')}] {c.get('char_name', '')}{order_txt}"
         desc_parts = []
         if title_tags:
             desc_parts.append(" · ".join(f"**{t}**" for t in title_tags) + f" · `{limit_lbl}`")
@@ -611,19 +660,45 @@ async def send_gacha_pull_result(
                 inline=False,
             )
 
-        footer_kind = "🎂 생일 한정" if is_bday_card else "★4"
-        card_embed.set_footer(text=f"프로세카 {footer_kind} 공식 일러스트")
+        if mode_kind == "dual":
+            card_embed.set_footer(text="프로세카 ★4 특훈 전 (Normal) 공식 일러스트 • 아래에 특훈 후 일러스트가 함께 표시됩니다")
+            primary_fallback_mode = "normal"
+        elif mode_kind == "composite":
+            card_embed.set_footer(text="프로세카 ★4 특훈 전(상단) · 특훈 후(하단) 공식 일러스트")
+            primary_fallback_mode = "auto"
+        else:
+            footer_kind = "🎂 생일 한정" if is_bday_card else "★4"
+            card_embed.set_footer(text=f"프로세카 {footer_kind} 공식 일러스트")
+            primary_fallback_mode = "normal"
 
-        fallback_url = core.get_proseka_card_image_url(c, "auto")
-        if img_bytes and filename and len(file_specs) < MAX_FILES and (total_bytes + len(img_bytes) <= MAX_TOTAL_BYTES):
-            safe_fn = f"pull_{idx}_{filename}"
-            file_specs.append((img_bytes, safe_fn))
-            total_bytes += len(img_bytes)
+        fallback_url = core.get_proseka_card_image_url(c, primary_fallback_mode)
+        if n_bytes and n_fn and len(file_specs) < MAX_FILES and (total_bytes + len(n_bytes) <= MAX_TOTAL_BYTES):
+            safe_fn = f"pull_{idx}_norm_{n_fn}"
+            file_specs.append((n_bytes, safe_fn))
+            total_bytes += len(n_bytes)
             card_embed.set_image(url=f"attachment://{safe_fn}")
         else:
             card_embed.set_image(url=fallback_url)
         embeds.append(card_embed)
-        card_embed_pairs.append((card_embed, c))
+        card_embed_pairs.append((card_embed, c, primary_fallback_mode))
+
+        if mode_kind == "dual" and len(embeds) < 10:
+            trained_embed = discord.Embed(
+                title=f"✨ [특훈 후] [{c.get('prefix', '')}] {c.get('char_name', '')}{order_txt}"[:256],
+                color=discord.Color.from_rgb(255, 105, 180),
+                timestamp=datetime.datetime.now(core.KST),
+            )
+            trained_embed.set_footer(text="프로세카 ★4 특훈 후 (After Training) 공식 일러스트")
+            t_fallback_url = core.get_proseka_card_image_url(c, "after_training")
+            if t_bytes and t_fn and len(file_specs) < MAX_FILES and (total_bytes + len(t_bytes) <= MAX_TOTAL_BYTES):
+                safe_t_fn = f"pull_{idx}_train_{t_fn}"
+                file_specs.append((t_bytes, safe_t_fn))
+                total_bytes += len(t_bytes)
+                trained_embed.set_image(url=f"attachment://{safe_t_fn}")
+            else:
+                trained_embed.set_image(url=t_fallback_url)
+            embeds.append(trained_embed)
+            card_embed_pairs.append((trained_embed, c, "after_training"))
 
     if intro_msg is not None:
         try:
@@ -642,8 +717,8 @@ async def send_gacha_pull_result(
             await interaction.followup.send(embeds=embeds, view=view, wait=True)
     except discord.HTTPException:
         embed.set_image(url=None)
-        for c_emb, c in card_embed_pairs:
-            c_emb.set_image(url=core.get_proseka_card_image_url(c, "auto"))
+        for c_emb, c, f_mode in card_embed_pairs:
+            c_emb.set_image(url=core.get_proseka_card_image_url(c, f_mode))
         await interaction.followup.send(embeds=embeds, view=view, wait=True)
 
 
@@ -803,6 +878,57 @@ def check_and_update_gacha_cooldown(user_id: int, skip_anim: bool = False) -> tu
     return core.check_and_update_gacha_cooldown(user_id, skip_anim=skip_anim, base_seconds=GACHA_COOLDOWN_SECONDS)
 
 
+class ProsekaRegisterView(core.SafeView):
+    """프로세카 가챠 등록 버튼 (등록 시 ★1 카드 전부 기본 지급)"""
+
+    def __init__(self, user: discord.abc.User, guild_id: int = 0):
+        super().__init__(timeout=300)
+        self.user = user
+        self.guild_id = guild_id
+
+    @discord.ui.button(label="📝 프로세카 가챠 등록", style=discord.ButtonStyle.success)
+    async def register_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 본인만 등록 버튼을 누를 수 있습니다.", ephemeral=True)
+            return
+        ok, msg, _ = await asyncio.to_thread(
+            core.register_proseka_gacha_user, interaction.guild_id or self.guild_id or 0, interaction.user.id
+        )
+        if ok:
+            button.disabled = True
+            button.label = "✅ 등록 완료"
+            try:
+                await interaction.response.edit_message(view=self)
+            except Exception:
+                pass
+        await core.safe_send_response(interaction, f"{'🎉' if ok else 'ℹ️'} {msg}", ephemeral=True)
+
+
+def build_proseka_register_embed() -> discord.Embed:
+    return discord.Embed(
+        title="📝 프로세카 가챠 등록",
+        description=(
+            "프로세카 가챠를 이용하려면 먼저 **등록**이 필요합니다.\n"
+            "등록하면 ★1 카드 전체가 **내 보관함에 기본 지급**됩니다! 🎁"
+        ),
+        color=discord.Color.teal(),
+    )
+
+
+async def ensure_proseka_registered(interaction: discord.Interaction, guild_id: int | None = None) -> bool:
+    """미등록 유저면 등록 안내를 보내고 False를 반환합니다 (모든 프로세카 뽑기 경로 공용 게이트)."""
+    gid = guild_id if guild_id is not None else (interaction.guild_id or 0)
+    if core.is_proseka_gacha_registered(gid, interaction.user.id):
+        return True
+    await core.safe_send_response(
+        interaction,
+        embed=build_proseka_register_embed(),
+        view=ProsekaRegisterView(interaction.user, gid),
+        ephemeral=True,
+    )
+    return False
+
+
 class GachaPullAgainView(core.SafeView):
     """가챠 결과 화면에서 배너 전환, 연출 스킵, 재뽑기, 천장 교환(200배지), 셀렉트 리스트, 캐랭 깃발, 생일 단차 등을 여는 뷰"""
 
@@ -890,6 +1016,8 @@ class GachaPullAgainView(core.SafeView):
             return
         if not self.user:
             self.user = interaction.user
+        if not await ensure_proseka_registered(interaction, interaction.guild_id or self.guild_id or 0):
+            return
         can_pull, rem = check_and_update_gacha_cooldown(interaction.user.id, skip_anim=self.skip_anim)
         if not can_pull:
             await core.safe_send_response(
@@ -1053,6 +1181,8 @@ class GachaPullAgainView(core.SafeView):
 
     @discord.ui.button(label="🎂 생일 무료 단차!", style=discord.ButtonStyle.danger, row=3)
     async def birthday_free_pull(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await ensure_proseka_registered(interaction):
+            return
         await core.safe_defer(interaction)
         guild_id = interaction.guild_id or 0
         ok, msg, bday_chars, drawn = await asyncio.to_thread(
@@ -1321,6 +1451,8 @@ class GachaCeilingExchangeView(core.SafeView):
             if not self.selected_card_id or self.selected_card_id == "NONE":
                 await core.safe_send_response(interaction, "❌ 먼저 교환할 카드를 선택해 주세요!", ephemeral=True)
                 return
+            if not await ensure_proseka_registered(interaction, self.guild_id):
+                return
             await core.safe_defer(interaction)
             ok, msg, info = await asyncio.to_thread(
                 core.exchange_gacha_ceiling_badge, self.guild_id, interaction.user.id, self.selected_card_id
@@ -1336,12 +1468,14 @@ class GachaCeilingExchangeView(core.SafeView):
             await asyncio.to_thread(self._reload_state)
             await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
-            # 축하 결과 & 고화질 공식 일러스트 별도 출력
+            # 축하 결과 & 고화질 공식 일러스트(특훈 전 · 특훈 후) 별도 출력
             new_badge = " · ✨ **NEW**" if info.get("is_new") else ""
             cos = core.get_costume_for_card(card.get("id"))
             raw_q = _get_card_preview_quote(card)
+            can_train = core.can_card_awaken(card)
+            stage_tag = "🌸 [특훈 전] " if can_train else ""
             cele_embed = discord.Embed(
-                title=f"🏅 천장 교환 완료 — [{card.get('prefix')}] {card.get('char_name')}",
+                title=f"🏅 천장 교환 완료 — {stage_tag}[{card.get('prefix')}] {card.get('char_name')}"[:256],
                 description=(
                     f"🎉 {interaction.user.mention}님이 **가챠 배지** `{core.GACHA_CEILING_BADGE_COST}개`로 확정 영입했습니다!{new_badge}\n\n"
                     f"> 💬 *\"{raw_q}\"*"
@@ -1358,17 +1492,53 @@ class GachaCeilingExchangeView(core.SafeView):
             )
             if cos:
                 cele_embed.add_field(name="👗 3D 의상 획득", value=f"`{cos['name']}`", inline=False)
-            img_bytes, fn = await asyncio.to_thread(core.fetch_proseka_card_image_bytes, card, "auto")
-            try:
+
+            cele_embeds = [cele_embed]
+            cele_files: list[discord.File] = []
+            if can_train:
+                cele_embed.set_footer(text="프로세카 ★4 특훈 전 (Normal) 공식 일러스트 • 아래에 특훈 후 일러스트가 함께 표시됩니다")
+                (n_bytes, n_fn), (t_bytes, t_fn) = await asyncio.gather(
+                    asyncio.to_thread(core.fetch_proseka_card_image_bytes, card, "normal"),
+                    asyncio.to_thread(core.fetch_proseka_card_image_bytes, card, "after_training"),
+                )
+                if n_bytes and n_fn:
+                    safe_n_fn = f"ceil_norm_{n_fn}"
+                    cele_embed.set_image(url=f"attachment://{safe_n_fn}")
+                    cele_files.append(discord.File(io.BytesIO(n_bytes), filename=safe_n_fn))
+                else:
+                    cele_embed.set_image(url=core.get_proseka_card_image_url(card, "normal"))
+
+                t_embed = discord.Embed(
+                    title=f"✨ [특훈 후] [{card.get('prefix')}] {card.get('char_name')}"[:256],
+                    color=discord.Color.from_rgb(255, 105, 180),
+                    timestamp=datetime.datetime.now(core.KST),
+                )
+                t_embed.set_footer(text="프로세카 ★4 특훈 후 (After Training) 공식 일러스트")
+                if t_bytes and t_fn:
+                    safe_t_fn = f"ceil_train_{t_fn}"
+                    t_embed.set_image(url=f"attachment://{safe_t_fn}")
+                    cele_files.append(discord.File(io.BytesIO(t_bytes), filename=safe_t_fn))
+                else:
+                    t_embed.set_image(url=core.get_proseka_card_image_url(card, "after_training"))
+                cele_embeds.append(t_embed)
+            else:
+                img_bytes, fn = await asyncio.to_thread(core.fetch_proseka_card_image_bytes, card, "normal")
                 if img_bytes and fn:
                     cele_embed.set_image(url=f"attachment://{fn}")
-                    await interaction.followup.send(embed=cele_embed, file=discord.File(io.BytesIO(img_bytes), filename=fn))
+                    cele_files.append(discord.File(io.BytesIO(img_bytes), filename=fn))
                 else:
-                    cele_embed.set_image(url=core.get_proseka_card_image_url(card, "auto"))
-                    await interaction.followup.send(embed=cele_embed)
+                    cele_embed.set_image(url=core.get_proseka_card_image_url(card, "normal"))
+
+            try:
+                if cele_files:
+                    await interaction.followup.send(embeds=cele_embeds, files=cele_files)
+                else:
+                    await interaction.followup.send(embeds=cele_embeds)
             except discord.HTTPException:
-                cele_embed.set_image(url=core.get_proseka_card_image_url(card, "auto"))
-                await interaction.followup.send(embed=cele_embed)
+                cele_embed.set_image(url=core.get_proseka_card_image_url(card, "normal"))
+                if len(cele_embeds) > 1:
+                    cele_embeds[1].set_image(url=core.get_proseka_card_image_url(card, "after_training"))
+                await interaction.followup.send(embeds=cele_embeds)
 
 
 class SelectListGachaView(core.SafeView):
@@ -1629,6 +1799,8 @@ class SelectListGachaView(core.SafeView):
             await core.safe_send_response(interaction, "⏳ 셀렉트 리스트 뽑기를 처리 중입니다!", ephemeral=True)
             return
         async with self._lock:
+            if not await ensure_proseka_registered(interaction, self.guild_id):
+                return
             can_pull, rem = check_and_update_gacha_cooldown(interaction.user.id, skip_anim=self.skip_anim)
             if not can_pull:
                 await core.safe_send_response(
@@ -3129,11 +3301,11 @@ class InteractiveCardTradeStudioView(core.SafeView):
 
 
 class CardIllustToggleView(core.SafeView):
-    """보유 카드 일러스트 감상, 각성 전(Normal)/각성 후(After Training) 전환, 잠금(🔒) 토글 및 마스터 랭크 바로가기 뷰"""
+    """보유 카드 일러스트 감상 — ★3·★4 특훈 전(Normal) / 특훈 후(After Training) 동시·개별 보기, 잠금(🔒) 토글 및 마스터 랭크 바로가기 뷰"""
     def __init__(
         self,
         card: dict | None = None,
-        initial_mode: str = "after_training",
+        initial_mode: str = "both",
         guild_id: int = 0,
         owner_id: int = 0,
         parent_inventory_view=None,
@@ -3146,8 +3318,20 @@ class CardIllustToggleView(core.SafeView):
         self.parent_inventory_view = parent_inventory_view
         self.parent_inventory_message = parent_inventory_message
         self.has_awakening = core.can_card_awaken(self.card) if self.card else False
-        self.current_mode = initial_mode if self.has_awakening else "normal"
+        if self.has_awakening:
+            self.current_mode = initial_mode if initial_mode in ("both", "normal", "after_training") else "both"
+        else:
+            self.current_mode = "normal"
         self.update_buttons()
+
+    def _card_accent_color(self) -> discord.Color:
+        s_num = int(self.card.get("star_num") or 0)
+        r_type = str(self.card.get("rarity_type") or "")
+        if r_type in ("rarity_4", "rarity_birthday") or s_num >= 4:
+            return discord.Color.from_rgb(255, 105, 180)
+        if r_type == "rarity_3" or s_num == 3:
+            return discord.Color.from_rgb(242, 184, 48)
+        return discord.Color.from_rgb(0, 204, 221)
 
     def _restore_from_message(self, interaction: discord.Interaction):
         msg = getattr(interaction, "message", None)
@@ -3157,12 +3341,13 @@ class CardIllustToggleView(core.SafeView):
             self.guild_id = interaction.guild_id
         orig_inter = getattr(msg, "interaction_metadata", None)
         orig_user = getattr(orig_inter, "user", None) or interaction.user
-        if not self.owner_id and orig_user:
+        if not self.owner_id and orig_user and isinstance(getattr(orig_user, "id", None), int):
             self.owner_id = orig_user.id
 
         if not self.card or "id" not in self.card:
             cid_str = None
             embeds = getattr(msg, "embeds", None) or []
+            search_blob = ""
             if embeds:
                 import re
                 emb0 = embeds[0]
@@ -3180,14 +3365,18 @@ class CardIllustToggleView(core.SafeView):
                 if not isinstance(found, dict):
                     found = next((c for c in u_cards.values() if isinstance(c, dict) and str(c.get("id")) == cid_str), None)
                 if not isinstance(found, dict):
-                    found = next((c for c in core.PROSEKA_KR_CARDS if str(c.get("id")) == cid_str), None)
+                    found = core.get_proseka_card_by_id(cid_str)
                 if isinstance(found, dict):
                     self.card = dict(found)
                     self.has_awakening = core.can_card_awaken(self.card)
-                    if embeds and ("각성 전 (Normal)" in search_blob):
+                    if not self.has_awakening:
+                        self.current_mode = "normal"
+                    elif len(embeds) >= 2 or "특훈 전·후 동시 보기" in search_blob:
+                        self.current_mode = "both"
+                    elif "특훈 전 (Normal)" in search_blob or "각성 전 (Normal)" in search_blob:
                         self.current_mode = "normal"
                     else:
-                        self.current_mode = "after_training" if self.has_awakening else "normal"
+                        self.current_mode = "after_training"
                     self.update_buttons()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -3198,13 +3387,20 @@ class CardIllustToggleView(core.SafeView):
         return True
 
     def update_buttons(self):
-        self.normal_btn.disabled = (self.current_mode == "normal")
         if not self.has_awakening:
+            self.both_btn.disabled = True
+            self.both_btn.label = "🖼️ 전·후 함께 (★3·★4 전용)"
+            self.normal_btn.disabled = True
+            self.normal_btn.label = "🖼️ 기본 일러스트"
             self.awakened_btn.disabled = True
-            self.awakened_btn.label = "✨ 각성 후 (★3·★4 전용)"
+            self.awakened_btn.label = "✨ 특훈 후 (★3·★4 전용)"
         else:
+            self.both_btn.disabled = (self.current_mode == "both")
+            self.both_btn.label = "🖼️ 특훈 전·후 함께"
+            self.normal_btn.disabled = (self.current_mode == "normal")
+            self.normal_btn.label = "🌸 특훈 전"
             self.awakened_btn.disabled = (self.current_mode == "after_training")
-            self.awakened_btn.label = "✨ 각성 후 (After Training)"
+            self.awakened_btn.label = "✨ 특훈 후"
 
         is_locked = bool(self.card.get("locked", False))
         if is_locked:
@@ -3215,7 +3411,15 @@ class CardIllustToggleView(core.SafeView):
             self.lock_toggle_btn.style = discord.ButtonStyle.success
 
     def build_embed(self):
-        mode_text = "✨ 각성 후 (After Training)" if self.current_mode == "after_training" else "🌸 각성 전 (Normal)"
+        if not self.has_awakening:
+            mode_text = "🖼️ 기본 일러스트 (Normal)"
+        elif self.current_mode == "both":
+            mode_text = "🖼️ 특훈 전·후 동시 보기 (Normal + After Training)"
+        elif self.current_mode == "after_training":
+            mode_text = "✨ 특훈 후 (After Training)"
+        else:
+            mode_text = "🌸 특훈 전 (Normal)"
+
         lock_status = "🔒 잠금 보호 중" if self.card.get("locked", False) else "🔓 잠금 해제"
         base_unit = self.card.get("unit", "프로세카")
         unit_str = f"{base_unit}" + (f" ({self.card['support_unit']})" if self.card.get("support_unit") else "")
@@ -3223,11 +3427,13 @@ class CardIllustToggleView(core.SafeView):
         cur_lvl = self.card.get("level", 1)
         max_lvl = core.get_card_max_level(self.card)
         pwr = core.get_card_power(self.card)
+        r_label = self.card.get("rarity_label") or ("★★★★" if int(self.card.get("star_num", 3)) >= 4 else "★★★")
+        stage_head = "🌸 [특훈 전] " if (self.has_awakening and self.current_mode == "both") else ""
 
         embed = discord.Embed(
-            title=f"🖼️ {self.card.get('rarity_label', '★4')} [{self.card.get('prefix', '카드')}] {self.card.get('char_name', '캐릭터')}",
+            title=f"🖼️ {stage_head}{r_label} [{self.card.get('prefix', '카드')}] {self.card.get('char_name', '캐릭터')}"[:256],
             description=f"`{mode_text}` · `{lock_status}` *(ID: `{self.card.get('id', '-')}`)*",
-            color=discord.Color.from_rgb(255, 105, 180) if self.card.get("star_num", 1) >= 4 else discord.Color.from_rgb(0, 204, 221)
+            color=self._card_accent_color(),
         )
         embed.add_field(name="🏷️ 유닛 · 분류", value=f"`{unit_str}`\n└ `{self.card.get('limit_label', '통상')}` · {self.card.get('attr', '✨')}", inline=True)
         embed.add_field(name="⚔️ 성장 스탯", value=f"**`⚔️ {pwr:,}`**\n└ `Lv.{cur_lvl}/{max_lvl}` · `✦MR.{mr}/5`", inline=True)
@@ -3241,31 +3447,70 @@ class CardIllustToggleView(core.SafeView):
                 value=f"**`{cos['name']}`** (`{'/'.join(cos.get('parts', ['body']))}`)\n└ *{ac_txt}*",
                 inline=False,
             )
-        embed.set_footer(text="잠금 시 교환·선물·중복변환에서 안전하게 보호됩니다")
+        if self.has_awakening and self.current_mode == "both":
+            embed.set_footer(text="위: 🌸 특훈 전(Normal) · 아래: ✨ 특훈 후(After Training) • 잠금 시 교환·선물·중복변환 보호")
+        else:
+            embed.set_footer(text="잠금 시 교환·선물·중복변환에서 안전하게 보호됩니다")
         return embed
+
+    async def build_embeds_and_files(self) -> tuple[list[discord.Embed], list[discord.File]]:
+        primary_embed = self.build_embed()
+        files: list[discord.File] = []
+
+        if self.has_awakening and self.current_mode == "both":
+            (n_bytes, n_fn), (t_bytes, t_fn) = await asyncio.gather(
+                asyncio.to_thread(core.fetch_proseka_card_image_bytes, self.card, "normal"),
+                asyncio.to_thread(core.fetch_proseka_card_image_bytes, self.card, "after_training"),
+            )
+            if n_bytes and n_fn:
+                safe_n_fn = f"inv_norm_{n_fn}"
+                primary_embed.set_image(url=f"attachment://{safe_n_fn}")
+                files.append(discord.File(io.BytesIO(n_bytes), filename=safe_n_fn))
+            else:
+                primary_embed.set_image(url=core.get_proseka_card_image_url(self.card, "normal"))
+
+            r_label = self.card.get("rarity_label") or ("★★★★" if int(self.card.get("star_num", 3)) >= 4 else "★★★")
+            trained_embed = discord.Embed(
+                title=f"✨ [특훈 후] {r_label} [{self.card.get('prefix', '카드')}] {self.card.get('char_name', '캐릭터')}"[:256],
+                color=self._card_accent_color(),
+            )
+            trained_embed.set_footer(text="✨ 특훈 후 (After Training) 공식 일러스트")
+            if t_bytes and t_fn:
+                safe_t_fn = f"inv_train_{t_fn}"
+                trained_embed.set_image(url=f"attachment://{safe_t_fn}")
+                files.append(discord.File(io.BytesIO(t_bytes), filename=safe_t_fn))
+            else:
+                trained_embed.set_image(url=core.get_proseka_card_image_url(self.card, "after_training"))
+            return [primary_embed, trained_embed], files
+
+        fetch_mode = "after_training" if (self.has_awakening and self.current_mode == "after_training") else "normal"
+        img_bytes, filename = await asyncio.to_thread(core.fetch_proseka_card_image_bytes, self.card, fetch_mode)
+        if img_bytes and filename:
+            files.append(discord.File(io.BytesIO(img_bytes), filename=filename))
+            primary_embed.set_image(url=f"attachment://{filename}")
+        else:
+            primary_embed.set_image(url=core.get_proseka_card_image_url(self.card, fetch_mode))
+        return [primary_embed], files
 
     async def switch_mode(self, interaction: discord.Interaction, target_mode: str):
         if not self.card or "id" not in self.card:
             await core.safe_send_response(interaction, "❌ 카드 정보를 찾을 수 없습니다. `/설정` (`👤 개인` ➔ `🎒 프로세카 카드 보관함`)에서 다시 선택해 주세요.", ephemeral=True)
             return
         await core.safe_defer(interaction)
-        self.current_mode = target_mode
+        self.current_mode = target_mode if self.has_awakening else "normal"
         self.update_buttons()
-        embed = self.build_embed()
-        img_bytes, filename = await asyncio.to_thread(core.fetch_proseka_card_image_bytes, self.card, self.current_mode)
-        if img_bytes and filename:
-            file = discord.File(io.BytesIO(img_bytes), filename=filename)
-            embed.set_image(url=f"attachment://{filename}")
-            await interaction.edit_original_response(embed=embed, attachments=[file], view=self)
-        else:
-            embed.set_image(url=core.get_proseka_card_image_url(self.card, self.current_mode))
-            await interaction.edit_original_response(embed=embed, attachments=[], view=self)
+        embeds, files = await self.build_embeds_and_files()
+        await interaction.edit_original_response(embeds=embeds, attachments=files, view=self)
 
-    @discord.ui.button(label="🌸 각성 전", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🖼️ 특훈 전·후 함께", style=discord.ButtonStyle.success, row=0)
+    async def both_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.switch_mode(interaction, "both")
+
+    @discord.ui.button(label="🌸 특훈 전", style=discord.ButtonStyle.secondary, row=0)
     async def normal_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.switch_mode(interaction, "normal")
 
-    @discord.ui.button(label="✨ 각성 후", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="✨ 특훈 후", style=discord.ButtonStyle.primary, row=0)
     async def awakened_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.switch_mode(interaction, "after_training")
 
@@ -3309,15 +3554,8 @@ class CardIllustToggleView(core.SafeView):
                     pass
 
         self.update_buttons()
-        embed = self.build_embed()
-        img_bytes, filename = await asyncio.to_thread(core.fetch_proseka_card_image_bytes, self.card, self.current_mode)
-        if img_bytes and filename:
-            file = discord.File(io.BytesIO(img_bytes), filename=filename)
-            embed.set_image(url=f"attachment://{filename}")
-            await interaction.edit_original_response(embed=embed, attachments=[file], view=self)
-        else:
-            embed.set_image(url=core.get_proseka_card_image_url(self.card, self.current_mode))
-            await interaction.edit_original_response(embed=embed, attachments=[], view=self)
+        embeds, files = await self.build_embeds_and_files()
+        await interaction.edit_original_response(embeds=embeds, attachments=files, view=self)
 
     @discord.ui.button(label="🏆 마스터 랭크", style=discord.ButtonStyle.primary, row=1)
     async def master_rank_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -4245,7 +4483,12 @@ class MyInventoryView(core.SafeView):
                 raw_cn = str(c.get("char_name") or "")
                 short_cn = raw_cn.split()[-1] if " " in raw_cn else raw_cn
                 label = f"{idx}.{lock_icon}{r_short} {short_cn} [{c['prefix'][:6]}] ({c.get('count', 1)}{mr_desc})"[:36]
-                opts.append(discord.SelectOption(label=label, value=cid_val[:100]))
+                desc = (
+                    "🌸특훈 전 · ✨특훈 후 일러스트 동시 감상 및 잠금 관리"
+                    if core.can_card_awaken(c)
+                    else "🖼️ 카드 일러스트 감상 및 잠금 관리"
+                )
+                opts.append(discord.SelectOption(label=label, value=cid_val[:100], description=desc))
             self.illust_select.options = opts[:25] or [discord.SelectOption(label="표시할 카드가 없습니다", value="NONE")]
             self.illust_select.disabled = not bool(opts)
 
@@ -4260,6 +4503,9 @@ class MyInventoryView(core.SafeView):
         elif mode == "star_desc":
             self.cards.sort(key=lambda x: (-x.get("star_num", 1), -int(x.get("is_limited", False)), x.get("char_id", 99)))
             self.sort_mode_label = "성(레어도) 높은순"
+        elif mode == "star3_first":
+            self.cards.sort(key=lambda x: (0 if (x.get("rarity_type") == "rarity_3" or x.get("star_num") == 3) else 1, -x.get("star_num", 1), x.get("char_id", 99)))
+            self.sort_mode_label = "★★★ (3성) 우선"
         elif mode == "star_asc":
             self.cards.sort(key=lambda x: (x.get("star_num", 1), x.get("char_id", 99)))
             self.sort_mode_label = "성(레어도) 낮은순"
@@ -4349,7 +4595,7 @@ class MyInventoryView(core.SafeView):
                 max_chars=950
             )
 
-        embed.set_footer(text="하단 드롭다운으로 필터링 · 일러스트/각성/잠금(🔒) 관리가 가능합니다")
+        embed.set_footer(text="하단 드롭다운으로 필터링 · ★3·★4 특훈 전·후 일러스트 감상 · 잠금(🔒) 관리가 가능합니다")
         return embed
 
     @discord.ui.button(label="⏪ -5", style=discord.ButtonStyle.secondary, row=0)
@@ -4398,7 +4644,8 @@ class MyInventoryView(core.SafeView):
         options=[
             discord.SelectOption(label="획득 최신순", value="obtained_desc"),
             discord.SelectOption(label="획득 오래된순", value="obtained_asc"),
-            discord.SelectOption(label="레어도 높은순", value="star_desc"),
+            discord.SelectOption(label="레어도 높은순 (★4·생일 우선)", value="star_desc"),
+            discord.SelectOption(label="★★★ (3성) 카드 우선 보기", value="star3_first"),
             discord.SelectOption(label="레어도 낮은순", value="star_asc"),
             discord.SelectOption(label="잠금 카드 우선", value="locked_only"),
             discord.SelectOption(label="유닛 기준", value="unit"),
@@ -4413,7 +4660,7 @@ class MyInventoryView(core.SafeView):
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.select(
-        placeholder="🖼️ 카드 일러스트 감상·잠금 선택...",
+        placeholder="🖼️ 카드 일러스트(★3·★4 특훈 전·후)·잠금 선택...",
         row=2,
         options=[discord.SelectOption(label="카드 선택", value="NONE")]
     )
@@ -4441,25 +4688,20 @@ class MyInventoryView(core.SafeView):
             return
 
         await core.safe_defer(interaction)
-        init_mode = "after_training" if core.can_card_awaken(selected_card) else "normal"
+        init_mode = "both" if core.can_card_awaken(selected_card) else "normal"
         toggle_view = CardIllustToggleView(
             selected_card,
             initial_mode=init_mode,
             guild_id=self.guild_id or (interaction.guild_id or 0),
-            owner_id=self.user.id,
+            owner_id=self.user.id if self.user else interaction.user.id,
             parent_inventory_view=self,
             parent_inventory_message=interaction.message
         )
-        embed = toggle_view.build_embed()
-
-        img_bytes, filename = await asyncio.to_thread(core.fetch_proseka_card_image_bytes, selected_card, init_mode)
-        if img_bytes and filename:
-            file = discord.File(io.BytesIO(img_bytes), filename=filename)
-            embed.set_image(url=f"attachment://{filename}")
-            await interaction.followup.send(embed=embed, file=file, view=toggle_view, wait=True)
+        embeds, files = await toggle_view.build_embeds_and_files()
+        if files:
+            await interaction.followup.send(embeds=embeds, files=files, view=toggle_view, wait=True)
         else:
-            embed.set_image(url=core.get_proseka_card_image_url(selected_card, init_mode))
-            await interaction.followup.send(embed=embed, view=toggle_view, wait=True)
+            await interaction.followup.send(embeds=embeds, view=toggle_view, wait=True)
 
     @discord.ui.select(
         placeholder="🏷️ 유닛별 필터...",
@@ -4839,23 +5081,61 @@ class CardPokedexView(core.SafeView):
             return
 
         await core.safe_defer(interaction, ephemeral=True)
-        init_mode = "after_training" if core.can_card_awaken(target_card) else "normal"
+        can_train = core.can_card_awaken(target_card)
         status_txt = "✨ 보유 완료" if target_card.get("count", 0) > 0 else "🔒 미획득"
+        s_num = int(target_card.get("star_num", 3))
+        p_color = (
+            discord.Color.from_rgb(255, 105, 180)
+            if s_num >= 4
+            else (discord.Color.from_rgb(242, 184, 48) if s_num == 3 else discord.Color.from_rgb(0, 204, 221))
+        )
+        stage_tag = "🌸 [특훈 전] " if can_train else ""
         p_embed = discord.Embed(
-            title=f"📖 {target_card['rarity_label']} [{target_card['prefix']}] {target_card['char_name']}",
+            title=f"📖 {stage_tag}{target_card['rarity_label']} [{target_card['prefix']}] {target_card['char_name']}"[:256],
             description=f"`{target_card.get('limit_label', '통상')}` · 도감 ID `{target_card.get('id')}`",
-            color=discord.Color.from_rgb(255, 105, 180)
+            color=p_color,
         )
         p_embed.add_field(name="📌 상태", value=f"**{status_txt}**", inline=True)
         p_embed.add_field(name="🏷️ 유닛 · 속성", value=f"`{target_card.get('unit', '-')}` · {target_card.get('attr', '✨')}", inline=True)
-        img_bytes, filename = await asyncio.to_thread(core.fetch_proseka_card_image_bytes, target_card, init_mode)
-        if img_bytes and filename:
-            file = discord.File(io.BytesIO(img_bytes), filename=filename)
-            p_embed.set_image(url=f"attachment://{filename}")
-            await interaction.followup.send(embed=p_embed, file=file, ephemeral=True)
+
+        p_embeds = [p_embed]
+        p_files: list[discord.File] = []
+        if can_train:
+            (n_bytes, n_fn), (t_bytes, t_fn) = await asyncio.gather(
+                asyncio.to_thread(core.fetch_proseka_card_image_bytes, target_card, "normal"),
+                asyncio.to_thread(core.fetch_proseka_card_image_bytes, target_card, "after_training"),
+            )
+            if n_bytes and n_fn:
+                safe_n_fn = f"pdx_norm_{n_fn}"
+                p_embed.set_image(url=f"attachment://{safe_n_fn}")
+                p_files.append(discord.File(io.BytesIO(n_bytes), filename=safe_n_fn))
+            else:
+                p_embed.set_image(url=core.get_proseka_card_image_url(target_card, "normal"))
+
+            t_embed = discord.Embed(
+                title=f"✨ [특훈 후] {target_card['rarity_label']} [{target_card['prefix']}] {target_card['char_name']}"[:256],
+                color=p_color,
+            )
+            t_embed.set_footer(text="✨ 특훈 후 (After Training) 공식 일러스트")
+            if t_bytes and t_fn:
+                safe_t_fn = f"pdx_train_{t_fn}"
+                t_embed.set_image(url=f"attachment://{safe_t_fn}")
+                p_files.append(discord.File(io.BytesIO(t_bytes), filename=safe_t_fn))
+            else:
+                t_embed.set_image(url=core.get_proseka_card_image_url(target_card, "after_training"))
+            p_embeds.append(t_embed)
         else:
-            p_embed.set_image(url=core.get_proseka_card_image_url(target_card, init_mode))
-            await interaction.followup.send(embed=p_embed, ephemeral=True)
+            img_bytes, filename = await asyncio.to_thread(core.fetch_proseka_card_image_bytes, target_card, "normal")
+            if img_bytes and filename:
+                p_files.append(discord.File(io.BytesIO(img_bytes), filename=filename))
+                p_embed.set_image(url=f"attachment://{filename}")
+            else:
+                p_embed.set_image(url=core.get_proseka_card_image_url(target_card, "normal"))
+
+        if p_files:
+            await interaction.followup.send(embeds=p_embeds, files=p_files, ephemeral=True)
+        else:
+            await interaction.followup.send(embeds=p_embeds, ephemeral=True)
 
 
 class GuildGachaResetConfirmView(core.SafeView):
@@ -4875,19 +5155,24 @@ class GuildGachaResetConfirmView(core.SafeView):
             return
 
         await core.safe_defer(interaction, ephemeral=True)
-        data = await asyncio.to_thread(core.load_data)
         g_key = str(target_guild.id)
-        changed = False
-        gacha_users_map = core.ensure_dict_path(data, "gacha_users")
-        if g_key in gacha_users_map:
-            del gacha_users_map[g_key]
-            changed = True
-        hof_map = core.ensure_dict_path(data, "gacha_hall_of_fame")
-        if g_key in hof_map:
-            del hof_map[g_key]
-            changed = True
-        if changed:
-            await asyncio.to_thread(core.save_data, data)
+
+        def _do_guild_gacha_reset():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                changed = False
+                gacha_users_map = core.ensure_dict_path(data, "gacha_users")
+                if g_key in gacha_users_map:
+                    del gacha_users_map[g_key]
+                    changed = True
+                hof_map = core.ensure_dict_path(data, "gacha_hall_of_fame")
+                if g_key in hof_map:
+                    del hof_map[g_key]
+                    changed = True
+                if changed:
+                    core.save_data(data)
+
+        await asyncio.to_thread(_do_guild_gacha_reset)
 
         embed = discord.Embed(
             title="🔄 서버 캐릭터 데이터 초기화 완료",
@@ -5941,6 +6226,13 @@ class SekaiLiveView(core.SafeView):
             value=f"**{stamps} / 7** *(완주 `{rally_clears}회`)*\n{stamp_bar}",
             inline=False,
         )
+        pr = core.get_player_rank_info(g_user.get("player_rank_exp", 0))
+        pr_bar = core.format_progress_bar(pr["cur_exp"], max(1, pr["need_exp"]), slots=10) if pr["need_exp"] else "MAX"
+        embed.add_field(
+            name=f"🎖️ 플레이어 랭크 Rank {pr['rank']}",
+            value=f"`{pr['cur_exp']:,} / {pr['need_exp']:,} EXP` *(캐랭·마랭과 별개)*\n{pr_bar}",
+            inline=False,
+        )
 
         if self.last_result:
             r = self.last_result
@@ -5952,6 +6244,12 @@ class SekaiLiveView(core.SafeView):
             else:
                 rally_note = f"\n🎊 **스탬프 7회 완주 보너스 `+{r['rally_bonus']} 💎` 추가 달성!**" if r["rally_bonus"] > 0 else ""
                 reward_txt = f"💎 획득 **`+{r['gained_crystals']:,} 💎`** *(보유 `{r['current_crystals']:,} 💎`)*{rally_note}"
+            if r.get("player_rank_gained_exp"):
+                rank_up_txt = (
+                    f" 🎉 **랭크 업! Rank {r['player_rank_prev']} ➔ {r['player_rank']}**"
+                    if r.get("player_rank_up") else ""
+                )
+                reward_txt += f"\n🎖️ 플레이어 랭크 EXP `+{r['player_rank_gained_exp']}`{rank_up_txt}"
 
             embed.add_field(
                 name=f"🎉 직전 라이브 결과 — {r['rank_label']} · {combo_txt}",
@@ -6116,6 +6414,8 @@ class GachaCog(commands.Cog):
         mode_val = 모드.value if 모드 else "normal"
         skip_anim = (연출 is not None and 연출.value == "skip")
         guild_id = interaction.guild_id or 0
+        if not await ensure_proseka_registered(interaction, guild_id):
+            return
 
         if mode_val == "practice":
             await core.safe_defer(interaction)
@@ -6257,6 +6557,13 @@ class GachaCog(commands.Cog):
         else:
             err_msg = f"❌ 뽑기 처리 중 오류가 발생했습니다: `{error}`"
             await core.safe_send_response(interaction, err_msg, ephemeral=True)
+
+    @app_commands.command(name="프로세카등록", description="프로세카 가챠에 등록하고 ★1 카드 전체를 기본 지급받습니다 (등록 후 뽑기 가능).")
+    async def proseka_register_cmd(self, interaction: discord.Interaction):
+        ok, msg, _ = await asyncio.to_thread(
+            core.register_proseka_gacha_user, interaction.guild_id or 0, interaction.user.id
+        )
+        await core.safe_send_response(interaction, f"{'🎉' if ok else 'ℹ️'} {msg}", ephemeral=True)
 
     @app_commands.command(name="중복카드변환", description="2장 이상 중복 보유한 카드(원본 1장 및 🔒잠금 카드 제외)를 성급별 크리스탈로 일괄 변환합니다.")
     async def convert_duplicates_cmd(self, interaction: discord.Interaction):
@@ -6760,7 +7067,6 @@ class GachaCog(commands.Cog):
 
         profile = core.ensure_user_profile(data, u_key, target_user.display_name)
         oshi_raw = profile.get("oshi")
-        oshi_name = oshi_raw or "미설정 (`/설정` ➔ `💖 오시 설정`)"
         liked_music_count = len(profile.get("liked_music", []))
         deck_ids = profile.get("deck", [])
         partner_id = profile.get("partner_id")
@@ -6790,13 +7096,9 @@ class GachaCog(commands.Cog):
         oshi_cards = [c for c in cards if oshi_raw and c.get("char_name") == oshi_raw]
         oshi_card_count = sum(c.get("count", 1) for c in oshi_cards)
         oshi_char_id = next((cid for cid, info in core.CHARACTER_MAP.items() if info["name"] == oshi_raw), None)
-        oshi_cos_str = ""
-        oshi_rank_str = ""
         if oshi_char_id:
             oshi_cos = core.get_user_equipped_costume(interaction.guild_id or 0, target_user.id, oshi_char_id)
-            oshi_cos_str = f" · 👗`[{oshi_cos['name']}]`"
             oshi_rk = core.calculate_character_rank(data, interaction.guild_id or 0, target_user.id, oshi_char_id)
-            oshi_rank_str = f" · 🚩`Rank {oshi_rk['rank']}`"
 
         equipped_flags = core.get_user_equipped_rank_flags(interaction.guild_id or 0, target_user.id, data=data)
         pity_state = core.get_user_gacha_pity_state(interaction.guild_id or 0, target_user.id, data=data)
@@ -6894,15 +7196,19 @@ class GachaCog(commands.Cog):
         live_best = int(live_stats.get("best_score", 0))
         live_clears = int(live_stats.get("rally_clears", 0))
         live_total = int(live_stats.get("total_lives", 0))
+        pr_info = core.get_player_rank_info(u_gacha.get("player_rank_exp", 0))
         if live_total > 0:
             embed.add_field(
-                name="⚔️ 세카이 라이브",
-                value=f"최고 **`{live_best:,}점`** · 🎫 스탬프 `{live_stamps}/7` *(완주 `{live_clears}회`)* · 오늘 `{live_daily}/3회`",
+                name=f"⚔️ 세카이 라이브 · 🎖️ Rank {pr_info['rank']}",
+                value=(
+                    f"최고 **`{live_best:,}점`** · 🎫 스탬프 `{live_stamps}/7` *(완주 `{live_clears}회`)* · 오늘 `{live_daily}/3회`\n"
+                    f"└ 전체 플레이어 랭크 **`Rank {pr_info['rank']}`** (`{pr_info['cur_exp']:,} / {pr_info['need_exp']:,} EXP`)"
+                ),
                 inline=False
             )
         else:
             embed.add_field(
-                name="⚔️ 세카이 라이브",
+                name=f"⚔️ 세카이 라이브 · 🎖️ Rank {pr_info['rank']}",
                 value="미플레이 *(`/설정` ➔ 세카이 라이브)*",
                 inline=False
             )
@@ -7364,12 +7670,16 @@ class GachaCog(commands.Cog):
 
     @app_commands.command(name="천장교환", description="가챠 배지 200개로 원하는 ★4 / 🎀생일 카드를 확정 교환하고 가챠 보너스 게이지를 확인합니다.")
     async def ceiling_exchange_cmd(self, interaction: discord.Interaction):
+        if not await ensure_proseka_registered(interaction):
+            return
         await core.safe_defer(interaction)
         view = GachaCeilingExchangeView(interaction.user, guild_id=interaction.guild_id or 0)
         await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @app_commands.command(name="셀렉트리스트", description="봇주 지급 특수 티켓 1장으로 원하는 ★4 카드 10장을 골라 1장 확정 10연차를 실행합니다.")
     async def select_list_gacha_cmd(self, interaction: discord.Interaction):
+        if not await ensure_proseka_registered(interaction):
+            return
         await core.safe_defer(interaction)
         view = SelectListGachaView(interaction.user, guild_id=interaction.guild_id or 0)
         await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)

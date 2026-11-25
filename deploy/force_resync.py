@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ==============================================================================
-# norosi 디스코드 봇 - 슬래시 명령어 전체(18대 Cogs · 핵심 슬래시 /설정, /도움말) 강제 재등록 유틸리티 (force_resync.py)
+# norosi 디스코드 봇 - 슬래시 명령어 전체(18대 Cogs · 핵심 슬래시 /설정, /도움말, /후원) 강제 재등록 유틸리티 (force_resync.py)
 # ==============================================================================
 import os
 import sys
@@ -12,13 +12,15 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-# ⚡ 가상환경(venv) 자동 재전환 (시스템 파이썬으로 실행 시 venv 인터프리터로 재실행)
+# ⚡ 가상환경(.venv / venv) 자동 재전환 (시스템 파이썬으로 실행 시 venv 인터프리터로 재실행)
+DOT_VENV_PYTHON = os.path.join(BASE_DIR, ".venv", "bin", "python3")
 VENV_PYTHON = os.path.join(BASE_DIR, "venv", "bin", "python3")
 VENV_PYTHON_WIN = os.path.join(BASE_DIR, "venv", "Scripts", "python.exe")
+HOME_DOT_VENV = os.path.join(os.path.expanduser("~"), "norosi", ".venv", "bin", "python3")
 HOME_VENV = os.path.join(os.path.expanduser("~"), "norosi", "venv", "bin", "python3")
 
 target_venv = None
-for p in (VENV_PYTHON, VENV_PYTHON_WIN, HOME_VENV):
+for p in (DOT_VENV_PYTHON, VENV_PYTHON, VENV_PYTHON_WIN, HOME_DOT_VENV, HOME_VENV):
     if os.path.exists(p):
         target_venv = p
         break

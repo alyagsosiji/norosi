@@ -849,7 +849,8 @@ def reconstruct_safe_view(view_cls_or_name: type[SafeView] | str, interaction: d
 
         inter_msg = getattr(interaction, "message", None)
         orig_inter = getattr(inter_msg, "interaction_metadata", None) if inter_msg is not None else None
-        orig_user = getattr(orig_inter, "user", None) or interaction.user
+        meta_user = getattr(orig_inter, "user", None)
+        orig_user = meta_user if isinstance(getattr(meta_user, "id", None), int) else interaction.user
 
         kwargs = {}
         for name, p in sig.parameters.items():
@@ -963,7 +964,7 @@ def reconstruct_safe_view(view_cls_or_name: type[SafeView] | str, interaction: d
                 kwargs[name] = datetime.datetime.now(KST).month
             elif name in ("player",):
                 import cogs.music
-                kwargs[name] = cogs.music.get_voice_player(interaction.client, interaction.guild)
+                kwargs[name] = cogs.music.get_voice_player(interaction.client, interaction.guild) if interaction.guild else None
             elif p.default is not inspect.Parameter.empty:
                 kwargs[name] = p.default
             else:
@@ -1275,6 +1276,13 @@ SERVER_DB_URLS = {
 def build_fallback_proseka_cards():
     fallback = []
     idx = 1
+    fallback_asset_no = {
+        "rarity_1": "no001",
+        "rarity_2": "no002",
+        "rarity_3": "no003",
+        "rarity_4": "no004",
+        "rarity_birthday": "no004",
+    }
     for char_id, cinfo in CHARACTER_MAP.items():
         for r_type, l_label, is_lim in [
             ("rarity_4", "통상", False),
@@ -1285,6 +1293,7 @@ def build_fallback_proseka_cards():
             ("rarity_2", "통상", False),
             ("rarity_1", "통상", False)
         ]:
+            asset_no = fallback_asset_no.get(r_type, "no001")
             fallback.append({
                 "id": idx,
                 "char_id": char_id,
@@ -1299,7 +1308,7 @@ def build_fallback_proseka_cards():
                 "attr": "❄️쿨",
                 "limit_label": l_label,
                 "is_limited": is_lim,
-                "assetbundleName": f"res{char_id:03d}_no001",
+                "assetbundleName": f"res{char_id:03d}_{asset_no}",
                 "gachaPhrase": DEFAULT_CHARACTER_QUOTES.get(char_id, "")
             })
             idx += 1
@@ -2122,6 +2131,15 @@ def execute_sekai_live(guild_id: int, user_id: int, song_id: str | None = None, 
                 cid_k = str(dc_cid)
                 char_live_plays[cid_k] = _safe_card_int(char_live_plays.get(cid_k), 0) + 1
 
+        # 전체 플레이어 랭크 (캐랭·마랭과 별개) — 라이브 1회마다 EXP 누적
+        prev_pr_exp = max(0, _safe_card_int(g_user.get("player_rank_exp"), 0))
+        prev_pr = get_player_rank_info(prev_pr_exp)["rank"]
+        gained_pr_exp = 20 + base_reward // 2 + (20 if is_full_combo else 0) + (30 if is_all_perfect else 0)
+        if is_practice:
+            gained_pr_exp = max(1, gained_pr_exp // 5)
+        g_user["player_rank_exp"] = prev_pr_exp + gained_pr_exp
+        pr_info = get_player_rank_info(g_user["player_rank_exp"])
+
         save_data(data)
 
         return True, "라이브 클리어!", {
@@ -2153,7 +2171,29 @@ def execute_sekai_live(guild_id: int, user_id: int, song_id: str | None = None, 
             "rally_bonus": rally_bonus,
             "current_crystals": prof.get("crystals", 0),
             "total_lives": live_stats["total_lives"],
+            "player_rank": pr_info["rank"],
+            "player_rank_prev": prev_pr,
+            "player_rank_up": pr_info["rank"] > prev_pr,
+            "player_rank_gained_exp": gained_pr_exp,
+            "player_rank_cur_exp": pr_info["cur_exp"],
+            "player_rank_need_exp": pr_info["need_exp"],
         }
+
+
+PLAYER_RANK_MAX = 500
+
+
+def get_player_rank_info(total_exp: int) -> dict:
+    """전체 플레이어 랭크 산출: 랭크 r → r+1 필요 EXP = 100 + 50×(r-1) (최대 PLAYER_RANK_MAX)."""
+    exp = max(0, _safe_card_int(total_exp, 0))
+    rank = 1
+    while rank < PLAYER_RANK_MAX:
+        need = 100 + 50 * (rank - 1)
+        if exp < need:
+            return {"rank": rank, "cur_exp": exp, "need_exp": need, "total_exp": _safe_card_int(total_exp, 0)}
+        exp -= need
+        rank += 1
+    return {"rank": PLAYER_RANK_MAX, "cur_exp": 0, "need_exp": 0, "total_exp": _safe_card_int(total_exp, 0)}
 
 
 
@@ -2402,27 +2442,45 @@ def can_card_awaken(card: dict) -> bool:
     cid = card.get("id") or card.get("card_id")
     if cid is not None:
         c_obj = get_proseka_card_by_id(cid)
-        if c_obj:
+        if c_obj and c_obj.get("rarity_type"):
             return c_obj.get("rarity_type") in ("rarity_3", "rarity_4")
-    return False
+    try:
+        s_num = int(card.get("star_num") or 0)
+    except (TypeError, ValueError):
+        s_num = 0
+    if s_num in (3, 4):
+        return True
+    return r_label in ("★★★", "★★★★", "★3", "★4")
 
 
 def _resolve_card_asset_name(card: dict) -> str | None:
-    asset_name = card.get("assetbundleName")
-    if asset_name:
-        return asset_name
+    asset_name = str(card.get("assetbundleName") or "").strip()
+    awakenable = can_card_awaken(card)
     cid = card.get("id") or card.get("card_id")
     if cid is not None:
         c_obj = get_proseka_card_by_id(cid)
         if c_obj and c_obj.get("assetbundleName"):
-            return c_obj["assetbundleName"]
+            db_asset = str(c_obj["assetbundleName"]).strip()
+            same_char = (not card.get("char_id")) or (c_obj.get("char_id") == card.get("char_id"))
+            if not asset_name:
+                return db_asset
+            if awakenable and asset_name.endswith("_no001") and same_char and not db_asset.endswith("_no001"):
+                return db_asset
+    if asset_name:
+        if awakenable and asset_name.endswith("_no001"):
+            char_id = card.get("char_id")
+            if isinstance(char_id, int) and char_id in CHARACTER_MAP:
+                r_type = card.get("rarity_type")
+                fallback_no = "no003" if (r_type == "rarity_3" or card.get("star_num") == 3) else "no004"
+                return f"res{char_id:03d}_{fallback_no}"
+        return asset_name
     return None
 
 
 def fetch_proseka_card_image_bytes(card: dict, mode: str = "auto"):
     """
     카드의 일러스트를 한섭/일섭 에셋 서버에서 고속 조회하여 바이트로 반환.
-    인메모리 LRU 캐시(_IMAGE_BYTES_CACHE)와 다중 CDN·각성 전 폴백, JPEG 변환을 적용해
+    인메모리 LRU 캐시(_IMAGE_BYTES_CACHE)와 다중 CDN·특훈 전 폴백, JPEG 변환을 적용해
     디스코드 임베드 일러스트 표시 실패 및 타임아웃을 완벽히 방지합니다.
     """
     if not card:
@@ -2436,6 +2494,9 @@ def fetch_proseka_card_image_bytes(card: dict, mode: str = "auto"):
     if mode == "normal" or not awakenable:
         target_sfx = "normal"
         suffixes = ["normal"]
+    elif mode == "after_training_strict":
+        target_sfx = "after_training"
+        suffixes = ["after_training"]
     else:
         target_sfx = "after_training"
         suffixes = ["after_training", "normal"]
@@ -2500,13 +2561,17 @@ def fetch_proseka_card_image_bytes(card: dict, mode: str = "auto"):
 
                 safe_cid = card.get("id") or card.get("card_id") or 0
                 filename = f"card_{safe_cid}_{used_sfx}.{ext}"
+                used_key = f"{asset_name}:{used_sfx}"
                 with _IMAGE_CACHE_LOCK:
-                    _ASSET_URL_CACHE[cache_key] = url
-                    _ASSET_URL_CACHE[f"{asset_name}:{used_sfx}"] = url
+                    _ASSET_URL_CACHE[used_key] = url
+                    if used_sfx == target_sfx:
+                        _ASSET_URL_CACHE[cache_key] = url
                     while len(_ASSET_URL_CACHE) > MAX_ASSET_URL_CACHE_SIZE:
                         _ASSET_URL_CACHE.popitem(last=False)
-                    _IMAGE_BYTES_CACHE[cache_key] = (out_bytes, filename)
-                    if len(_IMAGE_BYTES_CACHE) > MAX_IMAGE_CACHE_SIZE:
+                    _IMAGE_BYTES_CACHE[used_key] = (out_bytes, filename)
+                    if used_sfx == target_sfx:
+                        _IMAGE_BYTES_CACHE[cache_key] = (out_bytes, filename)
+                    while len(_IMAGE_BYTES_CACHE) > MAX_IMAGE_CACHE_SIZE:
                         _IMAGE_BYTES_CACHE.popitem(last=False)
                 return out_bytes, filename
         except Exception:
@@ -2528,6 +2593,86 @@ def get_proseka_card_image_url(card: dict, mode: str = "auto") -> str:
         if cached:
             return cached
     return f"https://storage.sekai.best/sekai-jp-assets/character/member/{asset_name}/card_{target_sfx}.webp"
+
+
+def build_dual_proseka_card_image_bytes(card: dict) -> tuple[bytes | None, str | None]:
+    """
+    특훈 가능 카드(★3/★4)의 [특훈 전(Normal)]과 [특훈 후(After Training)] 일러스트를
+    모바일·PC 모두에서 크게 보이는 상·하 2단 고해상도 비교 JPEG로 합성합니다.
+    """
+    if not card:
+        return None, None
+    if not can_card_awaken(card):
+        return fetch_proseka_card_image_bytes(card, "normal")
+
+    asset_name = _resolve_card_asset_name(card)
+    if asset_name:
+        dual_key = f"{asset_name}:dual_both"
+        with _IMAGE_CACHE_LOCK:
+            if dual_key in _IMAGE_BYTES_CACHE:
+                _IMAGE_BYTES_CACHE.move_to_end(dual_key)
+                return _IMAGE_BYTES_CACHE[dual_key]
+    else:
+        dual_key = None
+
+    norm_bytes, norm_fn = fetch_proseka_card_image_bytes(card, "normal")
+    train_bytes, train_fn = fetch_proseka_card_image_bytes(card, "after_training")
+    if Image is None or ImageDraw is None or not norm_bytes or not train_bytes:
+        return (train_bytes, train_fn) if train_bytes else (norm_bytes, norm_fn)
+
+    try:
+        with Image.open(io.BytesIO(norm_bytes)) as im_n, Image.open(io.BytesIO(train_bytes)) as im_t:
+            rgb_n = im_n.convert("RGB")
+            rgb_t = im_t.convert("RGB")
+            panel_w = 920
+            nh = max(240, int(round(rgb_n.height * (panel_w / max(1, rgb_n.width)))))
+            th = max(240, int(round(rgb_t.height * (panel_w / max(1, rgb_t.width)))))
+            resample_op = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.BICUBIC)
+            rgb_n = rgb_n.resize((panel_w, nh), resample_op)
+            rgb_t = rgb_t.resize((panel_w, th), resample_op)
+
+        pad = 16
+        label_h = 34
+        gap = 14
+        canvas_w = panel_w + pad * 2
+        canvas_h = pad * 2 + (label_h + nh) + gap + (label_h + th)
+        canvas = Image.new("RGB", (canvas_w, canvas_h), (19, 22, 41))
+        draw = ImageDraw.Draw(canvas)
+        font_lbl = _get_grid_font(16, bold=True)
+
+        is_star4 = int(card.get("star_num") or 4) >= 4
+        accent_train = (255, 105, 180) if is_star4 else (242, 184, 48)
+        accent_norm = (0, 204, 221)
+
+        # 상단: 특훈 전 (Normal)
+        y1 = pad
+        draw.rounded_rectangle([pad, y1, pad + panel_w, y1 + label_h + nh], radius=10, fill=(28, 34, 64), outline=accent_norm, width=2)
+        draw.rectangle([pad + 2, y1 + label_h - 3, pad + panel_w - 2, y1 + label_h], fill=accent_norm)
+        lbl_n = _sanitize_grid_text("★ [특훈 전] NORMAL ILLUSTRATION")
+        draw.text((pad + 14, y1 + 7), lbl_n, fill=(220, 248, 255), font=font_lbl)
+        canvas.paste(rgb_n, (pad, y1 + label_h))
+
+        # 하단: 특훈 후 (After Training)
+        y2 = y1 + label_h + nh + gap
+        draw.rounded_rectangle([pad, y2, pad + panel_w, y2 + label_h + th], radius=10, fill=(38, 26, 54), outline=accent_train, width=2)
+        draw.rectangle([pad + 2, y2 + label_h - 3, pad + panel_w - 2, y2 + label_h], fill=accent_train)
+        lbl_t = _sanitize_grid_text("★ [특훈 후] AFTER TRAINING ILLUSTRATION")
+        draw.text((pad + 14, y2 + 7), lbl_t, fill=(255, 236, 245) if is_star4 else (255, 244, 204), font=font_lbl)
+        canvas.paste(rgb_t, (pad, y2 + label_h))
+
+        buf = io.BytesIO()
+        canvas.save(buf, format="JPEG", quality=90, optimize=True)
+        out_bytes = buf.getvalue()
+        safe_cid = card.get("id") or card.get("card_id") or 0
+        out_fn = f"card_{safe_cid}_dual_both.jpg"
+        if dual_key:
+            with _IMAGE_CACHE_LOCK:
+                _IMAGE_BYTES_CACHE[dual_key] = (out_bytes, out_fn)
+                while len(_IMAGE_BYTES_CACHE) > MAX_IMAGE_CACHE_SIZE:
+                    _IMAGE_BYTES_CACHE.popitem(last=False)
+        return out_bytes, out_fn
+    except Exception:
+        return (train_bytes, train_fn) if train_bytes else (norm_bytes, norm_fn)
 
 
 def _sanitize_grid_text(text: str) -> str:
@@ -5450,8 +5595,39 @@ def get_proseka_user_total_pulls(u_data: dict | None) -> int:
         for c in cards_map.values()
         if isinstance(c, dict)
     )
+    # 등록 시 기본 지급된 ★1 카드는 뽑기 횟수로 계산하지 않습니다.
+    cards_sum = max(0, cards_sum - max(0, _safe_card_int(u_data.get("starter_grant_count"), 0)))
     stored = max(0, _safe_card_int(u_data.get("total_pulls"), 0))
     return max(stored, cards_sum)
+
+
+def is_proseka_gacha_registered(guild_id: int, user_id: int, data: dict | None = None) -> bool:
+    """프로세카 가챠 등록 여부 확인 (등록 완료 시에만 True)."""
+    src = data if isinstance(data, dict) else get_cached_data_ro()
+    u_obj = safe_get_dict(src, "gacha_users", str(guild_id or 0), str(user_id))
+    return bool(u_obj and u_obj.get("registered"))
+
+
+def register_proseka_gacha_user(guild_id: int, user_id: int, user_name: str = "") -> tuple[bool, str, int]:
+    """프로세카 가챠 등록: 등록 플래그를 세우고 ★1 카드를 전부 1장씩 기본 지급합니다 (1회 한정)."""
+    with _DATA_LOCK:
+        data = load_data()
+        u_obj = ensure_dict_path(data, "gacha_users", str(guild_id or 0), str(user_id))
+        if u_obj.get("registered") and u_obj.get("starter_granted"):
+            return False, "이미 프로세카 가챠에 등록되어 있습니다!", 0
+        user_cards = ensure_dict_path(u_obj, "cards")
+        starters = [
+            _attach_costume_meta(dict(c)) for c in PROSEKA_KR_CARDS
+            if c.get("rarity_type") == "rarity_1" and str(c.get("id")) not in user_cards
+        ]
+        if starters:
+            _save_pulled_cards_in_data(data, guild_id, user_id, starters, increment_pulls=False)
+        u_obj["starter_grant_count"] = max(0, _safe_card_int(u_obj.get("starter_grant_count"), 0)) + len(starters)
+        u_obj["registered"] = True
+        u_obj["starter_granted"] = True
+        u_obj.setdefault("registered_at", get_now_datetime_str())
+        save_data(data)
+    return True, f"프로세카 가챠 등록 완료! ★1 카드 `{len(starters)}장`이 보관함에 기본 지급되었습니다.", len(starters)
 
 
 def build_proseka_guild_ranking_stats(data: dict, guild_id: int) -> tuple[int, list[dict]]:

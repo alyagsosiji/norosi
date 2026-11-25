@@ -22,7 +22,7 @@ if [ ! -f /swapfile ] && [ -d /run/systemd/system ]; then
     if (sudo fallocate -l 2G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048) 2>/dev/null; then
         sudo chmod 600 /swapfile
         sudo mkswap /swapfile 2>/dev/null && sudo swapon /swapfile 2>/dev/null || true
-        echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+        grep -q '^/swapfile ' /etc/fstab 2>/dev/null || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
         echo "✅ 2GB 스왑 메모리 생성 및 활성화 완료!"
     else
         echo "ℹ️ 컨테이너 환경이므로 스왑 생성을 건너뜁니다."
@@ -49,8 +49,10 @@ if [ ! -d "venv" ] && [ ! -d ".venv" ]; then
 fi
 
 if [ -d ".venv" ]; then
+    VENV_PY="$APP_DIR/.venv/bin/python3"
     source .venv/bin/activate
 else
+    VENV_PY="$APP_DIR/venv/bin/python3"
     source venv/bin/activate
 fi
 pip install --upgrade pip
@@ -64,10 +66,12 @@ echo "🔑 [5/6] 환경 변수(.env) 파일을 점검합니다..."
 if [ ! -f "$APP_DIR/.env" ]; then
     if [ -f "$APP_DIR/deploy/.env.example" ]; then
         cp "$APP_DIR/deploy/.env.example" "$APP_DIR/.env"
+        chmod 600 "$APP_DIR/.env" || true
         echo "⚠️  새로운 .env 파일이 생성되었습니다! (경로: $APP_DIR/.env)"
         echo "👉 나중에 'nano $APP_DIR/.env' 명령어로 디스코드 봇 토큰을 꼭 입력해주세요."
     elif [ -f "$APP_DIR/deploy/.env.example.txt" ]; then
         cp "$APP_DIR/deploy/.env.example.txt" "$APP_DIR/.env"
+        chmod 600 "$APP_DIR/.env" || true
         echo "⚠️  새로운 .env 파일이 생성되었습니다! (경로: $APP_DIR/.env)"
         echo "👉 나중에 'nano $APP_DIR/.env' 명령어로 디스코드 봇 토큰을 꼭 입력해주세요."
     fi
@@ -85,14 +89,15 @@ if [ -d /run/systemd/system ]; then
     sudo bash -c "cat > $SERVICE_FILE" <<EOF
 [Unit]
 Description=norosi Discord Bot (24/7 Service)
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=$CURRENT_USER
 WorkingDirectory=$APP_DIR
 EnvironmentFile=-$APP_DIR/.env
-ExecStart=$APP_DIR/venv/bin/python3 $APP_DIR/bot.py
+ExecStart=$VENV_PY $APP_DIR/bot.py
 Restart=always
 RestartSec=5
 StandardOutput=journal
