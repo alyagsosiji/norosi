@@ -450,13 +450,19 @@ async def _build_gacha_result_payload(
         mode_note=mode_note,
         pity_info=pity_info,
     )
-    # ★4 / 생일 / ★3 모두 일러스트 임베드로 표시 (★4·생일 우선 정렬 후 최대 9장)
-    high_cards = sorted(
-        [c for c in drawn if c.get("star_num", 0) >= 3 or c.get("rarity_type") == "rarity_birthday"],
-        key=lambda c: 0 if (c.get("star_num", 0) >= 4 or c.get("rarity_type") == "rarity_birthday") else 1,
+    # 일러스트 임베드: ★3이 먼저, ★4·생일이 뒤에 나오도록 정렬 (9장 제한 시에는 ★4·생일이 누락되지 않도록 우선 확보 후 ★3→★4 순 배치)
+    all_high = [c for c in drawn if c.get("star_num", 0) >= 3 or c.get("rarity_type") == "rarity_birthday"]
+    total_high = len(all_high)
+    prioritized = sorted(
+        enumerate(all_high),
+        key=lambda t: (0 if (t[1].get("star_num", 0) >= 4 or t[1].get("rarity_type") == "rarity_birthday") else 1, t[0]),
     )
-    total_high = len(high_cards)
-    display_high = high_cards[:9]
+    picked = sorted(
+        prioritized[:9],
+        key=lambda t: (0 if (t[1].get("star_num", 0) == 3 and t[1].get("rarity_type") != "rarity_birthday") else 1, t[0]),
+    )
+    display_high = [c for _, c in picked]
+    high_cards = display_high + [c for _, c in prioritized[9:]]
     want_grid = len(drawn) >= 2
     want_single_img = (not display_high) and (not want_grid) and len(drawn) == 1
     eff_mode = "after_training" if illust_mode == "after_training" else "normal"
