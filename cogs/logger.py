@@ -824,20 +824,89 @@ def build_summary_server_log_embed(embed: discord.Embed) -> discord.Embed:
     return out
 
 
+def enrich_detailed_server_log_embed(
+    embed: discord.Embed,
+    guild: discord.Guild | None = None,
+    category_key: str | None = None,
+) -> discord.Embed:
+    """상세 버전 감사 로그 임베드에 발생 시각(KST+상대시간)·카테고리·추출된 Snowflake ID 생성 시각 및 멘션·서버 현황 메타데이터를 보강합니다."""
+    out = embed.copy()
+    raw_title = (out.title or "시스템 로그").strip()
+    if not raw_title.startswith("📋"):
+        out.title = f"📋 [상세] {raw_title}"[:256]
+
+    ts = out.timestamp or datetime.datetime.now(datetime.timezone.utc)
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=datetime.timezone.utc)
+    kst_dt = ts.astimezone(datetime.timezone(datetime.timedelta(hours=9)))
+    unix_sec = int(ts.timestamp())
+    cat_map = {k: f"{lbl} ({dsc})" for k, lbl, dsc in LOG_CATEGORY_META}
+    cat_str = cat_map.get(category_key or "", f"🔎 {category_key or '통합 감사'}")
+
+    # 본문·필드에서 17~20자리 Discord Snowflake ID 추출 후 생성 시각 계산 (Discord Epoch: 1420070400000)
+    blob = (out.description or "") + "\n" + "\n".join(f"{fl.name} {fl.value}" for fl in getattr(out, "fields", []))
+    seen_ids: list[str] = []
+    for m in re.finditer(r"\b(\d{17,20})\b", blob):
+        sid = m.group(1)
+        if sid not in seen_ids:
+            seen_ids.append(sid)
+        if len(seen_ids) >= 3:
+            break
+
+    id_lines: list[str] = []
+    for sid in seen_ids:
+        try:
+            created_unix = int(((int(sid) >> 22) + 1420070400000) // 1000)
+            if 1420070400 <= created_unix <= unix_sec + 86400:
+                id_lines.append(f"• ID `{sid}` (생성: <t:{created_unix}:d> <t:{created_unix}:R>)")
+        except Exception:
+            pass
+
+    meta_lines = [
+        f"• **분류:** {cat_str}",
+        f"• **시각:** `{kst_dt.strftime('%Y-%m-%d %H:%M:%S')} KST` (<t:{unix_sec}:T> · <t:{unix_sec}:R>)",
+    ]
+    if guild is not None:
+        m_cnt = getattr(guild, "member_count", None)
+        ch_cnt = len(getattr(guild, "channels", []) or [])
+        role_cnt = len(getattr(guild, "roles", []) or [])
+        meta_lines.append(f"• **서버 현황:** `{guild.name}` (인원 `{m_cnt or '?'}명` · 채널 `{ch_cnt}개` · 역할 `{role_cnt}개`)")
+    meta_lines.extend(id_lines)
+
+    if len(getattr(out, "fields", [])) < 24:
+        out.add_field(
+            name="🔎 상세 감사 메타데이터",
+            value="\n".join(meta_lines)[:1024],
+            inline=False,
+        )
+    out.set_footer(text="📋 상세 로그 모드 (전체 원문 + ID·시각 메타데이터) • /설정에서 요약 버전 전환 가능")
+    return out
+
+
 class _ServerLogChannelDispatcher:
     """서버별 detail_mode('detailed' | 'summary') 설정에 맞춰 상세 또는 요약 버전 임베드를 자동 전송합니다."""
 
-    def __init__(self, channel: discord.abc.Messageable, detail_mode: str = "detailed"):
+    def __init__(
+        self,
+        channel: discord.abc.Messageable,
+        detail_mode: str = "detailed",
+        guild: discord.Guild | None = None,
+        category_key: str | None = None,
+    ):
         self._ch = channel
         self.detail_mode = "summary" if detail_mode == "summary" else "detailed"
+        self.guild = guild if guild is not None else getattr(channel, "guild", None)
+        self.category_key = category_key
 
     def __getattr__(self, name: str):
         return getattr(self._ch, name)
 
     async def send(self, content=None, *, embed: discord.Embed | None = None, **kwargs):
-        if embed is not None and self.detail_mode == "summary":
-            embed = build_summary_server_log_embed(embed)
         if embed is not None:
+            if self.detail_mode == "summary":
+                embed = build_summary_server_log_embed(embed)
+            else:
+                embed = enrich_detailed_server_log_embed(embed, guild=self.guild, category_key=self.category_key)
             return await self._ch.send(content=content, embed=embed, **kwargs)
         return await self._ch.send(content=content, **kwargs)
 

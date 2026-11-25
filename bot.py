@@ -659,6 +659,19 @@ class NorosiBot(commands.Bot):
         )
         return header + "\n".join(condensed)
 
+    @staticmethod
+    def build_detailed_terminal_header(full_text: str) -> str:
+        """상세 버전 터미널 로그 상단에 붙는 통계 헤더(발생 시각 KST · 총 줄 수 · 경고/오류/예외 개수)를 생성합니다."""
+        lines = [ln for ln in full_text.splitlines() if ln.strip()]
+        warn_cnt = sum(1 for ln in lines if re.search(r"\b(WARN|WARNING)\b|⚠️", ln))
+        err_cnt = sum(1 for ln in lines if re.search(r"\b(ERROR|CRITICAL|FATAL)\b|❌", ln))
+        tb_cnt = sum(1 for ln in lines if ln.lstrip().startswith("Traceback (most recent call last)"))
+        now_kst = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
+        return (
+            f"[📋 상세 로그 · {now_kst} KST · 총 {len(lines)}줄 · "
+            f"⚠️ 경고 {warn_cnt} · ❌ 오류 {err_cnt} · 🧵 예외 스택 {tb_cnt}]\n"
+        )
+
     @tasks.loop(seconds=3.0)
     async def terminal_log_dispatch_loop(self):
         """3초마다 VM 터미널 출력 큐를 확인하여 서버별 설정 버전(상세/요약)에 맞춰 안전하게 전송합니다."""
@@ -723,7 +736,7 @@ class NorosiBot(commands.Bot):
 
         full_text = core.redact_secrets("".join(chunks).replace("```", "'''"))
 
-        def _chunk_log_text(src_text: str) -> list[str]:
+        def _chunk_log_text(src_text: str, max_msgs: int = 2) -> list[str]:
             out_msgs = []
             buf = ""
             for line in src_text.splitlines(keepends=True):
@@ -735,10 +748,10 @@ class NorosiBot(commands.Bot):
                     buf += line
             if buf.strip():
                 out_msgs.append(buf.strip())
-            if len(out_msgs) > 2:
-                dropped_cnt = len(out_msgs) - 2
-                out_msgs = [
-                    out_msgs[0],
+            if len(out_msgs) > max_msgs:
+                dropped_cnt = len(out_msgs) - max_msgs
+                head_n = max(1, max_msgs - 1)
+                out_msgs = out_msgs[:head_n] + [
                     f"... [⚠️ 터미널 출력 폭주 방어: 중간 로그 약 {dropped_cnt * 1800}자 생략됨. 서버 VM 콘솔 참조] ...\n" + out_msgs[-1],
                 ]
             return out_msgs
@@ -764,7 +777,8 @@ class NorosiBot(commands.Bot):
                     await asyncio.sleep(1.1)
 
         if detailed_channels:
-            await _send_batch(detailed_channels, _chunk_log_text(full_text))
+            # 상세 버전: 발생 시각·줄 수·경고/오류 통계 헤더를 붙이고, 폭주 방어 한도를 5개 메시지(약 9,000자)까지 확장
+            await _send_batch(detailed_channels, _chunk_log_text(self.build_detailed_terminal_header(full_text) + full_text, max_msgs=5))
         if summary_channels:
             summary_txt = self.summarize_terminal_log_text(full_text)
             if summary_txt:
