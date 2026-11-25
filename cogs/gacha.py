@@ -4249,7 +4249,7 @@ class ProsekaRatePaginationView(core.SafeView):
         )
         embed.add_field(
             name="📊 등급 합산 확률",
-            value=f"🌟 ★4·🎂생일 **`{b_cfg['top_rate']:.1f}%`** · 💫 ★3 `{b_cfg['mid_rate']:.1f}%` · ⭐ ★2·★1 `{b_cfg['low_rate']:.1f}%`",
+            value=f"🌟 ★4·🎂생일 **`{b_cfg['top_rate']:.1f}%`** · 💫 ★3 `{b_cfg['mid_rate']:.1f}%` · ⭐ ★2 `{b_cfg['low_rate']:.1f}%`",
             inline=False,
         )
         embed.add_field(

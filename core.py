@@ -5436,9 +5436,13 @@ def calculate_card_probabilities(pickup_cfg, banner_type: str = "normal"):
     b_key = banner_type if banner_type in BANNER_CONFIGS else "normal"
     b_cfg = BANNER_CONFIGS[b_key]
     include_lim = True if b_key in ("fes", "birthday") else pickup_cfg.get("include_limited", True)
-    pool = [c for c in PROSEKA_KR_CARDS if include_lim or not c["is_limited"]]
+    gacha_cards = [
+        c for c in PROSEKA_KR_CARDS
+        if c.get("rarity_type") != "rarity_1" and int(c.get("star_num", 2)) >= 2
+    ]
+    pool = [c for c in gacha_cards if include_lim or not c["is_limited"]]
     if not pool:
-        pool = list(PROSEKA_KR_CARDS)
+        pool = list(gacha_cards)
 
     tier_groups = {"top": [], "mid": [], "low": []}
     for c in pool:
@@ -5446,7 +5450,7 @@ def calculate_card_probabilities(pickup_cfg, banner_type: str = "normal"):
             tier_groups["top"].append(c)
         elif c["rarity_type"] == "rarity_3":
             tier_groups["mid"].append(c)
-        else:
+        elif c["rarity_type"] == "rarity_2" or int(c.get("star_num", 0)) == 2:
             tier_groups["low"].append(c)
 
     tier_rates = {
@@ -6271,7 +6275,13 @@ def execute_select_list_gacha_pull(
     all_star4 = [c for c in PROSEKA_KR_CARDS if c.get("rarity_type") == "rarity_4"]
     non_selected_star4 = [c for c in all_star4 if int(c["id"]) not in seen_ids]
     mid_cards = [c for c in PROSEKA_KR_CARDS if c.get("rarity_type") == "rarity_3"]
-    low_cards = [c for c in PROSEKA_KR_CARDS if c.get("rarity_type") not in ("rarity_4", "rarity_birthday", "rarity_3")]
+    low_cards = [
+        c for c in PROSEKA_KR_CARDS
+        if c.get("rarity_type") == "rarity_2" or (
+            c.get("rarity_type") not in ("rarity_4", "rarity_birthday", "rarity_3", "rarity_1")
+            and int(c.get("star_num", 2)) == 2
+        )
+    ]
 
     weighted_pool: list[dict] = []
     if non_selected_star4:
@@ -6899,10 +6909,10 @@ def draw_birthday_free_pull(guild_id: int, user_id: int, now_dt: datetime.dateti
     bday_limited = [c for c in char_cards if c.get("rarity_type") == "rarity_birthday"]
     star4 = [c for c in char_cards if c.get("rarity_type") == "rarity_4"]
     star3 = [c for c in char_cards if c.get("rarity_type") == "rarity_3"]
-    low = [c for c in char_cards if int(c.get("star_num", 1)) <= 2]
+    low = [c for c in char_cards if c.get("rarity_type") == "rarity_2" or int(c.get("star_num", 0)) == 2]
 
     weighted_pool = []
-    # 생일 특별 확률: 🎀생일/★4 합산 6.0% (생일한정 집중), ★3 19.0%, ★1~2 75.0%
+    # 생일 특별 확률: 🎀생일/★4 합산 6.0% (생일한정 집중), ★3 19.0%, ★2 75.0%
     top_total = 6.0
     if bday_limited and star4:
         b_each = (top_total * 0.70) / len(bday_limited)
