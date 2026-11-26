@@ -2513,7 +2513,10 @@ def _format_commit_lines_highlighted(raw_lines: list[str], repo_url: str = "", l
 # ==========================================
 @bot.command(name="현재버전")
 async def current_version_command(ctx: commands.Context):
-    """현재 봇에 반영되어 실행 중인 Git 커밋(SHA·제목·시각)과 GitHub 원격 저장소에 대기 중인 미반영 커밋을 확인합니다."""
+    """[봇 주인 전용] 현재 봇에 반영되어 실행 중인 Git 커밋(SHA·제목·시각)과 GitHub 원격 저장소에 대기 중인 미반영 커밋을 확인합니다."""
+    if not await bot.is_bot_owner_user(ctx.author):
+        await ctx.send("❌ 이 명령어는 **👑 봇 주인(소유자)** 만 사용할 수 있습니다.", delete_after=5)
+        return
     import subprocess
 
     repo_dir = os.path.dirname(os.path.abspath(__file__))
