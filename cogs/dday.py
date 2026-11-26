@@ -4399,7 +4399,6 @@ class ReminderHubView(core.SafeView):
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST)
         )
-        embed.set_footer(text="하단 버튼으로 새 알림 추가 · 새로고침 · 전체 비우기를 실행할 수 있습니다.")
         return embed
 
     @discord.ui.select(

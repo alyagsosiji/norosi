@@ -490,7 +490,8 @@ class EconomyLeaderboardView(core.SafeView):
             timestamp=datetime.datetime.now(core.KST),
         )
         rank_hint = f"📍 내 순위: #{my_rank}위  ·  " if my_rank else ""
-        embed.set_footer(text=f"{rank_hint}하단 버튼으로 순자산 · 크리스탈 · 낚시 골드 기준을 전환할 수 있습니다.")
+        if rank_hint.strip():
+            embed.set_footer(text=rank_hint.strip(" •·"))
         return embed
 
     @discord.ui.button(label="🏦 통합 순자산순", style=discord.ButtonStyle.primary, row=0)

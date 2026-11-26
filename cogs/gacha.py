@@ -507,7 +507,7 @@ async def _build_gacha_result_payload(
                 stage_lbl = (
                     "✨ 특훈 후 일러스트"
                     if c0_mode == "after_training"
-                    else "🌸 특훈 전 일러스트 • 하단 버튼으로 특훈 전·후 전환"
+                    else "🌸 특훈 전 일러스트"
                 )
                 embed.set_footer(text=f"{embed.footer.text or ''} • {stage_lbl}".strip(" •"))
             if img_bytes and img_fn and len(file_specs) < MAX_FILES and (total_bytes + len(img_bytes) <= MAX_TOTAL_BYTES):
@@ -590,7 +590,7 @@ async def _build_gacha_result_payload(
             if c_mode == "after_training":
                 card_embed.set_footer(text=f"프로세카 {star_lbl} 특훈 후 (After Training) 공식 일러스트")
             else:
-                card_embed.set_footer(text=f"프로세카 {star_lbl} 특훈 전 (Normal) 공식 일러스트 • 하단 버튼으로 특훈 전·후 전환")
+                card_embed.set_footer(text=f"프로세카 {star_lbl} 특훈 전 (Normal) 공식 일러스트")
         else:
             footer_kind = "🎂 생일 한정" if is_bday_card else star_lbl
             card_embed.set_footer(text=f"프로세카 {footer_kind} 공식 일러스트")
@@ -1708,7 +1708,7 @@ class GachaCeilingExchangeView(core.SafeView):
 
             cele_view = SimpleCardIllustToggleView(card, initial_mode="normal") if can_train else None
             if can_train:
-                cele_embed.set_footer(text="프로세카 ★4 🌸 특훈 전 (Normal) 공식 일러스트 • 하단 버튼으로 특훈 전·후 전환")
+                cele_embed.set_footer(text="프로세카 ★4 🌸 특훈 전 (Normal) 공식 일러스트")
             else:
                 cele_embed.set_footer(text="프로세카 🎂 생일 한정 공식 일러스트")
 
@@ -3105,7 +3105,6 @@ class GachaRankingView(core.SafeView):
                             break
             else:
                 embed.add_field(name="📭 데이터 없음", value="아직 집계된 보관함 기록이 없습니다.", inline=False)
-            embed.set_footer(text="하단 버튼으로 [👑 명예의 전당 & 비틱 로그]를 확인할 수 있습니다")
             return embed
 
         # 명예의 전당 & 픽업 ★4 로그 탭
@@ -3150,7 +3149,6 @@ class GachaRankingView(core.SafeView):
             ]
             core.add_chunked_embed_fields(embed, "✨ 최근 ★4 · 생일 획득 로그", h_lines, separator="\n", max_chars=950)
 
-        embed.set_footer(text="하단 버튼으로 [🏆 종합 랭킹]과 [👑 명예의 전당]을 전환할 수 있습니다")
         return embed
 
     @discord.ui.button(label="🏆 종합 랭킹", style=discord.ButtonStyle.primary, row=0)
@@ -4008,14 +4006,14 @@ class CharacterCostumeWardrobeView(core.SafeView):
                     embed.set_image(url=core.get_proseka_card_image_url(char_card, self.illust_stage))
                 if cos_card_obj:
                     embed.set_thumbnail(url=core.get_proseka_card_image_url(cos_card_obj, "normal"))
-                embed.set_footer(text=f"일러스트: 착용 모델 [{char_info['name']}] • 하단 버튼으로 의상 원본 전환")
+                embed.set_footer(text=f"일러스트: 착용 모델 [{char_info['name']}]")
             else:
                 active_card = cos_card_obj
                 if cos_card_obj:
                     embed.set_image(url=core.get_proseka_card_image_url(cos_card_obj, self.illust_stage))
                 if char_card:
                     embed.set_thumbnail(url=core.get_proseka_card_image_url(char_card, "normal"))
-                embed.set_footer(text=f"일러스트: 의상 원작 [{equipped.get('char_name')}] • 하단 버튼으로 착용 모델 전환")
+                embed.set_footer(text=f"일러스트: 의상 원작 [{equipped.get('char_name')}]")
 
         can_train_active = bool(active_card and core.can_card_awaken(active_card))
         self.btn_stage_normal.disabled = (not can_train_active) or (self.illust_stage == "normal")
@@ -5283,7 +5281,7 @@ class CardPokedexView(core.SafeView):
 
         p_view = SimpleCardIllustToggleView(target_card, initial_mode="normal") if can_train else None
         if can_train:
-            p_embed.set_footer(text="🌸 특훈 전 (Normal) 공식 일러스트 • 하단 버튼으로 특훈 전·후 전환")
+            p_embed.set_footer(text="🌸 특훈 전 (Normal) 공식 일러스트")
 
         img_bytes, filename = await asyncio.to_thread(core.fetch_proseka_card_image_bytes, target_card, "normal")
         p_file = None

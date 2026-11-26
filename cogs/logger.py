@@ -272,7 +272,7 @@ class ServerLogHubView(core.SafeView):
         self._sync_mode_buttons()
 
     def _sync_mode_buttons(self):
-        cur_mode = self.guild_cfg.get("detail_mode", "detailed")
+        cur_mode = self.guild_cfg.get("detail_mode", "summary")
         self.mode_detailed_btn.disabled = (cur_mode != "summary")
         self.mode_summary_btn.disabled = (cur_mode == "summary")
 
@@ -298,7 +298,7 @@ class ServerLogHubView(core.SafeView):
         ch_id = self.guild_cfg.get("channel_id")
         ch_mention = f"<#{ch_id}>" if ch_id else "*(미지정)*"
         status_str = "✅ **활성화됨**" if (enabled and ch_id) else "❌ **비활성화됨**"
-        cur_mode = self.guild_cfg.get("detail_mode", "detailed")
+        cur_mode = self.guild_cfg.get("detail_mode", "summary")
         mode_str = (
             "⚡ **요약 모드** *(핵심 정보만 1~3줄 간결 요약)*"
             if cur_mode == "summary"
@@ -815,12 +815,11 @@ def build_summary_server_log_embed(embed: discord.Embed) -> discord.Embed:
 
     raw_title = (embed.title or "시스템 로그").strip()
     out = discord.Embed(
-        title=f"⚡ [요약] {raw_title}"[:256],
+        title=raw_title[:256],
         description=summary_desc[:1024] or "*(내용 없음)*",
         color=embed.color,
         timestamp=embed.timestamp,
     )
-    out.set_footer(text="⚡ 요약 로그 모드 • /로그채널설정에서 상세 버전 전환 가능")
     return out
 
 
@@ -831,9 +830,6 @@ def enrich_detailed_server_log_embed(
 ) -> discord.Embed:
     """상세 버전 감사 로그 임베드에 발생 시각(KST+상대시간)·카테고리·추출된 Snowflake ID 생성 시각 및 멘션·서버 현황 메타데이터를 보강합니다."""
     out = embed.copy()
-    raw_title = (out.title or "시스템 로그").strip()
-    if not raw_title.startswith("📋"):
-        out.title = f"📋 [상세] {raw_title}"[:256]
 
     ts = out.timestamp or datetime.datetime.now(datetime.timezone.utc)
     if ts.tzinfo is None:
@@ -879,7 +875,6 @@ def enrich_detailed_server_log_embed(
             value="\n".join(meta_lines)[:1024],
             inline=False,
         )
-    out.set_footer(text="📋 상세 로그 모드 (전체 원문 + ID·시각 메타데이터) • /설정에서 요약 버전 전환 가능")
     return out
 
 
@@ -889,12 +884,12 @@ class _ServerLogChannelDispatcher:
     def __init__(
         self,
         channel: discord.abc.Messageable,
-        detail_mode: str = "detailed",
+        detail_mode: str = "summary",
         guild: discord.Guild | None = None,
         category_key: str | None = None,
     ):
         self._ch = channel
-        self.detail_mode = "summary" if detail_mode == "summary" else "detailed"
+        self.detail_mode = "detailed" if detail_mode == "detailed" else "summary"
         self.guild = guild if guild is not None else getattr(channel, "guild", None)
         self.category_key = category_key
 
@@ -932,7 +927,7 @@ class LoggerCog(commands.Cog):
         ch = guild.get_channel(ch_id)
         if not ch:
             return None
-        detail_mode = str(log_cfg.get("detail_mode") or "detailed")
+        detail_mode = str(log_cfg.get("detail_mode") or "summary")
         return _ServerLogChannelDispatcher(ch, detail_mode=detail_mode)
 
     @app_commands.command(name="로그채널설정", description="[서버 관리자 전용] 7대 카테고리 실시간 감사 로그 수신 채널·출력 버전(상세/요약) 및 항목을 설정합니다.")
@@ -971,7 +966,7 @@ class LoggerCog(commands.Cog):
                 data = core.load_data()
                 logs_dict = core.ensure_dict_path(data, "server_logs")
                 if not isinstance(logs_dict.get(g_key), dict):
-                    logs_dict[g_key] = {"channel_id": None, "enabled": False, "detail_mode": "detailed"}
+                    logs_dict[g_key] = {"channel_id": None, "enabled": False, "detail_mode": "summary"}
                 guild_cfg = logs_dict[g_key]
                 if 채널:
                     guild_cfg["channel_id"] = 채널.id

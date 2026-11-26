@@ -230,7 +230,6 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=now_kst
         )
-        embed.set_footer(text="하단 버튼으로 [📜 상세 리포트] 또는 [📅 주간/일간 모드]로 전환할 수 있습니다.")
         return embed
     else:
         # Detailed Mode Embed
@@ -271,7 +270,6 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
             color=discord.Color.gold(),
             timestamp=now_kst
         )
-        embed.set_footer(text="하단 버튼으로 요약 보드로 되돌아가거나 데이터를 즉시 새로고침할 수 있습니다.")
         return embed
 
 
@@ -1413,7 +1411,7 @@ class StatsCog(commands.Cog):
             inline=False,
         )
 
-        embed.set_footer(text=f"📋 상세 버전 • 요청자: {requester_name} • 민감 키/토큰은 출력하지 않는 보안 진단 모드")
+        embed.set_footer(text=f"요청자: {requester_name}")
         return embed
 
     def _build_guild_and_log_diagnostics(self, detailed: bool = True) -> tuple[str, str]:
@@ -1442,7 +1440,7 @@ class StatsCog(commands.Cog):
                 ch_cnt = len(getattr(g, "channels", []) or [])
                 scfg = core.as_dict(s_logs.get(gk))
                 if scfg.get("enabled") and scfg.get("channel_id"):
-                    s_mode = "⚡요약" if scfg.get("detail_mode") == "summary" else "📋상세"
+                    s_mode = "📋상세" if scfg.get("detail_mode") == "detailed" else "⚡요약"
                     audit_tag = f"감사:{s_mode}(<#{scfg['channel_id']}>)"
                 else:
                     audit_tag = "감사:OFF"
@@ -1573,7 +1571,7 @@ class StatsCog(commands.Cog):
             value=log_block,
             inline=False,
         )
-        embed.set_footer(text=f"⚡ 요약 버전 • 요청자: {requester_name} • [📋 상세 버전] 버튼으로 전체 지표 확인 가능")
+        embed.set_footer(text=f"요청자: {requester_name}")
         return embed
 
     async def _build_bot_status_embed(self, requester_name: str, mode: str = "detailed") -> discord.Embed:
@@ -2172,7 +2170,7 @@ class WeatherRefreshView(core.SafeView):
             inline=False
         )
 
-        embed.set_footer(text="기상청(KMA) & ECMWF 글로벌 통합 기상 모델 실시간 연동 • 하단 버튼으로 최신 관측치 새로고침")
+        embed.set_footer(text="기상청(KMA) & ECMWF 실시간 연동")
         return embed
 
     @discord.ui.button(label="🔄 날씨 새로고침", style=discord.ButtonStyle.primary, row=0)

@@ -1434,7 +1434,6 @@ class GenshinRankingView(core.SafeView):
                 lines.append(f"**#{idx}** **{uname}** — ★5 **`{r['r5_count']}회`** (픽업 {r['pickup_count']} · 최소 {r['min_pity']}스택)\n└ {' / '.join(r['items'][:4])}")
             desc = "\n".join(lines) if lines else "*(아직 10연 기원에서 ★5 명예의 전당 기록이 없습니다)*"
             emb = discord.Embed(title="🌟 원신 10연 기원 명예의 전당", description=desc, color=discord.Color.gold(), timestamp=datetime.datetime.now(core.KST))
-            emb.set_footer(text="하단 버튼으로 랭킹 · 명예의 전당 · ★5 속보를 전환할 수 있습니다.")
             return emb
 
         if self.mode == "recent":
@@ -1451,7 +1450,6 @@ class GenshinRankingView(core.SafeView):
                 lines.append(f"• **{uname}**: {rad}**★★★★★ {r['name']}** (`{r.get('pity', '?')}스택` · {r.get('banner', '')})")
             desc = "\n".join(lines) if lines else "*(최근 ★5 출현 로그가 없습니다)*"
             emb = discord.Embed(title="⚡ 원신 서버 ★5 최근 획득 속보", description=desc, color=discord.Color.from_rgb(255, 198, 84), timestamp=datetime.datetime.now(core.KST))
-            emb.set_footer(text="하단 버튼으로 랭킹 · 명예의 전당 · ★5 속보를 전환할 수 있습니다.")
             return emb
 
         rows = []
@@ -1475,7 +1473,6 @@ class GenshinRankingView(core.SafeView):
             lines.append(f"{medal} **{uname}** — ★5 `{r5}종` (완전돌파 `{c6}`) · 도감 `{uq}종` · 기원 `{pl:,}회`")
         desc = "\n".join(lines) if lines else "*(아직 이 서버에 원신 기원 기록이 있는 유저가 없습니다)*"
         emb = discord.Embed(title="🏆 원신 서버 컬렉션 랭킹 TOP 15", description=desc, color=discord.Color.from_rgb(68, 152, 255), timestamp=datetime.datetime.now(core.KST))
-        emb.set_footer(text="하단 버튼으로 랭킹 · 명예의 전당 · ★5 속보를 전환하거나 새로고침할 수 있습니다.")
         return emb
 
 

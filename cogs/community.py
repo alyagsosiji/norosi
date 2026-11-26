@@ -1119,7 +1119,6 @@ class RaidDefenseConfigView(core.SafeView):
                 for b in reversed(logs[-5:])
             )
             embed.add_field(name="🛡️ 최근 방어 조치 (최대 5건)", value=recent_txt[:1024], inline=False)
-        embed.set_footer(text="하단 버튼으로 수동 비상잠금 발동 · 해제 · 차단 기록 조회를 즉시 실행할 수 있습니다.")
         return embed
 
     @discord.ui.button(label="자동감지 ON/OFF", style=discord.ButtonStyle.primary, emoji="🤖", row=0)
