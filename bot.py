@@ -1942,7 +1942,7 @@ bot = NorosiBot()
 
 
 # ==========================================
-# 🖥️ VM 서버 터미널 로그 수신 채널 지정 명령어 (/설정 연동, !터미널로그)
+# 🖥️ VM 서버 터미널 로그 수신 채널 지정 명령어 (/설정 연동)
 # ==========================================
 def _parse_terminal_log_mode_token(token: Optional[str]) -> Optional[str]:
     if not token:
@@ -2002,7 +2002,7 @@ async def set_terminal_log_channel_slash(
                 f"• **출력 버전:** {mode_badge}\n"
                 f"• **전체 연동 서버:** 총 {total_ch_cnt}개 서버 채널에 실시간 동시 전송 중\n"
                 "• **전송 주기:** `3초` 단위 버퍼링 묶음 전송 (도배 및 Rate Limit 완벽 방어)\n"
-                "• **버전 전환 / 해제:** `/설정` → `⚙️ 고급 (4p)` → `VM 터미널 로그` 또는 `!터미널로그 [상세|요약|해제]`"
+                "• **버전 전환 / 해제:** `/설정` → `⚙️ 고급 (4p)` → `VM 터미널 로그`"
             ),
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST)
@@ -2011,95 +2011,11 @@ async def set_terminal_log_channel_slash(
         print(f"✅ [System] VM 터미널 실시간 로그 수신 채널이 #{채널.name} (ID: {채널.id}, 모드: {parsed_mode}, 서버: {interaction.guild})로 지정되었습니다. (총 {total_ch_cnt}개 서버 동시 전송)", flush=True)
 
 
-@bot.command(name="터미널로그")
-async def set_terminal_log_channel_prefix(
-    ctx: commands.Context,
-    target_or_mode: Optional[str] = None,
-    mode_arg: Optional[str] = None,
-):
-    if not await bot.is_bot_owner_user(ctx.author):
-        await ctx.send("❌ 이 명령어는 **봇 소유자**만 사용할 수 있습니다.", delete_after=5)
-        return
-
-    g_key = str(ctx.guild.id) if ctx.guild else "global"
-    first_norm = (target_or_mode or "").strip().lower()
-    unbind_tokens = ("", "off", "disable", "stop", "none", "해제", "끄기", "중지", "비활성화")
-
-    channel: Optional[discord.TextChannel] = None
-    selected_mode: Optional[str] = None
-
-    if first_norm not in unbind_tokens:
-        direct_mode = _parse_terminal_log_mode_token(target_or_mode)
-        if direct_mode is not None and mode_arg is None:
-            selected_mode = direct_mode
-        else:
-            try:
-                channel = await commands.TextChannelConverter().convert(ctx, target_or_mode)  # type: ignore[arg-type]
-            except commands.BadArgument:
-                await ctx.send(
-                    "⚠️ 올바른 채널 또는 버전을 입력해 주세요.\n"
-                    "• 사용법: `!터미널로그 #채널 [상세|요약]` / `!터미널로그 상세` / `!터미널로그 요약` / `!터미널로그 해제`"
-                )
-                return
-            selected_mode = _parse_terminal_log_mode_token(mode_arg) or "detailed"
-
-    def _update_tlog():
-        with core._DATA_LOCK:
-            data = core.load_data()
-            settings_dict = core.ensure_dict_path(data, "settings")
-            t_channels = core.ensure_dict_path(data, "settings", "terminal_log_channels")
-            t_modes = core.ensure_dict_path(data, "settings", "terminal_log_modes")
-
-            if first_norm in unbind_tokens:
-                t_channels.pop(g_key, None)
-                t_modes.pop(g_key, None)
-                if not t_channels:
-                    settings_dict["terminal_log_channel_id"] = None
-                eff_ch_id = None
-                eff_mode = "detailed"
-            elif channel is not None:
-                eff_mode = selected_mode or "detailed"
-                t_channels[g_key] = channel.id
-                t_modes[g_key] = eff_mode
-                settings_dict["terminal_log_channel_id"] = channel.id
-                settings_dict["terminal_log_default_mode"] = eff_mode
-                eff_ch_id = channel.id
-            else:
-                # 모드만 단독 입력한 경우: 기존 연동 채널 유지, 없으면 현재 텍스트 채널 자동 연동
-                eff_mode = selected_mode or "detailed"
-                existing_ch_id = t_channels.get(g_key)
-                if not existing_ch_id and isinstance(ctx.channel, discord.TextChannel):
-                    existing_ch_id = ctx.channel.id
-                    t_channels[g_key] = existing_ch_id
-                    settings_dict["terminal_log_channel_id"] = existing_ch_id
-                if existing_ch_id:
-                    t_modes[g_key] = eff_mode
-                settings_dict["terminal_log_default_mode"] = eff_mode
-                eff_ch_id = existing_ch_id
-
-            core.save_data(data)
-            return len(t_channels), eff_ch_id, eff_mode
-
-    total_ch_cnt, bound_ch_id, active_mode = await asyncio.to_thread(_update_tlog)
-
-    if not bound_ch_id:
-        await ctx.send(
-            f"🛑 **현재 서버({ctx.guild.name if ctx.guild else '글로벌'})의 VM 서버 터미널 로그 채널 기록이 비활성화되었습니다.** "
-            "(켜려면 `!터미널로그 #채널 상세` 또는 `!터미널로그 #채널 요약` 입력)"
-        )
-    else:
-        ch_mention = f"<#{bound_ch_id}>"
-        mode_label = "⚡ 요약 버전" if active_mode == "summary" else "📋 상세 버전"
-        await ctx.send(
-            f"🖥️ **VM 서버 터미널 로그 설정 완료:** 이제부터 터미널 출력이 {ch_mention} 채널에 **{mode_label}**으로 실시간 기록됩니다! "
-            f"(총 {total_ch_cnt}개 서버 채널 동시 전송 · 전환: `!터미널로그 상세` / `!터미널로그 요약`)"
-        )
-        print(f"✅ [System] VM 터미널 실시간 로그 수신 채널(ID: {bound_ch_id}, 모드: {active_mode}, 서버: {ctx.guild}) 설정 완료. (총 {total_ch_cnt}개 서버 동시 전송)", flush=True)
 
 
 
 # ==========================================
-# 🖼️ 봇주 전용 봇 프로필 배너 변경 명령어 (/설정 연동, !봇배너)
+# 🖼️ 봇주 전용 봇 프로필 배너 변경 명령어 (/설정 연동)
 # ==========================================
 MAX_BOT_BANNER_BYTES = 10 * 1024 * 1024  # 10MB
 
@@ -2257,80 +2173,6 @@ async def set_bot_banner_slash(
         await interaction.followup.send(f"⚠️ 봇 배너 변경 중 예외 발생: `{e}`", ephemeral=True)
 
 
-@bot.command(name="봇배너")
-async def set_bot_banner_prefix(ctx: commands.Context, arg: Optional[str] = None):
-    if not await bot.is_bot_owner_user(ctx.author):
-        await ctx.send("❌ 이 명령어는 **봇 소유자**(봇주)만 사용할 수 있습니다.", delete_after=5)
-        return
-
-    if not bot.user:
-        await ctx.send("⚠️ 봇이 아직 디스코드에 연결되지 않았습니다.", delete_after=5)
-        return
-
-    try:
-        if arg and arg.strip().lower() in ("초기화", "제거", "삭제", "reset", "none", "clear"):
-            await bot.user.edit(banner=None)
-            await ctx.send("🗑️ **봇 프로필 배너가 성공적으로 초기화(제거)되었습니다.**")
-            print(f"🖼️ [BotBanner] {ctx.author}에 의해 봇 프로필 배너가 초기화되었습니다.", flush=True)
-            return
-
-        if ctx.message.attachments:
-            att = ctx.message.attachments[0]
-            if att.size and att.size > MAX_BOT_BANNER_BYTES:
-                await ctx.send("❌ 이미지 용량은 최대 `10MB` 이하만 업로드할 수 있습니다.", delete_after=8)
-                return
-            img_bytes = await att.read()
-            if not _is_valid_banner_image_bytes(img_bytes, content_type=att.content_type or "", filename=att.filename or ""):
-                await ctx.send("❌ 지원되는 이미지 파일(`PNG`, `JPG`, `GIF`, `WEBP`)을 첨부해 주세요.", delete_after=8)
-                return
-        elif arg and arg.strip().startswith(("http://", "https://")):
-            img_bytes = await _download_banner_bytes_from_url(arg.strip())
-        else:
-            try:
-                fetched_user = await bot.fetch_user(bot.user.id)
-                current_banner = fetched_user.banner.url if fetched_user.banner else None
-            except Exception:
-                current_banner = bot.user.banner.url if bot.user.banner else None
-            embed = discord.Embed(
-                title="🖼️ 봇 프로필 배너 안내 (봇주 전용)",
-                description=(
-                    (f"• **현재 배너:** [이미지 보기]({current_banner})\n" if current_banner else "• **현재 배너:** 설정되지 않음\n")
-                    + "• **변경:** 이미지 첨부 후 `!봇배너` 또는 `!봇배너 <이미지URL>`\n"
-                    + "• **제거:** `!봇배너 초기화`"
-                ),
-                color=discord.Color.from_rgb(0, 204, 221)
-            )
-            if current_banner:
-                embed.set_image(url=current_banner)
-            await ctx.send(embed=embed)
-            return
-
-        await bot.user.edit(banner=img_bytes)
-        try:
-            fetched_user = await bot.fetch_user(bot.user.id)
-            new_banner_url = fetched_user.banner.url if fetched_user.banner else None
-        except Exception:
-            new_banner_url = bot.user.banner.url if bot.user.banner else None
-
-        embed = discord.Embed(
-            title="🖼️ 봇 프로필 배너 변경 완료!",
-            description="봇의 디스코드 프로필 배너가 성공적으로 적용되었습니다! ✨",
-            color=discord.Color.green(),
-            timestamp=datetime.datetime.now(core.KST)
-        )
-        if new_banner_url:
-            embed.set_image(url=new_banner_url)
-        await ctx.send(embed=embed)
-        print(f"🖼️ [BotBanner] {ctx.author}에 의해 봇 프로필 배너가 변경되었습니다.", flush=True)
-
-    except ValueError as ve:
-        await ctx.send(f"❌ **입력 오류:** {ve}", delete_after=8)
-    except discord.Forbidden:
-        await ctx.send("❌ 디스코드 API 권한 부족으로 봇 배너를 변경할 수 없습니다.", delete_after=8)
-    except discord.HTTPException as he:
-        await ctx.send(f"⚠️ 디스코드 배너 업데이트 실패: `{he}`", delete_after=10)
-    except Exception as e:
-        await ctx.send(f"⚠️ 봇 배너 변경 중 예외 발생: `{e}`", delete_after=10)
 
 
 # ==========================================
