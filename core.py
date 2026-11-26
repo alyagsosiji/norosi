@@ -24,6 +24,7 @@ import base64
 
 try:
     from PIL import Image, ImageDraw, ImageFont
+    Image.MAX_IMAGE_PIXELS = 25_000_000  # 압축 폭탄(Decompression Bomb) 방어: 약 5000x5000px 상한
 except ImportError:
     Image = None
     ImageDraw = None
@@ -283,6 +284,7 @@ SPOTIPY_CLIENT_SECRET = os.getenv("SPOTIPY_CLIENT_SECRET", "").strip()
 
 _SECRET_REDACT_PATTERNS = [
     re.compile(r"(\?auth=)[^&\s'\"<>]+", re.IGNORECASE),
+    re.compile(r"(https?://[^/\s:@]+:)[^@/\s]+(@)", re.IGNORECASE),
     re.compile(r"(Bearer\s+)[A-Za-z0-9._\-]+", re.IGNORECASE),
     re.compile(r"\b([MN][A-Za-z\d]{23,}\.[\w-]{6}\.[\w-]{27,})\b"),
     re.compile(r"\b(gsk_[A-Za-z0-9]{20,})\b"),
@@ -305,9 +307,14 @@ def redact_secrets(text: str) -> str:
         sec_val = (os.getenv(env_name) or "").strip()
         if sec_val and len(sec_val) >= 6:
             out = out.replace(sec_val, "***REDACTED***")
+    if isinstance(_DATA_CACHE, dict):
+        db_sig = str((_DATA_CACHE.get("settings") or {}).get("emote_cdn_signing_key") or "").strip()
+        if db_sig and len(db_sig) >= 6:
+            out = out.replace(db_sig, "***REDACTED***")
     out = _SECRET_REDACT_PATTERNS[0].sub(r"\1***REDACTED***", out)
-    out = _SECRET_REDACT_PATTERNS[1].sub(r"\1***REDACTED***", out)
-    for pat in _SECRET_REDACT_PATTERNS[2:]:
+    out = _SECRET_REDACT_PATTERNS[1].sub(r"\1***REDACTED***\2", out)
+    out = _SECRET_REDACT_PATTERNS[2].sub(r"\1***REDACTED***", out)
+    for pat in _SECRET_REDACT_PATTERNS[3:]:
         out = pat.sub("***REDACTED_KEY***", out)
     return out
 
@@ -5101,7 +5108,7 @@ def build_monthly_attendance_calendar(guild_id: int, guild_name: str, user_id: i
         cal = calendar.Calendar(firstweekday=6)  # 일요일 시작 달력
         weeks = cal.monthdayscalendar(now.year, now.month)
 
-        cal_rows = [" 일   월   화   수   목   금   토 ", "──────────────────────"]
+        cal_rows = [" 일   월   화   수   목   금   토 ", "────────────────"]
         for week in weeks:
             row_cells = []
             for day_num in week:
@@ -7020,6 +7027,14 @@ def start_daily_destiny_reroll(
         return True, "🔮 오늘의 운명 다시 뽑기가 시작되었습니다! (최대 3세트 중 원하는 1세트 확정 수령)", drawn
 
 
+
+
+
+def sanitize_attachment_filename(name: str, default: str = "file.txt") -> str:
+    """디스코드 파일 첨부용 안전한 파일명 정규화 (경로 구분자 및 제어문자 제거)."""
+    cleaned = re.sub(r"[^0-9A-Za-z가-힣._-]", "_", str(name or "").strip())
+    cleaned = re.sub(r"_+", "_", cleaned).lstrip(".")
+    return cleaned[:100] or default
 
 
 def josa(word: Any, pair: str = "을/를") -> str:

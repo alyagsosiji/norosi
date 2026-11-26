@@ -203,7 +203,12 @@ class NorosiBot(commands.Bot):
         설정된 디스코드 채널에 '🚀 업데이트 완료: [커밋 메시지]' 임베드를 실시간으로 전송합니다.
         """
         try:
+            cl_hdr = getattr(request, "content_length", None)
+            if isinstance(cl_hdr, int) and cl_hdr > 2 * 1024 * 1024:
+                return web.json_response({"error": "Payload too large"}, status=413)
             raw_body = await request.read()
+            if len(raw_body) > 2 * 1024 * 1024:
+                return web.json_response({"error": "Payload too large"}, status=413)
             webhook_secret = (os.getenv("GITHUB_WEBHOOK_SECRET") or "").strip()
             if not webhook_secret:
                 return web.json_response({"error": "Webhook secret is not configured"}, status=503)
@@ -376,7 +381,7 @@ class NorosiBot(commands.Bot):
                 "dispatched_channels": len(target_channels_with_roles)
             })
         except Exception as e:
-            print(f"⚠️ [handle_github_webhook 예외] {e}", flush=True)
+            print(f"⚠️ [handle_github_webhook 예외] {core.redact_secrets(str(e))}", flush=True)
             return web.json_response({"error": "Internal webhook handler error"}, status=500)
 
     async def handle_emote_index(self, request: web.Request) -> web.Response:
@@ -399,7 +404,15 @@ class NorosiBot(commands.Bot):
         if self._web_started:
             return
         try:
-            app = web.Application()
+            @web.middleware
+            async def _security_headers_mw(req: web.Request, handler):
+                resp = await handler(req)
+                resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+                resp.headers.setdefault("X-Frame-Options", "DENY")
+                resp.headers.setdefault("Referrer-Policy", "no-referrer")
+                return resp
+
+            app = web.Application(client_max_size=2 * 1024 * 1024, middlewares=[_security_headers_mw])
             app.router.add_get("/", self.handle_health_check)
             app.router.add_get("/cdn", self.handle_emote_index)
             app.router.add_get("/healthz", lambda _req: web.Response(text="ok"))
@@ -1566,7 +1579,7 @@ class NorosiBot(commands.Bot):
                             f"🎱 **당첨 번호:** **`[ {win_nums_str} ]`**\n"
                             f"💰 **총 상금 풀:** `{draw_rec['total_pot']:,}💎` · **판매 티켓:** `{draw_rec['ticket_count']:,}장`\n"
                             f"🏆 **1등({draw_rec['rank1_count']}명)** · **2등({draw_rec['rank2_count']}명)** · **3등({draw_rec['rank3_count']}명)**\n"
-                            "━━━━━━━━━━━━━━━━━━━━━━\n"
+                            "━━━━━━━━━━━━━━━━\n"
                             + "\n".join(win_lines)
                         ),
                         color=discord.Color.gold(),
@@ -2513,7 +2526,7 @@ async def execute_github_update(force_restart: bool = False) -> tuple[discord.Em
 
         rc_f, out_f = _run(["git", "fetch", "origin", branch])
         if rc_f != 0:
-            return {"ok": False, "err": f"git fetch 실패:\n{out_f[:600]}"}
+            return {"ok": False, "err": f"git fetch 실패:\n{core.redact_secrets(out_f)[:600]}"}
 
         _, commits_txt = _run(["git", "log", "--oneline", f"HEAD..origin/{branch}", "-n", "25"])
         _, total_behind_txt = _run(["git", "rev-list", "--count", f"HEAD..origin/{branch}"])
@@ -2568,6 +2581,7 @@ async def execute_github_update(force_restart: bool = False) -> tuple[discord.Em
         "life_core",
         "other_life_core",
         "community_core",
+        "version_info",
     ):
         if mod_name in sys.modules and (not changed_files or f"{mod_name}.py" in changed_files or mod_name != "core"):
             try:
@@ -2670,6 +2684,223 @@ class OwnerVersionUpdateView(core.SafeView):
         self.has_pending = bool(info.get("behind_cnt", 0) > 0)
         self._sync_buttons()
         await core.safe_edit_response(interaction, embed=embed, view=self)
+
+
+def _resolve_version_entries_sync() -> tuple[list[dict], str, str]:
+    import importlib
+    import subprocess
+    import version_info
+    importlib.reload(version_info)
+    repo_dir = os.path.dirname(os.path.abspath(__file__))
+
+    def _run(cmd: list[str]) -> str:
+        try:
+            p = subprocess.run(cmd, cwd=repo_dir, capture_output=True, text=True, timeout=8)
+            return (p.stdout or "").strip()
+        except Exception:
+            return ""
+
+    head_sha = _run(["git", "rev-parse", "--short", "HEAD"]) or "unknown"
+    remote_url = _run(["git", "config", "--get", "remote.origin.url"])
+    clean_repo_url = ""
+    if remote_url:
+        u = remote_url.strip()
+        if u.startswith("git@github.com:"):
+            u = "https://github.com/" + u[len("git@github.com:"):]
+        if u.endswith(".git"):
+            u = u[:-4]
+        if u.startswith("https://github.com/"):
+            clean_repo_url = u
+
+    entries: list[dict] = []
+    seen_shas: set[str] = set()
+    for raw_e in getattr(version_info, "VERSION_HISTORY", []):
+        if not isinstance(raw_e, dict):
+            continue
+        e = dict(raw_e)
+        c_sha = str(e.get("commit") or "").strip()
+        if not c_sha or c_sha.upper() == "HEAD":
+            c_sha = head_sha
+            e["commit"] = c_sha
+        seen_shas.add(c_sha[:7])
+        entries.append(e)
+
+    # version_info.py에 아직 수동 기재되지 않은 최근 Git 커밋도 누락 없이 자동 보완
+    git_log_raw = _run(["git", "log", "-n", "12", "--format=%h|%cs|%s"])
+    for ln in git_log_raw.splitlines():
+        parts = ln.split("|", 2)
+        if len(parts) != 3:
+            continue
+        g_sha, g_date, g_subj = parts[0].strip(), parts[1].strip(), parts[2].strip()
+        if g_sha[:7] in seen_shas:
+            continue
+        seen_shas.add(g_sha[:7])
+        diff_stat = _run(["git", "show", "--stat", "--oneline", g_sha])
+        stat_lines = [s.strip() for s in diff_stat.splitlines()[1:] if s.strip()][:6]
+        entries.append({
+            "commit": g_sha,
+            "date": g_date,
+            "title": g_subj,
+            "added": [],
+            "changed": [f"`{sl}`" for sl in stat_lines] if stat_lines else [g_subj],
+            "security": [],
+        })
+    return entries, head_sha, clean_repo_url
+
+
+class OwnerVersionChangelogView(core.SafeView):
+    """봇 주인 전용 !버전 — GitHub 커밋 기준 버전별 추가/수정/보안 변경사항 열람 뷰"""
+
+    def __init__(self, entries: list[dict] | None = None, head_sha: str = "", repo_url: str = "", index: int = 0):
+        super().__init__(timeout=600)
+        if entries is None:
+            entries, head_sha, repo_url = _resolve_version_entries_sync()
+        self.entries = entries or []
+        self.head_sha = head_sha or get_local_head_short_sha()
+        self.repo_url = repo_url
+        self.index = max(0, min(index, max(0, len(self.entries) - 1)))
+        self._rebuild_items()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        if not await bot.is_bot_owner_user(interaction.user):
+            await core.safe_send_response(interaction, "❌ 이 화면은 **👑 봇 주인(소유자)** 만 조작할 수 있습니다.", ephemeral=True)
+            return False
+        return True
+
+    def _rebuild_items(self):
+        self.clear_items()
+        if self.entries:
+            opts = []
+            for i, e in enumerate(self.entries[:25]):
+                sha = str(e.get("commit") or "-")[:7]
+                is_cur = (sha == self.head_sha[:7])
+                lbl = f"[{sha}] {'(현재 반영) ' if is_cur else ''}{str(e.get('title') or '')}"[:95]
+                opts.append(
+                    discord.SelectOption(
+                        label=lbl,
+                        value=str(i),
+                        description=f"날짜: {e.get('date', '-')}"[:95],
+                        default=(i == self.index),
+                    )
+                )
+            sel = discord.ui.Select(
+                placeholder="🔖 열람할 커밋 버전을 선택하세요...",
+                options=opts,
+                row=0,
+                custom_id="norosi:OwnerVersionChangelogView:select",
+            )
+            sel.callback = self._on_select
+            self.add_item(sel)
+
+        prev_b = discord.ui.Button(
+            label="◀ 최신 쪽",
+            style=discord.ButtonStyle.secondary,
+            disabled=(self.index <= 0),
+            row=1,
+            custom_id="norosi:OwnerVersionChangelogView:prev",
+        )
+        prev_b.callback = self._on_prev
+        self.add_item(prev_b)
+
+        next_b = discord.ui.Button(
+            label="이전 커밋 ▶",
+            style=discord.ButtonStyle.secondary,
+            disabled=(self.index >= len(self.entries) - 1),
+            row=1,
+            custom_id="norosi:OwnerVersionChangelogView:next",
+        )
+        next_b.callback = self._on_next
+        self.add_item(next_b)
+
+        cmp_b = discord.ui.Button(
+            label="🐙 GitHub 동기화 비교",
+            style=discord.ButtonStyle.primary,
+            row=1,
+            custom_id="norosi:OwnerVersionChangelogView:cmp",
+        )
+        cmp_b.callback = self._on_compare
+        self.add_item(cmp_b)
+
+    def build_embed(self) -> discord.Embed:
+        if not self.entries:
+            return discord.Embed(title="📜 버전 변경 기록 없음", description="기록된 버전 내역이 없습니다.", color=discord.Color.greyple())
+        cur = self.entries[self.index]
+        sha = str(cur.get("commit") or "unknown")[:7]
+        sha_link = f"[**`[{sha}]`**]({self.repo_url}/commit/{sha})" if self.repo_url else f"**`[{sha}]`**"
+        is_active = (sha == self.head_sha[:7])
+        active_badge = " · 🟢 **현재 봇 반영 버전**" if is_active else f" · (현재 반영: `{self.head_sha}`)"
+
+        lines = [
+            f"• **커밋 버전:** {sha_link}  ·  📅 `{cur.get('date', '-')}`{active_badge}",
+            f"• **요약:** **{cur.get('title', '-')}**",
+            "━━━━━━━━━━━━━━━━",
+        ]
+        added = cur.get("added") or []
+        changed = cur.get("changed") or []
+        sec = cur.get("security") or []
+        if added:
+            lines.append("**✨ 추가된 기능**")
+            lines.extend(f"• {x}" for x in added)
+            lines.append("")
+        if changed:
+            lines.append("**🛠️ 수정 및 개선 사항**")
+            lines.extend(f"• {x}" for x in changed)
+            lines.append("")
+        if sec:
+            lines.append("**🛡️ 보안 강화 내역**")
+            lines.extend(f"• {x}" for x in sec)
+            lines.append("")
+
+        embed = discord.Embed(
+            title=f"📜 norosi 버전 변경 기록 — [{sha}] ({self.index + 1}/{len(self.entries)})",
+            description="\n".join(lines).strip()[:4000],
+            color=discord.Color.from_rgb(0, 204, 221) if is_active else discord.Color.blurple(),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        return embed
+
+    async def _on_select(self, interaction: discord.Interaction):
+        val = (interaction.data or {}).get("values", ["0"])[0]
+        if str(val).isdigit():
+            self.index = max(0, min(int(val), len(self.entries) - 1))
+        self._rebuild_items()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    async def _on_prev(self, interaction: discord.Interaction):
+        self.index = max(0, self.index - 1)
+        self._rebuild_items()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    async def _on_next(self, interaction: discord.Interaction):
+        self.index = min(len(self.entries) - 1, self.index + 1)
+        self._rebuild_items()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    async def _on_compare(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction, ephemeral=True)
+        emb, info = await build_git_version_embed_and_info()
+        v = OwnerVersionUpdateView(has_pending=(info.get("behind_cnt", 0) > 0))
+        await interaction.followup.send(embed=emb, view=v, ephemeral=True)
+
+
+@bot.command(name="버전")
+async def version_changelog_command(ctx: commands.Context, target_commit: Optional[str] = None):
+    """[봇 주인 전용] version_info.py 및 GitHub 커밋 기준으로 각 버전에 무엇이 추가·수정되었는지 확인합니다."""
+    if not await bot.is_bot_owner_user(ctx.author):
+        await ctx.send("❌ 이 명령어는 **👑 봇 주인(소유자)** 만 사용할 수 있습니다.", delete_after=5)
+        return
+    entries, head_sha, repo_url = await asyncio.to_thread(_resolve_version_entries_sync)
+    init_idx = 0
+    if target_commit:
+        q = target_commit.strip().lower().strip("[]`")
+        for i, e in enumerate(entries):
+            if str(e.get("commit") or "").lower().startswith(q):
+                init_idx = i
+                break
+    view = OwnerVersionChangelogView(entries=entries, head_sha=head_sha, repo_url=repo_url, index=init_idx)
+    await ctx.send(embed=view.build_embed(), view=view)
 
 
 @bot.command(name="현재버전")
@@ -2781,7 +3012,7 @@ async def sync_guild_command(ctx: commands.Context, *args):
                 f"{desc_lead}\n\n"
                 "📊 **등록 상태:**\n"
                 f"{reg_status}\n\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 "💡 **핵심 슬래시 명령어 3종 안내**\n"
                 "• `/설정` : 일반 · 고급 · 미니게임 · 개인 4대 분류 통합 설정 대시보드\n"
                 "• `/도움말` : 전체 기능의 `/설정` 경로 및 권한별 가독성 가이드\n"

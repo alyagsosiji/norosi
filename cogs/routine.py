@@ -102,7 +102,7 @@ class DailyRoutineHubView(core.SafeView):
                 f"• **오늘 진행률:** `{done_cnt}/{tot_cnt}`  {bar}\n"
                 f"• {bonus_line}"
                 f"{banner}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 + "\n".join(lines)
             )[:4096],
             color=0xF59E0B if done_cnt < routine_core.DAILY_ROUTINE_MIN_COMPLETE else 0x10B981,
@@ -251,7 +251,7 @@ class CurrencyExchangeView(core.SafeView):
             title="💱 크리스탈 ⇄ 낚시 골드 일일 환전소",
             description=(
                 f"• **현재 보유:** 💎 **`{st['crystals']:,}💎`**  ·  🪙 **`{st['gold']:,}🪙`**\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 f"1️⃣ **골드 ➔ 크리스탈:** `{routine_core.EXCHANGE_GOLD_TO_CRYSTAL_COST:,}🪙` ➔ **`+{routine_core.EXCHANGE_GOLD_TO_CRYSTAL_GAIN:,}💎`**\n"
                 f"   └ 오늘 사용: `{st['g2c_used']} / {st['limit']}회`\n"
                 f"2️⃣ **크리스탈 ➔ 골드:** `{routine_core.EXCHANGE_CRYSTAL_TO_GOLD_COST:,}💎` ➔ **`+{routine_core.EXCHANGE_CRYSTAL_TO_GOLD_GAIN:,}🪙`**\n"
@@ -362,7 +362,7 @@ class WeeklyMissionView(core.SafeView):
                 f"• **보유 재화:** 💎 **`{st['crystals']:,}💎`**  ·  🪙 **`{st['gold']:,}🪙`**\n"
                 f"• **달성 현황:** `{st['done_cnt']}/{len(st['missions'])}`  {_progress_bar(st['done_cnt'], len(st['missions']), 10)}"
                 f"{banner}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 + "\n".join(lines)
             )[:4096],
             color=0x8B5CF6,
@@ -463,7 +463,7 @@ class ShowcaseView(core.SafeView):
             ] or ["🎉 **모든 크로스 기능 업적 뱃지를 100% 달성했습니다!**"]
             embed.description = (
                 f"🏅 **업적 달성도:** `{ach['unlocked_count']}/{ach['total_count']}` (`{pct}%`)  `[{bar}]`\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 "**✨ 해금 완료 뱃지**\n" + "\n".join(u_lines) + "\n\n"
                 "**🎯 도전 중인 업적**\n" + "\n".join(l_lines)
             )[:4096]
@@ -480,7 +480,7 @@ class ShowcaseView(core.SafeView):
             embed.description = (
                 f"💖 **대표 오시:** `{sc['oshi']}`  ·  📚 **보유 카드:** `{sc['sekai_total']:,}종`\n"
                 f"⚔️ **5인 덱 종합력:** **`{sc['sekai_deck_power']:,}`**\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 "**🎴 편성된 5인 유닛 덱**\n" + "\n".join(deck_lines) + "\n\n"
                 "**🌟 내 최강 카드 TOP 3**\n" + "\n".join(top_lines)
             )[:4096]
@@ -495,7 +495,7 @@ class ShowcaseView(core.SafeView):
             ] or ["*(편성된 스타레일 편대 없음)*"]
             embed.description = (
                 f"🌠 **원신:** 총 `{sc['gi_total']}종` (★5 `{sc['gi_r5']}종`)\n" + "\n".join(gi_lines) + "\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 f"🚄 **스타레일:** 총 `{sc['hsr_total']}종` (★5 `{sc['hsr_r5']}종`)\n" + "\n".join(hsr_lines)
             )[:4096]
         elif self.tab == "life":
@@ -505,7 +505,7 @@ class ShowcaseView(core.SafeView):
             ] or ["*(전시 중인 대물이 없습니다)*"]
             embed.description = (
                 f"🐠 **수족관 대표 대물 TOP 3** *(시간당 `+{sc['tank_hourly']:,}🪙`)*\n" + "\n".join(tank_lines) + "\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 f"📖 **낚시 어류 도감:** `{sc['fish_dex']:,}종`\n"
                 f"👶 **타인의 삶:** 해금 엔딩 `{sc['ol_endings']:,}종` · 최고 점수 **`{sc['ol_best']:,}점`**"
             )[:4096]
@@ -514,7 +514,7 @@ class ShowcaseView(core.SafeView):
             embed.description = (
                 f"💖 **대표 오시:** `{sc['oshi']}`  ·  💎 **`{sc['crystals']:,}💎`**  ·  🪙 **`{sc['gold']:,}🪙`**\n"
                 f"🏅 **업적 뱃지 ({ach['unlocked_count']}/{ach['total_count']}):** {badge_strip}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 f"• 🎤 **프로세카:** 보유 `{sc['sekai_total']:,}종` · 5인 덱 종합력 **`{sc['sekai_deck_power']:,}`**\n"
                 f"• 🌠 **원신:** 보유 `{sc['gi_total']:,}종` (★5 `{sc['gi_r5']}종`) · 파티 `{len(sc['gi_party'])}/4`\n"
                 f"• 🚄 **스타레일:** 보유 `{sc['hsr_total']:,}종` (★5 `{sc['hsr_r5']}종`) · 편대 `{len(sc['hsr_party'])}/4`\n"
@@ -601,12 +601,12 @@ class DiceDuelView(core.SafeView):
         else:
             body = "*(아직 참가자가 없습니다! 아래 `[🎲 참가 & 주사위 굴리기]` 버튼을 눌러주세요)*"
 
-        res_block = f"\n━━━━━━━━━━━━━━━━━━━━━━\n{self.result_summary}" if self.result_summary else ""
+        res_block = f"\n━━━━━━━━━━━━━━━━\n{self.result_summary}" if self.result_summary else ""
         embed = discord.Embed(
             title=f"🎲 하이로우 주사위 대결 ({mode_txt})",
             description=(
                 f"• **개설자:** `{host_name}`  ·  **참가 인원:** `{len(self.rolls)}/6명`\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 f"{body}{res_block}"
             )[:4096],
             color=0x22C55E if self.finished else 0x6366F1,
@@ -754,7 +754,7 @@ class ChosungQuizView(core.SafeView):
             ans = q["answer"]
             hints.append(f"• **💡 힌트:** 첫 글자 **`{ans[0]}`**" + (f" · 마지막 글자 **`{ans[-1]}`**" if self.hint_level >= 2 and len(ans) > 1 else ""))
 
-        log_block = f"\n━━━━━━━━━━━━━━━━━━━━━━\n{self.last_log}" if self.last_log else ""
+        log_block = f"\n━━━━━━━━━━━━━━━━\n{self.last_log}" if self.last_log else ""
         embed = discord.Embed(
             title=f"🔤 실시간 초성 퀴즈 — #{self.round_num}번 문제",
             description=(
@@ -858,7 +858,7 @@ class MiniBattleHubView(core.SafeView):
             title="🎲 채널 즉석 미니 대전 허브",
             description=(
                 "채널 멤버들과 버튼 클릭만으로 가볍게 즐기는 즉석 미니게임입니다!\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 "• **🎲 하이로우 주사위 대결 (무료 / 50💎 내기):** 2~6명이 2d6 주사위를 굴려 최고 점수 승자 결정\n"
                 "• **🔤 실시간 초성 퀴즈:** 프로세카·원신·스타레일·음식·상식 72종 초성 맞히기 (`+30💎`/문제)"
             ),

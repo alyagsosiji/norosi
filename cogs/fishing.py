@@ -1328,7 +1328,7 @@ class FishingGiftRecipientView(core.SafeView):
         fish_uid: str = "",
         fish_label: str = "물고기",
     ):
-        super().__init__(timeout=180)
+        super().__init__(timeout=600)
         self.user = user
         self.guild_id = int(guild_id or 0)
         self.fish_uid = str(fish_uid or "")
@@ -1638,7 +1638,7 @@ class FishingBagView(core.SafeView):
                 f"• **보유 골드:** `{u['gold']:,}🪙`  ·  **실시간 시세 총액:** `{total_gold:,}🪙` (미잠금 `{unlocked_cnt:,}마리 = {unlocked_gold:,}🪙`)\n"
                 f"• **📈 어시장 시세:** {market['headline']}\n"
                 f"{sel_summary}  ·  **페이지:** `{self.page + 1} / {total_p}`\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 f"{body}"
             )[:4096],
             color=0x38BDF8,
@@ -2285,7 +2285,7 @@ class FishingPokedexView(core.SafeView):
                 f"⚓ 바다 `{by_h['sea']['owned']:,}/{by_h['sea']['total']:,}`\n"
                 f"• **👑 금관 & 변이:** {var_line}\n"
                 f"• **필터:** `{r_label}` · `{z_label}`{q_label} (`{len(items):,}종 일치`)  ·  **페이지:** `{self.page + 1:,} / {total_p:,}`\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 f"{body}"
             )[:4096],
             color=0x0EA5E9,
@@ -2595,7 +2595,7 @@ class FishingAquariumView(core.SafeView):
                 f"• **수조 테마:** {theme['emoji']} **`{theme['name']}`**  ·  **어항 크기:** `{max_slots}/20칸` ({exp_txt})\n"
                 f"• **시간당 관람 수익:** **`+{hourly:,}🪙/시간`**  ·  **수확 대기 골드:** **`+{pending:,}🪙`** *(최대 24시간)*\n"
                 f"• **먹이 상태:** {feed_txt}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 f"{body}"
             )[:4096],
             color=0x14B8A6,
@@ -2979,7 +2979,7 @@ class FishingShopView(core.SafeView):
             title=title,
             description=(
                 f"🪙 **보유 낚시 골드:** **`{u['gold']:,}🪙`**\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n" + "\n".join(lines)
+                "━━━━━━━━━━━━━━━━\n" + "\n".join(lines)
             )[:4096],
             color=0xF59E0B,
             timestamp=datetime.datetime.now(core.KST),
@@ -3580,7 +3580,7 @@ class FishingTournamentView(core.SafeView):
                     "✨ **계절(제철) 어종 특별 혜택**\n"
                     "• 상시 포획 시 **판매 가치 `+25%🪙`** 자동 보너스!\n"
                     "• 낚시 대회 진행 중 포획 시 **계절 포인트 `1.5배` · 최장어 환산 `+15%`** 적용!\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "━━━━━━━━━━━━━━━━\n"
                     f"{body}"
                 )[:4096],
                 color=season["color"],
@@ -3617,7 +3617,7 @@ class FishingTournamentView(core.SafeView):
                     "• 🥈 **2위 (준우승):** `8,000🪙` + `300💎`\n"
                     "• 🥉 **3위 (입상):** `4,000🪙` + `150💎`\n"
                     "• 🎖️ **참가 완주상 (4위~):** `1,000🪙` + `30💎`\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "━━━━━━━━━━━━━━━━\n"
                     f"{hist_txt}"
                 )[:4096],
                 color=0xF59E0B,
@@ -3635,7 +3635,7 @@ class FishingTournamentView(core.SafeView):
                     "• **🗓️ 주말 정규 토너먼트:** 매주 **토요일 00:00 ~ 일요일 23:59 (KST)** 자동 오픈!\n"
                     "• **🏁 깜짝 번개 대회:** 아래 **`[🏁 새 대회 개최]`** 버튼으로 지금 바로 30분~2시간 대회를 열 수 있습니다.\n"
                     f"• **{season['emoji']} 이번 계절 제철 어종 (+25%🪙 / 대회 1.5x):** {feat_preview}\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "━━━━━━━━━━━━━━━━\n"
                     "🎁 **시상 보상:** 🥇 `15,000🪙 + 500💎` · 🥈 `8,000🪙 + 300💎` · 🥉 `4,000🪙 + 150💎` · 참가상 `1,000🪙 + 30💎`"
                 )[:4096],
                 color=season["color"],
@@ -3675,7 +3675,7 @@ class FishingTournamentView(core.SafeView):
                 f"• **대상 수역:** {hab_lbl}  ·  **남은 시간:** ⏳ **`{rem_str}`**\n"
                 f"> *{m_meta['desc']}*\n"
                 f"• **{season['emoji']} {season['name']} 제철 보너스 어종:** {feat_names}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 "📊 **실시간 리더보드 (TOP 10)**\n"
                 f"{board_txt}"
             )[:4096],
@@ -3822,7 +3822,7 @@ class FishingMarketView(core.SafeView):
             description=(
                 f"• **적용 시간대:** `{mk['updated_label']}`  ·  **다음 시세 갱신:** ⏳ `{mk['remain_str']}`\n"
                 f"• **시황 요약:** {mk['headline']}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 "**🗺️ 서식지별 실시간 매입 배율**\n"
                 + "\n".join(hab_lines)
                 + f"\n\n**⭐ 수요 급증 성급:** {rm['emoji']} **`{rm['stars']} {rm['name']}`** 어종 전체 **`×{boosted_m:.2f}`**\n\n"
@@ -3927,7 +3927,7 @@ class FishingBossRaidView(core.SafeView):
                 description=(
                     f"{cd_txt}\n"
                     "• *폭풍우·피딩타임 중 낚시 출조 시에도 보스가 돌발 출현합니다!*\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "━━━━━━━━━━━━━━━━\n"
                     "**🌊 출현 가능 전설 대어 보스**\n"
                     f"{pool_lines}"
                 )[:4096],
@@ -3957,7 +3957,7 @@ class FishingBossRaidView(core.SafeView):
                 f"• **보스 체력:** {hp_bar} **`{hp:,} / {max_hp:,}`** (`{ratio * 100:.1f}%`)\n"
                 f"• **남은 시간:** ⏳ `{rem_str}`  ·  **발견:** `{active.get('spawner_name', '서버')}`\n"
                 f"• **토벌 보상:** 기본 `{active['base_gold']:,}🪙+{active['base_crystals']}💎` + 기여도 분배(`{active['pool_gold']:,}🪙+{active['pool_crystals']}💎`) + `{bait_name} ×{active['bait_qty']}` *(MVP 보너스 +1,500🪙+60💎)*\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 "**⚔️ 실시간 서버 합동 기여도 TOP 10**\n"
                 f"{board}"
             )[:4096],
@@ -4286,7 +4286,7 @@ class FishingGiftView(core.SafeView):
         receiver: Optional[discord.abc.User] = None,
         summary: Optional[Dict[str, Any]] = None,
     ):
-        super().__init__(timeout=180)
+        super().__init__(timeout=600)
         self.user = user
         self.receiver = receiver or user
         self.guild_id = int(guild_id or 0)
@@ -4764,7 +4764,7 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
                 f"• **EXP:** `{summary['rem_exp']} / {summary['need_exp']}`  ·  **누적 포획:** `{u['total_catches']:,}마리` (👑 월척 `{u['total_trophy']:,}` · 🏆 대회 우승 `{wins}`)\n"
                 f"• **🪙 보유 골드:** **`{u['gold']:,}🪙`** (누적 `{u['total_gold_earned']:,}🪙`)  ·  **💎 크리스탈:** **`{summary['crystals']:,}💎`**\n"
                 f"• **⚡ 최고 콤보:** `{u.get('max_combo', 0)}연승`  ·  **🏴‍☠️ 보물 인양:** `{u.get('treasures_found', 0)}회`  ·  **🐙 보스 토벌:** `{u.get('boss_defeats', 0)}회`  ·  **⚔️ 1:1 대결:** `{u.get('duel_wins', 0)}승 {u.get('duel_losses', 0)}패`\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 f"• **낚싯대:** {rod['emoji']} `{rod['name']}`{r_tag}  ·  **릴:** {reel['emoji']} `{reel['name']}`{rl_tag}\n"
                 f"• **그물:** {net_txt}  ·  **기본 미끼:** {bait['emoji']} `{bait['name']}`\n"
                 f"• **🗺️ 해금 특수터:** {spots_txt}\n"

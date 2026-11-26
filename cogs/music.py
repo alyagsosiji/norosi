@@ -154,17 +154,18 @@ class MusicRecommendView(core.SafeView):
         u_key = str(interaction.user.id)
         liked_raw = core.safe_get_dict(data, "user_profiles", u_key).get("liked_music")
         liked_list = [m for m in liked_raw if isinstance(m, dict)] if isinstance(liked_raw, list) else []
-        view = MusicLibraryPaginationView(f"❤️ {interaction.user.display_name}님의 나만의 음악 보관함", liked_list, items_per_page=5)
+        view = MusicLibraryPaginationView(f"❤️ {interaction.user.display_name}님의 나만의 음악 보관함", liked_list, items_per_page=5, owner_id=interaction.user.id)
         await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
 
 
 class MusicLibraryPaginationView(core.SafeView):
-    """음악 보관함 페이징 + 보관함 전용 랜덤 셔플 버튼 (개인 및 파트너 공유 보관함 겸용)"""
-    def __init__(self, title_str: str, music_list: list, items_per_page=5):
+    """음악 보관함 페이징 + 음성방 바로 재생 + 곡 삭제 + 랜덤 셔플 버튼 (개인 및 파트너 공유 보관함 겸용)"""
+    def __init__(self, title_str: str = "❤️ 음악 보관함", music_list: list | None = None, items_per_page: int = 5, owner_id: int = 0):
         super().__init__(timeout=600)
         self.title_str = title_str
-        self.music_list = sorted(music_list, key=lambda x: x.get("added_at", ""), reverse=True)
+        self.music_list = sorted(list(music_list or []), key=lambda x: x.get("added_at", ""), reverse=True)
         self.items_per_page = items_per_page
+        self.owner_id = int(owner_id or 0)
         self.current_page = 0
         self.update_buttons()
 
@@ -181,7 +182,30 @@ class MusicLibraryPaginationView(core.SafeView):
         self.prev_page.disabled = is_first
         self.next_page.disabled = is_last
         self.forward_5.disabled = is_last
-        self.shuffle_my_library.disabled = (len(self.music_list) == 0)
+        has_songs = len(self.music_list) > 0
+        self.shuffle_my_library.disabled = not has_songs
+        self.play_voice_btn.disabled = not has_songs
+        if self.owner_id:
+            start_i = self.current_page * self.items_per_page
+            p_items = self.music_list[start_i:start_i + self.items_per_page]
+            if p_items:
+                self.del_track_select.options = [
+                    discord.SelectOption(
+                        label=f"{start_i + idx}. {str(it.get('title') or '곡')[:70]}",
+                        value=str(start_i + idx - 1),
+                        description=str(it.get("artist") or "-")[:90],
+                    )
+                    for idx, it in enumerate(p_items, start=1)
+                ]
+                self.del_track_select.disabled = False
+            else:
+                self.del_track_select.options = [discord.SelectOption(label="삭제할 곡이 없습니다", value="NONE")]
+                self.del_track_select.disabled = True
+            if self.del_track_select not in self.children:
+                self.add_item(self.del_track_select)
+        else:
+            if self.del_track_select in self.children:
+                self.remove_item(self.del_track_select)
         core.sync_page_number_buttons(
             self,
             current_page=self.current_page,
@@ -274,6 +298,67 @@ class MusicLibraryPaginationView(core.SafeView):
             style=discord.ButtonStyle.link
         ))
         await core.safe_send_response(interaction, embed=embed, view=link_view)
+
+    @discord.ui.button(label="▶️ 음성방 전체 재생", style=discord.ButtonStyle.primary, row=2)
+    async def play_voice_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 서버 음성채널에서만 재생할 수 있습니다.", ephemeral=True)
+            return
+        if not self.music_list:
+            await core.safe_send_response(interaction, "📭 보관함에 저장된 곡이 없습니다.", ephemeral=True)
+            return
+        tracks = [
+            {
+                "title": str(m.get("title") or "곡"),
+                "artist": str(m.get("artist") or ""),
+                "url": str(m.get("url") or ""),
+                "platform": str(m.get("platform") or "YouTube"),
+            }
+            for m in self.music_list
+        ]
+        pl_data = {
+            "id": f"liked_lib_{interaction.user.id}",
+            "name": "내 애청곡 보관함",
+            "emoji": "❤️",
+            "platform": "YouTube",
+            "tracks": tracks,
+        }
+        await start_voice_playlist_from_interaction(interaction, interaction.user, pl_data, start_index=0)
+
+    @discord.ui.select(placeholder="🗑️ 현재 페이지에서 삭제할 애청곡 선택...", row=3, options=[discord.SelectOption(label="선택", value="NONE")])
+    async def del_track_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if self.owner_id and interaction.user.id != self.owner_id:
+            await core.safe_send_response(interaction, "❌ 본인의 애청곡 보관함만 편집할 수 있습니다.", ephemeral=True)
+            return
+        val = select.values[0]
+        if not val.isdigit():
+            await core.safe_defer(interaction)
+            return
+        idx = int(val)
+        if not (0 <= idx < len(self.music_list)):
+            await core.safe_defer(interaction)
+            return
+        await core.safe_defer(interaction)
+        target = self.music_list.pop(idx)
+        target_url = target.get("url")
+        target_title = target.get("title")
+        u_key = str(self.owner_id or interaction.user.id)
+
+        def _remove_liked():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                prof = core.ensure_user_profile(d, u_key, interaction.user.display_name)
+                liked = prof.get("liked_music")
+                if isinstance(liked, list):
+                    for i, item in enumerate(liked):
+                        if isinstance(item, dict) and (item.get("url") == target_url and item.get("title") == target_title):
+                            liked.pop(i)
+                            break
+                core.save_data(d)
+
+        await asyncio.to_thread(_remove_liked)
+        self.current_page = min(self.current_page, self.max_page)
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
 
 def _normalize_music_time_str(time_str: str):
@@ -2554,7 +2639,7 @@ class MoodRadioView(core.SafeView):
                 f"{st['desc']}\n\n"
                 f"📡 **음성 상태:** {vc_status}\n"
                 f"🔀 **재생 순서:** `{'셔플 랜덤' if self.shuffle_on else '순번 재생'}`  ·  🔁 **무한 반복:** `전체 반복 ON`\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"━━━━━━━━━━━━━━━━\n"
                 f"**🎵 수록 큐레이션 ({len(st['tracks'])}곡)**\n" + "\n".join(track_lines)
             ),
             color=st["color"],
@@ -5331,7 +5416,7 @@ class MusicCog(commands.Cog):
         liked_raw = core.safe_get_dict(data, "user_profiles", u_key).get("liked_music")
         liked_list = [m for m in liked_raw if isinstance(m, dict)] if isinstance(liked_raw, list) else []
 
-        view = MusicLibraryPaginationView(f"❤️ {interaction.user.display_name}님의 나만의 음악 보관함", liked_list, items_per_page=5)
+        view = MusicLibraryPaginationView(f"❤️ {interaction.user.display_name}님의 나만의 음악 보관함", liked_list, items_per_page=5, owner_id=interaction.user.id)
         await interaction.followup.send(embed=view.build_embed(), view=view, wait=True)
 
     @app_commands.command(name="오디오테스트", description="음성채널에 접속하여 봇의 오디오 출력, DAVE 암호화 및 비프음(소리)을 즉시 점검합니다.")

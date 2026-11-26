@@ -912,7 +912,7 @@ class OtherLifeCollectionView(core.SafeView):
                     f"최고 **`{u.get('best_score', 0):,}점`** · "
                     f"최장 **`{u.get('longest_age', 0)}세`**\n"
                     f"{filter_line}"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "━━━━━━━━━━━━━━━━\n"
                     + body_txt
                 )[:4000],
                 color=0x8B5CF6,
@@ -1133,7 +1133,7 @@ class OtherLifeChronicleView(core.SafeView):
             description=(
                 f"**배경:** {ht['city']} · {lore['place']} · **길:** {role['title']}{partner_txt}\n"
                 f"**간직한 유품:** `{lore['item_short']}` · **소꿉친구:** `{active.get('companion_name', '지우')}` · **스승:** `{active.get('mentor_name', '백 선생')}`\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 f"🌟 **삶의 결정적 전환점 ({len(tps)}건)**\n{tp_text}"
             )[:4000],
             color=0x6366F1,
@@ -1234,7 +1234,7 @@ class OtherLifeRankingView(core.SafeView):
             title="🏆 타인의 인생 — 서버 랭킹 TOP 10",
             description=(
                 "수집한 고유 엔딩 수와 최고 인생 점수 기준으로 집계됩니다.\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 + body
             ),
             color=0xF59E0B,
@@ -1600,13 +1600,13 @@ class OtherLifeGameView(core.SafeView):
                     f"**{uname}**님, 이름도 배경도 낯선 어느 타인의 0세부터 노년까지를 대신 살아보세요.\n"
                     f"유년기의 작은 약속, 청소년기의 스승과 유혹, 서른의 선택이 20개 세부 전공과 **1,000종 멀티 엔딩**으로 이어집니다.\n"
                     f"{status_banner}\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "━━━━━━━━━━━━━━━━\n"
                     f"🧬 **선택된 출신 배경**\n{origin_preview}\n\n"
                     f"⏱️ **선택된 시간 배율:** **{scale_meta['name']}**\n"
                     f"> {scale_meta['desc']}\n\n"
                     f"📚 **내 수집 기록:** 해금 엔딩 **`{unlocked_cnt}/{total_endings:,}종`** · "
                     f"완결 생애 `{u.get('lives_completed', 0)}회` · 최고 `{u.get('best_score', 0):,}점`\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "━━━━━━━━━━━━━━━━\n"
                     "👇 아래 드롭다운으로 출신과 시간 배율을 고른 뒤 `🌱 이 설정으로 인생 시작!`을 눌러주세요!"
                 ),
                 color=0x38BDF8,
@@ -1637,7 +1637,7 @@ class OtherLifeGameView(core.SafeView):
                     f"**등급:** `[{emeta['rarity']}]` · **주제:** *{emeta['summary']}*\n"
                     f"**배경:** {ht['city']} · {orig['name']} · **길:** {c_meta['emoji']} {role['title']}{partner_line}\n"
                     f"**유품:** `{lore['item_short']}` · **도감 해금:** `{unlocked_cnt}/{total_endings:,}종`\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "━━━━━━━━━━━━━━━━\n"
                     f"📜 **생애의 마침표**\n{active.get('ending_epilogue', '')}"
                 )[:4000],
                 color=emeta["color"],
@@ -1731,7 +1731,7 @@ class OtherLifeGameView(core.SafeView):
                 f"🧬 {orig['name']} · {c_meta['emoji']} **{role['title']}**\n"
                 f"⏱️ {scale_meta['name']} · {_next_tick_text(active)}\n"
                 f"🤝 {' · '.join(rel_bits)}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 f"{outcome_sec}"
                 f"📖 **지금 마주한 순간**\n{node['body']}{spec_tip}"
             )[:4000],

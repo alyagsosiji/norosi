@@ -260,43 +260,79 @@ def _canonical_original_url(url: str, platform: str) -> str:
     return url
 
 
+async def _safe_session_get_bytes(
+    session: aiohttp.ClientSession,
+    url: str,
+    *,
+    headers: dict[str, str],
+    timeout_sec: float,
+    max_bytes: int,
+    require_html: bool = False,
+    max_redirects: int = 3,
+) -> Optional[bytes]:
+    """매 리다이렉트 홉마다 _is_safe_public_url_async를 검증하여 302 리다이렉트 경유 SSRF를 원천 차단합니다."""
+    cur_url = url
+    for _ in range(max_redirects + 1):
+        if not await _is_safe_public_url_async(cur_url):
+            return None
+        try:
+            async with session.get(
+                cur_url,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=timeout_sec),
+                allow_redirects=False,
+            ) as resp:
+                if resp.status in (301, 302, 303, 307, 308):
+                    loc = (resp.headers.get("Location") or "").strip()
+                    if not loc:
+                        return None
+                    cur_url = urllib.parse.urljoin(cur_url, loc)
+                    continue
+                if resp.status != 200:
+                    return None
+                if require_html:
+                    ctype = (resp.headers.get("Content-Type") or "").lower()
+                    if ctype and "html" not in ctype and "xml" not in ctype:
+                        return None
+                cl = resp.headers.get("Content-Length")
+                if cl and cl.isdigit() and int(cl) > max_bytes:
+                    return None
+                buf = bytearray()
+                async for chunk in resp.content.iter_chunked(65536):
+                    buf.extend(chunk)
+                    if len(buf) > max_bytes:
+                        return None
+                return bytes(buf)
+        except Exception:
+            return None
+    return None
+
+
 async def _fetch_json(session: aiohttp.ClientSession, url: str, headers: Optional[dict] = None, timeout_sec: float = 6.5) -> Optional[Any]:
-    if not await _is_safe_public_url_async(url):
-        return None
     req_headers = {"User-Agent": HTTP_UA, "Accept": "application/json"}
     if headers:
         req_headers.update(headers)
+    raw = await _safe_session_get_bytes(session, url, headers=req_headers, timeout_sec=timeout_sec, max_bytes=MAX_JSON_BYTES)
+    if not raw:
+        return None
     try:
-        async with session.get(url, headers=req_headers, timeout=aiohttp.ClientTimeout(total=timeout_sec), allow_redirects=True) as resp:
-            if resp.status != 200:
-                return None
-            raw = await resp.content.read(MAX_JSON_BYTES + 1)
-            if len(raw) > MAX_JSON_BYTES:
-                return None
-            return json.loads(raw.decode("utf-8", errors="replace"))
+        return json.loads(raw.decode("utf-8", errors="replace"))
     except Exception:
         return None
 
 
 async def _fetch_html_og(session: aiohttp.ClientSession, url: str, ua: str = DISCORD_BOT_UA, timeout_sec: float = 6.5) -> dict[str, str]:
-    if not await _is_safe_public_url_async(url):
+    raw = await _safe_session_get_bytes(
+        session,
+        url,
+        headers={"User-Agent": ua, "Accept": "text/html,application/xhtml+xml"},
+        timeout_sec=timeout_sec,
+        max_bytes=MAX_HTML_BYTES,
+        require_html=True,
+    )
+    if not raw:
         return {}
-    try:
-        async with session.get(
-            url,
-            headers={"User-Agent": ua, "Accept": "text/html,application/xhtml+xml"},
-            timeout=aiohttp.ClientTimeout(total=timeout_sec),
-            allow_redirects=True,
-        ) as resp:
-            if resp.status != 200:
-                return {}
-            ctype = (resp.headers.get("Content-Type") or "").lower()
-            if "html" not in ctype and "xml" not in ctype and ctype:
-                return {}
-            raw = await resp.content.read(MAX_HTML_BYTES)
-            text = raw.decode("utf-8", errors="replace")
-    except Exception:
-        return {}
+    text = raw.decode("utf-8", errors="replace")
 
     parser = _OGMetaParser()
     try:
@@ -318,26 +354,11 @@ async def _download_media_bytes(
     headers: Optional[dict[str, str]] = None,
     timeout_sec: float = 12.0,
 ) -> Optional[bytes]:
-    if not await _is_safe_public_url_async(url):
-        return None
     req_headers = {"User-Agent": HTTP_UA}
     if headers:
         req_headers.update(headers)
-    try:
-        async with session.get(url, headers=req_headers, timeout=aiohttp.ClientTimeout(total=timeout_sec), allow_redirects=True) as resp:
-            if resp.status != 200:
-                return None
-            cl = resp.headers.get("Content-Length")
-            if cl and cl.isdigit() and int(cl) > max_bytes:
-                return None
-            buf = bytearray()
-            async for chunk in resp.content.iter_chunked(65536):
-                buf.extend(chunk)
-                if len(buf) > max_bytes:
-                    return None
-            return bytes(buf) if buf else None
-    except Exception:
-        return None
+    raw = await _safe_session_get_bytes(session, url, headers=req_headers, timeout_sec=timeout_sec, max_bytes=max_bytes)
+    return raw if raw else None
 
 
 async def _ytdlp_extract_info(url: str, timeout_sec: float = 9.0) -> Optional[dict]:

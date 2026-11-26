@@ -2041,9 +2041,10 @@ class HelpCog(commands.Cog):
         name="도움말",
         description="📖 norosi 통합 도움말 — /설정(일반·고급·미니게임·개인) 구조 및 권한별(일반·관리자·봇주인) 상세 가이드",
     )
+    @app_commands.rename(category="카테고리", search="검색")
     @app_commands.describe(
         category="열람할 카테고리 선택 (전체 요약 / 통합 설정 / 가챠 / 낚시 / 경제 / 생활 / 인생 / 티켓 / 음악 등)",
-        search="검색할 명령어 이름 또는 키워드 (예: 설정, 마스터랭크, 원신, 스타레일, 낚시, 농장, 인생, 티켓)",
+        search="검색할 기능 이름 또는 키워드 (예: 설정, 마스터랭크, 원신, 스타레일, 낚시, 농장, 인생, 티켓)",
     )
     @app_commands.choices(
         category=[

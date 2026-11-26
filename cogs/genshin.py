@@ -181,7 +181,7 @@ def _build_genshin_result_embed(result: dict, user: discord.abc.User | None) -> 
     stat_bar = f"★★★★★ `{len(r5)}` · ★★★★ `{len(r4)}` · ★★★ `{len(r3)}` · 🎯픽업 `{len(pickups)}`{rew_sum}"
 
     header = f"{mode_banner}🎰 **기원:** `{b_cfg['name']}`{rot_tag}\n🎯 **현재 픽업:** `{feat_str}`\n\n"
-    footer_block = f"\n\n━━━━━━━━━━━━━━━━━━━━━━\n{stat_bar}\n{pity_line}"
+    footer_block = f"\n\n━━━━━━━━━━━━━━━━\n{stat_bar}\n{pity_line}"
     body = "\n".join(lines)
     max_b = max(200, 4040 - len(header) - len(footer_block))
     if len(body) > max_b:
@@ -539,7 +539,7 @@ class GenshinPullAgainView(core.SafeView):
 
 class GenshinFatePathView(core.SafeView):
     def __init__(self, guild_id: int = 0, user: discord.User | None = None):
-        super().__init__(timeout=180)
+        super().__init__(timeout=600)
         self.guild_id = guild_id
         self.user = user
         self._build()
@@ -857,7 +857,7 @@ class GenshinInventoryView(core.SafeView):
 
 class GenshinItemDetailView(core.SafeView):
     def __init__(self, guild_id: int = 0, user: discord.User | None = None, item_key: str = ""):
-        super().__init__(timeout=180)
+        super().__init__(timeout=600)
         self.guild_id = guild_id
         self.user = user
         self.item_key = item_key
@@ -1500,7 +1500,7 @@ class GenshinRankingView(core.SafeView):
 
 class GenshinRateView(core.SafeView):
     def __init__(self, banner_key: str = "char1"):
-        super().__init__(timeout=180)
+        super().__init__(timeout=600)
         self.banner_key = banner_key
         self._build()
 

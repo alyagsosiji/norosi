@@ -606,7 +606,7 @@ class ReactionRoleBuilderView(core.SafeView):
                 f"• **안내 문구:** {self.description}\n"
                 f"• **선택 모드:** `{'단일 선택 (Unique)' if self.mode == 'unique' else '다중 선택 (Multiple)'}`\n"
                 f"• **발행 대상 채널:** {self.target_channel.mention if self.target_channel else '*(아래 채널 선택 드롭다운에서 선택)*'}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━"
+                "━━━━━━━━━━━━━━━━"
             ),
             color=discord.Color.blue()
         )
@@ -1120,7 +1120,7 @@ class ReactionRoleStudioView(core.SafeView):
                 f"📊 **현재 서버 ({self.guild.name}) 현황:**\n"
                 f"• 📜 활성 반응역할 패널: **`{total_panels}개`**\n"
                 f"• 🛡️ 배정 중인 역할 총합: **`{total_roles}개`**\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 "**💡 주요 기능 안내:**\n"
                 "• **`[🚀 사진 스타일 버튼 패널]`** : 제목/본문/버튼이름/이모지를 자유롭게 넣어 깔끔한 버튼 패널 즉시 제작\n"
                 "• **`[➕ 새 패널 발행]`** : 단계별 빌더를 통해 다중 역할 안내 임베드 패널 발행\n"

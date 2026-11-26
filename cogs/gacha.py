@@ -715,7 +715,7 @@ class DuplicateConvertConfirmView(core.SafeView):
         parent_menu_view=None,
         parent_menu_message=None
     ):
-        super().__init__(timeout=180)
+        super().__init__(timeout=600)
         self.guild_id = guild_id
         self.user = user
         self.preview_info = preview_info or {}

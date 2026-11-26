@@ -27,7 +27,7 @@ import core
 
 class UserProfileInspectView(core.SafeView):
     def __init__(self, author_id: int = 0):
-        super().__init__(timeout=180)
+        super().__init__(timeout=600)
         self.author_id = author_id
 
     @discord.ui.select(
@@ -219,7 +219,7 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
                 f"🏠 **서버 멤버:** {members_desc}\n"
                 f"📢 **채널 현황:** 텍스트 `{len(text_chs)}개` · 음성 `{len(voice_chs)}개` · 역할 `{roles_cnt}개` (부스트 `Lv.{boost_lvl} / {boost_cnt}개`)\n"
                 f"📅 **기준 일시:** `{now_kst.strftime('%Y-%m-%d %H:%M KST')}`\n"
-                "──────────────────────\n"
+                "────────────────\n"
                 f"💬 **채팅 메시지량:** {msg_val_str}\n"
                 f"🔊 **음성채널 실시간 현황:** {vc_active_str}\n"
                 f"📅 **오늘 출석 참여율:** `{att_rate}%` (`{today_att_count:,}` / 👤 유저 `{humans_count:,}명` · 누적 등록 `{total_att_registered:,}명`)\n\n"
@@ -275,7 +275,7 @@ def build_server_stats_embed(guild: discord.Guild, data: dict, timeframe: str = 
 
 class ServerStatsDashboardView(core.SafeView):
     def __init__(self, guild: discord.Guild, data: dict, timeframe: str = "daily", mode: str = "summary", user: Optional[discord.User] = None):
-        super().__init__(timeout=180)
+        super().__init__(timeout=600)
         self.guild = guild
         self.data = data
         self.timeframe = timeframe
@@ -566,12 +566,12 @@ class RecruitLobbyView(core.SafeView):
         desc = (
             f"{status_badge}\n\n"
             f"📊 **모집 현황:** `{gauge_str}` **{pct}%** (`{curr_cnt}/{self.capacity}명`)\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━\n"
             f"📋 **파티 상세 정보:**\n"
             f"{info_str}\n\n"
             f"👥 **참가 파티원 명단:**\n"
             f"{slots_str}\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━\n"
             f"{bottom_guide}"
         )
 
@@ -698,6 +698,31 @@ class RecruitLobbyView(core.SafeView):
 
         await interaction.response.send_modal(RecruitEditModal(self))
 
+    @discord.ui.button(label="📣 파티원 호출", style=discord.ButtonStyle.primary, row=1)
+    async def ping_members_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.status in ("departed", "cancelled"):
+            await core.safe_send_response(interaction, content="❌ 이미 종료된 모집입니다.", ephemeral=True)
+            return
+        if self.host and interaction.user.id != self.host.id:
+            await core.safe_send_response(interaction, content="❌ 방장만 파티원을 호출할 수 있습니다.", ephemeral=True)
+            return
+        now_m = time.monotonic()
+        if now_m - getattr(self, "_last_ping_mono", 0.0) < 90.0:
+            await core.safe_send_response(interaction, content="⏳ 파티원 호출은 90초에 한 번만 보낼 수 있습니다.", ephemeral=True)
+            return
+        others = [m for m in self.members if m.id != interaction.user.id]
+        if not others:
+            await core.safe_send_response(interaction, content="ℹ️ 아직 호출할 다른 참가 파티원이 없습니다.", ephemeral=True)
+            return
+        self._last_ping_mono = now_m
+        mentions = " ".join(m.mention for m in others)
+        room_part = f" · 🔑 방 번호: `{self.room_code}`" if self.room_code else ""
+        await core.safe_send_response(
+            interaction,
+            content=f"📣 **[{self.game}] 방장 호출!** {mentions}{room_part}",
+            allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+        )
+
     @discord.ui.button(label="✖️ 모집 취소", style=discord.ButtonStyle.danger, row=1)
     async def cancel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._lock:
@@ -794,7 +819,7 @@ def build_sponsor_embed(bot_user: Optional[discord.abc.User] = None) -> discord.
         title="💖 팀 봉화 (norosi) 후원 안내",
         description=(
             "후원은 **팀 봉화 (소유주 : 아시)** 에게 후원되는 것으로, **봇 운영에 도움이 됩니다.**\n"
-            "──────────────────────────\n"
+            "────────────────\n"
             "• **후원 대상:** `팀 봉화 (소유주 : 아시)`\n"
             "• **후원 용도:** 24/7 서버 호스팅 · 유지비 · 신규 기능 개발 및 안정적 운영\n"
             f"• **후원 페이지:** {SPONSOR_URL}\n\n"
@@ -1336,7 +1361,7 @@ class StatsCog(commands.Cog):
             title="🖥️ norosi 봇 정밀 시스템 & 네트워크 상태 진단",
             description=(
                 "**[👑 봇 주인 전용]** 게이트웨이·REST·이벤트 루프·호스트 자원·캐시·보안 상태를 실시간 진단합니다.\n"
-                "──────────────────────────"
+                "────────────────"
             ),
             color=embed_color,
             timestamp=datetime.datetime.now(core.KST),
@@ -1743,7 +1768,7 @@ class StatsCog(commands.Cog):
             description=(
                 f"👤 **유저 멘션:** {target.mention} (`{target.name}`)\n"
                 f"🆔 **고유 ID:** `{target.id}` · **권한 등급:** `{perm_summary}`\n"
-                "──────────────────────"
+                "────────────────"
             ),
             color=embed_color,
             timestamp=now_kst
@@ -2027,7 +2052,7 @@ class StatsCog(commands.Cog):
 
             json_bytes = json.dumps(backup_data, ensure_ascii=False, indent=2).encode("utf-8")
             fp = io.BytesIO(json_bytes)
-            filename = f"guild_backup_{guild.id}_{ts_str}.json"
+            filename = core.sanitize_attachment_filename(f"guild_backup_{guild.id}_{ts_str}.json")
             file = discord.File(fp, filename=filename)
 
             embed = discord.Embed(
@@ -2052,9 +2077,11 @@ class StatsCog(commands.Cog):
             # 봇 DB 전체 백업
             data = await asyncio.to_thread(core.load_data)
             clean_db = copy.deepcopy(data)
+            if isinstance(clean_db.get("settings"), dict) and "emote_cdn_signing_key" in clean_db["settings"]:
+                clean_db["settings"].pop("emote_cdn_signing_key", None)
             json_bytes = json.dumps(clean_db, ensure_ascii=False, indent=2).encode("utf-8")
             fp = io.BytesIO(json_bytes)
-            filename = f"norosi_db_backup_{ts_str}.json"
+            filename = core.sanitize_attachment_filename(f"norosi_db_backup_{ts_str}.json")
             file = discord.File(fp, filename=filename)
 
             embed = discord.Embed(
@@ -2155,7 +2182,7 @@ class WeatherRefreshView(core.SafeView):
             title=f"{w.get('weather_emoji', '🌤️')} [{w.get('location', self.query or '서울')}] 초정밀 실시간 기상 & 대기질 리포트",
             description=(
                 f"📍 **관측 좌표:** `위도 {w.get('lat', '-')}, 경도 {w.get('lon', '-')}` · 🕒 **기준:** `{now_kst.strftime('%Y-%m-%d %H:%M KST')}`\n"
-                "──────────────────────\n"
+                "────────────────\n"
                 f"### 🌡️ 현재 기온: **`{w.get('temp', 0.0):.1f}°C`** ({w.get('weather_desc', '맑음')})\n"
                 f"• **체감 온도:** **`{w.get('feels_like', 0.0):.1f}°C`**  |  **오늘 최저/최고:** `{w.get('min_temp', 0.0):.1f}°C` / `{w.get('max_temp', 0.0):.1f}°C`\n"
                 f"• **상대 습도:** `{w.get('humidity', 0)}%`  |  **풍속:** `{w.get('wind', 0)} km/h`  |  **기압:** `{w.get('pressure', 1013.0):.0f} hPa`"
@@ -2289,7 +2316,7 @@ class WordChainGameView(core.SafeView):
             description=(
                 f"🎮 **대결 모드:** {mode_str}\n"
                 f"🔥 **현재 랠리:** `{self.rally_count}회` 연속 성공\n"
-                "──────────────────────\n"
+                "────────────────\n"
                 f"### 🎯 현재 제시어: **`{self.current_word}`**\n"
                 f"👉 이어갈 첫 글자: {dueum_str} 시작 2글자 이상 단어\n\n"
                 f"📜 **단어 체인 기록:**\n{recent_chain}\n\n"
@@ -2567,7 +2594,7 @@ class RussianRouletteView(core.SafeView):
             description=(
                 f"🎯 **장전 실탄:** `6발 중 {self.bullets}발` (현재 격발 확률: **`{danger_pct}%`**)\n"
                 f"💎 **누적 생존 상금:** **`{self.pot_crystals:,} 💎`** (생존 콤보: `{self.survivor_streak}연속`)\n"
-                "──────────────────────\n"
+                "────────────────\n"
                 f"### 🔄 실린더 상태: `{self._cylinder_visual()}`\n\n"
                 f"📢 **상황 중계:**\n> {self.last_log}"
             ),
@@ -2869,7 +2896,7 @@ def build_suggestion_result_embed(entry: dict) -> discord.Embed:
             f"🔒 **공개 유형:** {'🔒 익명 건의 (내 계정 정보 비공개)' if is_anon else '📢 계정 공개 건의 (답변 및 피드백 가능)'}\n"
             f"🕒 **접수 시각:** `{entry['created_at']}`\n\n"
             f"**접수된 내용 요약:**\n> {entry['content'][:250]}{'...' if len(entry['content']) > 250 else ''}\n\n"
-            "──────────────────────\n"
+            "────────────────\n"
             f"{SUGGESTION_TERMS_SUMMARY}"
         ),
         color=discord.Color.green(),
@@ -2954,7 +2981,7 @@ class SuggestionSubmitModal(core.SafeModal):
 
 class SuggestionTypeSelectView(core.SafeView):
     def __init__(self, bot, attachment_url: str = None, attachment_name: str = None):
-        super().__init__(timeout=180)
+        super().__init__(timeout=600)
         self.bot = bot
         self.attachment_url = attachment_url
         self.attachment_name = attachment_name
@@ -2985,7 +3012,7 @@ class SuggestionTypeSelectView(core.SafeView):
             "• 닉네임과 디스코드 ID가 포함되어 접수됩니다.",
             "• 개발진이 필요시 추가 확인이나 답변, 보상 크리스탈(💎)을 드릴 수 있습니다.",
             "",
-            "──────────────────────",
+            "────────────────",
             SUGGESTION_TERMS_SUMMARY
         ])
 

@@ -1256,7 +1256,7 @@ class CrystalTransferUserSelectView(core.SafeView):
     """크리스탈을 송금할 대상을 UserSelect 드롭다운으로 선택하는 뷰"""
 
     def __init__(self, user: Optional[discord.abc.User] = None):
-        super().__init__(timeout=180)
+        super().__init__(timeout=600)
         self.user = user
         u_sel = discord.ui.UserSelect(
             placeholder="💸 크리스탈을 송금할 서버 멤버를 선택하세요...",
@@ -1389,7 +1389,7 @@ class PartnerProposeUserSelectView(core.SafeView):
     """/설정 안에서 파트너를 신청할 유저를 UserSelect로 선택하는 뷰"""
 
     def __init__(self, user: Optional[discord.abc.User] = None, bot: Optional[commands.Bot] = None):
-        super().__init__(timeout=180)
+        super().__init__(timeout=600)
         self.user = user
         self.bot = bot
         u_sel = discord.ui.UserSelect(
@@ -1440,7 +1440,7 @@ class CardTradeUserSelectView(core.SafeView):
     """/설정 안에서 1:1 카드 교환 상대방을 UserSelect로 선택해 교환 장터 스튜디오를 여는 뷰"""
 
     def __init__(self, user: Optional[discord.abc.User] = None, bot: Optional[commands.Bot] = None):
-        super().__init__(timeout=180)
+        super().__init__(timeout=600)
         self.user = user
         self.bot = bot
         u_sel = discord.ui.UserSelect(
@@ -1565,7 +1565,7 @@ class SekaiDeckManageView(core.SafeView):
     """5인 유닛 덱 현황 창에서 자동 최고 종합력 편성 또는 직접 편성을 수행하는 뷰"""
 
     def __init__(self, user: discord.abc.User, bot: commands.Bot):
-        super().__init__(timeout=180)
+        super().__init__(timeout=600)
         self.user = user
         self.bot = bot
 
@@ -1762,7 +1762,7 @@ class DashboardSearchResultView(core.SafeView):
         matches: Optional[List[Dict[str, Any]]] = None,
         owner_id: int = 0,
     ):
-        super().__init__(timeout=180)
+        super().__init__(timeout=600)
         self.parent_view = parent_view
         self.keyword = keyword
         self.matches = (matches or [])[:10]
@@ -1856,17 +1856,18 @@ class DashboardSearchResultView(core.SafeView):
                 color=discord.Color.orange(),
                 timestamp=datetime.datetime.now(core.KST),
             )
+        num_icons = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
         lines = []
         for idx, m in enumerate(self.matches, start=1):
             it = m["item"]
+            nb = num_icons[idx - 1] if idx <= 10 else f"`{idx:02d}.`"
             perm_tag = " `👑봇주`" if it.get("perm") == PERM_OWNER else (" `🛡️관리자`" if it.get("perm") == PERM_ADMIN else "")
             lbl_clean = re.sub(r"^\[(?:봇주인|서버관리자)\]\s*", "", str(it.get("label") or "-")).strip()
             desc_clean = re.sub(r"^\[[^\]]+\]\s*", "", str(it.get("desc") or "")).strip()
-            if len(desc_clean) > 70:
-                desc_clean = desc_clean[:69].rstrip() + "…"
+            if len(desc_clean) > 65:
+                desc_clean = desc_clean[:64].rstrip() + "…"
             lines.append(
-                f"`{idx:02d}.` {it.get('emoji', '•')} **{lbl_clean}**{perm_tag} "
-                f"*({m['cat_label']} {m['page_num']}p)*\n"
+                f"{nb} {it.get('emoji', '•')} **{lbl_clean}**{perm_tag}  ·  `{m['cat_label']} {m['page_num']}p`\n"
                 f"　└ {desc_clean}"
             )
         embed = discord.Embed(
@@ -1875,7 +1876,6 @@ class DashboardSearchResultView(core.SafeView):
             color=discord.Color.from_rgb(0, 204, 221),
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_footer(text="아래 버튼을 누르면 해당 기능이 즉시 실행됩니다.")
         return embed
 
 
@@ -3514,6 +3514,21 @@ class MasterDashboardView(core.SafeView):
             )
             ref_btn.callback = self._on_refresh_clicked
             self.add_item(ref_btn)
+
+            g_key_h = str(self.guild.id if self.guild else 0)
+            u_key_h = str(uid)
+            prof_h = core.as_dict(core.as_dict(self.data.get("user_profiles")).get(u_key_h))
+            g_att_h = core.safe_get_dict(self.data, "guild_attendance", g_key_h, u_key_h) if self.guild else core.as_dict(prof_h.get("attendance"))
+            if g_att_h.get("last_date") != core.get_today_str():
+                att_btn = discord.ui.Button(
+                    label="오늘 출석하기",
+                    emoji="📅",
+                    style=discord.ButtonStyle.success,
+                    row=4,
+                    custom_id="norosi:Settings:home_quick_attend",
+                )
+                att_btn.callback = self._on_home_quick_attend
+                self.add_item(att_btn)
             return
 
         # [2단계] 카테고리 내부 화면 (일반 / 고급 / 미니게임 / 개인)
@@ -3742,6 +3757,27 @@ class MasterDashboardView(core.SafeView):
             await handler(interaction)
         else:
             await core.safe_defer(interaction, ephemeral=True)
+
+    async def _on_home_quick_attend(self, interaction: discord.Interaction):
+        await core.safe_defer(interaction, ephemeral=True)
+        gid = interaction.guild.id if interaction.guild else 0
+        gname = interaction.guild.name if interaction.guild else "개인 메시지"
+        res = await asyncio.to_thread(
+            core.execute_daily_attendance,
+            gid,
+            gname,
+            interaction.user.id,
+            interaction.user.display_name,
+        )
+        self.data = await asyncio.to_thread(core.load_data)
+        self.refresh_components()
+        await core.safe_edit_response(interaction, embed=self.build_current_embed(), view=self)
+        if isinstance(res, dict) and res.get("already_checked"):
+            await interaction.followup.send("✅ 오늘 이미 출석체크를 완료했습니다!", ephemeral=True)
+        else:
+            added = res.get("added_crystals", 0) if isinstance(res, dict) else 0
+            streak = res.get("streak", 1) if isinstance(res, dict) else 1
+            await interaction.followup.send(f"📅 **오늘 출석 완료!** (`{streak}일` 연속 · `+{added:,}💎` 지급)", ephemeral=True)
 
     async def _on_refresh_clicked(self, interaction: discord.Interaction):
         try:
@@ -4185,9 +4221,9 @@ class MasterDashboardView(core.SafeView):
 
         shortcut_keys = core.get_user_home_shortcuts(self.data, u_key, valid_keys=HOME_SHORTCUT_KEYS)
         sc_badge = (
-            "기본 프리셋"
-            if shortcut_keys == core.DEFAULT_HOME_SHORTCUTS
-            else f"커스텀 {len(shortcut_keys)}종"
+            "숨김"
+            if not shortcut_keys
+            else ("기본 프리셋" if shortcut_keys == core.DEFAULT_HOME_SHORTCUTS else f"커스텀 {len(shortcut_keys)}종")
         )
 
         tier = detect_user_perm_tier_sync(self.user, self.guild)
@@ -4332,7 +4368,6 @@ class MasterDashboardView(core.SafeView):
         )
 
         desc_lines = [
-            f"🧭 `홈` › **{cat_meta['label']}** `{page + 1}/{len(cat_pages)}p`  *(전체 `{global_cur}/{global_tot}p`)*",
             f"📑 {page_tabs}",
             f"> {ctx_line}",
             "",
@@ -4346,9 +4381,7 @@ class MasterDashboardView(core.SafeView):
             color=discord.Color.from_rgb(r, g, b),
             timestamp=datetime.datetime.now(core.KST),
         )
-        embed.set_footer(
-            text=f"⬅️ 뒤로 (이전 화면)  ·  🔢 페이지 번호 바로 이동 ({global_cur}/{global_tot}p)  ·  🔄 새로고침"
-        )
+        embed.set_footer(text=f"전체 {global_cur}/{global_tot}p")
         return embed
 
     def _build_sub_mode_embed(self) -> discord.Embed:

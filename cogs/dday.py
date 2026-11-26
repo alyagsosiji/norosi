@@ -1241,7 +1241,7 @@ class DDayCategoryPickView(core.SafeView):
         parent_view=None,
         mode: str = "create",
     ):
-        super().__init__(timeout=180)
+        super().__init__(timeout=600)
         self.bot_instance = bot_instance
         self.user = user
         self.guild = guild
@@ -4241,18 +4241,28 @@ class BirthdayBoardView(core.SafeView):
 
         list_str = "\n".join(lines) if lines else "아직 등록된 생일이 없습니다. 첫 번째로 생일을 등록해 보세요! 🎈"
 
+        today_celebrants = [info for rem_d, info in entries if rem_d == 0]
+        if today_celebrants:
+            cel_names = ", ".join(f"<@{c['user_id']}>" for c in today_celebrants)
+            spotlight = f"🎉 **오늘의 주인공:** {cel_names} — 생일 진심으로 축하합니다! 🥳\n"
+        elif entries:
+            nxt_d, nxt_i = entries[0]
+            spotlight = f"⏳ **다음 생일 주인공:** <@{nxt_i['user_id']}> (`{nxt_i['month']:02d}월 {nxt_i['day']:02d}일` · **`D-{nxt_d}`**)\n"
+        else:
+            spotlight = ""
+
         embed = discord.Embed(
-            title=f"🎂 [{g_name}] 멤버 생일 D-Day 전광판 & 자동 축하 보드",
+            title=f"🎂 [{g_name}] 멤버 생일 전광판",
             description=(
-                f"👤 **등록자 · 내 생일 ({who_display}):** {my_status}\n"
-                f"🎁 **생일 당일 혜택:** 자정(00:00 KST) 자동 축하 메시지 & 보너스 **`+500 💎 크리스탈`** 즉시 지급!\n"
-                "──────────────────────\n"
-                f"### 🎈 다가오는 생일 멤버 목록 (가까운 순)\n{list_str}"
+                f"{spotlight}"
+                f"👤 **내 생일 ({who_display}):** {my_status}\n"
+                f"🎁 **당일 혜택:** 자정 자동 축하 & **`+500 💎`** 지급\n"
+                "────────────────\n"
+                f"### 🎈 다가오는 생일 목록\n{list_str}"
             ),
             color=discord.Color.from_rgb(255, 105, 180),
             timestamp=datetime.datetime.now(core.KST)
         )
-        embed.set_footer(text="하단 [🎂 내 생일 등록/수정] 버튼으로 1초 만에 생일을 등록할 수 있습니다.")
         return embed
 
     @discord.ui.button(label="🎂 내 생일 등록/수정", style=discord.ButtonStyle.primary, row=0)
@@ -4429,7 +4439,7 @@ class ReminderHubView(core.SafeView):
             description=(
                 "원하는 상대 시간(`30분 뒤`, `2시간 후`)이나 지정 시각(`15:30`, `오후 8시`)을 입력하면\n"
                 "정확한 시각에 **개인 DM 및 채널 멘션**으로 잊지 않게 챙겨드립니다!\n"
-                "──────────────────────\n"
+                "────────────────\n"
                 f"### 📋 대기 중인 내 예약 알림 ({len(my_rems)}개)\n{list_str}"
             ),
             color=discord.Color.from_rgb(0, 204, 221),

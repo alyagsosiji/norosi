@@ -273,12 +273,12 @@ def _build_ticket_welcome_embed(rec: Dict[str, Any], cfg: Dict[str, Any]) -> dis
         description=(
             f"안녕하세요 <@{rec.get('opener_id')}>님! 문의가 정상적으로 접수되었습니다.\n"
             f"담당 운영진({staff_txt})이 확인 후 답변해 드립니다.\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━\n"
             f"• **상태:** {status_badge}\n"
             f"• **개설자:** <@{rec.get('opener_id')}> (`{rec.get('opener_name', '-')}`)\n"
             f"• **담당자:** {claimed_txt}\n"
             f"• **개설 시각:** `{rec.get('created_at', '-')}`\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━\n"
             f"**📝 문의 상세 내용**\n>>> {rec.get('details', '-')}"
         )[:4096],
         color=0x22C55E if status == "open" else 0x64748B,

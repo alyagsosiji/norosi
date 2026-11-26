@@ -250,7 +250,7 @@ class FarmView(core.SafeView):
                 f"• **🌱 보유 씨앗:** {seed_txt}\n"
                 f"• **🧺 수확 작물(요리 재료/판매):** {crop_txt}"
                 f"{banner}\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 + "\n".join(plot_lines)
             )[:4096],
             color=0x84CC16,
@@ -884,14 +884,14 @@ class LifeDashboardView(core.SafeView):
             title=f"🌿 {lu['name']}님의 생활 컨텐츠 종합 허브",
             description=(
                 "개인 농장, 서버 공동 농장, 동반 펫, 생선 요리로 낚시와 일일 출석 보상을 극대화하세요!\n\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━\n"
                 f"• **💰 보유 재화:** 🪙 `{ov['gold']:,}🪙` · 💎 `{ov['crystals']:,}💎`\n"
                 f"• **🌾 개인 농장 (Lv.{lu['farm_level']}):** 밭 `{lu['plot_slots']}칸` (수확 가능 `{ready_cnt}` · 성장중 `{growing_cnt}`)\n"
                 f"• **🤝 서버 공동 농장 (Lv.{gf['level']}/10):** 공용 희귀 `+{(gf['level']-1)*2}%` · 골드 `+{(gf['level']-1)*3}%` · 출석 `+{gf['level']*5 if gf['exp']>0 else 0}💎`\n"
                 f"• **🐾 동반 펫:** {pet_str} · 간식 `{lu['pet_food']}개`\n"
                 f"• **🍳 요리 & 활성 버프:** 요리 `{sum((lu.get('dishes') or {}).values())}개` · 활성 버프 `{len(buffs.get('active_dishes') or [])}/3종`\n"
                 f"• **⚡ 현재 통합 보정:** 쿨타임 `-{buffs['cooldown_reduce']:.2f}초` · 희귀 `+{int(buffs['rare_bonus']*100)}%` · 골드 `+{int(buffs['gold_bonus']*100)}%` · 출석 `+{buffs['attendance_total_bonus']}💎`\n"
-                "━━━━━━━━━━━━━━━━━━━━━━"
+                "━━━━━━━━━━━━━━━━"
             ),
             color=0x10B981,
             timestamp=datetime.datetime.now(core.KST),
