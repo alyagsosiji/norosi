@@ -290,7 +290,7 @@ class NorosiBot(commands.Bot):
                 modified_cnt = len(head_commit.get("modified") or [])
                 removed_cnt = len(head_commit.get("removed") or [])
 
-                embed_title = f"📦 GitHub 커밋 푸시됨 (`!업뎃` 대기): {first_line}"
+                embed_title = f"📦 GitHub 커밋 푸시됨 (`!업데이트` 대기): {first_line}"
                 if len(embed_title) > 250:
                     embed_title = embed_title[:247] + "..."
 
@@ -311,7 +311,7 @@ class NorosiBot(commands.Bot):
                 ]
                 embed.description = "\n".join(desc_lines)
                 embed.set_thumbnail(url=sender_avatar)
-                embed.set_footer(text=f"GitHub Push ({len(commits)}개 커밋) • 봇주인이 !업뎃 입력 시 봇에 일괄 반영됩니다")
+                embed.set_footer(text=f"GitHub Push ({len(commits)}개 커밋) • 봇주인이 !업데이트 입력 시 봇에 일괄 반영됩니다")
 
             elif event == "workflow_run":
                 action = payload.get("action", "")
@@ -2614,7 +2614,7 @@ async def current_version_command(ctx: commands.Context):
 
     behind_cnt = info["behind_cnt"]
     if behind_cnt > 0:
-        sync_state = f"🟡 **GitHub에 미반영 업데이트 `{behind_cnt}건` 대기 중** (`!업뎃` 입력 시 `{short_sha}` ➔ `{remote_sha}` 반영)"
+        sync_state = f"🟡 **GitHub에 미반영 업데이트 `{behind_cnt}건` 대기 중** (`!업데이트` 입력 시 `{short_sha}` ➔ `{remote_sha}` 반영)"
         color = discord.Color.gold()
     else:
         sync_state = f"🟢 **현재 봇 버전과 GitHub 최신 버전이 동일합니다** (`{short_sha}`)"
@@ -2634,7 +2634,7 @@ async def current_version_command(ctx: commands.Context):
 
     if behind_cnt > 0 and info["pending_commits"]:
         pend_fmt = _format_commit_lines_highlighted(info["pending_commits"], repo_url=repo_url, limit=10)
-        desc_lines.append(f"\n**📦 아직 봇에 반영되지 않은 GitHub 대기 커밋 (`{behind_cnt}건` · `!업뎃`으로 반영)**\n{pend_fmt}")
+        desc_lines.append(f"\n**📦 아직 봇에 반영되지 않은 GitHub 대기 커밋 (`{behind_cnt}건` · `!업데이트`으로 반영)**\n{pend_fmt}")
 
     if info["recent_commits"]:
         rec_fmt = _format_commit_lines_highlighted(info["recent_commits"], repo_url=repo_url, limit=5)
@@ -2654,9 +2654,9 @@ async def current_version_command(ctx: commands.Context):
 
 
 # ==========================================
-# 봇 주인 전용 GitHub 누적 업데이트 수동 반영 (!업뎃)
+# 봇 주인 전용 GitHub 누적 업데이트 수동 반영 (!업데이트)
 # ==========================================
-@bot.command(name="업뎃")
+@bot.command(name="업데이트")
 async def apply_github_updates_command(ctx: commands.Context, *args):
     """GitHub 원격 저장소(origin/master)에 쌓인 커밋을 가져와 모든 모듈을 리로드하거나(필요 시 프로세스 재시작) 봇에 일괄 반영합니다."""
     if not await bot.is_bot_owner_user(ctx.author):
@@ -2785,7 +2785,7 @@ async def apply_github_updates_command(ctx: commands.Context, *args):
         desc_lines.append("\n🔄 **`bot.py` 본체 업데이트(또는 재시작 옵션)가 감지되어 2초 후 봇 프로세스를 자동 재기동합니다.**")
 
     embed = discord.Embed(
-        title="🚀 norosi GitHub 수동 업데이트 반영 완료 (!업뎃)",
+        title="🚀 norosi GitHub 수동 업데이트 반영 완료 (!업데이트)",
         description="\n".join(desc_lines)[:4000],
         color=discord.Color.from_rgb(46, 204, 113) if not failed_cogs else discord.Color.gold(),
         timestamp=datetime.datetime.now(core.KST),

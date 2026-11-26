@@ -24,7 +24,7 @@ jobs:
           .ci_venv/bin/python scripts/ci_check.py
 
   deploy:
-    name: Deploy to Remote Host via SSH (수동 실행 전용 — 일반 반영은 봇에서 !업뎃)
+    name: Deploy to Remote Host via SSH (수동 실행 전용 — 일반 반영은 봇에서 !업데이트)
     needs: verify
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
