@@ -49,6 +49,27 @@ def get_sticky_config(data: dict, guild_id: int, channel_id: int) -> Optional[di
     return cfg if isinstance(cfg, dict) else None
 
 
+STICKY_TRIGGER_MODE_LABELS: dict[str, str] = {
+    "count": "💬 메시지 개수 기준 (N개 메시지 이후 즉시)",
+    "delay": "⏱️ 마지막 메시지 후 대기 (N초 동안 조용하면)",
+    "both": "🔗 복합 조건 (N개 이상 쌓인 뒤 N초 조용하면)",
+}
+
+
+def format_sticky_trigger_summary(cfg: dict | None) -> str:
+    if not isinstance(cfg, dict):
+        return "미설정"
+    mode = str(cfg.get("trigger_mode") or "count")
+    iv = max(1, int(cfg.get("interval", 1) or 1))
+    dl = max(0, int(cfg.get("delay_sec", 0) or 0))
+    cd = max(2, int(cfg.get("cooldown_sec", 3) or 3))
+    if mode == "delay" and dl > 0:
+        return f"⏱️ 마지막 메시지로부터 `{dl}초` 뒤 갱신 (최소 쿨타임 `{cd}초`)"
+    if mode == "both" and dl > 0:
+        return f"🔗 `{iv}개` 메시지 이후 + 마지막 메시지 `{dl}초` 뒤 갱신"
+    return f"💬 `{iv}개` 메시지 이후 즉시 갱신 (최소 쿨타임 `{cd}초`)"
+
+
 def set_sticky_config(
     data: dict,
     guild_id: int,
@@ -58,6 +79,8 @@ def set_sticky_config(
     *,
     color: str = "gold",
     interval: int = 1,
+    delay_sec: int = 0,
+    trigger_mode: str = "count",
     cooldown_sec: int = 3,
     updated_by: int = 0,
     last_message_id: Optional[int] = None,
@@ -65,8 +88,13 @@ def set_sticky_config(
     g_map = core.ensure_dict_path(data, "sticky_messages", str(guild_id))
     prev = g_map.get(str(channel_id)) if isinstance(g_map.get(str(channel_id)), dict) else {}
     safe_color = color if color in STICKY_COLOR_MAP else "gold"
-    safe_interval = max(1, min(30, int(interval or 1)))
-    safe_cd = max(2, min(60, int(cooldown_sec or 3)))
+    safe_interval = max(1, min(100, int(interval or prev.get("interval") or 1)))
+    raw_delay = delay_sec if delay_sec is not None else int(prev.get("delay_sec", 0) or 0)
+    safe_delay = max(0, min(600, int(raw_delay or 0)))
+    safe_mode = trigger_mode if trigger_mode in STICKY_TRIGGER_MODE_LABELS else str(prev.get("trigger_mode") or ("delay" if safe_delay > 0 and safe_interval == 1 else "count"))
+    if safe_mode in ("delay", "both") and safe_delay <= 0:
+        safe_delay = 5
+    safe_cd = max(2, min(300, int(cooldown_sec or prev.get("cooldown_sec") or 3)))
     entry = {
         "guild_id": int(guild_id),
         "channel_id": int(channel_id),
@@ -74,11 +102,13 @@ def set_sticky_config(
         "content": (content or "").strip()[:1800],
         "color": safe_color,
         "interval": safe_interval,
+        "delay_sec": safe_delay,
+        "trigger_mode": safe_mode,
         "cooldown_sec": safe_cd,
         "last_message_id": last_message_id if last_message_id is not None else prev.get("last_message_id"),
         "msg_count": 0,
         "last_posted_ts": float(prev.get("last_posted_ts", 0.0) or 0.0),
-        "enabled": True,
+        "enabled": bool(prev.get("enabled", True)),
         "updated_by": int(updated_by or 0),
         "updated_at": datetime.datetime.now(core.KST).isoformat(),
     }

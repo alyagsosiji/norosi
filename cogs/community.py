@@ -246,22 +246,44 @@ class StickyConfigModal(core.SafeModal, title="📌 자동 고정 메시지 설�
         required=True,
         max_length=1800,
     )
+    interval_input = discord.ui.TextInput(
+        label="몇 개 메시지 이후 갱신 (1~100 · 기본 1)",
+        placeholder="예: 1 (매 메시지마다) / 5 (5개 메시지 쌓인 뒤)",
+        required=False,
+        max_length=4,
+    )
+    delay_input = discord.ui.TextInput(
+        label="마지막 메시지 후 대기 초 (0~600초 · 0=즉시)",
+        placeholder="예: 0 (즉시) / 5 (마지막 채팅 5초 뒤 조용할 때 갱신)",
+        required=False,
+        max_length=4,
+    )
 
     def __init__(
         self,
         channel: discord.abc.GuildChannel,
         *,
         interval: int = 1,
+        delay_sec: int = 0,
+        trigger_mode: str = "count",
+        cooldown_sec: int = 3,
         color: str = "gold",
         existing: Optional[dict] = None,
+        parent_view: Optional["StickyDetailConfigView"] = None,
     ):
         super().__init__()
         self.channel = channel
-        self.interval = interval
-        self.color = color
+        self.interval = int((existing or {}).get("interval", interval) or 1)
+        self.delay_sec = int((existing or {}).get("delay_sec", delay_sec) or 0)
+        self.trigger_mode = str((existing or {}).get("trigger_mode") or trigger_mode or "count")
+        self.cooldown_sec = int((existing or {}).get("cooldown_sec", cooldown_sec) or 3)
+        self.color = str((existing or {}).get("color") or color or "gold")
+        self.parent_view = parent_view
         if existing:
             self.title_input.default = existing.get("title", "")[:120]
             self.content_input.default = existing.get("content", "")[:1800]
+        self.interval_input.default = str(self.interval)
+        self.delay_input.default = str(self.delay_sec)
 
     async def on_submit(self, interaction: discord.Interaction):
         if not interaction.guild or not _is_guild_admin(interaction.user, perm_attr="manage_messages"):
@@ -273,6 +295,22 @@ class StickyConfigModal(core.SafeModal, title="📌 자동 고정 메시지 설�
         channel_id = self.channel.id
         title_val = self.title_input.value
         content_val = self.content_input.value
+
+        raw_iv = (self.interval_input.value or "").strip()
+        parsed_iv = int(raw_iv) if raw_iv.isdigit() else self.interval
+        parsed_iv = max(1, min(100, parsed_iv))
+
+        raw_dl = (self.delay_input.value or "").strip()
+        parsed_dl = int(raw_dl) if raw_dl.isdigit() else self.delay_sec
+        parsed_dl = max(0, min(600, parsed_dl))
+
+        eff_mode = self.trigger_mode
+        if parsed_dl > 0 and parsed_iv > 1:
+            eff_mode = "both"
+        elif parsed_dl > 0 and eff_mode == "count":
+            eff_mode = "delay"
+        elif parsed_dl == 0 and eff_mode in ("delay", "both"):
+            eff_mode = "count"
 
         def _get_prev_id():
             with core._DATA_LOCK:
@@ -292,7 +330,9 @@ class StickyConfigModal(core.SafeModal, title="📌 자동 고정 메시지 설�
             "title": (title_val or "").strip()[:120],
             "content": (content_val or "").strip()[:1800],
             "color": self.color if self.color in community_core.STICKY_COLOR_MAP else "gold",
-            "interval": max(1, min(30, int(self.interval or 1))),
+            "interval": parsed_iv,
+            "delay_sec": parsed_dl,
+            "trigger_mode": eff_mode,
         }
         try:
             posted = await self.channel.send(embed=_build_sticky_embed(preview_cfg))
@@ -313,20 +353,302 @@ class StickyConfigModal(core.SafeModal, title="📌 자동 고정 메시지 설�
                     title_val,
                     content_val,
                     color=self.color,
-                    interval=self.interval,
+                    interval=parsed_iv,
+                    delay_sec=parsed_dl,
+                    trigger_mode=eff_mode,
+                    cooldown_sec=self.cooldown_sec,
                     updated_by=interaction.user.id,
                     last_message_id=posted.id,
                 )
                 cfg["last_posted_ts"] = time.time()
+                cfg["enabled"] = True
                 core.save_data(data)
-                return cfg
+                return dict(cfg)
 
         cfg = await asyncio.to_thread(_save_sticky)
+        if self.parent_view is not None:
+            self.parent_view.cfg = cfg
+            self.parent_view._refresh_components()
+            await interaction.followup.send(
+                content=(
+                    f"✅ {self.channel.mention} 채널에 **자동 고정 메시지**가 등록되어 하단에 게시되었습니다!\n"
+                    f"• **갱신 조건:** {community_core.format_sticky_trigger_summary(cfg)} · "
+                    f"**색상:** `{community_core.STICKY_COLOR_LABELS.get(cfg['color'], cfg['color'])}`"
+                ),
+                embed=self.parent_view.build_embed(),
+                view=self.parent_view,
+                ephemeral=True,
+            )
+            return
+
+        view = StickyDetailConfigView(interaction.user.id, interaction.guild, self.channel, cfg)
         await interaction.followup.send(
-            f"✅ {self.channel.mention} 채널에 **자동 고정 메시지**가 등록되어 하단에 게시되었습니다!\n"
-            f"• **갱신 간격:** `{cfg['interval']}개` 메시지마다 자동 갱신 · **색상:** `{community_core.STICKY_COLOR_LABELS.get(cfg['color'], cfg['color'])}`",
+            content=(
+                f"✅ {self.channel.mention} 채널에 **자동 고정 메시지**가 등록되어 하단에 게시되었습니다!\n"
+                f"아래 상세 설정 패널에서 **갱신 방식·메시지 개수·대기 시간(초)·색상**을 언제든 선택해 바꿀 수 있습니다."
+            ),
+            embed=view.build_embed(),
+            view=view,
             ephemeral=True,
         )
+
+
+class StickyDetailConfigView(core.SafeView):
+    """자동 고정 메시지 상세 설정 패널 (갱신 방식·몇 개 메시지 이후·마지막 메시지 몇 초 뒤·색상·제목/본문 선택)"""
+
+    def __init__(
+        self,
+        admin_id: int = 0,
+        guild: Optional[discord.Guild] = None,
+        channel: Optional[discord.abc.GuildChannel] = None,
+        cfg: Optional[dict] = None,
+    ):
+        super().__init__(timeout=600)
+        self.admin_id = admin_id
+        self.guild = guild
+        self.channel = channel
+        self.cfg: dict = dict(cfg) if isinstance(cfg, dict) else {}
+        self._refresh_components()
+
+    def _ensure_context(self, interaction: discord.Interaction) -> bool:
+        if self.guild is None:
+            self.guild = interaction.guild
+        if self.channel is None and isinstance(interaction.channel, (discord.TextChannel, discord.Thread)):
+            self.channel = interaction.channel
+        if not self.cfg and self.guild and self.channel:
+            d = core.get_cached_data_ro()
+            found = community_core.get_sticky_config(d, self.guild.id, self.channel.id)
+            if isinstance(found, dict):
+                self.cfg = dict(found)
+        return bool(self.guild and self.channel)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        if not interaction.guild or not _is_guild_admin(interaction.user, perm_attr="manage_messages"):
+            await core.safe_send_response(interaction, "❌ 메시지 관리 또는 서버 관리자 권한이 필요합니다.", ephemeral=True)
+            return False
+        self._ensure_context(interaction)
+        return True
+
+    def _refresh_components(self):
+        mode = str(self.cfg.get("trigger_mode") or "count")
+        iv = max(1, int(self.cfg.get("interval", 1) or 1))
+        dl = max(0, int(self.cfg.get("delay_sec", 0) or 0))
+        color = str(self.cfg.get("color") or "gold")
+        enabled = bool(self.cfg.get("enabled", True)) if self.cfg else False
+
+        self.mode_select.options = [
+            discord.SelectOption(
+                label=lbl,
+                value=k,
+                default=(mode == k),
+            )
+            for k, lbl in community_core.STICKY_TRIGGER_MODE_LABELS.items()
+        ]
+
+        iv_presets = [1, 2, 3, 5, 10, 15, 20, 30, 50]
+        if iv not in iv_presets:
+            iv_presets = sorted(set(iv_presets + [iv]))
+        self.interval_select.options = [
+            discord.SelectOption(
+                label=f"💬 {n}개 메시지 이후 갱신" + (" (매 메시지마다)" if n == 1 else ""),
+                value=str(n),
+                default=(iv == n),
+            )
+            for n in iv_presets[:25]
+        ]
+
+        dl_presets = [0, 3, 5, 10, 15, 30, 60, 120, 300]
+        if dl not in dl_presets:
+            dl_presets = sorted(set(dl_presets + [dl]))
+        self.delay_select.options = [
+            discord.SelectOption(
+                label=("⚡ 대기 시간 없음 (0초 · 조건 충족 즉시)" if s == 0 else f"⏱️ 마지막 메시지로부터 {s}초 뒤 갱신"),
+                value=str(s),
+                default=(dl == s),
+            )
+            for s in dl_presets[:25]
+        ]
+
+        self.color_select.options = [
+            discord.SelectOption(
+                label=f"🎨 임베드 색상: {lbl}",
+                value=k,
+                default=(color == k),
+            )
+            for k, lbl in community_core.STICKY_COLOR_LABELS.items()
+        ]
+
+        if self.cfg:
+            self.btn_toggle.disabled = False
+            self.btn_remove.disabled = False
+            self.btn_toggle.label = "⏸️ 일시 중지" if enabled else "🟢 다시 켜기"
+            self.btn_toggle.style = discord.ButtonStyle.secondary if enabled else discord.ButtonStyle.success
+        else:
+            self.btn_toggle.disabled = True
+            self.btn_remove.disabled = True
+            self.btn_toggle.label = "🔄 켜기/중지"
+            self.btn_toggle.style = discord.ButtonStyle.secondary
+
+    def build_embed(self) -> discord.Embed:
+        ch_mention = self.channel.mention if self.channel else "현재 채널"
+        if not self.cfg:
+            return discord.Embed(
+                title="📌 자동 고정 메시지 상세 설정",
+                description=(
+                    f"대상 채널: {ch_mention}\n"
+                    f"현재 등록된 자동 고정 메시지가 없습니다.\n\n"
+                    f"아래 **`[✏️ 제목·본문·수치 작성]`** 버튼을 눌러 고정 메시지를 등록하고,\n"
+                    f"드롭다운에서 **갱신 방식 · 메시지 개수 · 마지막 메시지 후 대기 초 · 색상**을 자유롭게 선택하세요!"
+                ),
+                color=discord.Color.gold(),
+            )
+        enabled = bool(self.cfg.get("enabled", True))
+        status_str = "🟢 활성화 (작동 중)" if enabled else "🔴 일시 중지됨"
+        title_str = (self.cfg.get("title") or "").strip() or "*(제목 없음 — 본문만 표시)*"
+        content_preview = (self.cfg.get("content") or "").strip()
+        if len(content_preview) > 300:
+            content_preview = content_preview[:300] + "…"
+        color_key = str(self.cfg.get("color") or "gold")
+        color_lbl = community_core.STICKY_COLOR_LABELS.get(color_key, color_key)
+        color_val = community_core.STICKY_COLOR_MAP.get(color_key, 0xF1C40F)
+
+        embed = discord.Embed(
+            title="📌 자동 고정 메시지 상세 설정 패널",
+            description=(
+                f"• **대상 채널:** {ch_mention} (`{status_str}`)\n"
+                f"• **갱신 조건:** {community_core.format_sticky_trigger_summary(self.cfg)}\n"
+                f"• **메시지 기준:** `{self.cfg.get('interval', 1)}개` 메시지 이후 · "
+                f"**대기 시간:** 마지막 메시지로부터 `{self.cfg.get('delay_sec', 0)}초` 뒤\n"
+                f"• **임베드 색상:** `{color_lbl}`\n"
+                f"• **제목:** {title_str}\n"
+                f"• **본문 미리보기:**\n>>> {content_preview or '*(내용 없음)*'}"
+            ),
+            color=discord.Color(color_val),
+        )
+        return embed
+
+    async def _update_cfg_fields(self, interaction: discord.Interaction, **updates):
+        if not self._ensure_context(interaction):
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        guild_id = self.guild.id
+        channel_id = self.channel.id
+
+        def _mutate():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                cur = community_core.get_sticky_config(data, guild_id, channel_id)
+                if not cur:
+                    return None
+                for k, v in updates.items():
+                    cur[k] = v
+                if cur.get("trigger_mode") in ("delay", "both") and int(cur.get("delay_sec", 0) or 0) <= 0:
+                    cur["delay_sec"] = 5
+                cur["updated_by"] = interaction.user.id
+                cur["updated_at"] = datetime.datetime.now(core.KST).isoformat()
+                core.save_data(data)
+                return dict(cur)
+
+        updated = await asyncio.to_thread(_mutate)
+        if not updated:
+            for k, v in updates.items():
+                self.cfg[k] = v
+            self._refresh_components()
+            await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+            await core.safe_send_response(
+                interaction,
+                "ℹ️ 아직 본문이 등록되지 않았습니다. `[✏️ 제목·본문·수치 작성]` 버튼을 눌러 고정 메시지를 게시해 주세요!",
+                ephemeral=True,
+            )
+            return
+
+        self.cfg = updated
+        self._refresh_components()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    @discord.ui.select(placeholder="⚙️ 갱신 작동 방식 선택 (개수 기준 / 초 뒤 대기 / 복합)...", row=0)
+    async def mode_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        chosen = select.values[0]
+        extra = {}
+        if chosen in ("delay", "both") and int(self.cfg.get("delay_sec", 0) or 0) <= 0:
+            extra["delay_sec"] = 5
+        await self._update_cfg_fields(interaction, trigger_mode=chosen, **extra)
+
+    @discord.ui.select(placeholder="💬 몇 개 메시지 이후 갱신할지 선택 (1~50개)...", row=1)
+    async def interval_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        iv = max(1, min(100, int(select.values[0])))
+        cur_mode = str(self.cfg.get("trigger_mode") or "count")
+        dl = int(self.cfg.get("delay_sec", 0) or 0)
+        new_mode = "both" if (cur_mode == "delay" and iv > 1 and dl > 0) else cur_mode
+        await self._update_cfg_fields(interaction, interval=iv, trigger_mode=new_mode)
+
+    @discord.ui.select(placeholder="⏱️ 마지막 메시지로부터 몇 초 뒤 갱신할지 선택 (0~300초)...", row=2)
+    async def delay_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        dl = max(0, min(600, int(select.values[0])))
+        iv = max(1, int(self.cfg.get("interval", 1) or 1))
+        if dl == 0:
+            new_mode = "count"
+        elif iv > 1:
+            new_mode = "both"
+        else:
+            new_mode = "delay"
+        await self._update_cfg_fields(interaction, delay_sec=dl, trigger_mode=new_mode)
+
+    @discord.ui.select(placeholder="🎨 고정 메시지 임베드 색상 선택...", row=3)
+    async def color_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await self._update_cfg_fields(interaction, color=select.values[0])
+
+    @discord.ui.button(label="✏️ 제목·본문·수치 작성", style=discord.ButtonStyle.primary, row=4)
+    async def btn_edit_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self._ensure_context(interaction):
+            return
+        modal = StickyConfigModal(
+            self.channel,
+            interval=int(self.cfg.get("interval", 1) or 1),
+            delay_sec=int(self.cfg.get("delay_sec", 0) or 0),
+            trigger_mode=str(self.cfg.get("trigger_mode") or "count"),
+            cooldown_sec=int(self.cfg.get("cooldown_sec", 3) or 3),
+            color=str(self.cfg.get("color") or "gold"),
+            existing=self.cfg or None,
+            parent_view=self,
+        )
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="🔄 켜기/중지", style=discord.ButtonStyle.secondary, row=4)
+    async def btn_toggle(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self._ensure_context(interaction):
+            return
+        new_state = not bool(self.cfg.get("enabled", True))
+        await self._update_cfg_fields(interaction, enabled=new_state)
+
+    @discord.ui.button(label="🗑️ 고정 해제", style=discord.ButtonStyle.danger, row=4)
+    async def btn_remove(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self._ensure_context(interaction):
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        guild_id = self.guild.id
+        channel_id = self.channel.id
+
+        def _rem():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                removed = community_core.remove_sticky_config(d, guild_id, channel_id)
+                if removed:
+                    core.save_data(d)
+                return removed
+
+        removed = await asyncio.to_thread(_rem)
+        if removed and removed.get("last_message_id"):
+            try:
+                old_msg = await self.channel.fetch_message(int(removed["last_message_id"]))
+                await old_msg.delete()
+            except Exception:
+                pass
+        self.cfg = {}
+        self._refresh_components()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
 
 # ==========================================
@@ -2360,6 +2682,7 @@ class CommunityCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._sticky_locks: dict[int, asyncio.Lock] = {}
+        self._sticky_delay_tasks: dict[int, asyncio.Task] = {}
         self._raid_locks: dict[int, asyncio.Lock] = {}
         self._temp_voice_locks: dict[int, asyncio.Lock] = {}
         self._temp_voice_user_cd: dict[tuple[int, int], float] = {}
@@ -2378,6 +2701,9 @@ class CommunityCog(commands.Cog):
     def cog_unload(self):
         if self.event_reminder_loop.is_running():
             self.event_reminder_loop.cancel()
+        for t in list(self._sticky_delay_tasks.values()):
+            t.cancel()
+        self._sticky_delay_tasks.clear()
 
     @tasks.loop(minutes=1)
     async def event_reminder_loop(self):
@@ -2419,6 +2745,63 @@ class CommunityCog(commands.Cog):
     async def _before_event_reminder_loop(self):
         await self.bot.wait_until_ready()
 
+    async def _execute_sticky_repost(self, channel: discord.abc.Messageable, guild_id: int, channel_id: int):
+        lock = self._get_sticky_lock(channel_id)
+        async with lock:
+            def _prepare():
+                with core._DATA_LOCK:
+                    data = core.load_data()
+                    cfg = community_core.get_sticky_config(data, guild_id, channel_id)
+                    if not cfg or not cfg.get("enabled", True):
+                        return None, None
+                    return dict(cfg), cfg.get("last_message_id")
+
+            cfg_snapshot, old_msg_id = await asyncio.to_thread(_prepare)
+            if not cfg_snapshot:
+                return
+
+            if old_msg_id:
+                try:
+                    old_msg = await channel.fetch_message(int(old_msg_id))
+                    await old_msg.delete()
+                except Exception:
+                    pass
+
+            try:
+                posted = await channel.send(embed=_build_sticky_embed(cfg_snapshot))
+                self._last_sticky_post_ts[channel_id] = time.monotonic()
+
+                def _commit():
+                    with core._DATA_LOCK:
+                        data = core.load_data()
+                        cfg = community_core.get_sticky_config(data, guild_id, channel_id)
+                        if not cfg or not cfg.get("enabled", True):
+                            return
+                        cfg["last_message_id"] = posted.id
+                        cfg["msg_count"] = 0
+                        cfg["last_posted_ts"] = time.time()
+                        core.save_data(data)
+
+                await asyncio.to_thread(_commit)
+            except Exception:
+                pass
+
+    def _schedule_delayed_sticky(self, channel: discord.abc.Messageable, guild_id: int, channel_id: int, wait_sec: float):
+        prev_task = self._sticky_delay_tasks.pop(channel_id, None)
+        if prev_task and not prev_task.done():
+            prev_task.cancel()
+
+        async def _runner():
+            try:
+                await asyncio.sleep(max(0.5, float(wait_sec)))
+                await self._execute_sticky_repost(channel, guild_id, channel_id)
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+
+        self._sticky_delay_tasks[channel_id] = asyncio.create_task(_runner())
+
     def _get_sticky_lock(self, channel_id: int) -> asyncio.Lock:
         lock = self._sticky_locks.get(channel_id)
         if lock is None:
@@ -2444,23 +2827,33 @@ class CommunityCog(commands.Cog):
     # ------------------------------------------
     # #8 관리자 자동 고정 메시지 커맨드
     # ------------------------------------------
-    @sticky_group.command(name="설정", description="[관리자] 지정 채널 하단에 항상 유지될 고정 메시지를 설정합니다.")
+    @sticky_group.command(name="설정", description="[관리자] 지정 채널 하단에 항상 유지될 고정 메시지(개수·대기초·색상)를 상세 설정합니다.")
     @app_commands.describe(
         채널="고정 메시지를 유지할 텍스트 채널 (미입력 시 현재 채널)",
-        간격="몇 개의 대화마다 하단으로 재전송할지 설정 (1~30, 기본 1)",
+        방식="갱신 작동 방식 (메시지 개수 기준 / 마지막 메시지 몇 초 뒤 / 복합 조건)",
+        간격="몇 개의 메시지 이후 하단으로 갱신할지 설정 (1~100, 기본 1)",
+        대기초="마지막 메시지로부터 몇 초 뒤에 갱신할지 설정 (0~600초, 0=즉시)",
         색상="고정 메시지 임베드 색상",
-        제목="(선택) 제목을 바로 입력하려면 작성 (미입력 시 입력 팝업 열림)",
-        내용="(선택) 본문을 바로 입력하려면 작성 (미입력 시 입력 팝업 열림)",
+        제목="(선택) 제목을 바로 입력하려면 작성 (비워두면 제목 생략 가능)",
+        내용="(선택) 본문을 바로 입력하려면 작성 (미입력 시 상세 설정 패널 열림)",
     )
-    @app_commands.choices(색상=[
-        app_commands.Choice(name=label, value=key)
-        for key, label in community_core.STICKY_COLOR_LABELS.items()
-    ])
+    @app_commands.choices(
+        방식=[
+            app_commands.Choice(name=label, value=key)
+            for key, label in community_core.STICKY_TRIGGER_MODE_LABELS.items()
+        ],
+        색상=[
+            app_commands.Choice(name=label, value=key)
+            for key, label in community_core.STICKY_COLOR_LABELS.items()
+        ],
+    )
     async def sticky_set_cmd(
         self,
         interaction: discord.Interaction,
         채널: Optional[discord.TextChannel] = None,
-        간격: Optional[app_commands.Range[int, 1, 30]] = 1,
+        방식: Optional[app_commands.Choice[str]] = None,
+        간격: Optional[app_commands.Range[int, 1, 100]] = 1,
+        대기초: Optional[app_commands.Range[int, 0, 600]] = 0,
         색상: Optional[app_commands.Choice[str]] = None,
         제목: Optional[str] = None,
         내용: Optional[str] = None,
@@ -2476,15 +2869,22 @@ class CommunityCog(commands.Cog):
 
         color_val = 색상.value if 색상 else "gold"
         interval_val = int(간격 or 1)
+        delay_val = int(대기초 or 0)
+        mode_val = 방식.value if 방식 else ("both" if (delay_val > 0 and interval_val > 1) else ("delay" if delay_val > 0 else "count"))
 
         if not 내용:
             data = await asyncio.to_thread(core.load_data)
             existing = community_core.get_sticky_config(data, interaction.guild.id, target_ch.id)
-            modal = StickyConfigModal(target_ch, interval=interval_val, color=color_val, existing=existing)
+            modal = StickyConfigModal(
+                target_ch,
+                interval=interval_val,
+                delay_sec=delay_val,
+                trigger_mode=mode_val,
+                color=color_val,
+                existing=existing,
+            )
             if 제목:
                 modal.title_input.default = 제목[:120]
-            if 내용:
-                modal.content_input.default = 내용[:1800]
             await interaction.response.send_modal(modal)
             return
 
@@ -2534,6 +2934,8 @@ class CommunityCog(commands.Cog):
                     내용,
                     color=color_val,
                     interval=interval_val,
+                    delay_sec=delay_val,
+                    trigger_mode=mode_val,
                     updated_by=interaction.user.id,
                     last_message_id=posted.id,
                 )
@@ -2643,7 +3045,7 @@ class CommunityCog(commands.Cog):
                 continue
             status = "🟢" if cfg.get("enabled", True) else "🔴"
             lines.append(
-                f"{status} <#{ch_id_s}> — **{cfg.get('title') or '(제목 없음)'}** (`{cfg.get('interval', 1)}메시지마다`)\n"
+                f"{status} <#{ch_id_s}> — **{cfg.get('title') or '(제목 없음)'}** ({community_core.format_sticky_trigger_summary(cfg)})\n"
                 f"└ *{str(cfg.get('content', ''))[:60]}*"
             )
         embed = discord.Embed(
@@ -3587,58 +3989,41 @@ class CommunityCog(commands.Cog):
                 guild_id = message.guild.id
                 channel_id = message.channel.id
                 msg_id = message.id
-                lock = self._get_sticky_lock(channel_id)
-                async with lock:
-                    def _tick_or_prepare():
-                        with core._DATA_LOCK:
-                            data = core.load_data()
-                            cfg = community_core.get_sticky_config(data, guild_id, channel_id)
-                            if not cfg or not cfg.get("enabled", True):
-                                return "skip", None, None
-                            if cfg.get("last_message_id") and int(cfg["last_message_id"]) == msg_id:
-                                return "skip", None, None
+                def _tick_sticky():
+                    with core._DATA_LOCK:
+                        data = core.load_data()
+                        cfg = community_core.get_sticky_config(data, guild_id, channel_id)
+                        if not cfg or not cfg.get("enabled", True):
+                            return "skip", 0
+                        if cfg.get("last_message_id") and int(cfg["last_message_id"]) == msg_id:
+                            return "skip", 0
 
-                            cfg["msg_count"] = int(cfg.get("msg_count", 0) or 0) + 1
-                            interval = max(1, int(cfg.get("interval", 1) or 1))
-                            cd = max(2, int(cfg.get("cooldown_sec", 3) or 3))
-                            now_ts = time.time()
-                            last_ts = float(cfg.get("last_posted_ts", 0.0) or 0.0)
+                        cfg["msg_count"] = int(cfg.get("msg_count", 0) or 0) + 1
+                        mode = str(cfg.get("trigger_mode") or "count")
+                        interval = max(1, int(cfg.get("interval", 1) or 1))
+                        delay_sec = max(0, int(cfg.get("delay_sec", 0) or 0))
+                        cd = max(2, int(cfg.get("cooldown_sec", 3) or 3))
+                        now_ts = time.time()
+                        last_ts = float(cfg.get("last_posted_ts", 0.0) or 0.0)
+                        core.save_data(data)
 
-                            if cfg["msg_count"] < interval or (now_ts - last_ts) < cd:
-                                core.save_data(data)
-                                return "skip", None, None
+                        need_cnt = 1 if mode == "delay" else interval
+                        if cfg["msg_count"] < need_cnt:
+                            return "skip", 0
+                        if mode in ("delay", "both") and delay_sec > 0:
+                            return "delay", delay_sec
+                        if (now_ts - last_ts) < cd:
+                            return "skip", 0
+                        return "post", 0
 
-                            return "post", dict(cfg), cfg.get("last_message_id")
-
-                    action_mode, cfg_snapshot, old_msg_id = await asyncio.to_thread(_tick_or_prepare)
-                    if action_mode != "post" or not cfg_snapshot:
-                        return
-
-                    if old_msg_id:
-                        try:
-                            old_msg = await message.channel.fetch_message(int(old_msg_id))
-                            await old_msg.delete()
-                        except Exception:
-                            pass
-
-                    try:
-                        posted = await message.channel.send(embed=_build_sticky_embed(cfg_snapshot))
-                        self._last_sticky_post_ts[channel_id] = time.monotonic()
-
-                        def _commit_sticky_post():
-                            with core._DATA_LOCK:
-                                data = core.load_data()
-                                cfg = community_core.get_sticky_config(data, guild_id, channel_id)
-                                if not cfg or not cfg.get("enabled", True):
-                                    return
-                                cfg["last_message_id"] = posted.id
-                                cfg["msg_count"] = 0
-                                cfg["last_posted_ts"] = time.time()
-                                core.save_data(data)
-
-                        await asyncio.to_thread(_commit_sticky_post)
-                    except Exception:
-                        pass
+                act, wait_s = await asyncio.to_thread(_tick_sticky)
+                if act == "delay":
+                    self._schedule_delayed_sticky(message.channel, guild_id, channel_id, wait_s)
+                elif act == "post":
+                    prev_t = self._sticky_delay_tasks.pop(channel_id, None)
+                    if prev_t and not prev_t.done():
+                        prev_t.cancel()
+                    await self._execute_sticky_repost(message.channel, guild_id, channel_id)
         except Exception:
             pass
 

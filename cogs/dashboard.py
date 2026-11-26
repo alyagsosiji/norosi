@@ -3766,8 +3766,9 @@ class MasterDashboardView(core.SafeView):
                 "desc": "대화가 올라와도 채널 맨 아래에 항상 유지되는 공지/안내 고정 메시지를 설정·일시중지·해제합니다.",
                 "perm": PERM_ADMIN,
                 "buttons": [
-                    ("현재 채널 고정메시지 설정", "✏️", discord.ButtonStyle.success, self._sub_sticky_set),
-                    ("현재 채널 켜기/일시중지 토글", "🔄", discord.ButtonStyle.primary, self._sub_sticky_toggle),
+                    ("고정메시지 상세 설정 패널", "⚙️", discord.ButtonStyle.success, self._sub_sticky_detail_panel),
+                    ("현재 채널 제목·본문 빠른작성", "✏️", discord.ButtonStyle.primary, self._sub_sticky_set),
+                    ("현재 채널 켜기/일시중지 토글", "🔄", discord.ButtonStyle.secondary, self._sub_sticky_toggle),
                     ("서버 고정메시지 목록", "📋", discord.ButtonStyle.secondary, self._sub_sticky_list),
                     ("현재 채널 고정메시지 해제", "🗑️", discord.ButtonStyle.danger, self._sub_sticky_remove),
                 ],
@@ -4789,6 +4790,18 @@ class MasterDashboardView(core.SafeView):
         if not await self.check_admin_permission(interaction, action_name="자동 고정메시지 관리", require_messages_perm=True):
             return
         await self._enter_sub_mode(interaction, "admin_sticky")
+
+    async def _sub_sticky_detail_panel(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="고정메시지 상세 설정", require_messages_perm=True):
+            return
+        if not isinstance(interaction.channel, (discord.TextChannel, discord.Thread)):
+            await core.safe_send_response(interaction, "❌ 텍스트 채널 또는 스레드에서만 설정할 수 있습니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        data = await asyncio.to_thread(core.load_data)
+        existing = community_core.get_sticky_config(data, interaction.guild.id, interaction.channel.id)
+        view = community.StickyDetailConfigView(interaction.user.id, interaction.guild, interaction.channel, existing)
+        await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
 
     async def _sub_sticky_set(self, interaction: discord.Interaction):
         if not await self.check_admin_permission(interaction, action_name="고정메시지 설정", require_messages_perm=True):
