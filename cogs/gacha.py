@@ -439,6 +439,7 @@ async def _build_gacha_result_payload(
     grid_tag: str = "",
     pity_info: dict | None = None,
     illust_mode: str = "normal",
+    show_3star_illust: bool = False,
     prebuilt_grid: tuple[bytes | None, str | None] = (None, None),
 ) -> tuple[list[discord.Embed], list[tuple[bytes, str]], list[tuple[discord.Embed, dict, str]], tuple[bytes | None, str | None]]:
     embed, has_4star = build_gacha_pull_embed(
@@ -450,8 +451,9 @@ async def _build_gacha_result_payload(
         mode_note=mode_note,
         pity_info=pity_info,
     )
-    # 일러스트 임베드: ★3이 먼저, ★4·생일이 뒤에 나오도록 정렬 (9장 제한 시에는 ★4·생일이 누락되지 않도록 우선 확보 후 ★3→★4 순 배치)
-    all_high = [c for c in drawn if c.get("star_num", 0) >= 3 or c.get("rarity_type") == "rarity_birthday"]
+    # 일러스트 임베드: show_3star_illust=True일 때만 ★3도 포함하며, 포함 시 ★3 ➔ ★4·생일 순으로 정렬 (기본 OFF = ★4·생일만)
+    min_illust_star = 3 if show_3star_illust else 4
+    all_high = [c for c in drawn if c.get("star_num", 0) >= min_illust_star or c.get("rarity_type") == "rarity_birthday"]
     total_high = len(all_high)
     prioritized = sorted(
         enumerate(all_high),
@@ -616,11 +618,13 @@ async def send_gacha_pull_result(
     view: discord.ui.View,
     banner_type: str = "normal",
     skip_anim: bool = False,
+    show_3star_illust: bool | None = None,
     mode_note: str | None = None,
     grid_tag: str = "",
     pity_info: dict | None = None,
 ):
-    """뽑기 결과 전송: 기본은 특훈 전(Normal) 일러스트로 표시하며 버튼으로 특훈 전·후를 전환할 수 있습니다."""
+    """뽑기 결과 전송: 기본은 특훈 전(Normal) 일러스트로 표시하며 버튼으로 특훈 전·후 및 ★3 일러 ON/OFF를 전환할 수 있습니다."""
+    eff_3star = bool(show_3star_illust) if show_3star_illust is not None else bool(getattr(view, "show_3star_illust", False))
     payload_task = asyncio.create_task(
         _build_gacha_result_payload(
             drawn,
@@ -632,6 +636,7 @@ async def send_gacha_pull_result(
             grid_tag=grid_tag,
             pity_info=pity_info,
             illust_mode="normal",
+            show_3star_illust=eff_3star,
         )
     )
 
@@ -913,6 +918,7 @@ class GachaPullAgainView(core.SafeView):
         user: discord.User | None = None,
         banner_type: str | None = None,
         skip_anim: bool = False,
+        show_3star_illust: bool = False,
         guild_id: int = 0,
         pity_info: dict | None = None,
     ):
@@ -921,6 +927,7 @@ class GachaPullAgainView(core.SafeView):
         self.guild_id = guild_id
         self.banner_type = banner_type if banner_type in core.BANNER_CONFIGS else core.get_active_proseka_banner()
         self.skip_anim = bool(skip_anim)
+        self.show_3star_illust = bool(show_3star_illust)
         self.pity_info = pity_info or {}
         self.illust_mode = "normal"
         self._bound = False
@@ -936,7 +943,10 @@ class GachaPullAgainView(core.SafeView):
     def _has_awakenable_result(self) -> bool:
         if not self.drawn_cards:
             return False
-        return any(core.can_card_awaken(c) for c in self.drawn_cards)
+        min_star = 3 if self.show_3star_illust else 4
+        if any(c.get("star_num", 0) >= min_star and core.can_card_awaken(c) for c in self.drawn_cards):
+            return True
+        return len(self.drawn_cards) == 1 and core.can_card_awaken(self.drawn_cards[0])
 
     def bind_pull_result(
         self,
@@ -982,6 +992,13 @@ class GachaPullAgainView(core.SafeView):
         else:
             self.toggle_skip_anim.label = "✨ 스킵: OFF"
             self.toggle_skip_anim.style = discord.ButtonStyle.secondary
+
+        if self.show_3star_illust:
+            self.toggle_3star_illust.label = "💫 3성일러: ON"
+            self.toggle_3star_illust.style = discord.ButtonStyle.success
+        else:
+            self.toggle_3star_illust.label = "💫 3성일러: OFF"
+            self.toggle_3star_illust.style = discord.ButtonStyle.secondary
 
         badges = int(self.pity_info.get("badges", 0)) if self.pity_info else None
         ceil_cost = int(self.pity_info.get("ceiling_cost", core.GACHA_CEILING_BADGE_COST))
@@ -1087,6 +1104,7 @@ class GachaPullAgainView(core.SafeView):
             interaction.user,
             banner_type=effective_banner,
             skip_anim=self.skip_anim,
+            show_3star_illust=self.show_3star_illust,
             guild_id=guild_id,
             pity_info=pity_info,
         )
@@ -1098,6 +1116,7 @@ class GachaPullAgainView(core.SafeView):
             new_view,
             banner_type=effective_banner,
             skip_anim=self.skip_anim,
+            show_3star_illust=self.show_3star_illust,
             pity_info=pity_info,
         )
 
@@ -1242,6 +1261,7 @@ class GachaPullAgainView(core.SafeView):
             interaction.user,
             banner_type=next_banner,
             skip_anim=self.skip_anim,
+            show_3star_illust=self.show_3star_illust,
             guild_id=guild_id,
             pity_info=pity_info,
         )
@@ -1253,6 +1273,7 @@ class GachaPullAgainView(core.SafeView):
             new_view,
             banner_type="birthday",
             skip_anim=self.skip_anim,
+            show_3star_illust=self.show_3star_illust,
             mode_note=msg,
             pity_info=pity_info,
         )
@@ -1274,6 +1295,7 @@ class GachaPullAgainView(core.SafeView):
                 grid_tag=self.result_grid_tag,
                 pity_info=self.pity_info,
                 illust_mode=self.illust_mode,
+                show_3star_illust=self.show_3star_illust,
                 prebuilt_grid=self._cached_grid_pair,
             )
             self._cached_grid_pair = grid_pair
@@ -1307,6 +1329,22 @@ class GachaPullAgainView(core.SafeView):
                     cloned.set_image(url=core.get_proseka_card_image_url(matched, self.illust_mode))
             new_embeds.append(cloned)
         await interaction.edit_original_response(embeds=new_embeds, view=self)
+
+    @discord.ui.button(label="💫 3성일러: OFF", style=discord.ButtonStyle.secondary, row=4)
+    async def toggle_3star_illust(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.user and interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 가챠를 실행한 본인만 ★3 일러스트 표시 설정을 바꿀 수 있습니다.", ephemeral=True)
+            return
+        if not self.user:
+            self.user = interaction.user
+        self.show_3star_illust = not self.show_3star_illust
+        self._refresh_components()
+        if self.drawn_cards:
+            await self._switch_result_illust(interaction, self.illust_mode)
+            return
+        await core.safe_edit_response(interaction, view=self)
+        state_txt = "**ON (★3 카드도 ★4와 동일하게 일러스트 표시 · ★3➔★4 순)**" if self.show_3star_illust else "**OFF (★4·생일 카드만 일러스트 표시 · 기본)**"
+        await core.safe_send_response(interaction, f"🖼️ ★3 일러스트 표시 설정이 {state_txt}(으)로 변경되었습니다.", ephemeral=True)
 
     @discord.ui.button(label="🌸 특훈 전", style=discord.ButtonStyle.secondary, row=3)
     async def normal_illust_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
