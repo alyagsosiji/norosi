@@ -1401,8 +1401,98 @@ class StatsCog(commands.Cog):
             inline=False,
         )
 
+        guild_block, log_block = self._build_guild_and_log_diagnostics(detailed=True)
+        embed.add_field(
+            name=f"🏰 접속 서버 목록 ({guilds_cnt:,}개 서버 · 인원순)",
+            value=guild_block,
+            inline=False,
+        )
+        embed.add_field(
+            name="📜 실시간 로그 연동 현황 & 최근 시스템 로그",
+            value=log_block,
+            inline=False,
+        )
+
         embed.set_footer(text=f"📋 상세 버전 • 요청자: {requester_name} • 민감 키/토큰은 출력하지 않는 보안 진단 모드")
         return embed
+
+    def _build_guild_and_log_diagnostics(self, detailed: bool = True) -> tuple[str, str]:
+        """접속 중인 서버 목록(이름·ID·인원·채널·음성·감사/터미널 로그 연동 상태)과 최근 시스템 로그 텍스트를 생성합니다."""
+        data = core.get_cached_data_ro()
+        s_logs = core.as_dict(data.get("server_logs"))
+        settings_d = core.as_dict(data.get("settings"))
+        t_chs = core.as_dict(settings_d.get("terminal_log_channels"))
+        t_modes = core.as_dict(settings_d.get("terminal_log_modes"))
+        vc_guild_ids = {
+            getattr(getattr(vc, "guild", None), "id", None)
+            for vc in (getattr(self.bot, "voice_clients", []) or [])
+            if getattr(vc, "is_connected", lambda: False)()
+        }
+
+        guilds = sorted(list(getattr(self.bot, "guilds", []) or []), key=lambda g: -(getattr(g, "member_count", 0) or 0))
+        if not guilds:
+            guild_block = "• 현재 접속 중인 디스코드 서버가 없습니다."
+        else:
+            limit = 10 if detailed else 5
+            g_lines = []
+            for idx, g in enumerate(guilds[:limit], start=1):
+                gk = str(g.id)
+                g_name = (getattr(g, "name", None) or f"Guild-{gk}")[:26]
+                m_cnt = getattr(g, "member_count", 0) or 0
+                ch_cnt = len(getattr(g, "channels", []) or [])
+                scfg = core.as_dict(s_logs.get(gk))
+                if scfg.get("enabled") and scfg.get("channel_id"):
+                    s_mode = "⚡요약" if scfg.get("detail_mode") == "summary" else "📋상세"
+                    audit_tag = f"감사:{s_mode}(<#{scfg['channel_id']}>)"
+                else:
+                    audit_tag = "감사:OFF"
+                t_cid = t_chs.get(gk)
+                if t_cid:
+                    t_mode = "⚡요약" if t_modes.get(gk) == "summary" else "📋상세"
+                    term_tag = f" · 터미널:{t_mode}(<#{t_cid}>)"
+                else:
+                    term_tag = ""
+                vc_tag = " · 🔊음성" if g.id in vc_guild_ids else ""
+                if detailed:
+                    g_lines.append(
+                        f"`{idx:02d}.` **{g_name}** (`{gk}`) — `{m_cnt:,}명` · `{ch_cnt}채널` · {audit_tag}{term_tag}{vc_tag}"
+                    )
+                else:
+                    g_lines.append(f"`{idx:02d}.` **{g_name}** (`{m_cnt:,}명`) · {audit_tag}{term_tag}{vc_tag}")
+            if len(guilds) > limit:
+                g_lines.append(f"*(…외 `{len(guilds) - limit}개` 서버 더 있음)*")
+            guild_block = "\n".join(g_lines)[:1020]
+
+        recent_buf = list(getattr(self.bot, "recent_terminal_logs", []) or [])
+        if not recent_buf:
+            try:
+                import bot as _bot_mod
+                recent_buf = list(getattr(_bot_mod, "RECENT_TERMINAL_LOG_LINES", []) or [])
+            except Exception:
+                recent_buf = []
+
+        active_audit_cnt = sum(
+            1 for v in s_logs.values() if isinstance(v, dict) and v.get("enabled") and v.get("channel_id")
+        )
+        active_term_cnt = sum(1 for v in t_chs.values() if v)
+        q_ref = getattr(self.bot, "terminal_log_queue", None)
+        q_raw = q_ref.qsize() if q_ref is not None and hasattr(q_ref, "qsize") else 0
+        q_size = q_raw if isinstance(q_raw, int) else 0
+        header = f"• **연동 현황:** 감사로그 `{active_audit_cnt}서버` · 터미널로그 `{active_term_cnt}서버` · 전송 대기큐 `{q_size}건`"
+
+        if recent_buf:
+            tail_n = 8 if detailed else 3
+            raw_tail = "\n".join(recent_buf[-tail_n:])
+            if not detailed and hasattr(self.bot, "summarize_terminal_log_text"):
+                try:
+                    raw_tail = self.bot.summarize_terminal_log_text(raw_tail) or raw_tail
+                except Exception:
+                    pass
+            clean_tail = core.redact_secrets(raw_tail).replace("```", "ʼʼʼ")[-780:]
+            log_block = f"{header}\n```log\n{clean_tail}\n```"
+        else:
+            log_block = f"{header}\n```log\n[시스템 로그 버퍼 대기 중 — 최근 출력된 경고/오류 로그 없음]\n```"
+        return guild_block[:1024], log_block[:1024]
 
     async def _build_summary_bot_status_embed(self, requester_name: str) -> discord.Embed:
         t_loop = time.perf_counter()
@@ -1471,6 +1561,17 @@ class StatsCog(commands.Cog):
             description="\n".join(summary_lines),
             color=embed_color,
             timestamp=datetime.datetime.now(core.KST),
+        )
+        guild_block, log_block = self._build_guild_and_log_diagnostics(detailed=False)
+        embed.add_field(
+            name=f"🏰 접속 서버 ({guilds_cnt:,}개)",
+            value=guild_block,
+            inline=False,
+        )
+        embed.add_field(
+            name="📜 로그 현황 & 최근 로그 요약",
+            value=log_block,
+            inline=False,
         )
         embed.set_footer(text=f"⚡ 요약 버전 • 요청자: {requester_name} • [📋 상세 버전] 버튼으로 전체 지표 확인 가능")
         return embed

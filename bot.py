@@ -15,7 +15,7 @@ import discord
 from discord.ext import commands, tasks
 from discord import app_commands
 from typing import Optional, Any
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from aiohttp import web
 import core
 from cogs.music import MusicRecommendView
@@ -64,6 +64,7 @@ class TerminalStreamTee:
 
     def _safe_put(self, item: str):
         try:
+            append_recent_terminal_log(item)
             if self.log_queue.qsize() < 500:
                 self.log_queue.put_nowait(item)
         except Exception:
@@ -103,10 +104,22 @@ class DiscordQueueLoggingHandler(logging.Handler):
 
     def _safe_put(self, item: str):
         try:
+            append_recent_terminal_log(item)
             if self.log_queue.qsize() < 500:
                 self.log_queue.put_nowait(item)
         except Exception:
             pass
+
+
+# 봇 상태 진단(/봇상태)에서 최근 터미널/시스템 로그를 조회하기 위한 인메모리 링 버퍼
+RECENT_TERMINAL_LOG_LINES: deque[str] = deque(maxlen=80)
+
+
+def append_recent_terminal_log(text: str) -> None:
+    for ln in (text or "").splitlines():
+        c = ln.strip()
+        if c:
+            RECENT_TERMINAL_LOG_LINES.append(core.redact_secrets(c)[:220])
 
 
 # ==========================================
@@ -141,6 +154,7 @@ class NorosiBot(commands.Bot):
         self._orig_stderr = sys.stderr
         self._log_handler: Optional[DiscordQueueLoggingHandler] = None
         self._terminal_hooked = False
+        self.recent_terminal_logs = RECENT_TERMINAL_LOG_LINES
 
     def setup_terminal_log_capture(self):
         """VM 터미널로 출력되는 stdout, stderr, logging 스트림을 가로채어 큐에 적재"""
