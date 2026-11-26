@@ -1606,6 +1606,18 @@ class StatsCog(commands.Cog):
         view = BotStatusRefreshView(self, interaction.user.id, mode=selected_mode)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
+    @commands.command(name="봇상태")
+    async def prefix_bot_status(self, ctx: commands.Context, mode_arg: Optional[str] = None):
+        """[봇 주인 전용] !봇상태 [상세|요약] — 호스트 시스템 리소스·접속 서버 목록·최근 로그 상태를 진단합니다."""
+        if not await self.bot.is_bot_owner_user(ctx.author):
+            await ctx.send("❌ 이 명령어는 **👑 봇 주인(소유자)** 만 사용할 수 있습니다.", delete_after=5)
+            return
+        norm = (mode_arg or "").strip().lower()
+        selected_mode = "summary" if norm in ("요약", "간단", "간략", "summary", "short", "compact", "s") else "detailed"
+        embed = await self._build_bot_status_embed(ctx.author.display_name, mode=selected_mode)
+        view = BotStatusRefreshView(self, ctx.author.id, mode=selected_mode)
+        await ctx.send(embed=embed, view=view)
+
     @app_commands.command(name="후원", description="💖 팀 봉화 (소유주 : 아시) 후원 안내 및 GitHub Sponsors 링크를 확인합니다.")
     async def sponsor_cmd(self, interaction: discord.Interaction):
         embed = build_sponsor_embed(self.bot.user)
