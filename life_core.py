@@ -838,7 +838,7 @@ def plant_crop(
         }
         core.save_data(data)
         mins = max(1, int(round(dur / 60.0)))
-        return True, f"🪴 **{target_idx + 1}번 밭**에 {seed['emoji']} **{seed['name']}**을(를) 심었습니다! (수확까지 약 `{mins}분`)"
+        return True, f"🪴 **{target_idx + 1}번 밭**에 {seed['emoji']} **{seed['name']}** 파종 완료! (수확까지 약 `{mins}분`)"
 
 
 def plant_all_empty_plots(
@@ -1298,7 +1298,7 @@ def adopt_pet(guild_id: int | str, user_id: int | str, pet_id: str, user_name: s
         if pet_id in lu["pets"]:
             lu["equipped_pet"] = pet_id
             core.save_data(data)
-            return True, f"{pm['emoji']} 이미 보유 중인 **{pm['name']}**을(를) 동반 펫으로 장착했습니다!"
+            return True, f"{pm['emoji']} 보유 중인 **{pm['name']}** 동반 장착 완료!"
 
         price = pm["price"]
         if pm["currency"] == "crystal":
@@ -1324,7 +1324,7 @@ def adopt_pet(guild_id: int | str, user_id: int | str, pet_id: str, user_name: s
         }
         lu["equipped_pet"] = pet_id
         core.save_data(data)
-        return True, f"🎉 {pm['emoji']} **{pm['name']}**을(를) 입양하고 동반 펫으로 장착했습니다! ({cost_s})"
+        return True, f"🎉 {pm['emoji']} **{pm['name']}** 입양 및 동반 장착 완료! ({cost_s})"
 
 
 def equip_pet(guild_id: int | str, user_id: int | str, pet_id: str, user_name: str = "") -> Tuple[bool, str]:
@@ -1337,7 +1337,7 @@ def equip_pet(guild_id: int | str, user_id: int | str, pet_id: str, user_name: s
         core.save_data(data)
         pm = PETS[pet_id]
         lvl = lu["pets"][pet_id]["level"]
-        return True, f"{pm['emoji']} **{pm['name']}** (Lv.{lvl})이(가) 출조 & 출석에 동행합니다!"
+        return True, f"{pm['emoji']} **{pm['name']}** (Lv.{lvl}) 동행 시작!"
 
 
 def buy_pet_food(guild_id: int | str, user_id: int | str, qty: int = 5, user_name: str = "") -> Tuple[bool, str]:
@@ -1406,7 +1406,7 @@ def feed_pet(
         core.save_data(data)
 
         lvl_txt = f" 🎊 **Lv.{new_lvl} 성장!**" if new_lvl > old_lvl else ""
-        return True, f"{pm['emoji']} **{pm['name']}**에게 `{consumed_label}`을(를) 주었습니다! (`+{gain_exp} EXP` · 친밀도 `+{gain_int}`){lvl_txt}"
+        return True, f"{pm['emoji']} **{pm['name']}**에게 `{consumed_label}` 급여 완료! (`+{gain_exp} EXP` · 친밀도 `+{gain_int}`){lvl_txt}"
 
 
 def play_pet(
@@ -1429,7 +1429,7 @@ def play_pet(
             pu["play_date"] = today
             pu["play_count"] = 0
         if pu.get("play_count", 0) >= 5:
-            return False, f"😴 **{pm['name']}**이(가) 오늘 너무 신나게 놀아서 쉬고 있어요! (일일 5회 완료)"
+            return False, f"😴 **{pm['name']}** 오늘 놀아주기를 모두 마쳐 쉬고 있어요! (일일 5회 완료)"
 
         pu["play_count"] += 1
         old_lvl = pu["level"]
@@ -1570,7 +1570,7 @@ def consume_dish(
         lu["active_buffs"] = existing[-3:]  # 최대 3종 동시 버프 유지
         core.save_data(data)
 
-        return True, f"🍽️ {rec['emoji']} **{rec['name']}**을(를) 맛있게 먹었습니다! (`{rec['desc']}`)"
+        return True, f"🍽️ {rec['emoji']} **{rec['name']}** 시식 완료! (`{rec['desc']}`)"
 
 
 def quick_care_pet(

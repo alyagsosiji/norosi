@@ -917,8 +917,8 @@ class GachaPullAgainView(core.SafeView):
         self,
         user: discord.User | None = None,
         banner_type: str | None = None,
-        skip_anim: bool = False,
-        show_3star_illust: bool = False,
+        skip_anim: bool | None = None,
+        show_3star_illust: bool | None = None,
         guild_id: int = 0,
         pity_info: dict | None = None,
     ):
@@ -926,8 +926,9 @@ class GachaPullAgainView(core.SafeView):
         self.user = user
         self.guild_id = guild_id
         self.banner_type = banner_type if banner_type in core.BANNER_CONFIGS else core.get_active_proseka_banner()
-        self.skip_anim = bool(skip_anim)
-        self.show_3star_illust = bool(show_3star_illust)
+        uid = getattr(user, "id", 0) or 0
+        self.skip_anim = bool(skip_anim) if skip_anim is not None else bool(core.get_user_ui_pref(uid, "pjsk_skip_anim", False))
+        self.show_3star_illust = bool(show_3star_illust) if show_3star_illust is not None else bool(core.get_user_ui_pref(uid, "pjsk_show_3star_illust", False))
         self.pity_info = pity_info or {}
         self.illust_mode = "normal"
         self._bound = False
@@ -1136,10 +1137,11 @@ class GachaPullAgainView(core.SafeView):
         if not self.user:
             self.user = interaction.user
         self.skip_anim = not self.skip_anim
+        await asyncio.to_thread(core.set_user_ui_pref, interaction.user.id, 'pjsk_skip_anim', self.skip_anim)
         self._refresh_components()
         await core.safe_edit_response(interaction, view=self)
         state_txt = "**ON (결과 즉시 표시)**" if self.skip_anim else "**OFF (다단계 승격 & 대사 선공개 연출 보기)**"
-        await core.safe_send_response(interaction, f"⚙️ 뽑기 연출 스킵 설정이 {state_txt}(으)로 변경되었습니다.", ephemeral=True)
+        await core.safe_send_response(interaction, f"⚙️ 뽑기 연출 스킵 설정 변경: {state_txt}", ephemeral=True)
 
     @discord.ui.button(label="🏅 천장교환(200)", style=discord.ButtonStyle.secondary, row=0)
     async def open_ceiling_exchange(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1223,7 +1225,7 @@ class GachaPullAgainView(core.SafeView):
         await core.safe_edit_response(interaction, view=self)
         await core.safe_send_response(
             interaction,
-            f"🎰 다음 뽑기 배너가 **`{b_cfg['name']}`**(으)로 변경되었습니다!\n└ *{b_cfg['desc']}*",
+            f"🎰 다음 뽑기 배너 변경: **`{b_cfg['name']}`**\n└ *{b_cfg['desc']}*",
             ephemeral=True
         )
 
@@ -1338,13 +1340,14 @@ class GachaPullAgainView(core.SafeView):
         if not self.user:
             self.user = interaction.user
         self.show_3star_illust = not self.show_3star_illust
+        await asyncio.to_thread(core.set_user_ui_pref, interaction.user.id, 'pjsk_show_3star_illust', self.show_3star_illust)
         self._refresh_components()
         if self.drawn_cards:
             await self._switch_result_illust(interaction, self.illust_mode)
             return
         await core.safe_edit_response(interaction, view=self)
         state_txt = "**ON (★3 카드도 ★4와 동일하게 일러스트 표시 · ★3➔★4 순)**" if self.show_3star_illust else "**OFF (★4·생일 카드만 일러스트 표시 · 기본)**"
-        await core.safe_send_response(interaction, f"🖼️ ★3 일러스트 표시 설정이 {state_txt}(으)로 변경되었습니다.", ephemeral=True)
+        await core.safe_send_response(interaction, f"🖼️ ★3 일러스트 표시 설정 변경: {state_txt}", ephemeral=True)
 
     @discord.ui.button(label="🌸 특훈 전", style=discord.ButtonStyle.secondary, row=3)
     async def normal_illust_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2243,7 +2246,7 @@ class OwnerSelectTicketGrantView(core.SafeView):
                     resolved = None
             picked = resolved or interaction.user
         self.target_user = picked
-        self.status_note = f"👤 대상 유저가 {self.target_user.mention}(으)로 선택되었습니다."
+        self.status_note = f"👤 거래 대상 선택: {self.target_user.mention}"
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🎟️ +1장 지급", style=discord.ButtonStyle.success, row=1)
@@ -2506,7 +2509,7 @@ class CharacterRankView(core.SafeView):
             value=self._build_equipped_flags_line(),
             inline=False,
         )
-        embed.set_footer(text="장착한 깃발은 /내프로필 및 통합 PNG 프로필 카드에 자동 반영됩니다")
+        embed.set_footer(text="장착한 깃발은 프로필에 자동 반영됩니다")
 
         img_bytes, fn = await asyncio.to_thread(
             core.build_character_rank_flag_image_bytes, sel_info, self.equipped_flags
@@ -2878,7 +2881,7 @@ class RerollSimulatorView(core.SafeView):
         await core.safe_edit_response(interaction, view=self)
         await core.safe_send_response(
             interaction,
-            f"🧪 다음 연습 배너가 **`{b_cfg['name']}`**(으)로 변경되었습니다! 상단 버튼을 눌러 10연차를 돌려보세요.",
+            f"🧪 연습 배너 변경: **`{b_cfg['name']}`**! 상단 버튼을 눌러 10연차를 돌려보세요.",
             ephemeral=True,
         )
 
@@ -3747,6 +3750,44 @@ class CardIllustToggleView(core.SafeView):
         self.update_buttons()
         embeds, files = await self.build_embeds_and_files()
         await interaction.edit_original_response(embeds=embeds, attachments=files, view=self)
+
+    @discord.ui.button(label="⚡ MAX 레벨 강화", style=discord.ButtonStyle.primary, row=1)
+    async def quick_max_enhance_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.owner_id and interaction.user.id != self.owner_id:
+            await core.safe_send_response(interaction, "❌ 카드 소유자 본인만 강화할 수 있습니다.", ephemeral=True)
+            return
+        if not self.card or "id" not in self.card:
+            await core.safe_send_response(interaction, "❌ 카드 정보를 찾을 수 없습니다.", ephemeral=True)
+            return
+        cog = interaction.client.get_cog("GachaCog")
+        if cog is not None and hasattr(cog, "enhance_card_cmd"):
+            choice_max = app_commands.Choice(name="🚀 MAX 레벨 직행 강화", value="MAX")
+            await cog.enhance_card_cmd.callback(cog, interaction, str(self.card.get("id")), choice_max)
+            # 갱신된 카드 수치 반영
+            data = core.get_cached_data_ro()
+            u_cards = core.safe_get_dict(data, "gacha_users", str(self.guild_id or interaction.guild_id or 0), str(interaction.user.id), "cards")
+            updated = u_cards.get(str(self.card.get("id")))
+            if isinstance(updated, dict):
+                self.card.update(updated)
+                try:
+                    embeds, files = await self.build_embeds_and_files()
+                    await interaction.message.edit(embeds=embeds, attachments=files, view=self)
+                except Exception:
+                    pass
+        else:
+            await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
+
+    @discord.ui.button(label="🏆 MR 돌파", style=discord.ButtonStyle.secondary, row=1)
+    async def open_mr_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.owner_id and interaction.user.id != self.owner_id:
+            await core.safe_send_response(interaction, "❌ 카드 소유자 본인만 마스터 랭크 돌파를 열 수 있습니다.", ephemeral=True)
+            return
+        if not self.card or "id" not in self.card:
+            await core.safe_send_response(interaction, "❌ 카드 정보를 찾을 수 없습니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        mr_view = MasterRankView(interaction.user, guild_id=self.guild_id or interaction.guild_id or 0, initial_card_id=str(self.card.get("id")))
+        await interaction.followup.send(embed=mr_view.build_embed(), view=mr_view, ephemeral=True)
 
     @discord.ui.button(label="🏆 마스터 랭크", style=discord.ButtonStyle.primary, row=1)
     async def master_rank_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -6634,7 +6675,7 @@ class GachaCog(commands.Cog):
             return
 
         mode_val = 모드.value if 모드 else "normal"
-        skip_anim = (연출 is not None and 연출.value == "skip")
+        skip_anim = (연출.value == "skip") if 연출 is not None else bool(core.get_user_ui_pref(interaction.user.id, "pjsk_skip_anim", False))
         guild_id = interaction.guild_id or 0
         if not await ensure_proseka_registered(interaction, guild_id):
             return
@@ -7243,7 +7284,7 @@ class GachaCog(commands.Cog):
             timestamp=datetime.datetime.now(core.KST)
         )
         embed.add_field(name="🌟 편성 멤버", value="\n".join(deck_lines)[:1024], inline=False)
-        embed.set_footer(text="편성된 덱은 /내프로필 · 세카이 라이브에 자동 반영됩니다")
+        embed.set_footer(text="편성된 덱은 프로필 · 세카이 라이브에 자동 반영됩니다")
 
         leader_card = user_cards_dict[chosen_ids[0]]
         deck_view = SimpleCardIllustToggleView(leader_card, initial_mode="normal") if core.can_card_awaken(leader_card) else None
@@ -7272,7 +7313,7 @@ class GachaCog(commands.Cog):
 
         embed = discord.Embed(
             title="💖 오시(최애) 캐릭터 설정 완료",
-            description=f"**{interaction.user.display_name}**님의 최애 캐릭터가 **`{캐릭터}`**(으)로 설정되었습니다!",
+            description=f"💖 **{interaction.user.display_name}**님의 최애(오시) 설정 완료: **`{캐릭터}`**",
             color=discord.Color.from_rgb(255, 105, 180),
             timestamp=datetime.datetime.now(core.KST),
         )
@@ -7361,7 +7402,7 @@ class GachaCog(commands.Cog):
                 for f in equipped_flags
             )
         else:
-            flags_val = "미장착 *(Rank 5+ 달성 시 `/캐릭터랭크`에서 장착 가능)*"
+            flags_val = "미장착 *(Rank 5+ 달성 시 캐릭터 랭크에서 장착 가능)*"
         embed.add_field(name="🚩 장착 중인 캐랭 칭호 깃발", value=flags_val, inline=False)
 
         gauge_text, badge_text = core.format_gacha_pity_display(pity_state, show_zero_tickets=True)
@@ -8199,7 +8240,7 @@ class MySekaiHubView(core.SafeView):
                 if t_key in owned_themes:
                     ms["theme"] = t_key
                     core.save_data(data)
-                    return True, f"✅ 배경 테마를 **{t_info['name']}**(으)로 변경했습니다!", data
+                    return True, f"✅ 마이세카이 배경 테마 변경 완료: **{t_info['name']}**", data
 
                 cost = t_info["cost"]
                 cur_crystals = int(profile.get("crystals", 0) or 0)

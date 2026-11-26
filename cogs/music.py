@@ -603,7 +603,7 @@ class PlaylistCreateEditModal(core.SafeModal):
             except Exception:
                 pass
 
-        action_msg = f"✏️ **`{clean_name}`** 플레이리스트 정보가 수정되었습니다!" if self.is_edit else f"📁 새 플레이리스트 `{clean_emoji} {clean_name}`이(가) 생성되었습니다!"
+        action_msg = f"✏️ **`{clean_name}`** 플레이리스트 정보가 수정되었습니다!" if self.is_edit else f"📁 새 플레이리스트 `{clean_emoji} {clean_name}` 생성 완료!"
         await interaction.followup.send(action_msg, ephemeral=True)
 
 
@@ -2501,6 +2501,27 @@ class MoodRadioView(core.SafeView):
         btn_shuf.callback = self._on_shuffle_clicked
         self.add_item(btn_shuf)
 
+        btn_next = discord.ui.Button(
+            label="다음 곡",
+            emoji="⏭️",
+            style=discord.ButtonStyle.secondary,
+            row=2,
+            custom_id="norosi:MoodRadioView:next",
+        )
+        btn_next.callback = self._on_next_clicked
+        self.add_item(btn_next)
+
+        stay_on = bool(self.guild and _VOICE_PLAYERS.get(self.guild.id) and getattr(_VOICE_PLAYERS[self.guild.id], "stay_247", False))
+        btn_247 = discord.ui.Button(
+            label="24/7: ON" if stay_on else "24/7: OFF",
+            emoji="📻",
+            style=discord.ButtonStyle.success if stay_on else discord.ButtonStyle.secondary,
+            row=2,
+            custom_id="norosi:MoodRadioView:stay247",
+        )
+        btn_247.callback = self._on_247_clicked
+        self.add_item(btn_247)
+
         btn_stop = discord.ui.Button(
             label="재생 정지",
             emoji="⏹️",
@@ -2601,6 +2622,44 @@ class MoodRadioView(core.SafeView):
         await core.safe_defer(interaction, ephemeral=True)
         await player.stop_and_disconnect(clear_247=True)
         await interaction.followup.send("⏹️ 음성 라디오 재생을 정지하고 음성채널에서 퇴장했습니다.", ephemeral=True)
+
+    async def _on_next_clicked(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 제어할 수 있습니다.", ephemeral=True)
+            return
+        can_ctrl, ctrl_err = _can_control_voice_player(interaction.user, interaction.guild)
+        if not can_ctrl:
+            await core.safe_send_response(interaction, ctrl_err, ephemeral=True)
+            return
+        player = _VOICE_PLAYERS.get(interaction.guild.id)
+        if not player or not player.tracks or not (player.voice_client and player.voice_client.is_connected()):
+            await core.safe_send_response(interaction, "ℹ️ 현재 재생 중인 라디오가 없습니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction)
+        self.guild = interaction.guild
+        new_idx = (player.current_index + 1) % max(1, len(player.tracks))
+        await player.skip_to(new_idx)
+        self._rebuild_items()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    async def _on_247_clicked(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 설정할 수 있습니다.", ephemeral=True)
+            return
+        if not await _is_bot_owner(interaction.client, interaction.user):
+            await core.safe_send_response(interaction, "🚨 **권한 부족:** 24/7 상주 모드는 **👑 봇 주인 전용**입니다.", ephemeral=True)
+            return
+        player = _VOICE_PLAYERS.get(interaction.guild.id)
+        if not player or not (player.voice_client and player.voice_client.is_connected()):
+            await core.safe_send_response(interaction, "ℹ️ 먼저 `[▶️ 라디오 재생]`으로 음성채널에 연결해 주세요.", ephemeral=True)
+            return
+        await core.safe_defer(interaction)
+        self.guild = interaction.guild
+        new_state = not bool(getattr(player, "stay_247", False))
+        _, msg = await player.set_stay_247(new_state)
+        self._rebuild_items()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+        await interaction.followup.send(msg, ephemeral=True)
 
 
 async def open_mood_radio_from_interaction(
@@ -3350,7 +3409,7 @@ class PlaylistConvenienceView(core.SafeView):
         self.studio_view.current_page = 0
         await self._save_and_refresh_parent(data)
         await interaction.edit_original_response(
-            content=f"📄 `{new_pl['emoji']} {new_pl['name']}`을(를) 만들었습니다! ({len(new_pl.get('tracks', []))}곡 복제)\n*(스튜디오가 복제된 플레이리스트로 자동 전환되었습니다)*",
+            content=f"📄 `{new_pl['emoji']} {new_pl['name']}` 복제 완료! ({len(new_pl.get('tracks', []))}곡 복제)\n*(스튜디오가 복제된 플레이리스트로 자동 전환되었습니다)*",
             view=self
         )
 
@@ -4288,7 +4347,7 @@ class PlaylistStudioView(core.SafeView):
 
         if interaction.channel:
             await interaction.channel.send(
-                content=f"🎧 {interaction.user.mention}님이 나만의 커스텀 플레이리스트 `{cur_pl.get('emoji', '🎧')} {cur_pl.get('name')}`을(를) 공유했습니다!",
+                content=f"🎧 {interaction.user.mention}님이 나만의 커스텀 플레이리스트 `{cur_pl.get('emoji', '🎧')} {cur_pl.get('name')}` 플레이리스트를 공유했습니다!",
                 embed=shared_embed,
                 view=shared_view
             )
@@ -4765,7 +4824,7 @@ class MusicCog(commands.Cog):
             await asyncio.to_thread(core.save_data, data)
             shared_view = SharedPlaylistView(target_user, selected_pl)
             await interaction.followup.send(
-                content=f"🎧 {interaction.user.mention}님이 플레이리스트 `{selected_pl.get('emoji', '🎧')} {selected_pl.get('name')}`을(를) 공유했습니다!",
+                content=f"🎧 {interaction.user.mention}님이 플레이리스트 `{selected_pl.get('emoji', '🎧')} {selected_pl.get('name')}` 플레이리스트를 공유했습니다!",
                 embed=shared_view.build_embed(),
                 view=shared_view, wait=True
             )

@@ -148,7 +148,7 @@ class OtherLifeOriginSelect(discord.ui.Select):
         pv.status_msg = (
             "🎲 무작위 출신을 선택했습니다."
             if pv.selected_origin == "random"
-            else f"🧬 출신지를 **{other_life_core.ORIGINS[pv.selected_origin]['name']}**(으)로 예약했습니다."
+            else f"🧬 다음 생애 출신지 예약: **{other_life_core.ORIGINS[pv.selected_origin]['name']}**"
         )
         pv._rebuild()
         await core.safe_edit_response(interaction, embed=pv.build_embed(), view=pv)

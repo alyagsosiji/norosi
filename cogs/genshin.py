@@ -384,14 +384,15 @@ class GenshinPullAgainView(core.SafeView):
         self,
         user: discord.User | None = None,
         banner_key: str = "char1",
-        skip_anim: bool = False,
+        skip_anim: bool | None = None,
         practice: bool = False,
         last_count: int = 10,
     ):
         super().__init__(timeout=300)
         self.user = user
         self.banner_key = banner_key
-        self.skip_anim = skip_anim
+        uid = getattr(user, 'id', 0) or 0
+        self.skip_anim = bool(skip_anim) if skip_anim is not None else bool(core.get_user_ui_pref(uid, 'gi_skip_anim', False))
         self.practice = practice
         self.last_count = last_count
         self._lock = asyncio.Lock()
@@ -441,6 +442,14 @@ class GenshinPullAgainView(core.SafeView):
         bshop.callback = self._on_shop
         self.add_item(bshop)
 
+        bparty = discord.ui.Button(label="⚔️ 파티 편성", style=discord.ButtonStyle.secondary, row=2)
+        bparty.callback = self._on_party
+        self.add_item(bparty)
+
+        bdex = discord.ui.Button(label="📖 도감", style=discord.ButtonStyle.secondary, row=2)
+        bdex.callback = self._on_dex
+        self.add_item(bdex)
+
     async def _check_owner(self, interaction: discord.Interaction) -> bool:
         if self.user and interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인의 기원 화면에서만 조작할 수 있습니다!", ephemeral=True)
@@ -486,6 +495,7 @@ class GenshinPullAgainView(core.SafeView):
         if not await self._check_owner(interaction):
             return
         self.skip_anim = not self.skip_anim
+        await asyncio.to_thread(core.set_user_ui_pref, interaction.user.id, "gi_skip_anim", self.skip_anim)
         self._build_items()
         await core.safe_edit_response(interaction, view=self)
 
@@ -512,6 +522,18 @@ class GenshinPullAgainView(core.SafeView):
         if not await self._check_owner(interaction):
             return
         v = GenshinShopView(interaction.guild_id or 0, interaction.user)
+        await core.safe_send_response(interaction, embed=v.build_embed(), view=v, ephemeral=True)
+
+    async def _on_party(self, interaction: discord.Interaction):
+        if not await self._check_owner(interaction):
+            return
+        v = GenshinPartyView(interaction.guild_id or 0, interaction.user)
+        await core.safe_send_response(interaction, embed=v.build_embed(), view=v, ephemeral=True)
+
+    async def _on_dex(self, interaction: discord.Interaction):
+        if not await self._check_owner(interaction):
+            return
+        v = GenshinPokedexView(interaction.guild_id or 0, interaction.user, tab="owned")
         await core.safe_send_response(interaction, embed=v.build_embed(), view=v, ephemeral=True)
 
 

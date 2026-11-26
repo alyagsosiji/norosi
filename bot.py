@@ -2351,16 +2351,20 @@ def _format_commit_lines_highlighted(raw_lines: list[str], repo_url: str = "", l
 
 
 # ==========================================
-# 현재 봇에 반영 중인 GitHub 커밋/버전 및 대기 업데이트 확인 (!현재버전)
+# 현재 봇에 반영 중인 GitHub 커밋/버전 및 누적 업데이트 반영 (봇 주인 전용)
 # ==========================================
-@bot.command(name="현재버전")
-async def current_version_command(ctx: commands.Context):
-    """[봇 주인 전용] 현재 봇에 반영되어 실행 중인 Git 커밋(SHA·제목·시각)과 GitHub 원격 저장소에 대기 중인 미반영 커밋을 확인합니다."""
-    if not await bot.is_bot_owner_user(ctx.author):
-        await ctx.send("❌ 이 명령어는 **👑 봇 주인(소유자)** 만 사용할 수 있습니다.", delete_after=5)
-        return
+def get_local_head_short_sha() -> str:
     import subprocess
+    repo_dir = os.path.dirname(os.path.abspath(__file__))
+    try:
+        p = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=repo_dir, capture_output=True, text=True, timeout=5)
+        return (p.stdout or "").strip() or "unknown"
+    except Exception:
+        return "unknown"
 
+
+async def build_git_version_embed_and_info() -> tuple[discord.Embed, dict]:
+    import subprocess
     repo_dir = os.path.dirname(os.path.abspath(__file__))
 
     def _inspect_git_version() -> dict:
@@ -2382,7 +2386,6 @@ async def current_version_command(ctx: commands.Context):
         _, recent_commits = _run(["git", "log", "--oneline", "-n", "5"])
         _, remote_url = _run(["git", "config", "--get", "remote.origin.url"])
 
-        # 원격 최신 상태 조회 (실패해도 로컬/캐시된 origin 버전 표시)
         _run(["git", "fetch", "origin", branch], timeout_s=15)
         behind_cnt = 0
         pending_commits: list[str] = []
@@ -2451,40 +2454,37 @@ async def current_version_command(ctx: commands.Context):
             return f"`{kst_dt}` (<t:{ts_u}:R>)"
         return "-"
 
-    time_str = _fmt_ts(info["commit_unix"])
-    remote_time_str = _fmt_ts(info["remote_unix"])
-
     behind_cnt = info["behind_cnt"]
     if behind_cnt > 0:
-        sync_state = f"🟡 **GitHub에 미반영 업데이트 `{behind_cnt}건` 대기 중** (`!업데이트` 입력 시 `{short_sha}` ➔ `{remote_sha}` 반영)"
+        sync_state = f"🟡 **GitHub에 미반영 업데이트 `{behind_cnt}건` 대기 중** (`{short_sha}` ➔ `{remote_sha}`)"
         color = discord.Color.gold()
     else:
-        sync_state = f"🟢 **현재 봇 버전과 GitHub 최신 버전이 동일합니다** (`{short_sha}`)"
+        sync_state = f"🟢 **현재 봇과 GitHub 최신 버전이 동일합니다** (`{short_sha}`)"
         color = discord.Color.from_rgb(46, 204, 113)
 
     desc_lines = [
         f"• **동기화 상태:** {sync_state}",
         "",
-        f"**🤖 현재 봇에 반영 중인 버전 (`HEAD`)**",
-        f"• **커밋:** {commit_link} (`{info['branch']}`) · **시각:** {time_str}",
+        "**🤖 현재 봇에 반영 중인 버전 (`HEAD`)**",
+        f"• **커밋:** {commit_link} (`{info['branch']}`) · **시각:** {_fmt_ts(info['commit_unix'])}",
         f"• **내용:** `{info['subject'][:140]}`",
         "",
-        f"**🐙 현재 GitHub에 올라와 있는 최신 버전 (`origin/{info['branch']}`)**",
-        f"• **커밋:** {remote_link} · **시각:** {remote_time_str}",
+        f"**🐙 현재 GitHub 최신 버전 (`origin/{info['branch']}`)**",
+        f"• **커밋:** {remote_link} · **시각:** {_fmt_ts(info['remote_unix'])}",
         f"• **내용:** `{info['remote_subject'][:140]}`",
     ]
 
     if behind_cnt > 0 and info["pending_commits"]:
         pend_fmt = _format_commit_lines_highlighted(info["pending_commits"], repo_url=repo_url, limit=10)
-        desc_lines.append(f"\n**📦 아직 봇에 반영되지 않은 GitHub 대기 커밋 (`{behind_cnt}건` · `!업데이트`으로 반영)**\n{pend_fmt}")
+        desc_lines.append(f"\n**📦 아직 반영되지 않은 대기 커밋 (`{behind_cnt}건`)**\n{pend_fmt}")
 
     if info["recent_commits"]:
         rec_fmt = _format_commit_lines_highlighted(info["recent_commits"], repo_url=repo_url, limit=5)
-        desc_lines.append(f"\n**📌 현재 봇에 반영된 커밋 목록 (최근 5건)**\n{rec_fmt}")
+        desc_lines.append(f"\n**📌 현재 봇에 반영된 최근 커밋**\n{rec_fmt}")
 
     if info["remote_commits"]:
         rem_fmt = _format_commit_lines_highlighted(info["remote_commits"], repo_url=repo_url, limit=5)
-        desc_lines.append(f"\n**🐙 현재 GitHub에 올라와 있는 커밋 목록 (`origin/{info['branch']}` 최근 5건)**\n{rem_fmt}")
+        desc_lines.append(f"\n**🐙 현재 GitHub에 올라와 있는 최근 커밋**\n{rem_fmt}")
 
     embed = discord.Embed(
         title=f"🔖 norosi 버전 현황 — 봇 `{short_sha}` / GitHub `{remote_sha}`",
@@ -2492,27 +2492,13 @@ async def current_version_command(ctx: commands.Context):
         color=color,
         timestamp=datetime.datetime.now(core.KST),
     )
-    await ctx.send(embed=embed)
+    return embed, info
 
 
-# ==========================================
-# 봇 주인 전용 GitHub 누적 업데이트 수동 반영 (!업데이트)
-# ==========================================
-@bot.command(name="업데이트")
-async def apply_github_updates_command(ctx: commands.Context, *args):
-    """GitHub 원격 저장소(origin/master)에 쌓인 커밋을 가져와 모든 모듈을 리로드하거나(필요 시 프로세스 재시작) 봇에 일괄 반영합니다."""
-    if not await bot.is_bot_owner_user(ctx.author):
-        await ctx.send("❌ 이 명령어는 **👑 봇 주인(소유자)** 만 사용할 수 있습니다.", delete_after=5)
-        return
-
+async def execute_github_update(force_restart: bool = False) -> tuple[discord.Embed, bool]:
     import importlib
     import subprocess
-
-    arg_str = " ".join(args).strip().lower()
-    force_restart = any(k in arg_str for k in ("재시작", "restart", "리부트", "reboot"))
     repo_dir = os.path.dirname(os.path.abspath(__file__))
-
-    status_msg = await ctx.send("⏳ **GitHub 원격 저장소(`origin`)에서 누적된 업데이트 확인 및 다운로드 중...**")
 
     def _git_pull_sync() -> dict:
         def _run(cmd: list[str]) -> tuple[int, str]:
@@ -2523,6 +2509,7 @@ async def apply_github_updates_command(ctx: commands.Context, *args):
         _, old_sha = _run(["git", "rev-parse", "--short", "HEAD"])
         _, branch = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
         branch = branch if branch and branch != "HEAD" else "master"
+        _, remote_url = _run(["git", "config", "--get", "remote.origin.url"])
 
         rc_f, out_f = _run(["git", "fetch", "origin", branch])
         if rc_f != 0:
@@ -2535,11 +2522,19 @@ async def apply_github_updates_command(ctx: commands.Context, *args):
         changed_files = [ln.strip() for ln in changed_txt.splitlines() if ln.strip()]
 
         if behind_cnt > 0:
-            rc_p, out_p = _run(["git", "pull", "--ff-only", "origin", branch])
+            rc_p, _ = _run(["git", "pull", "--ff-only", "origin", branch])
             if rc_p != 0:
-                # 로컬 런타임 중 미세 수정 충돌 시 원격 최신 상태로 맞춤
                 _run(["git", "reset", "--hard", f"origin/{branch}"])
         _, new_sha = _run(["git", "rev-parse", "--short", "HEAD"])
+        clean_repo_url = ""
+        if remote_url:
+            u = remote_url.strip()
+            if u.startswith("git@github.com:"):
+                u = "https://github.com/" + u[len("git@github.com:"):]
+            if u.endswith(".git"):
+                u = u[:-4]
+            if u.startswith("https://github.com/"):
+                clean_repo_url = u
         return {
             "ok": True,
             "branch": branch,
@@ -2548,18 +2543,21 @@ async def apply_github_updates_command(ctx: commands.Context, *args):
             "behind_cnt": behind_cnt,
             "commits": [ln.strip() for ln in commits_txt.splitlines() if ln.strip()],
             "changed_files": changed_files,
+            "repo_url": clean_repo_url,
         }
 
     pull_info = await asyncio.to_thread(_git_pull_sync)
     if not pull_info.get("ok"):
-        await status_msg.edit(content=f"❌ **GitHub 업데이트 가져오기 실패:**\n```\n{pull_info.get('err')}\n```")
-        return
+        err_emb = discord.Embed(
+            title="❌ GitHub 업데이트 가져오기 실패",
+            description=f"```\n{pull_info.get('err')}\n```",
+            color=discord.Color.red(),
+        )
+        return err_emb, False
 
     changed_files: list[str] = pull_info["changed_files"]
-    core_touched = [fn for fn in changed_files if fn.endswith("_core.py") or fn == "core.py"]
     bot_py_touched = ("bot.py" in changed_files) or ("requirements.txt" in changed_files)
 
-    # 1) *_core.py 및 core.py 모듈 인메모리 재로딩 (데이터 캐시 및 락 보존)
     reloaded_cores: list[str] = []
     for mod_name in (
         "core",
@@ -2588,7 +2586,6 @@ async def apply_github_updates_command(ctx: commands.Context, *args):
             except Exception as e:
                 print(f"⚠️ [{mod_name}] 코어 모듈 리로드 오류: {e}", flush=True)
 
-    # 2) 모든 Cogs 확장 모듈 핫 리로드
     reloaded_cogs: list[str] = []
     failed_cogs: list[str] = []
     for ext in list(bot.extensions.keys()):
@@ -2606,34 +2603,97 @@ async def apply_github_updates_command(ctx: commands.Context, *args):
     commits = pull_info["commits"]
 
     if behind_cnt == 0:
-        header_line = f"ℹ️ **이미 최신 버전(`{new_sha}`)입니다.** 전체 모듈 `{len(reloaded_cogs)}개`를 최신 상태로 다시 불러왔습니다."
+        header_line = f"ℹ️ **이미 최신 버전(`{new_sha}`)입니다.** 전체 모듈 `{len(reloaded_cogs)}개`를 다시 불러왔습니다."
     else:
-        header_line = f"✅ **누적 커밋 `{behind_cnt}건` (`{old_sha}` ➔ `{new_sha}`) 다운로드 및 봇 반영 완료!**"
+        header_line = f"✅ **누적 커밋 `{behind_cnt}건` (`{old_sha}` ➔ `{new_sha}`) 다운로드 및 반영 완료!**"
 
     desc_lines = [
         header_line,
-        f"• **브랜치:** `{pull_info['branch']}` · **변경 파일:** `{len(changed_files)}개` · **리로드된 Cog:** `{len(reloaded_cogs)}개`",
+        f"• **브랜치:** `{pull_info['branch']}` · **변경 파일:** `{len(changed_files)}개` · **리로드된 모듈:** `{len(reloaded_cogs)}개`",
     ]
     if reloaded_cores:
-        desc_lines.append(f"• **갱신된 코어 모듈:** {', '.join(f'`{m}`' for m in reloaded_cores)}")
+        desc_lines.append(f"• **갱신된 코어:** {', '.join(f'`{m}`' for m in reloaded_cores)}")
     if commits:
-        commit_fmt = _format_commit_lines_highlighted(commits, limit=15)
+        commit_fmt = _format_commit_lines_highlighted(commits, repo_url=pull_info.get("repo_url", ""), limit=15)
         desc_lines.append(f"\n**📝 이번에 반영된 GitHub 커밋 내역**\n{commit_fmt}")
     if failed_cogs:
-        desc_lines.append("⚠️ **일부 Cog 리로드 오류:**\n" + "\n".join(failed_cogs[:5]))
+        desc_lines.append("⚠️ **일부 모듈 리로드 오류:**\n" + "\n".join(failed_cogs[:5]))
 
     need_restart = force_restart or bot_py_touched
     if need_restart:
-        desc_lines.append("\n🔄 **`bot.py` 본체 업데이트(또는 재시작 옵션)가 감지되어 2초 후 봇 프로세스를 자동 재기동합니다.**")
+        desc_lines.append("\n🔄 **`bot.py` 본체 변경(또는 재시작 옵션)이 감지되어 잠시 후 봇 프로세스를 자동 재기동합니다.**")
 
     embed = discord.Embed(
-        title="🚀 norosi GitHub 수동 업데이트 반영 완료 (!업데이트)",
+        title="🚀 norosi GitHub 업데이트 반영 완료",
         description="\n".join(desc_lines)[:4000],
         color=discord.Color.from_rgb(46, 204, 113) if not failed_cogs else discord.Color.gold(),
         timestamp=datetime.datetime.now(core.KST),
     )
-    await status_msg.edit(content=None, embed=embed)
+    return embed, need_restart
 
+
+class OwnerVersionUpdateView(core.SafeView):
+    """!현재버전 화면에서 대기 중인 업데이트를 원클릭 반영하거나 새로고침하는 봇 주인 전용 뷰"""
+
+    def __init__(self, has_pending: bool = False):
+        super().__init__(timeout=300)
+        self.has_pending = bool(has_pending)
+        self._sync_buttons()
+
+    def _sync_buttons(self):
+        self.btn_apply_update.style = discord.ButtonStyle.success if self.has_pending else discord.ButtonStyle.secondary
+        self.btn_apply_update.label = "🚀 지금 업데이트 반영" if self.has_pending else "🔄 모듈 다시 불러오기"
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        if not await bot.is_bot_owner_user(interaction.user):
+            await core.safe_send_response(interaction, "❌ **👑 봇 주인(소유자)** 만 조작할 수 있습니다.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="🚀 지금 업데이트 반영", style=discord.ButtonStyle.success, row=0)
+    async def btn_apply_update(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        embed, need_restart = await execute_github_update(force_restart=False)
+        self.has_pending = False
+        self._sync_buttons()
+        await core.safe_edit_response(interaction, embed=embed, view=self)
+        if need_restart:
+            await asyncio.sleep(1.5)
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    @discord.ui.button(label="🔄 버전 새로고침", style=discord.ButtonStyle.primary, row=0)
+    async def btn_refresh_version(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        embed, info = await build_git_version_embed_and_info()
+        self.has_pending = bool(info.get("behind_cnt", 0) > 0)
+        self._sync_buttons()
+        await core.safe_edit_response(interaction, embed=embed, view=self)
+
+
+@bot.command(name="현재버전")
+async def current_version_command(ctx: commands.Context):
+    """[봇 주인 전용] 현재 봇에 반영되어 실행 중인 Git 커밋과 GitHub 최신 커밋 목록을 비교합니다."""
+    if not await bot.is_bot_owner_user(ctx.author):
+        await ctx.send("❌ 이 명령어는 **👑 봇 주인(소유자)** 만 사용할 수 있습니다.", delete_after=5)
+        return
+    embed, info = await build_git_version_embed_and_info()
+    view = OwnerVersionUpdateView(has_pending=(info.get("behind_cnt", 0) > 0))
+    await ctx.send(embed=embed, view=view)
+
+
+@bot.command(name="업데이트")
+async def apply_github_updates_command(ctx: commands.Context, *args):
+    """[봇 주인 전용] GitHub 원격 저장소에 쌓인 커밋을 가져와 봇에 일괄 반영합니다."""
+    if not await bot.is_bot_owner_user(ctx.author):
+        await ctx.send("❌ 이 명령어는 **👑 봇 주인(소유자)** 만 사용할 수 있습니다.", delete_after=5)
+        return
+    arg_str = " ".join(args).strip().lower()
+    force_restart = any(k in arg_str for k in ("재시작", "restart", "리부트", "reboot"))
+    status_msg = await ctx.send("⏳ **GitHub 원격 저장소(`origin`)에서 누적된 업데이트를 확인하고 반영하는 중...**")
+    embed, need_restart = await execute_github_update(force_restart=force_restart)
+    await status_msg.edit(content=None, embed=embed)
     if need_restart:
         await asyncio.sleep(1.5)
         os.execv(sys.executable, [sys.executable] + sys.argv)

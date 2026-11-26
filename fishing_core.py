@@ -2547,7 +2547,7 @@ def sell_fish_by_uid(guild_id: int | str, user_id: int | str, uid: str) -> Tuple
                 core.save_data(data)
                 diff = gold - base_g
                 mk_note = f" ({' · '.join(tags)} {diff:+,}🪙)" if tags and diff != 0 else ""
-                return True, f"💰 **{name}**을(를) 어시장에 판매해 `+{gold:,}🪙`을 획득했습니다!{mk_note} (보유: `{u['gold']:,}🪙`)", gold
+                return True, f"💰 **{name}** 판매 완료! `+{gold:,}🪙` 획득!{mk_note} (보유: `{u['gold']:,}🪙`)", gold
         return False, "⚠️ 이미 판매되었거나 가방에 없는 개체입니다.", 0
 
 
@@ -2832,7 +2832,7 @@ def release_fish_by_uid(guild_id: int | str, user_id: int | str, uid: str) -> Tu
                 new_lvl, _, _ = _calc_level_from_exp(u["exp"])
                 u["level"] = new_lvl
                 core.save_data(data)
-                return True, f"🌊 **{item.get('name', '물고기')}**을(를) 자연으로 방생했습니다! (`+{bonus_exp} EXP`)"
+                return True, f"🌊 **{item.get('name', '물고기')}** 자연 방생 완료! (`+{bonus_exp} EXP`)"
         return False, "⚠️ 이미 처리되었거나 가방에 없는 개체입니다."
 
 
@@ -2886,7 +2886,7 @@ def move_fish_to_tank(guild_id: int | str, user_id: int | str, uid: str) -> Tupl
                 moved = bag.pop(idx)
                 tank.append(moved)
                 core.save_data(data)
-                return True, f"🐠 **{moved.get('name', '물고기')}** (`{moved.get('length_cm', 0)}cm` · `{moved.get('weight_kg', 0)}kg`)을(를) 개인 수족관에 전시했습니다! (`{len(tank)}/{max_slots}`)"
+                return True, f"🐠 **{moved.get('name', '물고기')}** (`{moved.get('length_cm', 0)}cm` · `{moved.get('weight_kg', 0)}kg`) 수족관 전시 완료! (`{len(tank)}/{max_slots}`)"
         return False, "⚠️ 해당 물고기가 가방에 없습니다."
 
 
@@ -2956,7 +2956,7 @@ def remove_fish_from_tank(guild_id: int | str, user_id: int | str, uid: str) -> 
                 removed = tank.pop(idx)
                 bag.append(removed)
                 core.save_data(data)
-                return True, f"🎒 **{removed.get('name', '물고기')}**을(를) 수족관에서 가방으로 회수했습니다."
+                return True, f"🎒 **{removed.get('name', '물고기')}** 가방 회수 완료."
         return False, "⚠️ 수족관에서 해당 개체를 찾지 못했습니다."
 
 
@@ -3197,7 +3197,7 @@ def gift_fish_to_user(
         core.save_data(data)
         return (
             True,
-            f"🎁 **{s_u['name']}**님이 **{r_u['name']}**님에게 {gifted.get('emoji', '🐟')} **★{gifted.get('rarity', 1)} {gifted.get('name', '물고기')}** (`{float(gifted.get('length_cm', 0)):.1f}cm`)을(를) 선물했습니다! *(받는 분 가방에 🔒 자동 잠금 보관)*",
+            f"🎁 **{s_u['name']}**님이 **{r_u['name']}**님에게 {gifted.get('emoji', '🐟')} **★{gifted.get('rarity', 1)} {gifted.get('name', '물고기')}** (`{float(gifted.get('length_cm', 0)):.1f}cm`) 선물 완료! *(받는 분 가방에 🔒 자동 잠금 보관)*",
             gifted,
         )
 
@@ -3527,7 +3527,7 @@ def spawn_fishing_boss(
         boss = _create_boss_instance(sp, now_dt, spawner_name or f"출조사({str(spawner_id)[:4]})", auto=False)
         root["active"] = boss
         core.save_data(data)
-        return True, f"🚨 **거대 대어 출현 경보!!** {boss['emoji']} **`{boss['name']}`** (HP `{boss['max_hp']:,}`)이(가) 해역에 나타났습니다!", copy.deepcopy(boss)
+        return True, f"🚨 **거대 대어 출현 경보!!** {boss['emoji']} **`{boss['name']}`** (HP `{boss['max_hp']:,}`) 해역 출현!", copy.deepcopy(boss)
 
 
 def attack_fishing_boss(
@@ -3678,7 +3678,7 @@ def purchase_shop_item(guild_id: int | str, user_id: int | str, category: str, i
             if item_id in u["owned_rods"]:
                 u["rod_id"] = item_id
                 core.save_data(data)
-                return True, f"{rod['emoji']} 이미 보유 중인 **{rod['name']}**을(를) 즉시 장착했습니다!"
+                return True, f"{rod['emoji']} 보유 중인 **{rod['name']}** 장착 완료!"
             if gold < rod["price"]:
                 return False, f"❌ 낚시 골드가 부족합니다! (필요: `{rod['price']:,}🪙` / 보유: `{gold:,}🪙`)"
             u["gold"] -= rod["price"]
@@ -3694,7 +3694,7 @@ def purchase_shop_item(guild_id: int | str, user_id: int | str, category: str, i
             if item_id in u["owned_reels"]:
                 u["reel_id"] = item_id
                 core.save_data(data)
-                return True, f"{reel['emoji']} 이미 보유 중인 **{reel['name']}**을(를) 즉시 장착했습니다!"
+                return True, f"{reel['emoji']} 보유 중인 **{reel['name']}** 장착 완료!"
             if gold < reel["price"]:
                 return False, f"❌ 낚시 골드가 부족합니다! (필요: `{reel['price']:,}🪙` / 보유: `{gold:,}🪙`)"
             u["gold"] -= reel["price"]
@@ -3716,7 +3716,7 @@ def purchase_shop_item(guild_id: int | str, user_id: int | str, category: str, i
             if item_id in u["owned_nets"]:
                 u["net_id"] = item_id
                 core.save_data(data)
-                return True, f"{net['emoji']} 이미 보유 중인 **{net['name']}**을(를) 즉시 장착했습니다! (1회 `{net['min_catch']}~{net['max_catch']}마리` 포획)"
+                return True, f"{net['emoji']} 보유 중인 **{net['name']}** 장착 완료! (1회 `{net['min_catch']}~{net['max_catch']}마리` 포획)"
             if gold < net["price"]:
                 return False, f"❌ 낚시 골드가 부족합니다! (필요: `{net['price']:,}🪙` / 보유: `{gold:,}🪙`)"
             u["gold"] -= net["price"]

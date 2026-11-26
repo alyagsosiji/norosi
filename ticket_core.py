@@ -245,7 +245,7 @@ def close_ticket(guild_id: int | str, channel_id: int | str, closer_id: int, clo
         rec["closed_by"] = int(closer_id)
         rec["closed_by_name"] = closer_name
         core.save_data(data)
-        return True, f"🔒 티켓 `#{int(rec.get('ticket_no', 0)):04d}`이(가) 닫혔습니다.", copy.deepcopy(rec)
+        return True, f"🔒 티켓 `#{int(rec.get('ticket_no', 0)):04d}` 번이 닫혔습니다.", copy.deepcopy(rec)
 
 
 def reopen_ticket(guild_id: int | str, channel_id: int | str) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
@@ -260,7 +260,7 @@ def reopen_ticket(guild_id: int | str, channel_id: int | str) -> Tuple[bool, str
         rec["status"] = "open"
         rec["closed_at"] = None
         core.save_data(data)
-        return True, f"🔓 티켓 `#{int(rec.get('ticket_no', 0)):04d}`이(가) 다시 열렸습니다.", copy.deepcopy(rec)
+        return True, f"🔓 티켓 `#{int(rec.get('ticket_no', 0)):04d}` 번이 다시 열렸습니다.", copy.deepcopy(rec)
 
 
 def delete_ticket_record(guild_id: int | str, channel_id: int | str) -> Optional[Dict[str, Any]]:

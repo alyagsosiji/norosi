@@ -1040,6 +1040,49 @@ class ReactionRoleListView(core.SafeView):
         self._update_components()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
+    @discord.ui.button(label="🧹 죽은 연결 정리", style=discord.ButtonStyle.danger, row=1)
+    async def cleanup_dead_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild or not interaction.user.guild_permissions.manage_roles:
+            await core.safe_send_response(interaction, "❌ 역할 관리 권한이 필요합니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        dead_mids: list[str] = []
+        for mid, cfg in list(self.entries):
+            ch_id = cfg.get("channel_id")
+            ch = interaction.guild.get_channel(int(ch_id)) if ch_id else None
+            if ch is None:
+                dead_mids.append(str(mid))
+                continue
+            try:
+                await ch.fetch_message(int(mid))
+            except discord.NotFound:
+                dead_mids.append(str(mid))
+            except Exception:
+                pass
+
+        if not dead_mids:
+            await interaction.followup.send("✅ 모든 반응역할 메시지가 정상 존재합니다! 정리할 항목이 없습니다.", ephemeral=True)
+            return
+
+        def _prune_dead():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                removed_cnt = 0
+                for dm in dead_mids:
+                    if core.remove_reaction_role_entry(d, int(dm)):
+                        removed_cnt += 1
+                if removed_cnt:
+                    core.save_data(d)
+                return removed_cnt
+
+        cnt = await asyncio.to_thread(_prune_dead)
+        dead_set = set(dead_mids)
+        self.entries = [e for e in self.entries if str(e[0]) not in dead_set]
+        self.page = min(self.page, self.max_page)
+        self._update_components()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await interaction.followup.send(f"🧹 삭제된 채널·메시지 반응역할 `{cnt}건`을 깔끔하게 정리했습니다!", ephemeral=True)
+
 
 class ReactionRoleStudioView(core.SafeView):
     """서버 관리자용 반응역할 종합 메인 스튜디오 뷰"""

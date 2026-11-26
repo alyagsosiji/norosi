@@ -367,7 +367,7 @@ async def _perform_close_ticket(
         if opener_member and hasattr(opener_member, "send"):
             try:
                 await opener_member.send(
-                    content=f"🔒 `{guild_name}`의 문의 티켓 `#{tno:04d}`이(가) 종료되었습니다. 대화 내역 사본을 전달해 드립니다.",
+                    content=f"🔒 `{guild_name}` 문의 티켓 `#{tno:04d}` 상담이 종료되었습니다. 대화 내역 사본을 전달해 드립니다.",
                     file=discord.File(io.BytesIO(raw_bytes), filename=filename),
                 )
             except Exception:
@@ -394,7 +394,7 @@ async def _perform_close_ticket(
         print(f"ℹ️ [티켓 채널 잠금 예외] {perm_err}", flush=True)
 
     close_embed = discord.Embed(
-        title=f"🔒 티켓 #{tno:04d} 이(가) 닫혔습니다",
+        title=f"🔒 티켓 #{tno:04d} 상담 종료",
         description=(
             f"• **처리자:** {getattr(actor, 'mention', getattr(actor, 'display_name', '-'))}\n"
             f"• **트랜스크립트:** `{filename}` ({len(msgs)}개 메시지 UTF-8 백업 완료)\n"
@@ -539,7 +539,7 @@ class TicketCreateModal(core.SafeModal, title="📩 1:1 비공개 문의 티켓 
             print(f"⚠️ [티켓 환영 메시지 전송 예외] {se}", flush=True)
 
         await interaction.followup.send(
-            f"✅ **1:1 비공개 티켓 `#{ticket_no:04d}`이(가) 생성되었습니다!** ➔ <#{created_ch.id}>",
+            f"✅ **1:1 비공개 티켓 `#{ticket_no:04d}` 개설 완료!** ➔ <#{created_ch.id}>",
             ephemeral=True,
         )
 
@@ -720,6 +720,35 @@ class TicketControlView(core.SafeView):
         await interaction.followup.send(msg)
 
     @discord.ui.button(
+        label="📄 대화록 저장",
+        style=discord.ButtonStyle.primary,
+        custom_id="norosi:TicketControlView:btn_export_txt",
+        row=1,
+    )
+    async def btn_export_txt(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild or not interaction.channel:
+            await core.safe_send_response(interaction, "❌ 서버 티켓 채널에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+        rec = ticket_core.get_ticket(interaction.guild.id, interaction.channel.id)
+        if not rec:
+            await core.safe_send_response(interaction, "❌ 등록된 문의 티켓이 아닙니다.", ephemeral=True)
+            return
+        opener_id = int(rec.get("opener_id", 0) or 0)
+        if interaction.user.id != opener_id and not _is_ticket_staff(interaction.user, interaction.guild.id, interaction.client):
+            await core.safe_send_response(interaction, "❌ 티켓 개설자 또는 담당 운영진만 대화록을 저장할 수 있습니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        msgs = await _collect_channel_messages(interaction.channel, limit=500)
+        filename, txt_buf = await asyncio.to_thread(
+            ticket_core.format_ticket_transcript, rec, interaction.guild.name, msgs
+        )
+        await interaction.followup.send(
+            content=f"📄 현재까지의 티켓 대화 내역(`{len(msgs)}개` 메시지) 파일입니다.",
+            file=discord.File(io.BytesIO(txt_buf.getvalue()), filename=filename),
+            ephemeral=True,
+        )
+
+    @discord.ui.button(
         label="🗑️ 티켓 삭제",
         style=discord.ButtonStyle.secondary,
         custom_id="norosi:TicketControlView:btn_delete",
@@ -737,7 +766,7 @@ class TicketControlView(core.SafeView):
         if not removed:
             await interaction.followup.send("❌ 등록된 티켓을 찾을 수 없습니다.", ephemeral=True)
             return
-        await interaction.followup.send(f"🗑️ 티켓 `#{int(removed.get('ticket_no', 0)):04d}`을(를) 영구 삭제합니다...", ephemeral=True)
+        await interaction.followup.send(f"🗑️ 티켓 `#{int(removed.get('ticket_no', 0)):04d}` 채널을 삭제합니다...", ephemeral=True)
         if hasattr(interaction.channel, "delete"):
             try:
                 await interaction.channel.delete(reason=f"티켓 삭제 ({interaction.user})")
@@ -941,7 +970,7 @@ class TicketGroupCog(commands.GroupCog, name="티켓", description="🎫 1:1 비
                 if resolved_role is None:
                     safe_q = q_role.replace("`", "")[:60]
                     warn_msg = (
-                        f"⚠️ 입력하신 역할 `{safe_q}`을(를) 서버에서 자동으로 찾지 못했습니다.\n"
+                        f"⚠️ 입력하신 `{safe_q}` 역할을 서버에서 찾지 못했습니다.\n"
                         "👉 아래 **역할 선택 드롭다운**에서 특수문자 포함 역할을 클릭해 바로 지정해 주세요!"
                     )
                 else:

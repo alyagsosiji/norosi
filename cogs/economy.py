@@ -436,6 +436,21 @@ class LotteryStudioView(core.SafeView):
             ephemeral=True,
         )
 
+    @discord.ui.button(label="💱 환전소", style=discord.ButtonStyle.primary, row=1)
+    async def btn_open_exchange(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        from cogs import routine
+        v = routine.CurrencyExchangeView(interaction.user, self.guild_id or interaction.guild_id or 0)
+        await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+
+    @discord.ui.button(label="🏷️ 칭호 상점", style=discord.ButtonStyle.secondary, row=1)
+    async def btn_open_titles(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        gid = self.guild_id or interaction.guild_id or 0
+        st = await asyncio.to_thread(economy_core.get_user_title_and_badge_status, gid, interaction.user.id, interaction.user.display_name)
+        v = TitleStudioView(interaction.user, gid, stats=st)
+        await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+
 
 # ==========================================
 # 2. 통합 자산 랭킹 뷰

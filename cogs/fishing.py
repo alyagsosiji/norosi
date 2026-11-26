@@ -340,12 +340,12 @@ class FishingBaitSelect(discord.ui.Select):
             b_meta = fishing_core.BAITS[chosen]
             if b_meta.get("craft_only"):
                 await interaction.followup.send(
-                    f"❌ **{b_meta['name']}**을(를) 보유하고 있지 않습니다! `🛒 상점 ➔ 🧪 미끼제작` 또는 가방 `[🧪 미끼 제작]`에서 소형어를 분해해 제작해 보세요.",
+                    f"❌ 보유 중인 **{b_meta['name']}** 미끼가 없습니다! `🛒 상점 ➔ 🧪 미끼제작` 또는 가방 `[🧪 미끼 제작]`에서 소형어를 분해해 제작해 보세요.",
                     ephemeral=True,
                 )
             else:
                 await interaction.followup.send(
-                    f"❌ **{b_meta['name']}**을(를) 보유하고 있지 않습니다! `🛒 상점`에서 구매해 보세요.",
+                    f"❌ 보유 중인 **{b_meta['name']}** 미끼가 없습니다! `🛒 상점`에서 구매해 보세요.",
                     ephemeral=True,
                 )
             return
@@ -491,17 +491,20 @@ class FishingCastView(core.SafeView):
             self.catch_card_idx = 0
 
         has_catch = bool(pending) and phase in ("idle", "resolved")
+        cur_entry = entries[self.catch_card_idx] if (entries and 0 <= self.catch_card_idx < len(entries)) else None
+        cur_fish = cur_entry.get("fish") if isinstance(cur_entry, dict) else (pending[0] if pending else None)
+        is_cur_locked = bool(isinstance(cur_fish, dict) and cur_fish.get("locked"))
         if len(pending) > 1:
             self.btn_sell_last.label = f"💰 {len(pending)}마리 판매"
             self.btn_tank_last.label = "🐠 전시"
-            self.btn_release_last.label = f"🌊 방생({len(pending)})"
         else:
             self.btn_sell_last.label = "💰 판매"
             self.btn_tank_last.label = "🐠 수족관"
-            self.btn_release_last.label = "🌊 방생"
+        self.btn_lock_last.label = "🔒 잠금됨" if is_cur_locked else "🔒 잠금"
+        self.btn_lock_last.style = discord.ButtonStyle.danger if is_cur_locked else discord.ButtonStyle.secondary
         self.btn_sell_last.disabled = not has_catch
         self.btn_tank_last.disabled = not has_catch
-        self.btn_release_last.disabled = not has_catch
+        self.btn_lock_last.disabled = not has_catch
 
         can_nav_cards = (total_cards > 1) and phase in ("idle", "resolved")
         if total_cards > 1:
@@ -762,7 +765,7 @@ class FishingCastView(core.SafeView):
         # 폭풍우/피딩타임 서버 협동 보스 돌발 출현 알림
         b_spawn = res.get("boss_spawned")
         if isinstance(b_spawn, dict):
-            desc += f"\n\n🚨 **서버 대어 보스 출현!!** {b_spawn['emoji']} **{b_spawn['name']}** (HP `{b_spawn['max_hp']:,}`) 등장! `/낚시 레이드` 명령으로 서버원들과 협동 토벌하세요!"
+            desc += f"\n\n🚨 **서버 대어 보스 출현!!** {b_spawn['emoji']} **{b_spawn['name']}** (HP `{b_spawn['max_hp']:,}`) 등장! `/설정` (`🎮 미니게임`)의 낚시 보스 레이드에서 서버원들과 협동 토벌하세요!"
 
         if res.get("bonus_reasons"):
             reasons_txt = ", ".join(res["bonus_reasons"][:5])
@@ -1240,31 +1243,24 @@ class FishingCastView(core.SafeView):
         await _safe_update_message_or_interaction(interaction, interaction.message or self.message, view=self)
         await interaction.followup.send(msg, ephemeral=True)
 
-    @discord.ui.button(label="🌊 방생", style=discord.ButtonStyle.secondary, disabled=True, row=3)
-    async def btn_release_last(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="🔒 잠금", style=discord.ButtonStyle.secondary, disabled=True, row=3)
+    async def btn_lock_last(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
+        entries = self._get_catch_entries()
         pending = self._get_pending_fish_list()
-        if not pending:
-            await interaction.followup.send("ℹ️ 방생할 직전 포획 물고기가 없습니다.", ephemeral=True)
+        target_fish = None
+        if entries and 0 <= self.catch_card_idx < len(entries):
+            target_fish = entries[self.catch_card_idx].get("fish")
+        elif pending:
+            target_fish = pending[0]
+        if not isinstance(target_fish, dict) or not target_fish.get("uid"):
+            await interaction.followup.send("ℹ️ 잠금할 직전 포획 물고기가 없습니다.", ephemeral=True)
             return
-        if len(pending) == 1:
-            uid = pending[0]["uid"]
-            ok, msg = await asyncio.to_thread(fishing_core.release_fish_by_uid, self.guild_id, self.user.id, uid)
-            if ok:
-                self.last_catches = []
-                self.last_catch = None
-                self._catch_card_cache.clear()
-        else:
-            uids = [f["uid"] for f in pending]
-            ok, msg, _, _, rem_uids = await asyncio.to_thread(
-                fishing_core.release_fishes_by_uids, self.guild_id, self.user.id, uids
-            )
-            if ok:
-                rem_set = set(rem_uids)
-                self.last_catches = [f for f in pending if f["uid"] in rem_set]
-                if not self.last_catches:
-                    self.last_catch = None
-                    self._catch_card_cache.clear()
+        uid = str(target_fish["uid"])
+        ok, msg = await asyncio.to_thread(fishing_core.toggle_fish_lock, self.guild_id, self.user.id, uid)
+        if ok:
+            target_fish["locked"] = not bool(target_fish.get("locked", False))
+            self._catch_card_cache.pop(self.catch_card_idx, None)
         await self.refresh_summary()
         self.sync_controls(phase="idle")
         await _safe_update_message_or_interaction(interaction, interaction.message or self.message, view=self)
@@ -1300,14 +1296,14 @@ class FishingCastView(core.SafeView):
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
         view.message = msg
 
-    @discord.ui.button(label="🐠 수족관", style=discord.ButtonStyle.secondary, row=4)
-    async def btn_open_tank(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="📜 퀘스트", style=discord.ButtonStyle.secondary, row=4)
+    async def btn_open_quest(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction, ephemeral=True)
         summary = await asyncio.to_thread(
             fishing_core.get_user_fishing_summary, self.guild_id, self.user.id, self.user.display_name
         )
-        view = FishingAquariumView(self.user, self.user, self.guild_id, summary=summary)
-        msg = await view.send_initial(interaction, ephemeral=True)
+        view = FishingQuestView(self.user, self.guild_id, summary=summary)
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
         view.message = msg
 
     @discord.ui.button(label="🏆 랭킹", style=discord.ButtonStyle.secondary, row=4)
@@ -1635,7 +1631,7 @@ class FishingBagView(core.SafeView):
                 f"`{cm_val:.1f}cm` · `{_format_weight(wt_val)}` · `{mk_g:,}🪙`{mk_badge}"
             )
 
-        body = "\n".join(lines) if lines else "> *(조건에 맞는 물고기가 가방에 없습니다. `/낚시 출조`로 물고기를 낚아 보세요!)*"
+        body = "\n".join(lines) if lines else "> *(조건에 맞는 물고기가 가방에 없습니다. `/설정` (`🎣 낚시 출조`)에서 물고기를 낚아 보세요!)*"
         embed = discord.Embed(
             title=f"🎒 {self.user.display_name}님의 낚시 가방 ({len(bag_raw):,}/{bag_cap:,}마리)",
             description=(
@@ -1855,7 +1851,7 @@ class FishingBagView(core.SafeView):
         label = f"★{sel_item.get('rarity', 1)} {sel_item.get('name', '물고기')} ({float(sel_item.get('length_cm', 0)):.1f}cm)"
         gift_view = FishingGiftRecipientView(self.user, self.guild_id, fish_uid=sel_uid, fish_label=label)
         await interaction.followup.send(
-            f"🎁 **{label}**을(를) 선물받을 멤버를 아래에서 선택해 주세요!",
+            f"🎁 **{label}** 선물 대상을 아래에서 선택해 주세요!",
             view=gift_view,
             ephemeral=True,
         )
@@ -2589,7 +2585,7 @@ class FishingAquariumView(core.SafeView):
                 f"`{idx}.` {it.get('emoji', '🐟')} {v_s}{tr_s}**★{it.get('rarity', 1)} {it.get('name', '물고기')}** — "
                 f"`{cm_val:.1f}cm` · `{_format_weight(wt_val)}` (`+{rate}🪙/시간`)"
             )
-        body = "\n".join(lines) if lines else "> *(아직 전시된 물고기가 없습니다! `/낚시 가방`에서 아끼는 대물을 수족관에 전시해 보세요.)*"
+        body = "\n".join(lines) if lines else "> *(아직 전시된 물고기가 없습니다! 낚시 가방에서 아끼는 대물을 수족관에 전시해 보세요.)*"
         next_cost = 600 + (max_slots - 4) * 500
         exp_txt = "최대 크기 달성!" if max_slots >= 20 else f"다음 확장(+2칸): `{next_cost:,}🪙`"
 
@@ -4314,7 +4310,7 @@ class FishingGiftView(core.SafeView):
             description=(
                 f"• **받는 분:** {self.receiver.mention}\n"
                 f"• **선물 가능한 미잠금 물고기:** `{len(unlocked)}마리` *(최근 포획 25마리 표시)*\n"
-                "> *🔒 잠금 보호 중인 물고기를 선물하려면 `/낚시 가방`에서 먼저 잠금을 해제해 주세요!*"
+                "> *🔒 잠금 보호 중인 물고기를 선물하려면 낚시 가방에서 먼저 잠금을 해제해 주세요!*"
             ),
             color=0xF472B6,
             timestamp=datetime.datetime.now(core.KST),
@@ -4812,9 +4808,9 @@ class FishingCog(commands.GroupCog, name="낚시", description="🏞️ 호수 �
 
         b_act = boss_st.get("active")
         boss_line = (
-            f"🚨 **진행 중:** {b_act['emoji']} `{b_act['name']}` (HP `{b_act['hp']:,}/{b_act['max_hp']:,}` · `/낚시 레이드`)"
+            f"🚨 **진행 중:** {b_act['emoji']} `{b_act['name']}` (HP `{b_act['hp']:,}/{b_act['max_hp']:,}` · 보스 레이드)"
             if isinstance(b_act, dict) and not b_act.get("defeated")
-            else "🌊 출현 보스 없음 (`/낚시 레이드`에서 소환 가능)"
+            else "🌊 출현 보스 없음 (`/설정`에서 소환 가능)"
         )
 
         embed = discord.Embed(

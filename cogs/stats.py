@@ -916,6 +916,14 @@ class BotStatusRefreshView(core.SafeView):
         embed.set_footer(text=f"🧹 GC 정리 완료 ({collected:,}개 객체 회수) • 요청자: {interaction.user.display_name}")
         await core.safe_edit_response(interaction, embed=embed, view=self)
 
+    @discord.ui.button(label="🔖 버전 비교", style=discord.ButtonStyle.secondary, row=0)
+    async def btn_check_version(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction, ephemeral=True)
+        import bot as _bot_mod
+        v_embed, v_info = await _bot_mod.build_git_version_embed_and_info()
+        v_view = _bot_mod.OwnerVersionUpdateView(has_pending=(v_info.get("behind_cnt", 0) > 0))
+        await interaction.followup.send(embed=v_embed, view=v_view, ephemeral=True)
+
 
 class StatsCog(commands.Cog):
     """서버 활성도 및 채널/음성/출석 통계 요약 및 상세 대시보드 Cog"""
@@ -1392,7 +1400,7 @@ class StatsCog(commands.Cog):
         embed.add_field(
             name="⏱️ 업타임 & 라이브러리 버전",
             value=(
-                f"• **시작 시각:** `{start_str}` · **업타임:** `{uptime_str}`\n"
+                f"• **반영 버전:** `{await asyncio.to_thread(self._get_head_sha_safe)}` · **업타임:** `{uptime_str}` (기동 `{start_str}`)\n"
                 f"• **환경:** `Python {platform.python_version()}` (`{platform.system()} {platform.release()[:14]}`)\n"
                 f"• **패키지:** `discord.py {discord.__version__}` · `aiohttp {m['ver_aiohttp']}` · `yt-dlp {m['ver_ytdlp']}` · `davey {m['ver_davey']}`"
             ),
@@ -1413,6 +1421,14 @@ class StatsCog(commands.Cog):
 
         embed.set_footer(text=f"요청자: {requester_name}")
         return embed
+
+    @staticmethod
+    def _get_head_sha_safe() -> str:
+        try:
+            import bot as _bot_mod
+            return _bot_mod.get_local_head_short_sha()
+        except Exception:
+            return "unknown"
 
     def _build_guild_and_log_diagnostics(self, detailed: bool = True) -> tuple[str, str]:
         """접속 중인 서버 목록(이름·ID·인원·채널·음성·감사/터미널 로그 연동 상태)과 최근 시스템 로그 텍스트를 생성합니다."""
@@ -1551,7 +1567,7 @@ class StatsCog(commands.Cog):
             f"📡 **핑 / 루프:** WS `{ws_latency}ms` ({ws_badge}) · 루프 `{loop_lag_ms}ms` · DB `{m['data_io_ms']}ms`",
             f"⚙️ **자원 요약:** 프로세스 RAM `{m['rss_mb']}MB`{host_mem_part} · CPU `{m['load_str']}` · 디스크 `{m['disk_pct']}%`",
             f"🌐 **연결 / 루프:** `{guilds_cnt:,}서버` (`{users_cnt:,}명`) · 음성 `{vc_cnt}개` · 스케줄러 `{running_loops}/{total_loops}`",
-            f"⏱️ **업타임 / 보안:** `{uptime_str}` · DB `{m['db_size_kb']}KB` · 보안 가드 `{'✅ 정상' if sec_ok else '⚠️ 점검 필요'}`",
+            f"⏱️ **버전 / 업타임:** `{await asyncio.to_thread(self._get_head_sha_safe)}` · `{uptime_str}` · DB `{m['db_size_kb']}KB` · 보안 가드 `{'✅ 정상' if sec_ok else '⚠️ 점검 필요'}`",
         ]
 
         embed = discord.Embed(
@@ -2275,7 +2291,7 @@ class WordChainGameView(core.SafeView):
                 f"🔥 **현재 랠리:** `{self.rally_count}회` 연속 성공\n"
                 "──────────────────────\n"
                 f"### 🎯 현재 제시어: **`{self.current_word}`**\n"
-                f"👉 이어갈 첫 글자: {dueum_str}(으)로 시작하는 2글자 이상 단어\n\n"
+                f"👉 이어갈 첫 글자: {dueum_str} 시작 2글자 이상 단어\n\n"
                 f"📜 **단어 체인 기록:**\n{recent_chain}\n\n"
                 f"💡 **진행 안내:** {self.status_notice}"
             ),
@@ -2313,7 +2329,7 @@ class WordChainGameView(core.SafeView):
             dueum_hint = " 또는 ".join([f"'{c}'" for c in valid_starts])
             await core.safe_send_response(
                 interaction,
-                content=f"❌ `{self.current_word}`의 끝 글자를 이어 **{dueum_hint}**(으)로 시작하는 단어를 입력해야 합니다!",
+                content=f"❌ `{self.current_word}` 다음에 이어질 **{dueum_hint}** 시작 단어를 입력해 주세요!",
                 ephemeral=True
             )
             return
@@ -2353,14 +2369,14 @@ class WordChainGameView(core.SafeView):
                 self.input_btn.disabled = True
                 self.surrender_btn.disabled = True
                 await asyncio.to_thread(_grant_wordchain_crystals, self.host_user.id, self.host_user.display_name, 150)
-                self.status_notice = f"🏆 봇이 `{clean_w[-1]}`(으)로 시작하는 단어를 찾지 못해 기권했습니다! **{self.host_user.display_name}**님 완벽 승리! (**`+150 💎`** 지급 완료)"
+                self.status_notice = f"🏆 봇이 `{clean_w[-1]}` 시작 단어를 찾지 못해 기권했습니다! **{self.host_user.display_name}**님 완벽 승리! (**`+150 💎`** 지급 완료)"
                 await interaction.edit_original_response(embed=self.build_embed(), view=self)
                 return
 
             self.used_words.add(bot_word)
             self.current_word = bot_word
             self.chain_history.append(f"🤖 `{bot_word}`")
-            self.status_notice = f"🤖 노로시 봇이 **`{bot_word}`**(으)로 받아쳤습니다! ({7 - self.rally_count}번 더 성공하면 승리 보너스 `+150💎`!)"
+            self.status_notice = f"🤖 노로시 봇의 응수: **`{bot_word}`**! ({7 - self.rally_count}번 더 성공하면 승리 보너스 `+150💎`!)"
             await interaction.edit_original_response(embed=self.build_embed(), view=self)
         else:
             # 2) 유저 간 1:1 턴제 대결 모드

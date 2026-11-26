@@ -141,6 +141,25 @@ class DailyRoutineHubView(core.SafeView):
         else:
             await interaction.followup.send(embed=embed, view=view, wait=True)
 
+    @discord.ui.button(label="📅 즉시 출석체크", style=discord.ButtonStyle.primary, row=0)
+    async def btn_quick_attend(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        g_name = interaction.guild.name if interaction.guild else "개인 메시지"
+        res = await asyncio.to_thread(
+            core.execute_daily_attendance,
+            self.guild_id,
+            g_name,
+            interaction.user.id,
+            interaction.user.display_name,
+        )
+        if isinstance(res, dict) and res.get("already_checked"):
+            self.status_msg = "✅ 오늘 출석체크는 이미 완료되어 있습니다!"
+        else:
+            added = res.get("added_crystals", 0) if isinstance(res, dict) else 0
+            self.status_msg = f"📅 오늘 출석체크 완료! (`+{added:,}💎` 획득)" if added else "📅 오늘 출석체크 완료!"
+        await self.reload()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
     @discord.ui.button(label="🌾 개인 농장", style=discord.ButtonStyle.secondary, row=0)
     async def btn_farm(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
@@ -276,6 +295,18 @@ class CurrencyExchangeView(core.SafeView):
         await self.reload()
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
+    @discord.ui.button(label="☀️ 일일 루틴", style=discord.ButtonStyle.secondary, row=1)
+    async def btn_goto_daily(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        v = DailyRoutineHubView(interaction.client, interaction.user, self.guild_id)
+        await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+
+    @discord.ui.button(label="🎯 주간 미션", style=discord.ButtonStyle.secondary, row=1)
+    async def btn_goto_weekly(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        v = WeeklyMissionView(interaction.user, self.guild_id)
+        await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+
 
 # ==========================================
 # 3. 🎯 통합 주간 미션 뷰
@@ -355,6 +386,12 @@ class WeeklyMissionView(core.SafeView):
     async def btn_daily(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         v = DailyRoutineHubView(interaction.client, interaction.user, self.guild_id)
+        await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
+
+    @discord.ui.button(label="💱 환전소", style=discord.ButtonStyle.secondary, row=0)
+    async def btn_goto_ex(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        v = CurrencyExchangeView(interaction.user, self.guild_id)
         await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
 
     @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=0)
@@ -517,6 +554,12 @@ class ShowcaseView(core.SafeView):
         await core.safe_defer(interaction)
         self.tab = "badges"
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="☀️ 일일 루틴", style=discord.ButtonStyle.primary, row=1)
+    async def btn_sc_daily(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        v = DailyRoutineHubView(interaction.client, interaction.user, self.guild_id)
+        await interaction.followup.send(embed=v.build_embed(), view=v, wait=True)
 
     @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=1)
     async def btn_refresh(self, interaction: discord.Interaction, button: discord.ui.Button):

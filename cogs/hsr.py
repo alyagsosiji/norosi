@@ -366,14 +366,15 @@ class HSRWarpAgainView(core.SafeView):
         self,
         user: discord.User | None = None,
         banner_key: str = "char1",
-        skip_anim: bool = False,
+        skip_anim: bool | None = None,
         practice: bool = False,
         last_count: int = 10,
     ):
         super().__init__(timeout=300)
         self.user = user
         self.banner_key = banner_key
-        self.skip_anim = skip_anim
+        uid = getattr(user, 'id', 0) or 0
+        self.skip_anim = bool(skip_anim) if skip_anim is not None else bool(core.get_user_ui_pref(uid, 'hsr_skip_anim', False))
         self.practice = practice
         self.last_count = last_count
         self._lock = asyncio.Lock()
@@ -466,6 +467,7 @@ class HSRWarpAgainView(core.SafeView):
         if not await self._check_owner(interaction):
             return
         self.skip_anim = not self.skip_anim
+        await asyncio.to_thread(core.set_user_ui_pref, interaction.user.id, "hsr_skip_anim", self.skip_anim)
         self._build_items()
         await core.safe_edit_response(interaction, view=self)
 
@@ -486,6 +488,18 @@ class HSRWarpAgainView(core.SafeView):
         if not await self._check_owner(interaction):
             return
         v = HSRShopView(interaction.guild_id or 0, interaction.user)
+        await core.safe_send_response(interaction, embed=v.build_embed(), view=v, ephemeral=True)
+
+    async def _on_party(self, interaction: discord.Interaction):
+        if not await self._check_owner(interaction):
+            return
+        v = HSRPartyView(interaction.guild_id or 0, interaction.user)
+        await core.safe_send_response(interaction, embed=v.build_embed(), view=v, ephemeral=True)
+
+    async def _on_dex(self, interaction: discord.Interaction):
+        if not await self._check_owner(interaction):
+            return
+        v = HSRPokedexView(interaction.guild_id or 0, interaction.user, tab="owned")
         await core.safe_send_response(interaction, embed=v.build_embed(), view=v, ephemeral=True)
 
     async def _on_300(self, interaction: discord.Interaction):

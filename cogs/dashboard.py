@@ -1957,6 +1957,16 @@ class HomeShortcutEditView(core.SafeView):
         btn_reset.callback = self._on_reset_clicked
         self.add_item(btn_reset)
 
+        btn_clear = discord.ui.Button(
+            label="단축바 숨기기",
+            emoji="🗑️",
+            style=discord.ButtonStyle.danger,
+            row=1,
+            custom_id="norosi:HomeShortcutEditView:clear",
+        )
+        btn_clear.callback = self._on_clear_clicked
+        self.add_item(btn_clear)
+
         btn_home = discord.ui.Button(
             label="설정 홈으로",
             emoji="🏠",
@@ -2068,6 +2078,41 @@ class HomeShortcutEditView(core.SafeView):
 
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
         await interaction.followup.send("🔄 홈 단축바를 기본 프리셋 5종으로 복원했습니다.", ephemeral=True)
+
+    async def _on_clear_clicked(self, interaction: discord.Interaction):
+        uid = interaction.user.id
+        uname = interaction.user.display_name
+
+        def _commit_clear():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                prof = core.ensure_user_profile(d, uid, uname)
+                prof["home_shortcuts_disabled"] = True
+                prof.pop("home_shortcuts", None)
+                core.save_data(d)
+                return d
+
+        new_data = await asyncio.to_thread(_commit_clear)
+        self.data = new_data
+        self.selected_keys = []
+        self._rebuild_items()
+
+        if self.parent_view is not None:
+            self.parent_view.data = new_data
+            self.parent_view.current_category = "home"
+            self.parent_view.sub_mode = None
+            self.parent_view.refresh_components()
+            if self.parent_view.message:
+                try:
+                    await self.parent_view.message.edit(
+                        embed=self.parent_view.build_current_embed(),
+                        view=self.parent_view,
+                    )
+                except Exception:
+                    pass
+
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+        await interaction.followup.send("🗑️ 홈 즐겨찾기 단축바를 숨겼습니다. (`[🔄 기본값 복원]`으로 언제든 다시 켤 수 있습니다)", ephemeral=True)
 
     async def _on_go_home_clicked(self, interaction: discord.Interaction):
         data = await asyncio.to_thread(core.load_data)
@@ -6035,7 +6080,7 @@ class MasterDashboardView(core.SafeView):
                 core.save_data(data)
         await asyncio.to_thread(_save_default_cat)
         await interaction.followup.send(
-            f"✅ D-Day 전광판 기본 생성 카테고리가 📁 **`{cat.name}`**(으)로 설정되었습니다!",
+            f"✅ D-Day 전광판 기본 카테고리 지정 완료: 📁 **`{cat.name}`**",
             ephemeral=True,
         )
 

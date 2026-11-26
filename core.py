@@ -3965,6 +3965,8 @@ def get_user_home_shortcuts(
     """유저의 /설정 홈 단축바 즐겨찾기(최대 5개)를 반환합니다. 미설정 시 기본 5종을 반환합니다."""
     profiles = as_dict(data.get("user_profiles"))
     prof = profiles.get(str(u_key))
+    if isinstance(prof, dict) and prof.get("home_shortcuts_disabled"):
+        return []
     raw = prof.get("home_shortcuts") if isinstance(prof, dict) else None
     if not isinstance(raw, list) or not raw:
         return list(DEFAULT_HOME_SHORTCUTS)
@@ -4001,6 +4003,7 @@ def set_user_home_shortcuts(
         cleaned.append(ks)
         if len(cleaned) >= 5:
             break
+    prof.pop("home_shortcuts_disabled", None)
     if not cleaned:
         prof.pop("home_shortcuts", None)
         return list(DEFAULT_HOME_SHORTCUTS)
@@ -7015,6 +7018,50 @@ def start_daily_destiny_reroll(
         u_obj["last_destiny_date"] = today_str
         save_data(data)
         return True, "🔮 오늘의 운명 다시 뽑기가 시작되었습니다! (최대 3세트 중 원하는 1세트 확정 수령)", drawn
+
+
+
+
+def josa(word: Any, pair: str = "을/를") -> str:
+    """받침 유무에 맞춰 자연스러운 한국어 조사('을/를', '이/가', '은/는', '으로/로', '과/와')를 반환합니다."""
+    s = re.sub(r"[`*_~\[\]()<>'\"\s]+$", "", str(word or ""))
+    has_batchim = False
+    is_rieul = False
+    if s:
+        ch = s[-1]
+        code = ord(ch)
+        if 0xAC00 <= code <= 0xD7A3:
+            jong = (code - 0xAC00) % 28
+            has_batchim = (jong != 0)
+            is_rieul = (jong == 8)
+        elif ch in "013678lmnLMN":
+            has_batchim = True
+            is_rieul = (ch in "178lL")
+    p1, p2 = pair.split("/") if "/" in pair else (pair, pair)
+    if p1 in ("으로", "로") or p2 in ("으로", "로"):
+        return "로" if (not has_batchim or is_rieul) else "으로"
+    return p1 if has_batchim else p2
+
+
+def get_user_ui_pref(user_id: int, key: str, default=False) -> Any:
+    """유저별 개인 UI 설정값(가챠 스킵, 3성 일러스트 표시 등)을 인메모리 캐시에서 즉시 조회합니다."""
+    if not user_id:
+        return default
+    data = get_cached_data_ro()
+    prof = as_dict(as_dict(data.get("user_profiles")).get(str(user_id)))
+    prefs = as_dict(prof.get("ui_prefs"))
+    return prefs.get(key, default)
+
+
+def set_user_ui_pref(user_id: int, key: str, value: Any) -> None:
+    """유저별 개인 UI 설정값을 안전하게 저장합니다."""
+    if not user_id:
+        return
+    with _DATA_LOCK:
+        data = load_data()
+        prefs = ensure_dict_path(data, "user_profiles", str(user_id), "ui_prefs")
+        prefs[key] = value
+        save_data(data)
 
 
 def toggle_user_card_lock(guild_id: int, user_id: int, card_id_str: str) -> tuple[bool, bool, dict | None]:

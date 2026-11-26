@@ -1741,7 +1741,7 @@ class DDayChannelSetupView(core.SafeView):
         self.refresh_components()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
         await interaction.followup.send(
-            f"✅ D-Day 전광판 기본 카테고리가 📁 **`{cat.name}`**(으)로 지정되었습니다!",
+            f"✅ D-Day 전광판 기본 카테고리 지정 완료: 📁 **`{cat.name}`**",
             ephemeral=True,
         )
 
@@ -1768,7 +1768,7 @@ class DDayChannelSetupView(core.SafeView):
         self.refresh_components()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
         await interaction.followup.send(
-            f"✅ 매일 오전 9시 D-Day 정기 브리핑 채널이 {ch.mention}(으)로 설정되었습니다!",
+            f"✅ 매일 오전 9시 D-Day 브리핑 채널 지정 완료: {ch.mention}",
             ephemeral=True,
         )
 
@@ -2108,9 +2108,18 @@ class SecretDDayAddModal(core.SafeModal, title="🔒 비밀 디데이 & 타임�
         max_length=10
     )
 
-    def __init__(self, hub_view):
-        super().__init__()
+    def __init__(self, hub_view, existing_name: str | None = None, existing_info: dict | None = None):
+        super().__init__(title="✏️ 비밀 디데이 & 타임캡슐 수정" if existing_name else "🔒 비밀 디데이 & 타임캡슐 등록")
         self.hub_view = hub_view
+        self.orig_name = existing_name
+        if existing_name:
+            self.s_name.default = existing_name[:50]
+        if isinstance(existing_info, dict):
+            self.s_date.default = str(existing_info.get("date", ""))[:10]
+            if existing_info.get("memo"):
+                self.s_memo.default = str(existing_info["memo"])[:300]
+            if existing_info.get("plus_one"):
+                self.s_plus_one.default = "+1"
 
     async def on_submit(self, interaction: discord.Interaction):
         d_val = self.s_date.value.strip()
@@ -2134,10 +2143,17 @@ class SecretDDayAddModal(core.SafeModal, title="🔒 비밀 디데이 & 타임�
                 data = core.load_data()
                 profile = core.ensure_user_profile(data, u_key, u_disp)
                 s_ddays = core.ensure_dict_path(profile, "secret_ddays")
+                prev_start = today_str
+                if self.orig_name and self.orig_name in s_ddays:
+                    prev_entry = s_ddays.get(self.orig_name)
+                    if isinstance(prev_entry, dict) and prev_entry.get("start_date"):
+                        prev_start = prev_entry["start_date"]
+                    if self.orig_name != s_name_clean:
+                        del s_ddays[self.orig_name]
                 s_ddays[s_name_clean] = {
                     "date": d_val,
                     "memo": s_memo_clean,
-                    "start_date": today_str,
+                    "start_date": prev_start,
                     "plus_one": plus_one_val,
                     "notified_date": ""
                 }
@@ -2190,11 +2206,16 @@ class SecretDDayHubView(core.SafeView):
                 if len(opts) >= 25:
                     break
             if not opts:
-                self.del_select.options = [discord.SelectOption(label="등록된 비밀 디데이가 없습니다", value="NONE")]
+                empty_opt = [discord.SelectOption(label="등록된 비밀 디데이가 없습니다", value="NONE")]
+                self.del_select.options = empty_opt
                 self.del_select.disabled = True
+                self.edit_select.options = empty_opt
+                self.edit_select.disabled = True
             else:
                 self.del_select.options = opts
                 self.del_select.disabled = False
+                self.edit_select.options = [discord.SelectOption(label=o.label, value=o.value, description="선택 시 날짜·타임캡슐 메모 수정") for o in opts]
+                self.edit_select.disabled = False
 
     def build_embed(self):
         embed = discord.Embed(
@@ -2228,7 +2249,22 @@ class SecretDDayHubView(core.SafeView):
             return
         await interaction.response.send_modal(SecretDDayAddModal(self))
 
-    @discord.ui.select(placeholder="🗑️ 삭제할 비밀 디데이를 선택하세요...", row=1, options=[discord.SelectOption(label="선택", value="NONE")])
+    @discord.ui.select(placeholder="✏️ 수정할 비밀 디데이를 선택하세요...", row=1, options=[discord.SelectOption(label="선택", value="NONE")])
+    async def edit_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if interaction.user.id != self.user.id:
+            await core.safe_send_response(interaction, "❌ 본인의 비밀 디데이 보드만 조작할 수 있습니다.", ephemeral=True)
+            return
+        val = select.values[0]
+        if val == "NONE":
+            await core.safe_defer(interaction)
+            return
+        target_k = val if val in self.s_ddays else next((k for k in self.s_ddays if str(k)[:100] == val), None)
+        if not target_k or target_k not in self.s_ddays:
+            await core.safe_send_response(interaction, "❌ 선택한 일정을 찾을 수 없습니다.", ephemeral=True)
+            return
+        await interaction.response.send_modal(SecretDDayAddModal(self, existing_name=target_k, existing_info=self.s_ddays[target_k]))
+
+    @discord.ui.select(placeholder="🗑️ 삭제할 비밀 디데이를 선택하세요...", row=2, options=[discord.SelectOption(label="선택", value="NONE")])
     async def del_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         if interaction.user.id != self.user.id:
             await core.safe_send_response(interaction, "❌ 본인의 비밀 디데이 보드만 조작할 수 있습니다.", ephemeral=True)

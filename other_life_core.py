@@ -543,7 +543,7 @@ def set_life_specialty(
         smeta = SPECIALTY_CATALOG[spec_id]
         life["last_action_summary"] = f"세부 전공 선택: {smeta['title']}"
         core.save_data(data)
-        return True, f"🎯 세부 전공을 **{smeta['emoji']} {smeta['title']}**(으)로 선택했습니다!", copy.deepcopy(u)
+        return True, f"🎯 세부 전공 선택 완료: **{smeta['emoji']} {smeta['title']}**!", copy.deepcopy(u)
 
 
 def spend_quiet_year(

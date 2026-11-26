@@ -566,6 +566,13 @@ class StickyDetailConfigView(core.SafeView):
 
         self.cfg = updated
         self._refresh_components()
+        # 색상 등 시각 항목 변경 시 채널에 게시된 현재 고정 메시지도 즉시 갱신
+        if ("color" in updates) and updated.get("last_message_id") and self.channel:
+            try:
+                live_msg = await self.channel.fetch_message(int(updated["last_message_id"]))
+                await live_msg.edit(embed=_build_sticky_embed(updated))
+            except Exception:
+                pass
         await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
 
     @discord.ui.select(placeholder="⚙️ 갱신 작동 방식 선택 (개수 기준 / 초 뒤 대기 / 복합)...", row=0)
@@ -1561,7 +1568,7 @@ class TempVoiceRenameModal(core.SafeModal, title="✏️ 임시 음성방 이름
                 )
             except Exception:
                 pass
-        await interaction.followup.send(f"✅ 음성방 이름이 **`{new_name}`**(으)로 변경되었습니다!", ephemeral=True)
+        await interaction.followup.send(f"✅ 음성방 이름 변경 완료: **`{new_name}`**", ephemeral=True)
 
 
 class TempVoiceLimitModal(core.SafeModal, title="👥 음성방 최대 인원수 설정"):
@@ -1622,7 +1629,7 @@ class TempVoiceLimitModal(core.SafeModal, title="👥 음성방 최대 인원수
             except Exception:
                 pass
         limit_label = "무제한" if limit_val == 0 else f"최대 {limit_val}명"
-        await interaction.followup.send(f"👥 음성방 인원 제한이 **`{limit_label}`**(으)로 설정되었습니다!", ephemeral=True)
+        await interaction.followup.send(f"👥 음성방 정원 설정 완료: **`{limit_label}`**", ephemeral=True)
 
 
 class TempVoiceTemplateModal(core.SafeModal, title="⚙️ 임시 음성방 기본 템플릿 설정"):
@@ -2283,6 +2290,17 @@ class EventRSVPView(core.SafeView):
         b_cl.callback = self._on_close_or_cancel
         self.add_item(b_cl)
 
+        b_ping = discord.ui.Button(
+            label="참가자 호출",
+            emoji="📣",
+            style=discord.ButtonStyle.primary,
+            disabled=self.disabled_rsvp,
+            row=1,
+            custom_id="norosi:EventRSVPView:ping",
+        )
+        b_ping.callback = self._on_ping_going
+        self.add_item(b_ping)
+
     def _resolve_event_sync(self, data: dict, interaction: discord.Interaction) -> Optional[dict]:
         gid = self.guild_id or (interaction.guild.id if interaction.guild else 0)
         if not gid:
@@ -2371,6 +2389,50 @@ class EventRSVPView(core.SafeView):
         self.disabled_rsvp = (str(ev_copy.get("status") or "open") != "open")
         self._build_buttons()
         await core.safe_edit_response(interaction, embed=build_event_rsvp_embed(ev_copy), view=self)
+
+    async def _on_ping_going(self, interaction: discord.Interaction):
+        if not interaction.guild or not interaction.channel:
+            await core.safe_send_response(interaction, "❌ 서버 채널에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+
+        def _check_ping():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                ev = self._resolve_event_sync(d, interaction)
+                if not ev:
+                    return None, "missing"
+                is_host = int(ev.get("host_id") or 0) == interaction.user.id
+                is_adm = _is_guild_admin(interaction.user, perm_attr="manage_guild")
+                if not (is_host or is_adm):
+                    return dict(ev), "denied"
+                now_ts = time.time()
+                if now_ts - float(ev.get("last_ping_ts", 0.0) or 0.0) < 120.0:
+                    return dict(ev), "cooldown"
+                ev["last_ping_ts"] = now_ts
+                core.save_data(d)
+                return dict(ev), "ok"
+
+        ev_copy, state = await asyncio.to_thread(_check_ping)
+        if state == "missing" or not ev_copy:
+            await core.safe_send_response(interaction, "❌ 이벤트 정보를 찾을 수 없습니다.", ephemeral=True)
+            return
+        if state == "denied":
+            await core.safe_send_response(interaction, "❌ 이벤트 주최자 또는 서버 관리자만 참가자를 호출할 수 있습니다.", ephemeral=True)
+            return
+        if state == "cooldown":
+            await core.safe_send_response(interaction, "⏳ 참가자 호출은 2분에 한 번만 보낼 수 있습니다.", ephemeral=True)
+            return
+        going = community_core._normalize_uid_list(ev_copy.get("going"))
+        if not going:
+            await core.safe_send_response(interaction, "ℹ️ 현재 `✅ 참가` 확정 멤버가 없습니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        mentions = " ".join(f"<@{u}>" for u in going[:30])
+        await interaction.channel.send(
+            content=f"📣 **[{ev_copy.get('title', '이벤트')}] 참가 확정 멤버 호출!** ({interaction.user.mention})\n{mentions}",
+            allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+        )
+        await interaction.followup.send(f"✅ 참가 확정 멤버 `{len(going)}명`에게 알림을 보냈습니다.", ephemeral=True)
 
     async def _on_close_or_cancel(self, interaction: discord.Interaction):
         if not interaction.guild:
@@ -3382,7 +3444,7 @@ class CommunityCog(commands.Cog):
             await interaction.followup.send("❌ 소설 개설자 또는 관리자만 중단할 수 있습니다.", ephemeral=True)
             return
         title_s = removed.get("title", "릴레이 소설") if removed else "릴레이 소설"
-        await interaction.followup.send(f"🛑 진행 중이던 릴레이 소설 **『{title_s}』** 이(가) 중단되었습니다.", ephemeral=True)
+        await interaction.followup.send(f"🛑 진행 중이던 릴레이 소설 **『{title_s}』** 연재를 종료했습니다.", ephemeral=True)
 
     # ------------------------------------------
     # 내부 헬퍼: 레이드 방어 집행
