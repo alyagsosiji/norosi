@@ -2487,6 +2487,27 @@ class SyncControlView(core.SafeView):
         await interaction.followup.send(embed=embed)
 
 
+def _format_commit_lines_highlighted(raw_lines: list[str], repo_url: str = "", limit: int = 10) -> str:
+    """'8781bfd 커밋 제목' 형태의 git log --oneline 줄들을 커밋 ID를 굵은 배지/링크로 강조하고 제목과 명확히 구분해 포맷합니다."""
+    out: list[str] = []
+    for ln in (raw_lines or [])[:limit]:
+        parts = ln.strip().split(" ", 1)
+        if not parts or not parts[0]:
+            continue
+        sha = parts[0].strip()
+        msg = (parts[1].strip() if len(parts) > 1 else "(메시지 없음)").replace("`", "ʼ")
+        if len(msg) > 95:
+            msg = msg[:95].rstrip() + "…"
+        if repo_url:
+            sha_badge = f"[**`[{sha}]`**]({repo_url}/commit/{sha})"
+        else:
+            sha_badge = f"**`[{sha}]`**"
+        out.append(f"• {sha_badge}  ┃  {msg}")
+    if len(raw_lines or []) > limit:
+        out.append(f"  *(…외 `{len(raw_lines) - limit}건` 더 있음)*")
+    return "\n".join(out)
+
+
 # ==========================================
 # 현재 봇에 반영 중인 GitHub 커밋/버전 및 대기 업데이트 확인 (!현재버전)
 # ==========================================
@@ -2609,18 +2630,16 @@ async def current_version_command(ctx: commands.Context):
     ]
 
     if behind_cnt > 0 and info["pending_commits"]:
-        pend_block = "\n".join(info["pending_commits"][:10])
-        if behind_cnt > 10:
-            pend_block += f"\n... (외 {behind_cnt - 10}건)"
-        desc_lines.append(f"\n**📦 아직 봇에 반영되지 않은 GitHub 대기 커밋 (`{behind_cnt}건` · `!업뎃`으로 반영):**\n```\n{pend_block[:800]}\n```")
+        pend_fmt = _format_commit_lines_highlighted(info["pending_commits"], repo_url=repo_url, limit=10)
+        desc_lines.append(f"\n**📦 아직 봇에 반영되지 않은 GitHub 대기 커밋 (`{behind_cnt}건` · `!업뎃`으로 반영)**\n{pend_fmt}")
 
     if info["recent_commits"]:
-        rec_block = "\n".join(info["recent_commits"][:5])
-        desc_lines.append(f"\n**📌 현재 봇에 반영된 커밋 목록 (최근 5건):**\n```\n{rec_block[:650]}\n```")
+        rec_fmt = _format_commit_lines_highlighted(info["recent_commits"], repo_url=repo_url, limit=5)
+        desc_lines.append(f"\n**📌 현재 봇에 반영된 커밋 목록 (최근 5건)**\n{rec_fmt}")
 
     if info["remote_commits"]:
-        rem_block = "\n".join(info["remote_commits"][:5])
-        desc_lines.append(f"\n**🐙 현재 GitHub에 올라와 있는 커밋 목록 (`origin/{info['branch']}` 최근 5건):**\n```\n{rem_block[:650]}\n```")
+        rem_fmt = _format_commit_lines_highlighted(info["remote_commits"], repo_url=repo_url, limit=5)
+        desc_lines.append(f"\n**🐙 현재 GitHub에 올라와 있는 커밋 목록 (`origin/{info['branch']}` 최근 5건)**\n{rem_fmt}")
 
     embed = discord.Embed(
         title=f"🔖 norosi 버전 현황 — 봇 `{short_sha}` / GitHub `{remote_sha}`",
@@ -2753,10 +2772,8 @@ async def apply_github_updates_command(ctx: commands.Context, *args):
     if reloaded_cores:
         desc_lines.append(f"• **갱신된 코어 모듈:** {', '.join(f'`{m}`' for m in reloaded_cores)}")
     if commits:
-        commit_block = "\n".join(commits[:15])
-        if len(commits) > 15:
-            commit_block += f"\n... (외 {len(commits) - 15}개 커밋)"
-        desc_lines.append(f"\n**📝 이번에 반영된 GitHub 커밋 내역:**\n```\n{commit_block[:900]}\n```")
+        commit_fmt = _format_commit_lines_highlighted(commits, limit=15)
+        desc_lines.append(f"\n**📝 이번에 반영된 GitHub 커밋 내역**\n{commit_fmt}")
     if failed_cogs:
         desc_lines.append("⚠️ **일부 Cog 리로드 오류:**\n" + "\n".join(failed_cogs[:5]))
 
