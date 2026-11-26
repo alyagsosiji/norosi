@@ -775,7 +775,7 @@ GithubWebhookGuideView = GithubWebhookView
 
 
 def build_summary_server_log_embed(embed: discord.Embed) -> discord.Embed:
-    """상세 감사 로그 임베드를 핵심 정보(누가·어디서·무엇을)만 남긴 1~3줄 간결 요약 버전으로 변환합니다."""
+    """감사 로그 임베드를 모든 발생 내역·변경 항목·첨부파일을 빠짐없이 담으면서도 한눈에 읽히도록 간결하게 정리합니다."""
     raw_desc = embed.description or ""
 
     def _collapse_codeblock(m: re.Match) -> str:
@@ -783,40 +783,41 @@ def build_summary_server_log_embed(embed: discord.Embed) -> discord.Embed:
         one_line = " ⏎ ".join(s.strip() for s in inner.splitlines() if s.strip())
         if not one_line:
             return "`(내용 없음)`"
-        if len(one_line) > 70:
-            one_line = one_line[:70].rstrip() + "..."
+        if len(one_line) > 350:
+            one_line = one_line[:350].rstrip() + "..."
         return f"`{one_line.replace('`', 'ʼ')}`"
 
     collapsed = re.sub(r"```[a-zA-Z0-9_-]*\n?(.*?)```", _collapse_codeblock, raw_desc, flags=re.DOTALL)
-    lines = [ln.strip() for ln in collapsed.splitlines() if ln.strip() and not ln.strip().startswith("📎")]
+    lines = [ln.strip() for ln in collapsed.splitlines() if ln.strip()]
 
     merged_lines: list[str] = []
     i = 0
     while i < len(lines):
         cur = lines[i]
-        if cur.endswith(":") and i + 1 < len(lines) and lines[i + 1].startswith("`"):
-            merged_lines.append(f"{cur} {lines[i + 1]}")
-            i += 2
-        else:
-            merged_lines.append(cur)
-            i += 1
+        if cur.endswith(":") and i + 1 < len(lines) and (
+            lines[i + 1].startswith("`") or lines[i + 1].startswith("•") or lines[i + 1].startswith("- ")
+        ):
+            if lines[i + 1].startswith("`"):
+                merged_lines.append(f"{cur} {lines[i + 1]}")
+                i += 2
+                continue
+        merged_lines.append(cur)
+        i += 1
 
     for f in getattr(embed, "fields", []):
         f_collapsed = re.sub(r"```[a-zA-Z0-9_-]*\n?(.*?)```", _collapse_codeblock, f.value or "", flags=re.DOTALL)
-        f_first = next((s.strip() for s in f_collapsed.splitlines() if s.strip()), "")
-        if f_first:
-            if len(f_first) > 85:
-                f_first = f_first[:85].rstrip() + "..."
-            merged_lines.append(f"• **{f.name}:** {f_first}")
+        f_parts = [s.strip() for s in f_collapsed.splitlines() if s.strip()]
+        if f_parts:
+            joined_val = " · ".join(f_parts)
+            if len(joined_val) > 350:
+                joined_val = joined_val[:350].rstrip() + "..."
+            merged_lines.append(f"• **{f.name}:** {joined_val}")
 
-    summary_desc = "\n".join(merged_lines[:5])
-    if len(merged_lines) > 5:
-        summary_desc += f"\n*(…외 `{len(merged_lines) - 5}건` 세부 항목 생략)*"
-
+    summary_desc = "\n".join(merged_lines)
     raw_title = (embed.title or "시스템 로그").strip()
     out = discord.Embed(
         title=raw_title[:256],
-        description=summary_desc[:1024] or "*(내용 없음)*",
+        description=summary_desc[:4000] or "*(내용 없음)*",
         color=embed.color,
         timestamp=embed.timestamp,
     )

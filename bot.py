@@ -653,25 +653,15 @@ class NorosiBot(commands.Bot):
                 continue
 
             clean_ln = ln.strip()
-            if len(clean_ln) > 140:
-                clean_ln = clean_ln[:140].rstrip() + "..."
+            if len(clean_ln) > 240:
+                clean_ln = clean_ln[:240].rstrip() + "..."
             condensed.append(clean_ln)
             idx += 1
 
         if not condensed:
             return ""
 
-        total_raw = len(raw_lines)
-        if len(condensed) > 10:
-            omitted = len(condensed) - 10
-            condensed = condensed[:5] + [f"... (중간 로그 {omitted}줄 요약 생략) ..."] + condensed[-5:]
-
-        header = (
-            f"[⚡ 시스템 로그 요약 · 원본 {total_raw}줄 ➔ 핵심 {len(condensed)}줄]\n"
-            if total_raw > len(condensed)
-            else "[⚡ 시스템 로그 요약]\n"
-        )
-        return header + "\n".join(condensed)
+        return "\n".join(condensed)
 
     @staticmethod
     def build_detailed_terminal_header(full_text: str) -> str:
