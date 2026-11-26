@@ -70,7 +70,7 @@ def set_sticky_config(
     entry = {
         "guild_id": int(guild_id),
         "channel_id": int(channel_id),
-        "title": (title or "📌 채널 안내").strip()[:120],
+        "title": (title or "").strip()[:120],
         "content": (content or "").strip()[:1800],
         "color": safe_color,
         "interval": safe_interval,

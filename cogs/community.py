@@ -147,14 +147,12 @@ def _resolve_raid_alert_channel(guild: discord.Guild, cfg: dict, data: dict) -> 
 
 def _build_sticky_embed(cfg: dict) -> discord.Embed:
     color_val = community_core.STICKY_COLOR_MAP.get(cfg.get("color", "gold"), 0xF1C40F)
+    title_str = (cfg.get("title") or "").strip()
     embed = discord.Embed(
-        title=cfg.get("title") or "📌 채널 고정 안내",
+        title=title_str or None,
         description=cfg.get("content") or "",
         color=discord.Color(color_val),
     )
-    interval = int(cfg.get("interval", 1) or 1)
-    footer_note = "📌 자동 고정 메시지" if interval == 1 else f"📌 자동 고정 메시지 · {interval}개 대화마다 하단 갱신"
-    embed.set_footer(text=footer_note)
     return embed
 
 
@@ -236,9 +234,9 @@ def _build_relay_completed_embed(completed: dict) -> discord.Embed:
 # ==========================================
 class StickyConfigModal(core.SafeModal, title="📌 자동 고정 메시지 설정"):
     title_input = discord.ui.TextInput(
-        label="고정 메시지 제목",
-        placeholder="예: 📌 거래 채널 이용 규칙 안내",
-        required=True,
+        label="고정 메시지 제목 (선택 · 비워두면 제목 생략)",
+        placeholder="비워두면 제목 없이 본문만 표시됩니다 (예: 📌 채널 이용 안내)",
+        required=False,
         max_length=120,
     )
     content_input = discord.ui.TextInput(
@@ -291,7 +289,7 @@ class StickyConfigModal(core.SafeModal, title="📌 자동 고정 메시지 설�
                 pass
 
         preview_cfg = {
-            "title": (title_val or "📌 채널 안내").strip()[:120],
+            "title": (title_val or "").strip()[:120],
             "content": (content_val or "").strip()[:1800],
             "color": self.color if self.color in community_core.STICKY_COLOR_MAP else "gold",
             "interval": max(1, min(30, int(self.interval or 1))),
@@ -2479,7 +2477,7 @@ class CommunityCog(commands.Cog):
         color_val = 색상.value if 색상 else "gold"
         interval_val = int(간격 or 1)
 
-        if not (제목 and 내용):
+        if not 내용:
             data = await asyncio.to_thread(core.load_data)
             existing = community_core.get_sticky_config(data, interaction.guild.id, target_ch.id)
             modal = StickyConfigModal(target_ch, interval=interval_val, color=color_val, existing=existing)
@@ -2509,7 +2507,7 @@ class CommunityCog(commands.Cog):
                 pass
 
         preview_cfg = {
-            "title": (제목 or "📌 채널 안내").strip()[:120],
+            "title": (제목 or "").strip()[:120],
             "content": (내용 or "").strip()[:1800],
             "color": color_val if color_val in community_core.STICKY_COLOR_MAP else "gold",
             "interval": max(1, min(30, int(interval_val or 1))),
@@ -2532,7 +2530,7 @@ class CommunityCog(commands.Cog):
                     data,
                     guild_id,
                     channel_id,
-                    제목,
+                    제목 or "",
                     내용,
                     color=color_val,
                     interval=interval_val,
@@ -2645,7 +2643,7 @@ class CommunityCog(commands.Cog):
                 continue
             status = "🟢" if cfg.get("enabled", True) else "🔴"
             lines.append(
-                f"{status} <#{ch_id_s}> — **{cfg.get('title', '안내')}** (`{cfg.get('interval', 1)}메시지마다`)\n"
+                f"{status} <#{ch_id_s}> — **{cfg.get('title') or '(제목 없음)'}** (`{cfg.get('interval', 1)}메시지마다`)\n"
                 f"└ *{str(cfg.get('content', ''))[:60]}*"
             )
         embed = discord.Embed(
