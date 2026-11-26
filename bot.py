@@ -290,7 +290,7 @@ class NorosiBot(commands.Bot):
                 modified_cnt = len(head_commit.get("modified") or [])
                 removed_cnt = len(head_commit.get("removed") or [])
 
-                embed_title = f"🚀 업데이트 완료: {first_line}"
+                embed_title = f"📦 GitHub 커밋 푸시됨 (`!업뎃` 대기): {first_line}"
                 if len(embed_title) > 250:
                     embed_title = embed_title[:247] + "..."
 
@@ -311,7 +311,7 @@ class NorosiBot(commands.Bot):
                 ]
                 embed.description = "\n".join(desc_lines)
                 embed.set_thumbnail(url=sender_avatar)
-                embed.set_footer(text=f"GitHub Push Event • 총 {len(commits)}개 커밋 반영 완료 • norosi Live Deploy")
+                embed.set_footer(text=f"GitHub Push ({len(commits)}개 커밋) • 봇주인이 !업뎃 입력 시 봇에 일괄 반영됩니다")
 
             elif event == "workflow_run":
                 action = payload.get("action", "")
@@ -2485,6 +2485,152 @@ class SyncControlView(core.SafeView):
         )
         embed.set_footer(text=f"[봇주 전용] 실행자: {interaction.user.display_name}")
         await interaction.followup.send(embed=embed)
+
+
+# ==========================================
+# 봇 주인 전용 GitHub 누적 업데이트 수동 반영 (!업뎃)
+# ==========================================
+@bot.command(name="업뎃")
+async def apply_github_updates_command(ctx: commands.Context, *args):
+    """GitHub 원격 저장소(origin/master)에 쌓인 커밋을 가져와 모든 모듈을 리로드하거나(필요 시 프로세스 재시작) 봇에 일괄 반영합니다."""
+    if not await bot.is_bot_owner_user(ctx.author):
+        await ctx.send("❌ 이 명령어는 **👑 봇 주인(소유자)** 만 사용할 수 있습니다.", delete_after=5)
+        return
+
+    import importlib
+    import subprocess
+
+    arg_str = " ".join(args).strip().lower()
+    force_restart = any(k in arg_str for k in ("재시작", "restart", "리부트", "reboot"))
+    repo_dir = os.path.dirname(os.path.abspath(__file__))
+
+    status_msg = await ctx.send("⏳ **GitHub 원격 저장소(`origin`)에서 누적된 업데이트 확인 및 다운로드 중...**")
+
+    def _git_pull_sync() -> dict:
+        def _run(cmd: list[str]) -> tuple[int, str]:
+            p = subprocess.run(cmd, cwd=repo_dir, capture_output=True, text=True, timeout=45)
+            out = ((p.stdout or "") + ("\n" + p.stderr if p.stderr else "")).strip()
+            return p.returncode, out
+
+        _, old_sha = _run(["git", "rev-parse", "--short", "HEAD"])
+        _, branch = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+        branch = branch if branch and branch != "HEAD" else "master"
+
+        rc_f, out_f = _run(["git", "fetch", "origin", branch])
+        if rc_f != 0:
+            return {"ok": False, "err": f"git fetch 실패:\n{out_f[:600]}"}
+
+        _, commits_txt = _run(["git", "log", "--oneline", f"HEAD..origin/{branch}", "-n", "25"])
+        _, total_behind_txt = _run(["git", "rev-list", "--count", f"HEAD..origin/{branch}"])
+        behind_cnt = int(total_behind_txt) if total_behind_txt.isdigit() else 0
+        _, changed_txt = _run(["git", "diff", "--name-only", f"HEAD..origin/{branch}"])
+        changed_files = [ln.strip() for ln in changed_txt.splitlines() if ln.strip()]
+
+        if behind_cnt > 0:
+            rc_p, out_p = _run(["git", "pull", "--ff-only", "origin", branch])
+            if rc_p != 0:
+                # 로컬 런타임 중 미세 수정 충돌 시 원격 최신 상태로 맞춤
+                _run(["git", "reset", "--hard", f"origin/{branch}"])
+        _, new_sha = _run(["git", "rev-parse", "--short", "HEAD"])
+        return {
+            "ok": True,
+            "branch": branch,
+            "old_sha": old_sha,
+            "new_sha": new_sha,
+            "behind_cnt": behind_cnt,
+            "commits": [ln.strip() for ln in commits_txt.splitlines() if ln.strip()],
+            "changed_files": changed_files,
+        }
+
+    pull_info = await asyncio.to_thread(_git_pull_sync)
+    if not pull_info.get("ok"):
+        await status_msg.edit(content=f"❌ **GitHub 업데이트 가져오기 실패:**\n```\n{pull_info.get('err')}\n```")
+        return
+
+    changed_files: list[str] = pull_info["changed_files"]
+    core_touched = [fn for fn in changed_files if fn.endswith("_core.py") or fn == "core.py"]
+    bot_py_touched = ("bot.py" in changed_files) or ("requirements.txt" in changed_files)
+
+    # 1) *_core.py 및 core.py 모듈 인메모리 재로딩 (데이터 캐시 및 락 보존)
+    reloaded_cores: list[str] = []
+    for mod_name in (
+        "core",
+        "economy_core",
+        "genshin_core",
+        "hsr_core",
+        "fishing_core",
+        "life_core",
+        "other_life_core",
+        "community_core",
+    ):
+        if mod_name in sys.modules and (not changed_files or f"{mod_name}.py" in changed_files or mod_name != "core"):
+            try:
+                if mod_name == "core":
+                    saved_cache = getattr(core, "_DATA_CACHE", None)
+                    saved_lock = getattr(core, "_DATA_LOCK", None)
+                    importlib.reload(sys.modules[mod_name])
+                    if saved_cache is not None:
+                        core._DATA_CACHE = saved_cache
+                    if saved_lock is not None:
+                        core._DATA_LOCK = saved_lock
+                else:
+                    importlib.reload(sys.modules[mod_name])
+                if f"{mod_name}.py" in changed_files:
+                    reloaded_cores.append(mod_name)
+            except Exception as e:
+                print(f"⚠️ [{mod_name}] 코어 모듈 리로드 오류: {e}", flush=True)
+
+    # 2) 모든 Cogs 확장 모듈 핫 리로드
+    reloaded_cogs: list[str] = []
+    failed_cogs: list[str] = []
+    for ext in list(bot.extensions.keys()):
+        try:
+            await bot.reload_extension(ext)
+            reloaded_cogs.append(ext)
+        except Exception as e:
+            failed_cogs.append(f"`{ext}`: {e}")
+
+    bot.prune_slash_tree_to_core()
+
+    behind_cnt = pull_info["behind_cnt"]
+    old_sha = pull_info["old_sha"]
+    new_sha = pull_info["new_sha"]
+    commits = pull_info["commits"]
+
+    if behind_cnt == 0:
+        header_line = f"ℹ️ **이미 최신 버전(`{new_sha}`)입니다.** 전체 모듈 `{len(reloaded_cogs)}개`를 최신 상태로 다시 불러왔습니다."
+    else:
+        header_line = f"✅ **누적 커밋 `{behind_cnt}건` (`{old_sha}` ➔ `{new_sha}`) 다운로드 및 봇 반영 완료!**"
+
+    desc_lines = [
+        header_line,
+        f"• **브랜치:** `{pull_info['branch']}` · **변경 파일:** `{len(changed_files)}개` · **리로드된 Cog:** `{len(reloaded_cogs)}개`",
+    ]
+    if reloaded_cores:
+        desc_lines.append(f"• **갱신된 코어 모듈:** {', '.join(f'`{m}`' for m in reloaded_cores)}")
+    if commits:
+        commit_block = "\n".join(commits[:15])
+        if len(commits) > 15:
+            commit_block += f"\n... (외 {len(commits) - 15}개 커밋)"
+        desc_lines.append(f"\n**📝 이번에 반영된 GitHub 커밋 내역:**\n```\n{commit_block[:900]}\n```")
+    if failed_cogs:
+        desc_lines.append("⚠️ **일부 Cog 리로드 오류:**\n" + "\n".join(failed_cogs[:5]))
+
+    need_restart = force_restart or bot_py_touched
+    if need_restart:
+        desc_lines.append("\n🔄 **`bot.py` 본체 업데이트(또는 재시작 옵션)가 감지되어 2초 후 봇 프로세스를 자동 재기동합니다.**")
+
+    embed = discord.Embed(
+        title="🚀 norosi GitHub 수동 업데이트 반영 완료 (!업뎃)",
+        description="\n".join(desc_lines)[:4000],
+        color=discord.Color.from_rgb(46, 204, 113) if not failed_cogs else discord.Color.gold(),
+        timestamp=datetime.datetime.now(core.KST),
+    )
+    await status_msg.edit(content=None, embed=embed)
+
+    if need_restart:
+        await asyncio.sleep(1.5)
+        os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
 # ==========================================
