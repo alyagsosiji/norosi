@@ -7031,9 +7031,10 @@ def start_daily_destiny_reroll(
 
 
 def sanitize_attachment_filename(name: str, default: str = "file.txt") -> str:
-    """디스코드 파일 첨부용 안전한 파일명 정규화 (경로 구분자 및 제어문자 제거)."""
-    cleaned = re.sub(r"[^0-9A-Za-z가-힣._-]", "_", str(name or "").strip())
-    cleaned = re.sub(r"_+", "_", cleaned).lstrip(".")
+    """디스코드 파일 첨부용 안전한 파일명 정규화 (경로 구분자, .. 및 제어문자 제거)."""
+    cleaned = re.sub(r"\.{2,}", "_", str(name or "").strip())
+    cleaned = re.sub(r"[^0-9A-Za-z가-힣._-]", "_", cleaned)
+    cleaned = re.sub(r"_+", "_", cleaned).strip("._")
     return cleaned[:100] or default
 
 

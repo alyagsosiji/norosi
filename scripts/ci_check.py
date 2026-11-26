@@ -117,7 +117,7 @@ def check_security_guards() -> None:
     import sns_embed_core
     import version_info
     assert Image.MAX_IMAGE_PIXELS and Image.MAX_IMAGE_PIXELS <= 30_000_000
-    assert core.sanitize_attachment_filename("../../etc/passwd") == "_etc_passwd"
+    assert core.sanitize_attachment_filename("../../etc/passwd") == "etc_passwd"
     assert "secretpass" not in core.redact_secrets("https://user:secretpass@github.com/org/repo.git")
     assert hasattr(sns_embed_core, "_safe_session_get_bytes")
     assert isinstance(version_info.VERSION_HISTORY, list) and len(version_info.VERSION_HISTORY) >= 1
