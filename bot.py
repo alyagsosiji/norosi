@@ -2488,6 +2488,150 @@ class SyncControlView(core.SafeView):
 
 
 # ==========================================
+# 현재 봇에 반영 중인 GitHub 커밋/버전 및 대기 업데이트 확인 (!현재버전)
+# ==========================================
+@bot.command(name="현재버전")
+async def current_version_command(ctx: commands.Context):
+    """현재 봇에 반영되어 실행 중인 Git 커밋(SHA·제목·시각)과 GitHub 원격 저장소에 대기 중인 미반영 커밋을 확인합니다."""
+    import subprocess
+
+    repo_dir = os.path.dirname(os.path.abspath(__file__))
+
+    def _inspect_git_version() -> dict:
+        def _run(cmd: list[str], timeout_s: int = 20) -> tuple[int, str]:
+            try:
+                p = subprocess.run(cmd, cwd=repo_dir, capture_output=True, text=True, timeout=timeout_s)
+                out = ((p.stdout or "") + ("\n" + p.stderr if p.stderr else "")).strip()
+                return p.returncode, out
+            except Exception as exc:
+                return 1, str(exc)
+
+        _, short_sha = _run(["git", "rev-parse", "--short", "HEAD"])
+        _, full_sha = _run(["git", "rev-parse", "HEAD"])
+        _, branch = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+        branch = branch if branch and branch != "HEAD" else "master"
+        _, subj = _run(["git", "log", "-1", "--format=%s"])
+        _, author = _run(["git", "log", "-1", "--format=%an"])
+        _, commit_ts = _run(["git", "log", "-1", "--format=%ct"])
+        _, recent_commits = _run(["git", "log", "--oneline", "-n", "5"])
+        _, remote_url = _run(["git", "config", "--get", "remote.origin.url"])
+
+        # 원격 최신 상태 조회 (실패해도 로컬/캐시된 origin 버전 표시)
+        _run(["git", "fetch", "origin", branch], timeout_s=15)
+        behind_cnt = 0
+        pending_commits: list[str] = []
+        remote_commits: list[str] = []
+        remote_sha = ""
+        remote_full_sha = ""
+        remote_subj = ""
+        remote_ts = 0
+
+        rc_r, r_sha = _run(["git", "rev-parse", "--short", f"origin/{branch}"])
+        if rc_r == 0 and r_sha:
+            remote_sha = r_sha
+            _, remote_full_sha = _run(["git", "rev-parse", f"origin/{branch}"])
+            _, remote_subj = _run(["git", "log", "-1", "--format=%s", f"origin/{branch}"])
+            _, r_ts_txt = _run(["git", "log", "-1", "--format=%ct", f"origin/{branch}"])
+            remote_ts = int(r_ts_txt) if r_ts_txt.isdigit() else 0
+            _, rem_list_txt = _run(["git", "log", "--oneline", f"origin/{branch}", "-n", "5"])
+            remote_commits = [ln.strip() for ln in rem_list_txt.splitlines() if ln.strip()]
+            _, behind_txt = _run(["git", "rev-list", "--count", f"HEAD..origin/{branch}"])
+            if behind_txt.isdigit():
+                behind_cnt = int(behind_txt)
+            if behind_cnt > 0:
+                _, pend_txt = _run(["git", "log", "--oneline", f"HEAD..origin/{branch}", "-n", "15"])
+                pending_commits = [ln.strip() for ln in pend_txt.splitlines() if ln.strip()]
+
+        clean_repo_url = ""
+        if remote_url:
+            u = remote_url.strip()
+            if u.startswith("git@github.com:"):
+                u = "https://github.com/" + u[len("git@github.com:"):]
+            if u.endswith(".git"):
+                u = u[:-4]
+            if u.startswith("https://github.com/"):
+                clean_repo_url = u
+
+        return {
+            "short_sha": short_sha or "unknown",
+            "full_sha": full_sha or "",
+            "branch": branch,
+            "subject": subj or "(커밋 메시지 없음)",
+            "author": author or "-",
+            "commit_unix": int(commit_ts) if commit_ts.isdigit() else 0,
+            "recent_commits": [ln.strip() for ln in recent_commits.splitlines() if ln.strip()],
+            "repo_url": clean_repo_url,
+            "remote_sha": remote_sha or short_sha or "unknown",
+            "remote_full_sha": remote_full_sha,
+            "remote_subject": remote_subj or subj or "-",
+            "remote_unix": remote_ts,
+            "remote_commits": remote_commits,
+            "behind_cnt": behind_cnt,
+            "pending_commits": pending_commits,
+        }
+
+    info = await asyncio.to_thread(_inspect_git_version)
+    short_sha = info["short_sha"]
+    full_sha = info["full_sha"]
+    remote_sha = info["remote_sha"]
+    remote_full_sha = info["remote_full_sha"]
+    repo_url = info["repo_url"]
+    commit_link = f"[`{short_sha}`]({repo_url}/commit/{full_sha})" if (repo_url and full_sha) else f"`{short_sha}`"
+    remote_link = f"[`{remote_sha}`]({repo_url}/commit/{remote_full_sha})" if (repo_url and remote_full_sha) else f"`{remote_sha}`"
+
+    def _fmt_ts(ts_u: int) -> str:
+        if ts_u > 0:
+            kst_dt = datetime.datetime.fromtimestamp(ts_u, tz=core.KST).strftime("%Y-%m-%d %H:%M:%S KST")
+            return f"`{kst_dt}` (<t:{ts_u}:R>)"
+        return "-"
+
+    time_str = _fmt_ts(info["commit_unix"])
+    remote_time_str = _fmt_ts(info["remote_unix"])
+
+    behind_cnt = info["behind_cnt"]
+    if behind_cnt > 0:
+        sync_state = f"🟡 **GitHub에 미반영 업데이트 `{behind_cnt}건` 대기 중** (`!업뎃` 입력 시 `{short_sha}` ➔ `{remote_sha}` 반영)"
+        color = discord.Color.gold()
+    else:
+        sync_state = f"🟢 **현재 봇 버전과 GitHub 최신 버전이 동일합니다** (`{short_sha}`)"
+        color = discord.Color.from_rgb(46, 204, 113)
+
+    desc_lines = [
+        f"• **동기화 상태:** {sync_state}",
+        "",
+        f"**🤖 현재 봇에 반영 중인 버전 (`HEAD`)**",
+        f"• **커밋:** {commit_link} (`{info['branch']}`) · **시각:** {time_str}",
+        f"• **내용:** `{info['subject'][:140]}`",
+        "",
+        f"**🐙 현재 GitHub에 올라와 있는 최신 버전 (`origin/{info['branch']}`)**",
+        f"• **커밋:** {remote_link} · **시각:** {remote_time_str}",
+        f"• **내용:** `{info['remote_subject'][:140]}`",
+    ]
+
+    if behind_cnt > 0 and info["pending_commits"]:
+        pend_block = "\n".join(info["pending_commits"][:10])
+        if behind_cnt > 10:
+            pend_block += f"\n... (외 {behind_cnt - 10}건)"
+        desc_lines.append(f"\n**📦 아직 봇에 반영되지 않은 GitHub 대기 커밋 (`{behind_cnt}건` · `!업뎃`으로 반영):**\n```\n{pend_block[:800]}\n```")
+
+    if info["recent_commits"]:
+        rec_block = "\n".join(info["recent_commits"][:5])
+        desc_lines.append(f"\n**📌 현재 봇에 반영된 커밋 목록 (최근 5건):**\n```\n{rec_block[:650]}\n```")
+
+    if info["remote_commits"]:
+        rem_block = "\n".join(info["remote_commits"][:5])
+        desc_lines.append(f"\n**🐙 현재 GitHub에 올라와 있는 커밋 목록 (`origin/{info['branch']}` 최근 5건):**\n```\n{rem_block[:650]}\n```")
+
+    embed = discord.Embed(
+        title=f"🔖 norosi 버전 현황 — 봇 `{short_sha}` / GitHub `{remote_sha}`",
+        description="\n".join(desc_lines)[:4000],
+        color=color,
+        timestamp=datetime.datetime.now(core.KST),
+    )
+    await ctx.send(embed=embed)
+
+
+# ==========================================
 # 봇 주인 전용 GitHub 누적 업데이트 수동 반영 (!업뎃)
 # ==========================================
 @bot.command(name="업뎃")
