@@ -704,7 +704,7 @@ async def send_gacha_pull_result(
 
 
 class DuplicateConvertConfirmView(core.SafeView):
-    """2장 이상 중복 보유한 카드(잠금 제외)를 크리스탈로 일괄 변환하는 확인 뷰"""
+    """2장 이상 중복 보유한 카드(잠금 제외)를 여러 개 직접 선택하거나 일괄 선택하여 크리스탈로 변환하는 뷰"""
     def __init__(
         self,
         guild_id: int = 0,
@@ -723,21 +723,188 @@ class DuplicateConvertConfirmView(core.SafeView):
         self.parent_inventory_message = parent_inventory_message
         self.parent_menu_view = parent_menu_view
         self.parent_menu_message = parent_menu_message
-        self.convert_btn.disabled = (self.preview_info.get("total_excess_cards", 0) <= 0)
+
+        self.filter_mode: str = "ALL"
+        self.page: int = 0
+        self.per_page: int = 25
+        self.selected_ids: set[str] = set()
+        self.status_note: str = ""
+        self._init_default_selection()
+        self._refresh_components()
+
+    def _get_all_cards(self) -> list[dict]:
+        raw = self.preview_info.get("cards")
+        return [c for c in raw if isinstance(c, dict)] if isinstance(raw, list) else []
+
+    def _init_default_selection(self):
+        all_cards = self._get_all_cards()
+        self.selected_ids = {str(c.get("id")) for c in all_cards if c.get("id") is not None}
+
+    def _matches_filter(self, card: dict, mode: str | None = None) -> bool:
+        m = mode or self.filter_mode
+        r_type = card.get("rarity_type", "rarity_2")
+        s_num = int(card.get("star_num", 2))
+        mr = int(card.get("master_rank", 0))
+        if m == "ALL":
+            return True
+        if m == "SELECTED":
+            return str(card.get("id")) in self.selected_ids
+        if m == "LOW_ONLY":
+            return s_num <= 2
+        if m == "R3_DOWN":
+            return s_num <= 3 and r_type != "rarity_birthday"
+        if m == "MR5_ONLY":
+            return mr >= 5
+        if m == "R4_BDAY":
+            return s_num >= 4 or r_type == "rarity_birthday"
+        if m == "R3_ONLY":
+            return r_type == "rarity_3"
+        if m in core.UNIT_ORDER:
+            return card.get("unit") == m
+        return True
+
+    def _get_filtered_cards(self) -> list[dict]:
+        return [c for c in self._get_all_cards() if self._matches_filter(c)]
+
+    def _refresh_components(self):
+        all_cards = self._get_all_cards()
+        valid_ids = {str(c.get("id")) for c in all_cards if c.get("id") is not None}
+        self.selected_ids &= valid_ids
+
+        filtered = self._get_filtered_cards()
+        max_page = max(0, (len(filtered) - 1) // self.per_page) if filtered else 0
+        self.page = max(0, min(self.page, max_page))
+        start = self.page * self.per_page
+        page_cards = filtered[start : start + self.per_page]
+
+        low_cnt = sum(1 for c in all_cards if self._matches_filter(c, "LOW_ONLY"))
+        r3d_cnt = sum(1 for c in all_cards if self._matches_filter(c, "R3_DOWN"))
+        mr5_cnt = sum(1 for c in all_cards if self._matches_filter(c, "MR5_ONLY"))
+        r4b_cnt = sum(1 for c in all_cards if self._matches_filter(c, "R4_BDAY"))
+
+        filter_opts = [
+            discord.SelectOption(
+                label=f"🌐 전체 중복 카드 보기 ({len(all_cards)}종)",
+                value="ALL",
+                description="보유 중인 모든 중복 카드를 표시합니다",
+                default=(self.filter_mode == "ALL"),
+            ),
+            discord.SelectOption(
+                label=f"✅ 현재 선택된 카드만 보기 ({len(self.selected_ids)}종)",
+                value="SELECTED",
+                description="변환 대상으로 체크된 카드만 모아봅니다",
+                default=(self.filter_mode == "SELECTED"),
+            ),
+            discord.SelectOption(
+                label=f"⚡ ★1 ~ ★2 저성급만 보기 & 일괄 선택 ({low_cnt}종)",
+                value="LOW_ONLY",
+                description="선택 시 ★1~★2 중복 카드만 자동 체크합니다",
+                default=(self.filter_mode == "LOW_ONLY"),
+            ),
+            discord.SelectOption(
+                label=f"💫 ★1 ~ ★3 이하 보기 & 일괄 선택 ({r3d_cnt}종)",
+                value="R3_DOWN",
+                description="선택 시 ★4·생일 카드를 제외한 ★1~★3만 자동 체크합니다",
+                default=(self.filter_mode == "R3_DOWN"),
+            ),
+            discord.SelectOption(
+                label=f"🏆 마스터 랭크 MAX(✦MR.5)만 보기 & 일괄 선택 ({mr5_cnt}종)",
+                value="MR5_ONLY",
+                description="이미 ✦MR.5를 달성해 추가 돌파가 불필요한 중복 카드만 자동 체크합니다",
+                default=(self.filter_mode == "MR5_ONLY"),
+            ),
+            discord.SelectOption(
+                label=f"🌟 ★4 · 🎀생일 고성급만 보기 ({r4b_cnt}종)",
+                value="R4_BDAY",
+                description="★4 및 생일 한정 중복 카드만 모아봅니다",
+                default=(self.filter_mode == "R4_BDAY"),
+            ),
+        ]
+        for u_name in core.UNIT_ORDER:
+            u_cnt = sum(1 for c in all_cards if c.get("unit") == u_name)
+            u_em = core.UNIT_EMOJIS.get(u_name, "🎵")
+            filter_opts.append(
+                discord.SelectOption(
+                    label=f"{u_em} {u_name} ({u_cnt}종)"[:100],
+                    value=u_name,
+                    default=(self.filter_mode == u_name),
+                )
+            )
+        self.filter_select.options = filter_opts[:25]
+        self.filter_select.disabled = (len(all_cards) == 0)
+
+        if page_cards:
+            card_opts = []
+            for c in page_cards:
+                cid_str = str(c.get("id"))
+                is_sel = cid_str in self.selected_ids
+                mark = "✅" if is_sel else "☐"
+                mr = int(c.get("master_rank", 0))
+                mr_tag = f"[MR.{mr}] " if mr > 0 else ""
+                lbl = f"{mark} {mr_tag}{c['rarity_label']} {c['char_name']} [{c['prefix']}]"[:100]
+                desc = f"초과 {c['excess']}장 ➔ +{c['crystals']:,}💎 (총 {c['count']}장 보유 · {c.get('limit_label', '통상')})"[:100]
+                card_opts.append(
+                    discord.SelectOption(
+                        label=lbl,
+                        value=cid_str[:100],
+                        description=desc,
+                    )
+                )
+            self.card_multi_select.options = card_opts
+            self.card_multi_select.min_values = 1
+            self.card_multi_select.max_values = len(card_opts)
+            self.card_multi_select.disabled = False
+            self.card_multi_select.placeholder = f"🃏 변환할 카드 다중 선택/해제 (현재 페이지 {len(card_opts)}종 · 최대 {len(card_opts)}개 동시 클릭)..."
+        else:
+            self.card_multi_select.options = [discord.SelectOption(label="해당 조건에 맞는 중복 카드가 없습니다", value="NONE")]
+            self.card_multi_select.min_values = 1
+            self.card_multi_select.max_values = 1
+            self.card_multi_select.disabled = True
+            self.card_multi_select.placeholder = "🃏 표시할 중복 카드가 없습니다"
+
+        self.prev_page_btn.disabled = (self.page <= 0)
+        self.next_page_btn.disabled = (self.page >= max_page)
+        self.page_info_btn.label = f"📄 {self.page + 1}/{max_page + 1} ({len(filtered)}종)"
+
+        page_ids = {str(c.get("id")) for c in page_cards if c.get("id") is not None}
+        all_page_selected = bool(page_ids) and page_ids.issubset(self.selected_ids)
+        self.toggle_page_btn.disabled = not bool(page_ids)
+        self.toggle_page_btn.label = "☑️ 현재 페이지 해제" if all_page_selected else "☑️ 현재 페이지 전체선택"
+
+        all_selected = bool(valid_ids) and (len(self.selected_ids) == len(valid_ids))
+        self.toggle_all_btn.disabled = not bool(valid_ids)
+        self.toggle_all_btn.label = "🧹 전체 선택 해제" if all_selected else f"✨ 전체 일괄선택 ({len(valid_ids)}종)"
+
+        sel_cards = [c for c in all_cards if str(c.get("id")) in self.selected_ids]
+        sel_excess = sum(int(c.get("excess", 0)) for c in sel_cards)
+        sel_crystals = sum(int(c.get("crystals", 0)) for c in sel_cards)
+        tot_excess = int(self.preview_info.get("total_excess_cards", 0))
+        tot_crystals = int(self.preview_info.get("total_crystals", 0))
+
+        self.convert_selected_btn.disabled = (sel_excess <= 0)
+        if sel_excess > 0:
+            self.convert_selected_btn.label = f"💎 선택 변환 ({len(sel_cards)}종 {sel_excess:,}장 ➔ +{sel_crystals:,}💎)"[:80]
+        else:
+            self.convert_selected_btn.label = "💎 선택 카드 변환 (0장)"
+
+        self.convert_all_btn.disabled = (tot_excess <= 0)
+        self.convert_all_btn.label = f"🚀 전체 일괄 변환 ({tot_excess:,}장 ➔ +{tot_crystals:,}💎)"[:80]
 
     def build_preview_embed(self):
-        tot_excess = self.preview_info.get("total_excess_cards", 0)
-        tot_crystals = self.preview_info.get("total_crystals", 0)
-        locked_skip = self.preview_info.get("locked_skipped", 0)
+        self._refresh_components()
+        all_cards = self._get_all_cards()
+        tot_excess = int(self.preview_info.get("total_excess_cards", 0))
+        tot_crystals = int(self.preview_info.get("total_crystals", 0))
+        locked_skip = int(self.preview_info.get("locked_skipped", 0))
         u_name = self.user.display_name if self.user else "유저"
 
         embed = discord.Embed(
-            title=f"💎 {u_name}님의 중복 카드 변환소",
+            title=f"💎 {u_name}님의 중복 카드 변환소 (다중 · 일괄 선택)",
             color=discord.Color.from_rgb(0, 204, 221) if tot_excess > 0 else discord.Color.dark_grey(),
             timestamp=datetime.datetime.now(core.KST)
         )
 
-        if tot_excess <= 0:
+        if tot_excess <= 0 or not all_cards:
             skip_note = f"\n\n> 🔒 잠금 보호된 중복 카드 `{locked_skip:,}장`은 자동 제외되었습니다." if locked_skip > 0 else ""
             embed.description = (
                 "📭 현재 변환 가능한 **중복 카드(2장 이상 보유)** 가 없습니다.\n"
@@ -746,39 +913,191 @@ class DuplicateConvertConfirmView(core.SafeView):
             )
             return embed
 
+        sel_cards = [c for c in all_cards if str(c.get("id")) in self.selected_ids]
+        sel_excess = sum(int(c.get("excess", 0)) for c in sel_cards)
+        sel_crystals = sum(int(c.get("crystals", 0)) for c in sel_cards)
+
         r_lines = []
         for r_key in ("rarity_4", "rarity_birthday", "rarity_3", "rarity_2", "rarity_1"):
             r_data = self.preview_info.get("by_rarity", {}).get(r_key, {})
             if r_data.get("count", 0) > 0:
-                r_lines.append(f"• **{r_data['label']}** — 초과 `{r_data['count']:,}장` ➔ **`+{r_data['crystals']:,} 💎`**")
+                s_cnt = sum(int(c.get("excess", 0)) for c in sel_cards if c.get("rarity_type") == r_key)
+                s_cry = sum(int(c.get("crystals", 0)) for c in sel_cards if c.get("rarity_type") == r_key)
+                r_lines.append(
+                    f"• **{r_data['label']}** — 전체 `{r_data['count']:,}장`(`+{r_data['crystals']:,}💎`) · **선택 `{s_cnt:,}장`(`+{s_cry:,}💎`)**"
+                )
 
+        filtered = self._get_filtered_cards()
+        start = self.page * self.per_page
+        page_cards = filtered[start : start + self.per_page]
+        preview_lines = []
+        for c in page_cards[:10]:
+            cid_str = str(c.get("id"))
+            mark = "✅" if cid_str in self.selected_ids else "☐"
+            mr = int(c.get("master_rank", 0))
+            mr_tag = f" `MR.{mr}`" if mr > 0 else ""
+            preview_lines.append(
+                f"{mark} `{c['rarity_label']}` **{c['char_name']}** [{c['prefix']}]{mr_tag} — 초과 `{c['excess']}장` ➔ **`+{c['crystals']:,}💎`**"
+            )
+        if len(page_cards) > 10:
+            preview_lines.append(f"*…외 현재 페이지 `{len(page_cards) - 10}종` (아래 드롭다운에서 모두 선택/해제 가능)*")
+
+        notice_line = f"\n> {self.status_note}\n" if self.status_note else ""
         embed.description = (
             "보유 수량이 `2장 이상`인 카드에서 **원본 1장을 남기고** 초과분만 변환합니다.\n"
-            "*(도감 수집률과 5인 덱 편성은 유지됩니다)*"
+            "아래 드롭다운에서 **원하는 카드를 여러 장 한꺼번에 선택/해제**하거나 **프리셋·일괄 선택**으로 변환할 수 있습니다!"
+            f"{notice_line}"
         )
-        embed.add_field(name="📋 등급별 변환 내역", value="\n".join(r_lines), inline=False)
-        embed.add_field(name="🃏 총 변환 카드", value=f"**`{tot_excess:,}장`**", inline=True)
-        embed.add_field(name="💎 예상 획득", value=f"**`+{tot_crystals:,} 💎`**", inline=True)
+        embed.add_field(name="📋 등급별 전체 / 선택 현황", value="\n".join(r_lines) or "-", inline=False)
+        embed.add_field(
+            name="✅ 현재 선택된 변환 대상",
+            value=f"**`{len(sel_cards):,}종` (`{sel_excess:,}장`)** ➔ **`+{sel_crystals:,} 💎`**",
+            inline=True,
+        )
+        embed.add_field(
+            name="📦 전체 변환 가능 합계",
+            value=f"`{len(all_cards):,}종` (`{tot_excess:,}장`) ➔ `+{tot_crystals:,} 💎`",
+            inline=True,
+        )
+        if preview_lines:
+            embed.add_field(
+                name=f"🃏 현재 필터 목록 ({self.page + 1}페이지 · 총 {len(filtered)}종)",
+                value="\n".join(preview_lines)[:1024],
+                inline=False,
+            )
         if locked_skip > 0:
             embed.add_field(
                 name="🔒 잠금 보호 제외",
                 value=f"잠긴 카드 초과분 `{locked_skip:,}장`은 변환하지 않고 보존됩니다.",
                 inline=False,
             )
-        embed.set_footer(text="아래 [💎 중복 카드 일괄 변환 확정] 버튼을 누르면 즉시 지급됩니다")
+        embed.set_footer(text="드롭다운에서 여러 카드를 동시에 클릭해 체크(✅)/해제(☐)할 수 있습니다")
         return embed
 
-    @discord.ui.button(label="💎 중복 카드 일괄 변환 확정", style=discord.ButtonStyle.success, row=0)
-    async def convert_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def _check_owner(self, interaction: discord.Interaction) -> bool:
         if self.user and interaction.user.id != self.user.id:
-            await core.safe_send_response(interaction, "❌ 본인만 변환을 실행할 수 있습니다.", ephemeral=True)
-            return
+            await core.safe_send_response(interaction, "❌ 본인만 중복 카드 변환소를 조작할 수 있습니다.", ephemeral=True)
+            return False
         if not self.user:
             self.user = interaction.user
+        return True
 
+    @discord.ui.select(
+        placeholder="🎯 1단계: 필터 및 빠른 일괄 선택 프리셋 (전체 / ★1~2만 / ★1~3만 / MR.5만 / 유닛별)...",
+        row=0,
+        options=[discord.SelectOption(label="🌐 전체 중복 카드 보기", value="ALL")],
+    )
+    async def filter_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if not await self._check_owner(interaction):
+            return
+        await core.safe_defer(interaction)
+        picked = select.values[0]
+        self.filter_mode = picked
+        self.page = 0
+        all_cards = self._get_all_cards()
+        if picked == "LOW_ONLY":
+            self.selected_ids = {str(c["id"]) for c in all_cards if self._matches_filter(c, "LOW_ONLY")}
+            self.status_note = f"⚡ **★1 ~ ★2 저성급 중복 카드 `{len(self.selected_ids)}종`** 항목만 일괄 선택했습니다."
+        elif picked == "R3_DOWN":
+            self.selected_ids = {str(c["id"]) for c in all_cards if self._matches_filter(c, "R3_DOWN")}
+            self.status_note = f"💫 **★1 ~ ★3 중복 카드 `{len(self.selected_ids)}종`** 항목만 일괄 선택했습니다. (★4·생일 제외)"
+        elif picked == "MR5_ONLY":
+            self.selected_ids = {str(c["id"]) for c in all_cards if self._matches_filter(c, "MR5_ONLY")}
+            self.status_note = f"🏆 **마스터 랭크 MAX(✦MR.5) 중복 카드 `{len(self.selected_ids)}종`** 항목만 일괄 선택했습니다."
+        else:
+            self.status_note = f"🔍 필터 변경: `{picked}`"
+        await core.safe_edit_response(interaction, embed=self.build_preview_embed(), view=self)
+
+    @discord.ui.select(
+        placeholder="🃏 2단계: 변환할 카드를 여러 개 클릭해 체크(✅)/해제(☐)하세요...",
+        row=1,
+        options=[discord.SelectOption(label="로딩중", value="NONE")],
+    )
+    async def card_multi_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if not await self._check_owner(interaction):
+            return
+        await core.safe_defer(interaction)
+        added = 0
+        removed = 0
+        for cid_val in select.values:
+            if cid_val == "NONE":
+                continue
+            if cid_val in self.selected_ids:
+                self.selected_ids.remove(cid_val)
+                removed += 1
+            else:
+                self.selected_ids.add(cid_val)
+                added += 1
+        parts = []
+        if added:
+            parts.append(f"✅ `{added}종` 선택 추가")
+        if removed:
+            parts.append(f"☐ `{removed}종` 선택 해제")
+        self.status_note = " · ".join(parts) if parts else "선택 상태가 갱신되었습니다."
+        await core.safe_edit_response(interaction, embed=self.build_preview_embed(), view=self)
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary, row=2)
+    async def prev_page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._check_owner(interaction):
+            return
+        await core.safe_defer(interaction)
+        if self.page > 0:
+            self.page -= 1
+        await core.safe_edit_response(interaction, embed=self.build_preview_embed(), view=self)
+
+    @discord.ui.button(label="📄 1/1", style=discord.ButtonStyle.secondary, disabled=True, row=2)
+    async def page_info_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary, row=2)
+    async def next_page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._check_owner(interaction):
+            return
+        await core.safe_defer(interaction)
+        filtered = self._get_filtered_cards()
+        max_page = max(0, (len(filtered) - 1) // self.per_page) if filtered else 0
+        if self.page < max_page:
+            self.page += 1
+        await core.safe_edit_response(interaction, embed=self.build_preview_embed(), view=self)
+
+    @discord.ui.button(label="☑️ 현재 페이지 전체선택", style=discord.ButtonStyle.secondary, row=2)
+    async def toggle_page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._check_owner(interaction):
+            return
+        await core.safe_defer(interaction)
+        filtered = self._get_filtered_cards()
+        start = self.page * self.per_page
+        page_cards = filtered[start : start + self.per_page]
+        page_ids = {str(c.get("id")) for c in page_cards if c.get("id") is not None}
+        if page_ids and page_ids.issubset(self.selected_ids):
+            self.selected_ids -= page_ids
+            self.status_note = f"☐ 현재 페이지 `{len(page_ids)}종` 선택을 모두 해제했습니다."
+        else:
+            self.selected_ids |= page_ids
+            self.status_note = f"✅ 현재 페이지 `{len(page_ids)}종`을 모두 선택했습니다."
+        await core.safe_edit_response(interaction, embed=self.build_preview_embed(), view=self)
+
+    @discord.ui.button(label="✨ 전체 일괄선택", style=discord.ButtonStyle.primary, row=2)
+    async def toggle_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._check_owner(interaction):
+            return
+        await core.safe_defer(interaction)
+        all_cards = self._get_all_cards()
+        valid_ids = {str(c.get("id")) for c in all_cards if c.get("id") is not None}
+        if valid_ids and len(self.selected_ids) == len(valid_ids):
+            self.selected_ids.clear()
+            self.status_note = "🧹 전체 카드 선택을 모두 해제했습니다. 원하는 카드만 드롭다운에서 골라보세요!"
+        else:
+            self.selected_ids = set(valid_ids)
+            self.status_note = f"✨ 전체 중복 카드 `{len(valid_ids)}종`을 모두 일괄 선택했습니다!"
+        await core.safe_edit_response(interaction, embed=self.build_preview_embed(), view=self)
+
+    async def _execute_conversion(self, interaction: discord.Interaction, target_ids: set[str] | None):
+        if not await self._check_owner(interaction):
+            return
         await core.safe_defer(interaction)
         gid = self.guild_id or (interaction.guild_id or 0)
-        res = await asyncio.to_thread(core.execute_duplicate_card_conversion, gid, self.user.id)
+        res = await asyncio.to_thread(core.execute_duplicate_card_conversion, gid, self.user.id, target_ids)
         if res["converted_count"] <= 0:
             await interaction.edit_original_response(
                 embed=discord.Embed(title="ℹ️ 변환할 중복 카드가 없습니다.", color=discord.Color.dark_grey()),
@@ -786,17 +1105,23 @@ class DuplicateConvertConfirmView(core.SafeView):
             )
             return
 
-        # 열려 있는 /내캐릭터 보관함 뷰가 있다면 실시간으로 수량을 1장으로 갱신하고 원본 메시지 업데이트
+        converted_id_set = {str(x) for x in res.get("converted_ids", [])}
+
+        # 열려 있는 /내캐릭터 보관함 뷰가 있다면 변환된 카드들만 실시간으로 수량을 1장으로 갱신하고 원본 메시지 업데이트
         if self.parent_inventory_view:
             target_pool = getattr(self.parent_inventory_view, "all_cards", None) or self.parent_inventory_view.cards
             seen_ids = set()
             for c in target_pool:
                 seen_ids.add(id(c))
+                cid_str = str(c.get("id") or "")
                 if not c.get("locked", False) and c.get("count", 1) > 1:
-                    c["count"] = 1
+                    if target_ids is None or cid_str in converted_id_set or cid_str in target_ids:
+                        c["count"] = 1
             for c in self.parent_inventory_view.cards:
+                cid_str = str(c.get("id") or "")
                 if id(c) not in seen_ids and not c.get("locked", False) and c.get("count", 1) > 1:
-                    c["count"] = 1
+                    if target_ids is None or cid_str in converted_id_set or cid_str in target_ids:
+                        c["count"] = 1
             if self.parent_inventory_message:
                 try:
                     await self.parent_inventory_message.edit(
@@ -818,15 +1143,16 @@ class DuplicateConvertConfirmView(core.SafeView):
                 except Exception:
                     pass
 
-        detail_lines = [f"• {line}" for line in res["details"][:8]]
-        if len(res["details"]) > 8:
-            detail_lines.append(f"*…외 `{len(res['details']) - 8:,}종` 변환 완료*")
+        detail_lines = [f"• {line}" for line in res["details"][:10]]
+        if len(res["details"]) > 10:
+            detail_lines.append(f"*…외 `{len(res['details']) - 10:,}종` 변환 완료*")
 
+        mode_label = "일괄" if target_ids is None else f"선택({res.get('converted_unique', len(converted_id_set)):,}종)"
         done_embed = discord.Embed(
-            title="✨ 중복 카드 크리스탈 변환 완료!",
+            title=f"✨ 중복 카드 크리스탈 {mode_label} 변환 완료!",
             description=(
                 f"🎉 초과 중복 카드 **`{res['converted_count']:,}장`** 변환을 마쳤습니다.\n"
-                "*(원본 1장과 🔒 잠금 카드는 안전하게 유지되었습니다)*"
+                "*(원본 1장과 미선택·🔒 잠금 카드는 안전하게 유지되었습니다)*"
             ),
             color=discord.Color.from_rgb(255, 105, 180),
             timestamp=datetime.datetime.now(core.KST)
@@ -837,10 +1163,20 @@ class DuplicateConvertConfirmView(core.SafeView):
             done_embed.add_field(name="📋 변환 내역 요약", value="\n".join(detail_lines)[:1024], inline=False)
         await interaction.edit_original_response(embed=done_embed, view=None)
 
-    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="💎 선택 카드 변환", style=discord.ButtonStyle.success, row=3)
+    async def convert_selected_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.selected_ids:
+            await core.safe_send_response(interaction, "❌ 변환할 카드를 1종 이상 선택해 주세요!", ephemeral=True)
+            return
+        await self._execute_conversion(interaction, set(self.selected_ids))
+
+    @discord.ui.button(label="🚀 전체 일괄 변환", style=discord.ButtonStyle.primary, row=3)
+    async def convert_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._execute_conversion(interaction, None)
+
+    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary, row=3)
     async def cancel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.user and interaction.user.id != self.user.id:
-            await core.safe_send_response(interaction, "❌ 본인만 취소할 수 있습니다.", ephemeral=True)
+        if not await self._check_owner(interaction):
             return
         await core.safe_edit_response(interaction, 
             embed=discord.Embed(title="✅ 중복 카드 변환이 취소되었습니다.", color=discord.Color.blue()),
@@ -1556,7 +1892,7 @@ class GachaCeilingExchangeView(core.SafeView):
                 owned_c = self.owned_map.get(cid_str)
                 own_tag = f"보유 {owned_c.get('count', 1)}장" if isinstance(owned_c, dict) else "✨ 미보유"
                 p_tag = "🎯" if c.get("is_pickup") else ("🎂" if c.get("rarity_type") == "rarity_birthday" else "🌟")
-                lbl = f"{p_tag} [{c.get('prefix', '')}] {c.get('char_name', '')}"[:95]
+                lbl = f"{p_tag} {c.get('char_name', '')} [{c.get('prefix', '')}]"[:100]
                 desc = f"{c.get('unit', '')} · {c.get('limit_label', '통상')} · {own_tag}"[:100]
                 opts.append(
                     discord.SelectOption(label=lbl, value=cid_str, description=desc, default=(cid_str == self.selected_card_id))
@@ -1842,7 +2178,7 @@ class SelectListGachaView(core.SafeView):
                 is_sel = cid_str in sel_set
                 own_tag = "보유" if cid_str in self.owned_map else "✨미보유"
                 mark = "✅" if is_sel else "☐"
-                lbl = f"{mark} [{c.get('prefix', '')}] {c.get('char_name', '')}"[:95]
+                lbl = f"{mark} {c.get('char_name', '')} [{c.get('prefix', '')}]"[:100]
                 desc = f"{c.get('unit', '')} · {c.get('limit_label', '통상')} · {own_tag}"[:100]
                 opts.append(discord.SelectOption(label=lbl, value=cid_str, description=desc))
             self.card_multi_select.options = opts
@@ -5946,22 +6282,22 @@ class MasterRankView(core.SafeView):
 
         unit_opts = [
             discord.SelectOption(
-                label=f"🌐 전체 ({total_cnt})"[:30],
+                label=f"🌐 전체 ({total_cnt}종)"[:100],
                 value="ALL",
                 default=(self.selected_unit == "ALL"),
             ),
             discord.SelectOption(
-                label=f"🃏 중복 ({dup_cnt}·0💎)"[:30],
+                label=f"🃏 중복 보유 ({dup_cnt}종 · 0💎)"[:100],
                 value="DUP_ONLY",
                 default=(self.selected_unit == "DUP_ONLY"),
             ),
             discord.SelectOption(
-                label=f"⭐ ★4·생일 ({s4_cnt})"[:30],
+                label=f"⭐ ★4 · 🎀생일 ({s4_cnt}종)"[:100],
                 value="STAR4_ONLY",
                 default=(self.selected_unit == "STAR4_ONLY"),
             ),
             discord.SelectOption(
-                label=f"👗 3D의상 ({cos_cnt})"[:30],
+                label=f"👗 3D 의상 ({cos_cnt}종)"[:100],
                 value="COSTUME_ONLY",
                 default=(self.selected_unit == "COSTUME_ONLY"),
             ),
@@ -5971,7 +6307,7 @@ class MasterRankView(core.SafeView):
             u_emoji = unit_emojis.get(u_name, "🏷️")
             unit_opts.append(
                 discord.SelectOption(
-                    label=f"{u_emoji} {u_name} ({len(u_list)})"[:30],
+                    label=f"{u_emoji} {u_name} ({len(u_list)}종)"[:100],
                     value=u_name,
                     default=(self.selected_unit == u_name),
                 )

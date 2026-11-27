@@ -12,6 +12,17 @@ VERSION_HISTORY: list[dict[str, Any]] = [
     {
         "commit": "HEAD",
         "date": "2026-11-27",
+        "title": "프로세카 중복 카드 변환 다중 선택·프리셋 일괄 선택 지원 및 산리오 콜라보·카드명 잘림 완벽 해결",
+        "added": [
+            "`core.py` (`preview_duplicate_cards`, `execute_duplicate_card_conversion`) & `cogs/gacha.py` (`DuplicateConvertConfirmView`): 중복 카드 변환소에서 **원하는 카드만 여러 개 동시에 다중 선택(`card_multi_select`)** 하거나 **필터·프리셋(`★1~2만`, `★1~3만`, `✦MR.5 MAX만`, `유닛별`)**, **`[☑️ 현재 페이지 전체선택]`**, **`[✨ 전체 일괄선택]`**, **`[💎 선택 카드 변환]`**, **`[🚀 전체 일괄 변환]`** 기능으로 자유롭게 변환할 수 있도록 업그레이드",
+        ],
+        "fixed": [
+            "`cogs/gacha.py` (`MasterRankView`, `MyInventoryView`, `GachaCeilingExchangeView`, `SelectListGachaView`, `DuplicateConvertConfirmView`): 산리오 콜라보 등 카드 칭호(`feat. 한교동` ➔ `feat. 한교`)와 캐릭터 이름이 `[:6]`/`[:8]`/`[:30]` 슬라이싱으로 줄임말처럼 잘리던 문제를 전수 해결하여 최대 100자까지 전체 표기되도록 개선",
+        ],
+    },
+    {
+        "commit": "d498599",
+        "date": "2026-11-27",
         "title": "프로세카 드롭다운 캐릭터 이름 전체 표시 및 잘림 방지",
         "changed": [
             "`cogs/gacha.py` (`MasterRankView`, `MyInventoryView`, `CardTradeView`, `EncyclopediaView`, `WardrobeView`): 캐릭터·카드 선택 드롭다운에서 성을 생략(`.split()[-1]`)하거나 짧은 글자 수(`[:26]`, `[:32]`, `[:34]`, `[:36]`)로 잘라내던 처리를 제거하고, **풀네임(`요이사키 카나데`, `호시노 이치카` 등)을 앞쪽에 배치하여 최대 100자까지 온전히 표시**되도록 개선",

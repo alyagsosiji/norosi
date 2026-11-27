@@ -7513,7 +7513,7 @@ def toggle_user_card_lock(guild_id: int, user_id: int, card_id_str: str) -> tupl
 def preview_duplicate_cards(guild_id: int, user_id: int) -> dict:
     """
     보유 수량이 2장 이상(count >= 2)이고 잠금(locked)되지 않은 카드들의
-    초과분(count - 1) 크리스탈 변환 예상치를 계산합니다. (원본 1장은 무조건 보존)
+    초과분(count - 1) 크리스탈 변환 예상치 및 개별 중복 카드 목록을 계산합니다. (원본 1장은 무조건 보존)
     """
     data = load_data()
     g_key = str(guild_id or 0)
@@ -7530,13 +7530,14 @@ def preview_duplicate_cards(guild_id: int, user_id: int) -> dict:
             "rarity_2": {"count": 0, "crystals": 0, "label": "★★ (5💎)"},
             "rarity_1": {"count": 0, "crystals": 0, "label": "★ (5💎)"}
         },
-        "locked_skipped": 0
+        "locked_skipped": 0,
+        "cards": [],
     }
 
     for cid_str, c in user_cards.items():
         if not isinstance(c, dict):
             continue
-        cnt = c.get("count", 1)
+        cnt = _safe_card_int(c.get("count", 1), 1)
         if cnt < 2:
             continue
         if c.get("locked", False):
@@ -7554,14 +7555,46 @@ def preview_duplicate_cards(guild_id: int, user_id: int) -> dict:
             summary["by_rarity"][r_type]["count"] += excess
             summary["by_rarity"][r_type]["crystals"] += gained
 
+        summary["cards"].append({
+            "id": str(c.get("id") or cid_str),
+            "char_id": _safe_card_int(c.get("char_id", 99), 99),
+            "char_name": str(c.get("char_name") or "캐릭터"),
+            "prefix": str(c.get("prefix") or "카드"),
+            "unit": str(c.get("unit") or "세카이"),
+            "rarity_type": r_type,
+            "rarity_label": get_card_rarity_label(c),
+            "rarity_short": get_card_rarity_short_label(c),
+            "star_num": _safe_card_int(c.get("star_num", 2), 2),
+            "master_rank": _safe_card_int(c.get("master_rank", 0), 0),
+            "count": cnt,
+            "excess": excess,
+            "rate": rate,
+            "crystals": gained,
+            "limit_label": str(c.get("limit_label") or "통상"),
+        })
+
+    summary["cards"].sort(key=lambda item: (
+        -int(item.get("crystals", 0)),
+        -int(item.get("star_num", 1)),
+        -int(item.get("excess", 1)),
+        int(item.get("char_id", 99)),
+        str(item.get("id", "")),
+    ))
     return summary
 
 
-def execute_duplicate_card_conversion(guild_id: int, user_id: int) -> dict:
+def execute_duplicate_card_conversion(
+    guild_id: int,
+    user_id: int,
+    target_card_ids: list[str] | set[str] | None = None,
+) -> dict:
     """
-    잠금되지 않은 2장 이상 보유 카드들의 초과분(count - 1)을 크리스탈로 일괄 변환합니다.
+    잠금되지 않은 2장 이상 보유 카드들의 초과분(count - 1)을 크리스탈로 변환합니다.
+    - target_card_ids가 None이면 변환 가능한 모든 중복 카드를 일괄 변환합니다.
+    - target_card_ids가 지정되면 해당 카드 ID들만 선택 변환합니다.
     모든 카드는 최소 1장씩 반드시 유지되어 도감 수집률과 5인 덱이 100% 보존됩니다.
     """
+    target_set = {str(cid) for cid in target_card_ids if cid and str(cid) != "NONE"} if target_card_ids is not None else None
     with _DATA_LOCK:
         data = load_data()
         g_key = str(guild_id or 0)
@@ -7573,12 +7606,16 @@ def execute_duplicate_card_conversion(guild_id: int, user_id: int) -> dict:
 
         total_converted = 0
         total_gained = 0
+        converted_ids: list[str] = []
         details = []
 
         for cid_str, c in user_cards.items():
             if not isinstance(c, dict):
                 continue
-            cnt = c.get("count", 1)
+            card_id_key = str(c.get("id") or cid_str)
+            if target_set is not None and (cid_str not in target_set and card_id_key not in target_set):
+                continue
+            cnt = _safe_card_int(c.get("count", 1), 1)
             if cnt < 2 or c.get("locked", False):
                 continue
             excess = cnt - 1
@@ -7589,7 +7626,8 @@ def execute_duplicate_card_conversion(guild_id: int, user_id: int) -> dict:
             c["count"] = 1
             total_converted += excess
             total_gained += gained
-            details.append(f"`{c['rarity_label']}` [{c['prefix']}] {c['char_name']} (`-{excess}장` ➔ `+{gained}💎`)")
+            converted_ids.append(card_id_key)
+            details.append(f"`{c.get('rarity_label', '★★')}` **{c.get('char_name', '캐릭터')}** [{c.get('prefix', '카드')}] (`-{excess}장` ➔ `+{gained:,}💎`)")
 
         if total_converted > 0:
             u_obj["converted_duplicates"] = _safe_card_int(u_obj.get("converted_duplicates"), 0) + total_converted
@@ -7598,9 +7636,11 @@ def execute_duplicate_card_conversion(guild_id: int, user_id: int) -> dict:
 
         return {
             "converted_count": total_converted,
+            "converted_unique": len(converted_ids),
+            "converted_ids": converted_ids,
             "gained_crystals": total_gained,
             "current_crystals": profile.get("crystals", 0),
-            "details": details
+            "details": details,
         }
 
 
