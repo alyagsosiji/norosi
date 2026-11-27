@@ -1099,9 +1099,11 @@ class DuplicateConvertConfirmView(core.SafeView):
         gid = self.guild_id or (interaction.guild_id or 0)
         res = await asyncio.to_thread(core.execute_duplicate_card_conversion, gid, self.user.id, target_ids)
         if res["converted_count"] <= 0:
-            await interaction.edit_original_response(
+            self.clear_items()
+            await core.safe_edit_response(
+                interaction,
                 embed=discord.Embed(title="ℹ️ 변환할 중복 카드가 없습니다.", color=discord.Color.dark_grey()),
-                view=None
+                view=self
             )
             return
 
@@ -1161,7 +1163,8 @@ class DuplicateConvertConfirmView(core.SafeView):
         done_embed.add_field(name="💰 현재 보유", value=f"**`{res['current_crystals']:,} 💎`**", inline=True)
         if detail_lines:
             done_embed.add_field(name="📋 변환 내역 요약", value="\n".join(detail_lines)[:1024], inline=False)
-        await interaction.edit_original_response(embed=done_embed, view=None)
+        self.clear_items()
+        await core.safe_edit_response(interaction, embed=done_embed, view=self)
 
     @discord.ui.button(label="💎 선택 카드 변환", style=discord.ButtonStyle.success, row=3)
     async def convert_selected_btn(self, interaction: discord.Interaction, button: discord.ui.Button):

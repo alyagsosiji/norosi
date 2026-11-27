@@ -12,6 +12,15 @@ VERSION_HISTORY: list[dict[str, Any]] = [
     {
         "commit": "HEAD",
         "date": "2026-11-27",
+        "title": "Discord 10062 Unknown Interaction 경고 로그 스팸 차단 및 자동 메시지 폴백 보강",
+        "fixed": [
+            "`core.py` (`safe_defer`, `safe_send_response`, `safe_edit_response`, `reconstruct_safe_view`): 디스코드 게이트웨이·네트워크 지연으로 3초 인터랙션 토큰이 만료(`404 Not Found / 10062: Unknown interaction`)되었을 때 경고 로그 스팸을 남기지 않고 만료 플래그(`_norosi_expired_10062`)를 기록한 뒤, 후속 `safe_edit_response` / `safe_send_response`에서 실패할 인터랙션 웹훅 호출을 건너뛰고 즉시 채널 메시지 직접 수정(`message.edit`) 또는 채널 전송으로 폴백하도록 개선",
+            "`cogs/gacha.py` (`DuplicateConvertConfirmView`): 변환 완료 시 `edit_original_response` 직접 호출 대신 `core.safe_edit_response`를 경유하도록 통일하고, 재시작 후 뷰 복원(`reconstruct_safe_view`) 시에도 `preview_duplicate_cards` 데이터를 즉시 복구하도록 보강",
+        ],
+    },
+    {
+        "commit": "0a5ba57",
+        "date": "2026-11-27",
         "title": "프로세카 중복 카드 변환 다중 선택·프리셋 일괄 선택 지원 및 산리오 콜라보·카드명 잘림 완벽 해결",
         "added": [
             "`core.py` (`preview_duplicate_cards`, `execute_duplicate_card_conversion`) & `cogs/gacha.py` (`DuplicateConvertConfirmView`): 중복 카드 변환소에서 **원하는 카드만 여러 개 동시에 다중 선택(`card_multi_select`)** 하거나 **필터·프리셋(`★1~2만`, `★1~3만`, `✦MR.5 MAX만`, `유닛별`)**, **`[☑️ 현재 페이지 전체선택]`**, **`[✨ 전체 일괄선택]`**, **`[💎 선택 카드 변환]`**, **`[🚀 전체 일괄 변환]`** 기능으로 자유롭게 변환할 수 있도록 업그레이드",

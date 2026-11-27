@@ -459,13 +459,20 @@ def get_now_datetime_str():
     return datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
 
 
-async def safe_defer(interaction: discord.Interaction, ephemeral: bool = False, thinking: Optional[bool] = None):
+async def safe_defer(interaction: discord.Interaction, ephemeral: bool = False, thinking: Optional[bool] = None) -> bool:
     """
-    디스코드 응답 지연(defer) 중복 호출 예외(InteractionResponded, 40060) 및 3초 타임아웃을 안전하게 방어하는 헬퍼.
+    디스코드 응답 지연(defer) 중복 호출 예외(InteractionResponded, 40060) 및 3초 타임아웃(10062)을 안전하게 방어하는 헬퍼.
     슬래시 명령어에서 바로 열린 모달(interaction.message is None)의 경우 DEFERRED_UPDATE_MESSAGE(Type 6)가
     400 오류를 유발하므로 자동으로 thinking=True(Type 5)로 전환합니다.
+    반환값: 유효한 인터랙션이면 True, 이미 만료된 인터랙션(10062)이면 False.
     """
-    if interaction and getattr(interaction, "response", None) and not interaction.response.is_done():
+    if not interaction:
+        return False
+    if getattr(interaction, "_norosi_expired_10062", False):
+        return False
+    if getattr(interaction, "response", None) and interaction.response.is_done():
+        return True
+    if getattr(interaction, "response", None) and not interaction.response.is_done():
         is_modal_without_msg = (
             getattr(interaction, "type", None) == discord.InteractionType.modal_submit
             and getattr(interaction, "message", None) is None
@@ -476,17 +483,32 @@ async def safe_defer(interaction: discord.Interaction, ephemeral: bool = False, 
                 await interaction.response.defer(ephemeral=ephemeral, thinking=eff_thinking)
             else:
                 await interaction.response.defer(ephemeral=ephemeral)
+            return True
         except (discord.InteractionResponded, discord.HTTPException) as e:
-            if isinstance(e, discord.HTTPException) and getattr(e, "code", None) != 40060:
+            err_code = getattr(e, "code", None)
+            if isinstance(e, discord.InteractionResponded) or err_code == 40060:
+                return True
+            if err_code == 10062:
+                # 디스코드 게이트웨이/네트워크 지연으로 3초 토큰이 이미 만료된 경우:
+                # 컴포넌트 인터랙션(버튼/드롭다운)은 이후 safe_edit_response의 message.edit 폴백으로
+                # 화면 갱신이 정상 처리되므로 경고 로그 스팸 없이 만료 플래그만 기록합니다.
+                try:
+                    setattr(interaction, "_norosi_expired_10062", True)
+                except Exception:
+                    pass
+                return False
+            if isinstance(e, discord.HTTPException):
                 if eff_thinking is None and getattr(interaction, "type", None) == discord.InteractionType.modal_submit:
                     try:
                         await interaction.response.defer(ephemeral=ephemeral, thinking=True)
-                        return
+                        return True
                     except Exception:
                         pass
                 print(f"⚠️ [safe_defer HTTP 예외] {e}", flush=True)
+                return False
         except Exception:
-            pass
+            return False
+    return True
 
 
 async def safe_send_response(interaction: discord.Interaction, embed=None, content=None, file=None, files=None, view=None, ephemeral=False):
@@ -496,6 +518,8 @@ async def safe_send_response(interaction: discord.Interaction, embed=None, conte
     'str' object has no attribute 'to_dict' 오류를 원천 차단합니다.
     이미 승인(acknowledged)된 인터랙션에 대해서도 40060 예외를 완벽 방어하여 followup으로 자동 전송합니다.
     """
+    if not interaction:
+        return None
     if isinstance(embed, str) and content is None:
         content = embed
         embed = None
@@ -528,13 +552,40 @@ async def safe_send_response(interaction: discord.Interaction, embed=None, conte
                 view.message = sent.resource
         return sent
 
+    if getattr(interaction, "_norosi_expired_10062", False):
+        # 3초 토큰이 만료된 경우(10062) 공개 응답은 채널 직접 전송으로 폴백
+        if not ephemeral:
+            ch = getattr(interaction, "channel", None)
+            if ch is not None and hasattr(ch, "send"):
+                ch_kwargs = {k: v for k, v in kwargs.items() if k != "ephemeral"}
+                try:
+                    return _bind_view_msg(await ch.send(**ch_kwargs))
+                except Exception:
+                    pass
+        return None
+
     try:
         if interaction and getattr(interaction, "response", None) and interaction.response.is_done():
             return _bind_view_msg(await interaction.followup.send(**followup_kwargs))
         elif interaction and getattr(interaction, "response", None):
             return _bind_view_msg(await interaction.response.send_message(**kwargs))
     except (discord.InteractionResponded, discord.HTTPException) as e:
-        if isinstance(e, discord.HTTPException) and getattr(e, "code", None) != 40060:
+        err_code = getattr(e, "code", None)
+        if err_code == 10062:
+            try:
+                setattr(interaction, "_norosi_expired_10062", True)
+            except Exception:
+                pass
+            if not ephemeral:
+                ch = getattr(interaction, "channel", None)
+                if ch is not None and hasattr(ch, "send"):
+                    ch_kwargs = {k: v for k, v in kwargs.items() if k != "ephemeral"}
+                    try:
+                        return _bind_view_msg(await ch.send(**ch_kwargs))
+                    except Exception:
+                        pass
+            return None
+        if isinstance(e, discord.HTTPException) and err_code != 40060:
             print(f"⚠️ [safe_send_response HTTP 예외] {e}", flush=True)
             return None
         try:
@@ -547,8 +598,9 @@ async def safe_send_response(interaction: discord.Interaction, embed=None, conte
                 return _bind_view_msg(await interaction.followup.send(**followup_kwargs))
             except Exception:
                 pass
-        else:
+        elif "10062" not in str(e):
             print(f"⚠️ [safe_send_response 예외] {e}", flush=True)
+    return None
 
 
 async def safe_edit_response(
@@ -561,7 +613,7 @@ async def safe_edit_response(
 ):
     """
     interaction 수신/지연(defer) 상태에 맞춰 response.edit_message 또는 edit_original_response / message.edit를
-    안전하게 선택하여 실행합니다. 이미 승인된 경우(40060) 및 15분 웹훅 만료 시에도 대응합니다.
+    안전하게 선택하여 실행합니다. 이미 승인된 경우(40060), 3초 인터랙션 토큰 만료(10062), 15분 웹훅 만료 시에도 대응합니다.
     """
     kwargs = {}
     if embed is not None:
@@ -599,17 +651,32 @@ async def safe_edit_response(
                 raise
         raise RuntimeError("No non-ephemeral message to fallback edit")
 
+    # safe_defer 단계에서 이미 10062(Unknown interaction)로 토큰 만료가 감지된 경우,
+    # 불필요한 response.edit_message 404 왕복 없이 즉시 채널 메시지 직접 수정 폴백 실행
+    if interaction and getattr(interaction, "_norosi_expired_10062", False):
+        try:
+            return await _fallback_msg_edit()
+        except Exception:
+            return None
+
     try:
         if interaction and getattr(interaction, "response", None) and interaction.response.is_done():
             return await interaction.edit_original_response(**kwargs)
         elif interaction and getattr(interaction, "response", None):
             return await interaction.response.edit_message(**kwargs)
     except (discord.InteractionResponded, discord.HTTPException) as e:
-        if isinstance(e, discord.HTTPException) and getattr(e, "code", None) != 40060:
+        err_code = getattr(e, "code", None)
+        if err_code == 10062:
+            try:
+                setattr(interaction, "_norosi_expired_10062", True)
+            except Exception:
+                pass
+        if isinstance(e, discord.HTTPException) and err_code != 40060:
             try:
                 return await _fallback_msg_edit()
             except Exception as fb_err:
-                print(f"⚠️ [safe_edit_response HTTP 예외] {e}", flush=True)
+                if err_code != 10062:
+                    print(f"⚠️ [safe_edit_response HTTP 예외] {e}", flush=True)
                 if raise_on_error:
                     raise e from fb_err
                 return None
@@ -632,7 +699,8 @@ async def safe_edit_response(
                     if raise_on_error:
                         raise inner_e
         else:
-            print(f"⚠️ [safe_edit_response 예외] {e}", flush=True)
+            if "10062" not in str(e):
+                print(f"⚠️ [safe_edit_response 예외] {e}", flush=True)
             if raise_on_error:
                 raise
     return None
@@ -1004,6 +1072,9 @@ def reconstruct_safe_view(view_cls_or_name: type[SafeView] | str, interaction: d
                 kwargs[name] = safe_get_dict(_data(), "user_profiles", uid_s)
             elif name == "pickup_cfg":
                 kwargs[name] = as_dict(_data().get("gacha_pickup")) or copy.deepcopy(DEFAULT_CONFIG["gacha_pickup"])
+            elif name == "preview_info" and view_cls.__name__ == "DuplicateConvertConfirmView":
+                gid = interaction.guild.id if interaction.guild else 0
+                kwargs[name] = preview_duplicate_cards(gid, getattr(orig_user, "id", 0))
             elif name in (
                 "user_cfg", "config", "card",
                 "preview_info", "hall_of_fame", "req_card", "tgt_card", "req_cards", "tgt_cards",
