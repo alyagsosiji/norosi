@@ -12,6 +12,14 @@ VERSION_HISTORY: list[dict[str, Any]] = [
     {
         "commit": "HEAD",
         "date": "2026-11-27",
+        "title": "!업데이트 및 !현재버전 결과 화면 하단에 [🔁 전체 재시작] 원클릭 버튼 추가",
+        "added": [
+            "`bot.py` (`OwnerVersionUpdateView`, `apply_github_updates_command`): `!업데이트` 완료 메시지 및 `!현재버전` 화면 하단에 **`[🔄 모듈 다시 불러오기]`**, **`[🔄 버전 새로고침]`**, **`[🔁 전체 재시작]`** 버튼을 부착하여 언제든 원클릭으로 데이터 안전 저장(`flush_pending_saves`) 후 봇 프로세스 전체를 깔끔하게 재기동(`os.execv`)할 수 있도록 개선",
+        ],
+    },
+    {
+        "commit": "d3cf84e",
+        "date": "2026-11-27",
         "title": "모바일 드롭다운 라벨 최적화 및 !업데이트 핫리로드 시 기존 열린 창 즉시 최신화",
         "fixed": [
             "`cogs/gacha.py` (`MasterRankView`, `MyInventoryView`, `CardPokedexView`, `DuplicateConvertConfirmView`, `CardTradeView`) & `core.py` (`owned_card_autocomplete`, `target_user_card_autocomplete`): 드롭다운 첫 줄(`label`) 앞쪽에 붙던 `👗[MR.5]`, `★★★★`, `[✨보유(N장)]`, `(N·MR5)` 등 긴 접두사·접미사 때문에 모바일 디스코드 화면 폭(약 25~28자)에서 뒷부분 이름(`카미시로 루이 [feat. 한교동]` ➔ `... [feat. 한교`)이 잘려 보이던 문제를 해결하기 위해, 첫 줄 라벨을 **`★2 카미시로 루이 [feat. 한교동]`** (22~27자 이내)으로 간결화하고 마스터 랭크·보유 장수·3D 의상·한정 여부는 모두 둘째 줄 설명(`description`)으로 이동",

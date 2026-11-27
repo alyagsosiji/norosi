@@ -2729,7 +2729,7 @@ async def execute_github_update(force_restart: bool = False) -> tuple[discord.Em
 
 
 class OwnerVersionUpdateView(core.SafeView):
-    """!현재버전 화면에서 대기 중인 업데이트를 원클릭 반영하거나 새로고침하는 봇 주인 전용 뷰"""
+    """!현재버전 및 !업데이트 화면에서 대기 중인 업데이트를 원클릭 반영하거나 전체 재시작·새로고침하는 봇 주인 전용 뷰"""
 
     def __init__(self, has_pending: bool = False):
         super().__init__(timeout=300)
@@ -2767,6 +2767,18 @@ class OwnerVersionUpdateView(core.SafeView):
         self.has_pending = bool(info.get("behind_cnt", 0) > 0)
         self._sync_buttons()
         await core.safe_edit_response(interaction, embed=embed, view=self)
+
+    @discord.ui.button(label="🔁 전체 재시작", style=discord.ButtonStyle.danger, row=0)
+    async def btn_full_restart(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        embed, _ = await execute_github_update(force_restart=True)
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        await core.safe_edit_response(interaction, embed=embed, view=self)
+        await asyncio.to_thread(core.flush_pending_saves)
+        await asyncio.sleep(1.2)
+        os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
 def _resolve_version_entries_sync() -> tuple[list[dict], str, str]:
@@ -3018,7 +3030,12 @@ async def apply_github_updates_command(ctx: commands.Context, *args):
     force_restart = any(k in arg_str for k in ("재시작", "restart", "리부트", "reboot"))
     status_msg = await ctx.send("⏳ **GitHub 원격 저장소(`origin`)에서 누적된 업데이트를 확인하고 반영하는 중...**")
     embed, need_restart = await execute_github_update(force_restart=force_restart)
-    await status_msg.edit(content=None, embed=embed)
+    view = OwnerVersionUpdateView(has_pending=False)
+    if need_restart:
+        for child in view.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+    await status_msg.edit(content=None, embed=embed, view=view)
     if need_restart:
         await asyncio.to_thread(core.flush_pending_saves)
         await asyncio.sleep(1.5)
