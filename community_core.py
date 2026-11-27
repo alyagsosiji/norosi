@@ -731,6 +731,50 @@ def format_temp_voice_room_name(template: str, user_name: str, index: int = 1) -
     return rendered.strip()[:95] or f"🔊 {safe_user}님의 음성방"
 
 
+def _normalize_generator_channel_ids(raw_cfg: dict) -> list[int]:
+    ids: list[int] = []
+    raw_list = raw_cfg.get("generator_channel_ids")
+    if isinstance(raw_list, list):
+        for item in raw_list:
+            if str(item or "").isdigit():
+                cid = int(item)
+                if cid > 0 and cid not in ids:
+                    ids.append(cid)
+    single_gen = raw_cfg.get("generator_channel_id")
+    if str(single_gen or "").isdigit():
+        scid = int(single_gen)
+        if scid > 0 and scid not in ids:
+            ids.insert(0, scid)
+    return ids[:10]
+
+
+def is_temp_voice_generator_channel(cfg: dict, channel_id: int) -> bool:
+    if not channel_id or not isinstance(cfg, dict):
+        return False
+    cid = int(channel_id)
+    if cid in _normalize_generator_channel_ids(cfg):
+        return True
+    return cid == int(cfg.get("generator_channel_id") or 0)
+
+
+def add_temp_voice_generator_channel(cfg: dict, channel_id: int) -> list[int]:
+    ids = _normalize_generator_channel_ids(cfg)
+    cid = int(channel_id)
+    if cid > 0:
+        if cid in ids:
+            ids.remove(cid)
+        ids.insert(0, cid)
+    ids = ids[:10]
+    cfg["generator_channel_ids"] = ids
+    cfg["generator_channel_id"] = ids[0] if ids else None
+    return ids
+
+
+def clear_temp_voice_generator_channels(cfg: dict) -> None:
+    cfg["generator_channel_ids"] = []
+    cfg["generator_channel_id"] = None
+
+
 def get_temp_voice_config(data: dict, guild_id: int) -> dict:
     root = core.as_dict(data.get("temp_voice_configs"))
     raw = core.as_dict(root.get(str(guild_id)))
@@ -749,11 +793,13 @@ def get_temp_voice_config(data: dict, guild_id: int) -> dict:
                 "panel_message_id": int(r_info["panel_message_id"]) if str(r_info.get("panel_message_id", "")).isdigit() else None,
                 "created_at": str(r_info.get("created_at") or ""),
             }
-    gen_ch = raw.get("generator_channel_id")
+    gen_ids = _normalize_generator_channel_ids(raw)
+    primary_gen = gen_ids[0] if gen_ids else None
     cat_id = raw.get("category_id")
     return {
         "enabled": bool(raw.get("enabled", False)),
-        "generator_channel_id": int(gen_ch) if str(gen_ch or "").isdigit() else None,
+        "generator_channel_id": primary_gen,
+        "generator_channel_ids": gen_ids,
         "category_id": int(cat_id) if str(cat_id or "").isdigit() else None,
         "name_template": (str(raw.get("name_template") or DEFAULT_TEMP_VOICE_TEMPLATE).strip()[:80] or DEFAULT_TEMP_VOICE_TEMPLATE),
         "default_limit": max(0, min(99, int(raw.get("default_limit", 0) or 0))),
@@ -780,11 +826,13 @@ def save_temp_voice_config(data: dict, guild_id: int, cfg: dict) -> dict:
                 "panel_message_id": int(r_info["panel_message_id"]) if str(r_info.get("panel_message_id", "")).isdigit() else None,
                 "created_at": str(r_info.get("created_at") or datetime.datetime.now(core.KST).isoformat()),
             }
-    gen_ch = cfg.get("generator_channel_id")
+    gen_ids = _normalize_generator_channel_ids(cfg)
+    primary_gen = gen_ids[0] if gen_ids else None
     cat_id = cfg.get("category_id")
     entry = {
         "enabled": bool(cfg.get("enabled", False)),
-        "generator_channel_id": int(gen_ch) if str(gen_ch or "").isdigit() else None,
+        "generator_channel_id": primary_gen,
+        "generator_channel_ids": gen_ids,
         "category_id": int(cat_id) if str(cat_id or "").isdigit() else None,
         "name_template": (str(cfg.get("name_template") or DEFAULT_TEMP_VOICE_TEMPLATE).strip()[:80] or DEFAULT_TEMP_VOICE_TEMPLATE),
         "default_limit": max(0, min(99, int(cfg.get("default_limit", 0) or 0))),
@@ -1124,5 +1172,393 @@ def collect_due_event_reminders(data: dict, now_ts: Optional[int] = None) -> lis
             elif diff < -86400:
                 ev["status"] = "closed"
     return due
+
+
+# ==========================================
+# 7. 👋 웰컴 / 작별 이미지 카드 & 메시지 설정 (서버 관리자 전용)
+# ==========================================
+DEFAULT_WELCOME_MSG = "🎉 {user}님, **{server}** 서버에 오신 것을 환영합니다! (`{count}번째` 멤버)"
+DEFAULT_GOODBYE_MSG = "👋 **{username}님**이 **{server}** 서버에서 퇴장하셨습니다. (현재 `{count}명`)"
+DEFAULT_WELCOME_SUBTITLE = "{count}번째 멤버로 함께하게 되었어요!"
+
+
+def _normalize_hex_color(raw_hex: str, default_hex: str = "#5865F2") -> str:
+    s = str(raw_hex or "").strip()
+    if not s.startswith("#"):
+        s = "#" + s
+    if re.fullmatch(r"#[0-9A-Fa-f]{6}", s):
+        return s.upper()
+    return default_hex
+
+
+def hex_to_rgb_tuple(raw_hex: str, default_rgb: tuple[int, int, int] = (88, 101, 242)) -> tuple[int, int, int]:
+    norm = _normalize_hex_color(raw_hex, "")
+    if len(norm) == 7:
+        try:
+            return (int(norm[1:3], 16), int(norm[3:5], 16), int(norm[5:7], 16))
+        except Exception:
+            pass
+    return default_rgb
+
+
+def get_welcome_config(data: dict, guild_id: int) -> dict:
+    root = core.as_dict(data.get("welcome_configs"))
+    raw = core.as_dict(root.get(str(guild_id)))
+    w_ch = raw.get("welcome_channel_id")
+    g_ch = raw.get("goodbye_channel_id")
+    r_id = raw.get("auto_role_id")
+    return {
+        "welcome_enabled": bool(raw.get("welcome_enabled", False)),
+        "goodbye_enabled": bool(raw.get("goodbye_enabled", False)),
+        "banner_enabled": bool(raw.get("banner_enabled", True)),
+        "welcome_channel_id": int(w_ch) if str(w_ch or "").isdigit() else None,
+        "goodbye_channel_id": int(g_ch) if str(g_ch or "").isdigit() else None,
+        "auto_role_id": int(r_id) if str(r_id or "").isdigit() else None,
+        "welcome_message": (str(raw.get("welcome_message") or DEFAULT_WELCOME_MSG).strip()[:500] or DEFAULT_WELCOME_MSG),
+        "goodbye_message": (str(raw.get("goodbye_message") or DEFAULT_GOODBYE_MSG).strip()[:500] or DEFAULT_GOODBYE_MSG),
+        "banner_subtitle": (str(raw.get("banner_subtitle") or DEFAULT_WELCOME_SUBTITLE).strip()[:100] or DEFAULT_WELCOME_SUBTITLE),
+        "accent_color": _normalize_hex_color(str(raw.get("accent_color") or "#5865F2")),
+        "updated_at": raw.get("updated_at"),
+    }
+
+
+def save_welcome_config(data: dict, guild_id: int, cfg: dict) -> dict:
+    root = core.ensure_dict_path(data, "welcome_configs")
+    w_ch = cfg.get("welcome_channel_id")
+    g_ch = cfg.get("goodbye_channel_id")
+    r_id = cfg.get("auto_role_id")
+    entry = {
+        "welcome_enabled": bool(cfg.get("welcome_enabled", False)),
+        "goodbye_enabled": bool(cfg.get("goodbye_enabled", False)),
+        "banner_enabled": bool(cfg.get("banner_enabled", True)),
+        "welcome_channel_id": int(w_ch) if str(w_ch or "").isdigit() else None,
+        "goodbye_channel_id": int(g_ch) if str(g_ch or "").isdigit() else None,
+        "auto_role_id": int(r_id) if str(r_id or "").isdigit() else None,
+        "welcome_message": (str(cfg.get("welcome_message") or DEFAULT_WELCOME_MSG).strip()[:500] or DEFAULT_WELCOME_MSG),
+        "goodbye_message": (str(cfg.get("goodbye_message") or DEFAULT_GOODBYE_MSG).strip()[:500] or DEFAULT_GOODBYE_MSG),
+        "banner_subtitle": (str(cfg.get("banner_subtitle") or DEFAULT_WELCOME_SUBTITLE).strip()[:100] or DEFAULT_WELCOME_SUBTITLE),
+        "accent_color": _normalize_hex_color(str(cfg.get("accent_color") or "#5865F2")),
+        "updated_at": datetime.datetime.now(core.KST).isoformat(),
+    }
+    root[str(guild_id)] = entry
+    return entry
+
+
+def format_welcome_text(
+    template: str,
+    *,
+    user_mention: str,
+    username: str,
+    server_name: str,
+    member_count: int,
+) -> str:
+    base = str(template or "").strip()
+    if not base:
+        return ""
+    safe_name = str(username or "멤버").replace("@", "@\u200b")
+    safe_server = str(server_name or "서버").replace("@", "@\u200b")
+    cnt_str = f"{max(1, int(member_count or 1)):,}"
+    return (
+        base.replace("{user}", str(user_mention or safe_name))
+        .replace("{username}", safe_name)
+        .replace("{server}", safe_server)
+        .replace("{count}", cnt_str)
+    )
+
+
+def render_welcome_banner_png(
+    guild_name: str,
+    member_name: str,
+    member_count: int,
+    avatar_bytes: Optional[bytes] = None,
+    *,
+    is_goodbye: bool = False,
+    accent_hex: str = "#5865F2",
+    subtitle: str = "",
+) -> Optional[bytes]:
+    """신규 입장 또는 퇴장 멤버용 800x260 고해상도 PNG 환영/작별 배너 카드를 생성합니다."""
+    import io
+    try:
+        from PIL import Image, ImageDraw
+    except Exception:
+        return None
+
+    W, H = 800, 260
+    accent_rgb = (237, 66, 69) if is_goodbye else hex_to_rgb_tuple(accent_hex, (88, 101, 242))
+    bg_dark = (20, 22, 31)
+    card_bg = (29, 32, 46)
+
+    img = Image.new("RGBA", (W, H), (*bg_dark, 255))
+    draw = ImageDraw.Draw(img)
+
+    # 배경 카드 및 상단·좌측 포인트 컬러 바
+    draw.rounded_rectangle((14, 14, W - 14, H - 14), radius=22, fill=(*card_bg, 255), outline=(*accent_rgb, 180), width=2)
+    draw.rounded_rectangle((14, 14, 26, H - 14), radius=6, fill=(*accent_rgb, 255))
+
+    # 우측 상단 은은한 장식 원
+    overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ov_draw = ImageDraw.Draw(overlay)
+    ov_draw.ellipse((W - 210, -70, W + 50, 190), fill=(*accent_rgb, 32))
+    ov_draw.ellipse((W - 130, H - 110, W + 60, H + 80), fill=(*accent_rgb, 22))
+    img = Image.alpha_composite(img, overlay)
+    draw = ImageDraw.Draw(img)
+
+    # 원형 아바타 (148x148)
+    av_size = 148
+    av_x, av_y = 54, (H - av_size) // 2
+    draw.ellipse((av_x - 5, av_y - 5, av_x + av_size + 5, av_y + av_size + 5), fill=(*accent_rgb, 255))
+    draw.ellipse((av_x - 2, av_y - 2, av_x + av_size + 2, av_y + av_size + 2), fill=(*bg_dark, 255))
+
+    avatar_img = None
+    if avatar_bytes:
+        try:
+            raw_av = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
+            avatar_img = raw_av.resize((av_size, av_size), Image.Resampling.LANCZOS)
+        except Exception:
+            avatar_img = None
+
+    if avatar_img is None:
+        avatar_img = Image.new("RGBA", (av_size, av_size), (*accent_rgb, 255))
+        av_d = ImageDraw.Draw(avatar_img)
+        init_font = core._get_grid_font(56, bold=True)
+        initial_ch = (str(member_name or "N").strip()[:1] or "N").upper()
+        av_d.text((av_size // 2, av_size // 2), initial_ch, fill=(255, 255, 255, 255), font=init_font, anchor="mm")
+
+    mask = Image.new("L", (av_size, av_size), 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, av_size, av_size), fill=255)
+    img.paste(avatar_img, (av_x, av_y), mask)
+
+    # 우측 텍스트 영역
+    tx = 232
+    f_badge = core._get_grid_font(17, bold=True)
+    f_name = core._get_grid_font(36, bold=True)
+    f_sub = core._get_grid_font(20, bold=False)
+    f_meta = core._get_grid_font(16, bold=True)
+
+    badge_txt = "GOODBYE · 다음에 또 만나요" if is_goodbye else "WELCOME · 서버 신규 멤버 입장"
+    draw.rounded_rectangle((tx, 44, tx + 275, 76), radius=10, fill=(*accent_rgb, 45), outline=(*accent_rgb, 190), width=1)
+    draw.text((tx + 14, 60), badge_txt, fill=(*accent_rgb, 255), font=f_badge, anchor="lm")
+
+    disp_name = str(member_name or "신규 멤버").strip()[:22]
+    draw.text((tx, 114), disp_name, fill=(255, 255, 255, 255), font=f_name, anchor="lm")
+
+    if is_goodbye:
+        sub_line = f"{str(guild_name or '서버')[:22]} 서버와 함께해 주셔서 감사합니다."
+    else:
+        raw_sub = subtitle or DEFAULT_WELCOME_SUBTITLE
+        sub_line = format_welcome_text(
+            raw_sub,
+            user_mention=disp_name,
+            username=disp_name,
+            server_name=str(guild_name or "서버"),
+            member_count=member_count,
+        )[:40]
+    draw.text((tx, 162), sub_line, fill=(200, 206, 224, 255), font=f_sub, anchor="lm")
+
+    now_str = datetime.datetime.now(core.KST).strftime("%Y.%m.%d %H:%M KST")
+    meta_txt = f"{str(guild_name or 'Server')[:20]}  ·  MEMBER #{max(1, int(member_count or 1)):,}  ·  {now_str}"
+    draw.text((tx, 204), meta_txt, fill=(142, 150, 175, 255), font=f_meta, anchor="lm")
+
+    out = io.BytesIO()
+    img.save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
+# ==========================================
+# 8. ⏳ 서버 관리자 실시간 카운트다운 타이머 임베드 (countdown_timers)
+# ==========================================
+def parse_countdown_time_spec(raw_spec: str, now_dt: Optional[datetime.datetime] = None) -> Optional[int]:
+    """
+    서버 관리자가 입력한 시간 문자열을 목표 UNIX 타임스탬프(초)로 변환합니다.
+    지원 형식:
+      - 상대 시간: '30분', '1시간 30분', '2시간', '1일 2시간', '90m', '2h', '45' (숫자만 입력 시 분 단위)
+      - 오늘/내일 시각: '21:00', '오후 9:30', '내일 20:00'
+      - 날짜+시각: '2026-11-27 20:00', '11-27 20:00'
+    """
+    s = str(raw_spec or "").strip()
+    if not s:
+        return None
+    base_now = now_dt if now_dt is not None else datetime.datetime.now(core.KST)
+    now_ts = int(base_now.timestamp())
+
+    # 1) 순수 숫자 -> 분 단위
+    if s.isdigit():
+        mins = int(s)
+        if 1 <= mins <= 525600:
+            return now_ts + mins * 60
+        return None
+
+    # 2) 상대 시간 ('1일', '2시간', '30분', '20초', '1d', '2h', '30m', '30s')
+    rel_matches = re.findall(r"(\d+)\s*(일|시간|시|분|초|d|day|days|h|hr|hrs|m|min|mins|s|sec|secs)", s, flags=re.IGNORECASE)
+    if rel_matches and not re.search(r"\d{1,2}:\d{2}", s):
+        total_sec = 0
+        for num_s, unit_s in rel_matches:
+            val = int(num_s)
+            u = unit_s.lower()
+            if u in ("일", "d", "day", "days"):
+                total_sec += val * 86400
+            elif u in ("시간", "시", "h", "hr", "hrs"):
+                total_sec += val * 3600
+            elif u in ("분", "m", "min", "mins"):
+                total_sec += val * 60
+            elif u in ("초", "s", "sec", "secs"):
+                total_sec += val
+        if 10 <= total_sec <= 365 * 86400:
+            return now_ts + total_sec
+
+    # 3) YYYY-MM-DD HH:MM 또는 MM-DD HH:MM
+    m_full = re.match(r"^(?:(\d{4})[-./])?(\d{1,2})[-./](\d{1,2})\s+(\d{1,2}):(\d{2})$", s)
+    if m_full:
+        yr = int(m_full.group(1)) if m_full.group(1) else base_now.year
+        mo, dy, hh, mm = int(m_full.group(2)), int(m_full.group(3)), int(m_full.group(4)), int(m_full.group(5))
+        try:
+            dt = datetime.datetime(yr, mo, dy, hh, mm, tzinfo=core.KST)
+            if not m_full.group(1) and dt <= base_now:
+                dt = datetime.datetime(yr + 1, mo, dy, hh, mm, tzinfo=core.KST)
+            if dt > base_now:
+                return int(dt.timestamp())
+        except ValueError:
+            return None
+
+    # 4) [오늘/내일] [오전/오후] HH:MM
+    m_tod = re.match(r"^(?:(오늘|내일|모레)\s*)?(?:(오전|오후|am|pm)\s*)?(\d{1,2}):(\d{2})$", s, flags=re.IGNORECASE)
+    if m_tod:
+        day_word = (m_tod.group(1) or "").strip()
+        ampm = (m_tod.group(2) or "").strip().lower()
+        hh, mm = int(m_tod.group(3)), int(m_tod.group(4))
+        if ampm in ("오후", "pm") and hh < 12:
+            hh += 12
+        elif ampm in ("오전", "am") and hh == 12:
+            hh = 0
+        if not (0 <= hh <= 23 and 0 <= mm <= 59):
+            return None
+        day_offset = 1 if day_word == "내일" else (2 if day_word == "모레" else 0)
+        target_date = (base_now + datetime.timedelta(days=day_offset)).date()
+        dt = datetime.datetime(target_date.year, target_date.month, target_date.day, hh, mm, tzinfo=core.KST)
+        if day_offset == 0 and dt <= base_now:
+            dt += datetime.timedelta(days=1)
+        return int(dt.timestamp())
+
+    return None
+
+
+def create_countdown_timer(
+    data: dict,
+    guild_id: int,
+    channel_id: int,
+    creator_id: int,
+    *,
+    title: str,
+    target_ts: int,
+    description: str = "",
+    mention_target: str = "none",
+    message_id: Optional[int] = None,
+) -> dict:
+    root = core.ensure_dict_path(data, "countdown_timers")
+    g_map = core.ensure_dict_path(root, str(guild_id))
+    timer_id = f"cd_{uuid.uuid4().hex[:8]}"
+    now_ts = int(time.time())
+    entry = {
+        "timer_id": timer_id,
+        "guild_id": int(guild_id),
+        "channel_id": int(channel_id),
+        "message_id": int(message_id) if message_id else None,
+        "creator_id": int(creator_id),
+        "title": str(title or "카운트다운 이벤트").strip()[:100],
+        "description": str(description or "").strip()[:800],
+        "target_ts": int(target_ts),
+        "created_ts": now_ts,
+        "mention_target": str(mention_target or "none").strip()[:64],
+        "subscribers": [int(creator_id)] if creator_id else [],
+        "status": "active",
+    }
+    g_map[timer_id] = entry
+    return entry
+
+
+def get_guild_countdown_timers(data: dict, guild_id: int, *, active_only: bool = False) -> list[dict]:
+    root = core.as_dict(data.get("countdown_timers"))
+    g_map = core.as_dict(root.get(str(guild_id)))
+    out: list[dict] = []
+    for t in g_map.values():
+        if not isinstance(t, dict):
+            continue
+        if active_only and str(t.get("status") or "active") != "active":
+            continue
+        out.append(t)
+    out.sort(key=lambda x: int(x.get("target_ts") or 0))
+    return out
+
+
+def get_countdown_timer(data: dict, guild_id: int, timer_id: str) -> Optional[dict]:
+    root = core.as_dict(data.get("countdown_timers"))
+    g_map = core.as_dict(root.get(str(guild_id)))
+    t = g_map.get(str(timer_id))
+    return t if isinstance(t, dict) else None
+
+
+def find_countdown_timer_by_message(data: dict, guild_id: int, message_id: int) -> Optional[dict]:
+    if not message_id:
+        return None
+    for t in get_guild_countdown_timers(data, guild_id):
+        if int(t.get("message_id") or 0) == int(message_id):
+            return t
+    return None
+
+
+def toggle_countdown_subscriber(data: dict, guild_id: int, timer_id: str, user_id: int) -> tuple[bool, int]:
+    t = get_countdown_timer(data, guild_id, timer_id)
+    if not t:
+        return False, 0
+    subs = _normalize_uid_list(t.get("subscribers"))
+    uid = int(user_id)
+    if uid in subs:
+        subs.remove(uid)
+        added = False
+    else:
+        subs.append(uid)
+        added = True
+    t["subscribers"] = subs
+    return added, len(subs)
+
+
+def extend_countdown_timer(data: dict, guild_id: int, timer_id: str, delta_sec: int = 600) -> Optional[dict]:
+    t = get_countdown_timer(data, guild_id, timer_id)
+    if not t or str(t.get("status") or "active") != "active":
+        return None
+    base_ts = max(int(time.time()), int(t.get("target_ts") or 0))
+    t["target_ts"] = base_ts + int(delta_sec)
+    return t
+
+
+def cancel_countdown_timer(data: dict, guild_id: int, timer_id: str) -> Optional[dict]:
+    t = get_countdown_timer(data, guild_id, timer_id)
+    if not t:
+        return None
+    t["status"] = "cancelled"
+    return t
+
+
+def collect_due_countdown_timers(data: dict, now_ts: Optional[int] = None) -> list[dict]:
+    """목표 시각에 도달한 활성 카운트다운 타이머를 수집하고 completed 상태로 전환합니다."""
+    ts = int(now_ts if now_ts is not None else time.time())
+    root = core.as_dict(data.get("countdown_timers"))
+    due: list[dict] = []
+    for g_map in root.values():
+        if not isinstance(g_map, dict):
+            continue
+        for t in g_map.values():
+            if not isinstance(t, dict):
+                continue
+            if str(t.get("status") or "active") != "active":
+                continue
+            target_ts = int(t.get("target_ts") or 0)
+            if target_ts <= 0:
+                continue
+            if target_ts <= ts:
+                t["status"] = "completed"
+                due.append(t)
+    return due
+
 
 

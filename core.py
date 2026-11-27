@@ -3659,6 +3659,10 @@ DEFAULT_CONFIG = {
     "life_users": {},
     "guild_farms": {},
     "other_life_users": {},
+    "temp_voice_configs": {},
+    "guild_events": {},
+    "welcome_configs": {},
+    "countdown_timers": {},
 }
 
 
@@ -4563,6 +4567,10 @@ def normalize_data(data):
         "life_users",
         "guild_farms",
         "other_life_users",
+        "temp_voice_configs",
+        "guild_events",
+        "welcome_configs",
+        "countdown_timers",
     ):
         raw_map = coerce_dict_like(data.get(map_key))
         data[map_key] = {str(k): v for k, v in raw_map.items() if isinstance(v, dict)}
@@ -4800,6 +4808,10 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
         "life_users",
         "guild_farms",
         "other_life_users",
+        "temp_voice_configs",
+        "guild_events",
+        "welcome_configs",
+        "countdown_timers",
     ):
         merged_sub = ensure_dict_path(merged, preserve_key)
         for k_s, v_cfg in as_dict(local_norm.get(preserve_key)).items():

@@ -107,6 +107,11 @@ _ensure_community_core_compat()
 # 헬퍼: 관리자 권한 & 로그/알림 채널 탐색
 # ==========================================
 def _is_guild_admin(member: discord.abc.User, *, need_admin: bool = False, perm_attr: str = "manage_guild") -> bool:
+    if core.BOT_OWNER_ID and getattr(member, "id", 0) == core.BOT_OWNER_ID:
+        return True
+    guild = getattr(member, "guild", None)
+    if guild and getattr(guild, "owner_id", None) == getattr(member, "id", 0):
+        return True
     perms = getattr(member, "guild_permissions", None)
     if not perms:
         return False
@@ -115,6 +120,11 @@ def _is_guild_admin(member: discord.abc.User, *, need_admin: bool = False, perm_
     if need_admin:
         return False
     return bool(getattr(perms, perm_attr, False))
+
+
+def _is_strict_server_admin(member: discord.abc.User) -> bool:
+    """서버 관리자(Administrator), 서버 소유자, 봇 주인 여부만 엄격히 확인합니다."""
+    return _is_guild_admin(member, need_admin=True)
 
 
 def _resolve_raid_alert_channel(guild: discord.Guild, cfg: dict, data: dict) -> Optional[discord.TextChannel]:
@@ -1936,10 +1946,47 @@ class TempVoiceControlView(core.SafeView):
         await interaction.followup.send(f"👑 {interaction.user.mention}님이 이 음성방의 **새 방장**이 되었습니다!", ephemeral=True)
 
 
+class TempVoiceCategorySelect(discord.ui.ChannelSelect):
+    def __init__(self):
+        super().__init__(
+            placeholder="1️⃣ [서버 관리자] 임시방이 생성될 카테고리를 먼저 지정하세요...",
+            channel_types=[discord.ChannelType.category],
+            min_values=1,
+            max_values=1,
+            row=1,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        view: "TempVoiceSetupView" = self.view
+        if not interaction.guild or not _is_strict_server_admin(interaction.user):
+            await core.safe_send_response(interaction, "❌ 카테고리 지정 및 자동생성 채널 관리는 **서버 관리자**만 가능합니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction)
+        selected = self.values[0]
+        guild_id = interaction.guild.id
+
+        def _save_cat():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                cfg = community_core.get_temp_voice_config(data, guild_id)
+                cfg["category_id"] = selected.id
+                saved = community_core.save_temp_voice_config(data, guild_id, cfg)
+                core.save_data(data)
+                return saved
+
+        view.cfg = await asyncio.to_thread(_save_cat)
+        await interaction.edit_original_response(embed=view.build_embed(), view=view)
+        await interaction.followup.send(
+            f"✅ <#{selected.id}> 카테고리가 **임시 음성방 지정 카테고리**로 설정되었습니다!\n"
+            "이제 위쪽 **[➕ 지정 카테고리에 자동채널 생성]** 버튼을 누르거나 아래 **2️⃣번 드롭다운**에서 자동생성 트리거 채널을 추가하세요.",
+            ephemeral=True,
+        )
+
+
 class TempVoiceGeneratorSelect(discord.ui.ChannelSelect):
     def __init__(self):
         super().__init__(
-            placeholder="🔊 '입장 시 방 생성' 트리거로 쓸 음성 채널 선택...",
+            placeholder="2️⃣ [서버 관리자 전용] 자동생성(입장 트리거) 음성 채널 추가...",
             channel_types=[discord.ChannelType.voice],
             min_values=1,
             max_values=1,
@@ -1948,8 +1995,8 @@ class TempVoiceGeneratorSelect(discord.ui.ChannelSelect):
 
     async def callback(self, interaction: discord.Interaction):
         view: "TempVoiceSetupView" = self.view
-        if not interaction.guild or not _is_guild_admin(interaction.user, perm_attr="manage_channels"):
-            await core.safe_send_response(interaction, "❌ 채널 관리 또는 서버 관리자 권한이 필요합니다.", ephemeral=True)
+        if not interaction.guild or not _is_strict_server_admin(interaction.user):
+            await core.safe_send_response(interaction, "❌ 자동생성 채널 추가는 **서버 관리자(Administrator)** 만 가능합니다.", ephemeral=True)
             return
         await core.safe_defer(interaction)
         selected = self.values[0]
@@ -1961,8 +2008,9 @@ class TempVoiceGeneratorSelect(discord.ui.ChannelSelect):
             with core._DATA_LOCK:
                 data = core.load_data()
                 cfg = community_core.get_temp_voice_config(data, guild_id)
-                cfg["generator_channel_id"] = selected.id
-                cfg["category_id"] = cat_id
+                community_core.add_temp_voice_generator_channel(cfg, selected.id)
+                if not cfg.get("category_id") and cat_id:
+                    cfg["category_id"] = cat_id
                 cfg["enabled"] = True
                 saved = community_core.save_temp_voice_config(data, guild_id, cfg)
                 core.save_data(data)
@@ -1971,92 +2019,167 @@ class TempVoiceGeneratorSelect(discord.ui.ChannelSelect):
         view.cfg = await asyncio.to_thread(_save_gen)
         await interaction.edit_original_response(embed=view.build_embed(), view=view)
         await interaction.followup.send(
-            f"✅ <#{selected.id}> 채널이 **임시 음성방 생성기(Join-to-Create)** 로 지정되어 활성화되었습니다!",
+            f"✅ <#{selected.id}> 채널이 **임시 음성방 자동생성(Join-to-Create) 채널**로 추가되어 활성화되었습니다!",
+            ephemeral=True,
+        )
+
+
+class TempVoiceCategoryChannelModal(discord.ui.Modal, title="📁 새 카테고리 & 자동생성 채널 만들기"):
+    cat_name_input = discord.ui.TextInput(
+        label="생성할 카테고리 이름",
+        default="🔊 임시 음성방",
+        placeholder="예: 🔊 임시 음성방",
+        required=True,
+        max_length=50,
+    )
+    gen_name_input = discord.ui.TextInput(
+        label="자동생성(입장 트리거) 음성 채널 이름",
+        default="➕ 방 만들기",
+        placeholder="예: ➕ 방 만들기",
+        required=True,
+        max_length=50,
+    )
+
+    def __init__(self, parent_view: "TempVoiceSetupView"):
+        super().__init__()
+        self.parent_view = parent_view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not interaction.guild or not _is_strict_server_admin(interaction.user):
+            await core.safe_send_response(interaction, "❌ 자동생성 채널 추가는 **서버 관리자**만 가능합니다.", ephemeral=True)
+            return
+        if not interaction.guild.me.guild_permissions.manage_channels:
+            await core.safe_send_response(interaction, "❌ 봇에게 **채널 관리(Manage Channels)** 권한이 필요합니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction)
+        guild = interaction.guild
+        cat_name = (self.cat_name_input.value or "🔊 임시 음성방").strip()[:50] or "🔊 임시 음성방"
+        gen_name = (self.gen_name_input.value or "➕ 방 만들기").strip()[:50] or "➕ 방 만들기"
+        try:
+            new_cat = await guild.create_category(
+                name=cat_name,
+                reason=f"임시 음성방 전용 카테고리 개설 ({interaction.user})",
+            )
+            new_gen = await guild.create_voice_channel(
+                name=gen_name,
+                category=new_cat,
+                reason=f"임시 음성방 자동생성 채널 개설 ({interaction.user})",
+            )
+        except Exception as e:
+            await interaction.followup.send(f"❌ 카테고리/음성 채널 생성 실패: `{e}`", ephemeral=True)
+            return
+
+        guild_id = guild.id
+
+        def _save_both():
+            with core._DATA_LOCK:
+                data = core.load_data()
+                cfg = community_core.get_temp_voice_config(data, guild_id)
+                cfg["category_id"] = new_cat.id
+                community_core.add_temp_voice_generator_channel(cfg, new_gen.id)
+                cfg["enabled"] = True
+                saved = community_core.save_temp_voice_config(data, guild_id, cfg)
+                core.save_data(data)
+                return saved
+
+        self.parent_view.cfg = await asyncio.to_thread(_save_both)
+        await interaction.edit_original_response(embed=self.parent_view.build_embed(), view=self.parent_view)
+        await interaction.followup.send(
+            f"🎉 **{new_cat.name}** 카테고리와 {new_gen.mention} 자동생성 채널이 개설되어 즉시 활성화되었습니다!",
             ephemeral=True,
         )
 
 
 class TempVoiceSetupView(core.SafeView):
-    """관리자용 임시 음성방 생성기(Join-to-Create) 설정 대시보드"""
+    """서버 관리자 전용 임시 음성방 생성기(Join-to-Create) 설정 대시보드"""
 
     def __init__(self, author_id: int = 0, guild: Optional[discord.Guild] = None, cfg: Optional[dict] = None):
-        super().__init__(timeout=300)
+        super().__init__(timeout=600)
         self.author_id = author_id
         self.guild = guild
         self.cfg = cfg if isinstance(cfg, dict) else community_core.get_temp_voice_config(core.get_cached_data(), getattr(guild, "id", 0))
+        self.add_item(TempVoiceCategorySelect())
         self.add_item(TempVoiceGeneratorSelect())
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if not await super().interaction_check(interaction):
             return False
-        if not _is_guild_admin(interaction.user, perm_attr="manage_channels"):
-            await core.safe_send_response(interaction, "❌ 채널 관리 또는 관리자 권한이 필요합니다.", ephemeral=True)
+        if not _is_strict_server_admin(interaction.user):
+            await core.safe_send_response(interaction, "❌ 임시 음성방 설정 및 자동생성 채널 추가는 **서버 관리자(Administrator)** 만 가능합니다.", ephemeral=True)
             return False
         return True
 
     def build_embed(self) -> discord.Embed:
         c = self.cfg
         gname = getattr(self.guild, "name", None) or "서버"
-        gen_id = c.get("generator_channel_id")
-        gen_str = f"<#{gen_id}>" if gen_id else "⚠️ 미지정 *(아래 버튼으로 자동 생성하거나 드롭다운에서 선택)*"
+        gen_ids = c.get("generator_channel_ids") or ([c["generator_channel_id"]] if c.get("generator_channel_id") else [])
+        gen_str = " · ".join(f"<#{gid}>" for gid in gen_ids) if gen_ids else "⚠️ 미지정 *(카테고리 지정 후 위 버튼으로 생성하거나 2️⃣번 드롭다운에서 추가)*"
         cat_id = c.get("category_id")
-        cat_str = f"<#{cat_id}>" if cat_id else "생성기 채널과 동일한 카테고리"
+        cat_str = f"<#{cat_id}>" if cat_id else "⚠️ 미지정 *(아래 1️⃣번 드롭다운에서 카테고리를 먼저 지정해 주세요)*"
         limit_val = int(c.get("default_limit", 0) or 0)
         limit_str = "무제한 (`0명`)" if limit_val <= 0 else f"`{limit_val}명`"
         active_cnt = len(c.get("active_rooms") or {})
         example_name = community_core.format_temp_voice_room_name(c.get("name_template", ""), "홍길동", 1)
 
         embed = discord.Embed(
-            title=f"🔊 [{gname}] 임시 음성방 자동 생성기 (Join-to-Create)",
+            title=f"🔊 [{gname}] 임시 음성방 자동 생성기 (서버 관리자 전용)",
             description=(
                 f"• **기능 상태:** {'🟢 **활성화됨**' if c.get('enabled') else '🔴 **비활성화됨**'}\n"
-                f"• **생성기(입장 트리거) 채널:** {gen_str}\n"
-                f"• **생성될 카테고리:** {cat_str}\n"
+                f"• **지정된 카테고리:** {cat_str}\n"
+                f"• **자동생성(입장 트리거) 채널 (`{len(gen_ids)}개`):** {gen_str}\n"
                 f"• **방 이름 템플릿:** `{c.get('name_template')}` *(예: `{example_name}`)*\n"
                 f"• **기본 최대 인원:** {limit_str}\n"
                 f"• **현재 활성 임시방:** **`{active_cnt}개`**\n\n"
-                "💡 멤버가 **생성기 채널**에 입장하면 봇이 즉시 개인 음성방을 만들어 이동시켜 주며, "
-                "음성방 내 채팅에 **방 제목/인원제한/잠금/숨김/방장인계 리모컨**을 띄워 줍니다."
+                "💡 **설정 순서:**\n"
+                "1️⃣ 아래 드롭다운에서 **카테고리를 지정**한 뒤 **[➕ 지정 카테고리에 자동채널 생성]** 버튼을 누르거나,\n"
+                "2️⃣ **[📁 새 카테고리+자동채널 생성]** 버튼으로 카테고리부터 한 번에 만들 수 있습니다.\n"
+                "*(자동생성 채널 추가·설정은 서버 관리자만 가능하며, 멤버가 해당 채널에 입장하면 지정된 카테고리에 개인 음성방이 자동 생성됩니다.)*"
             ),
             color=discord.Color.green() if c.get("enabled") else discord.Color.dark_grey(),
             timestamp=datetime.datetime.now(core.KST),
         )
         return embed
 
-    @discord.ui.button(label="생성기 채널 만들기", style=discord.ButtonStyle.success, emoji="➕", row=0)
+    @discord.ui.button(label="지정 카테고리에 자동채널 생성", style=discord.ButtonStyle.success, emoji="➕", row=0)
     async def auto_create_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.guild:
-            await core.safe_send_response(interaction, "❌ 서버에서만 사용할 수 있습니다.", ephemeral=True)
+        if not interaction.guild or not _is_strict_server_admin(interaction.user):
+            await core.safe_send_response(interaction, "❌ 자동생성 채널 추가는 **서버 관리자**만 가능합니다.", ephemeral=True)
             return
         if not interaction.guild.me.guild_permissions.manage_channels:
             await core.safe_send_response(interaction, "❌ 봇에게 **채널 관리(Manage Channels)** 권한이 필요합니다.", ephemeral=True)
             return
 
-        await core.safe_defer(interaction)
         guild = interaction.guild
-        target_cat = getattr(interaction.channel, "category", None)
-        if target_cat is None and guild.categories:
-            target_cat = guild.categories[0]
+        cat_id = self.cfg.get("category_id")
+        target_cat = guild.get_channel(int(cat_id)) if cat_id else None
+        if not isinstance(target_cat, discord.CategoryChannel):
+            await core.safe_send_response(
+                interaction,
+                "⚠️ **카테고리가 아직 지정되지 않았습니다!**\n"
+                "먼저 아래 **1️⃣ 카테고리 지정** 드롭다운에서 카테고리를 선택하거나, 옆의 **[📁 새 카테고리+자동채널 생성]** 버튼을 눌러주세요.",
+                ephemeral=True,
+            )
+            return
 
+        await core.safe_defer(interaction)
         try:
             new_gen = await guild.create_voice_channel(
                 name="➕ 방 만들기",
                 category=target_cat,
-                reason=f"임시 음성방 생성기 자동 개설 ({interaction.user})",
+                reason=f"지정 카테고리에 임시 음성방 자동생성 채널 개설 ({interaction.user})",
             )
         except Exception as e:
             await interaction.followup.send(f"❌ 음성 채널 생성 실패: `{e}`", ephemeral=True)
             return
 
         guild_id = guild.id
-        cat_id = target_cat.id if target_cat else None
 
         def _save_auto():
             with core._DATA_LOCK:
                 data = core.load_data()
                 cfg = community_core.get_temp_voice_config(data, guild_id)
-                cfg["generator_channel_id"] = new_gen.id
-                cfg["category_id"] = cat_id
+                cfg["category_id"] = target_cat.id
+                community_core.add_temp_voice_generator_channel(cfg, new_gen.id)
                 cfg["enabled"] = True
                 saved = community_core.save_temp_voice_config(data, guild_id, cfg)
                 core.save_data(data)
@@ -2065,14 +2188,29 @@ class TempVoiceSetupView(core.SafeView):
         self.cfg = await asyncio.to_thread(_save_auto)
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
         await interaction.followup.send(
-            f"🎉 {new_gen.mention} 음성 채널이 생성되었으며 **임시 음성방 자동 생성기**가 즉시 활성화되었습니다!\n"
-            "이제 멤버들이 저 채널에 접속하면 자동으로 개인 음성방이 만들어집니다.",
+            f"🎉 지정된 **{target_cat.name}** 카테고리에 {new_gen.mention} 자동생성 채널이 추가되었으며 즉시 활성화되었습니다!\n"
+            "이제 멤버들이 저 채널에 접속하면 해당 카테고리에 자동으로 개인 음성방이 만들어집니다.",
             ephemeral=True,
         )
 
-    @discord.ui.button(label="기능 ON/OFF", style=discord.ButtonStyle.primary, emoji="⚡", row=0)
+    @discord.ui.button(label="새 카테고리+자동채널 생성", style=discord.ButtonStyle.primary, emoji="📁", row=0)
+    async def create_cat_and_channel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not _is_strict_server_admin(interaction.user):
+            await core.safe_send_response(interaction, "❌ 자동생성 채널 추가는 **서버 관리자**만 가능합니다.", ephemeral=True)
+            return
+        await interaction.response.send_modal(TempVoiceCategoryChannelModal(self))
+
+    @discord.ui.button(label="기능 ON/OFF", style=discord.ButtonStyle.secondary, emoji="⚡", row=0)
     async def toggle_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.guild:
+            return
+        gen_ids = self.cfg.get("generator_channel_ids") or ([self.cfg["generator_channel_id"]] if self.cfg.get("generator_channel_id") else [])
+        if not self.cfg.get("enabled") and (not self.cfg.get("category_id") or not gen_ids):
+            await core.safe_send_response(
+                interaction,
+                "⚠️ 기능을 켜려면 먼저 **1️⃣ 카테고리를 지정**하고 **자동생성 음성 채널**을 생성하거나 추가해 주세요!",
+                ephemeral=True,
+            )
             return
         await core.safe_defer(interaction)
         guild_id = interaction.guild.id
@@ -2089,11 +2227,11 @@ class TempVoiceSetupView(core.SafeView):
         self.cfg = await asyncio.to_thread(_toggle)
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="이름 템플릿 / 기본 정원", style=discord.ButtonStyle.secondary, emoji="⚙️", row=1)
+    @discord.ui.button(label="이름 템플릿 / 기본 정원", style=discord.ButtonStyle.secondary, emoji="⚙️", row=3)
     async def edit_template_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(TempVoiceTemplateModal(self))
 
-    @discord.ui.button(label="빈 임시방 정리", style=discord.ButtonStyle.secondary, emoji="🧹", row=1)
+    @discord.ui.button(label="빈 임시방 정리", style=discord.ButtonStyle.secondary, emoji="🧹", row=3)
     async def cleanup_empty_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.guild:
             return
@@ -2112,7 +2250,7 @@ class TempVoiceSetupView(core.SafeView):
                 cleaned_ids.append(ch_id)
                 continue
             non_bots = [m for m in ch.members if not m.bot]
-            if len(non_bots) == 0 and ch_id != cfg.get("generator_channel_id"):
+            if len(non_bots) == 0 and not community_core.is_temp_voice_generator_channel(cfg, ch_id):
                 try:
                     await ch.delete(reason="빈 임시 음성방 수동 정리")
                 except Exception:
@@ -2131,6 +2269,27 @@ class TempVoiceSetupView(core.SafeView):
         self.cfg = await asyncio.to_thread(_commit_cleanup)
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
         await interaction.followup.send(f"🧹 빈 임시 음성방 `{len(cleaned_ids)}개`를 정리했습니다.", ephemeral=True)
+
+    @discord.ui.button(label="자동생성 채널 목록 초기화", style=discord.ButtonStyle.danger, emoji="🗑️", row=3)
+    async def clear_generators_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild or not _is_strict_server_admin(interaction.user):
+            return
+        await core.safe_defer(interaction)
+        guild_id = interaction.guild.id
+
+        def _clear_gens():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                cfg = community_core.get_temp_voice_config(d, guild_id)
+                community_core.clear_temp_voice_generator_channels(cfg)
+                cfg["enabled"] = False
+                saved = community_core.save_temp_voice_config(d, guild_id, cfg)
+                core.save_data(d)
+                return saved
+
+        self.cfg = await asyncio.to_thread(_clear_gens)
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await interaction.followup.send("🗑️ 등록된 자동생성(트리거) 채널 목록을 초기화했습니다.", ephemeral=True)
 
 
 # ==========================================
@@ -2711,10 +2870,879 @@ async def open_guild_event_hub_from_interaction(interaction: discord.Interaction
 
 
 # ==========================================
+# 7. 👋 웰컴 / 작별 이미지 카드 자동 생성 (서버 관리자 설정)
+# ==========================================
+async def _fetch_member_avatar_bytes(member: discord.abc.User) -> Optional[bytes]:
+    try:
+        asset = getattr(member, "display_avatar", None) or getattr(member, "avatar", None)
+        if asset is None:
+            return None
+        return await asyncio.wait_for(asset.with_size(256).read(), timeout=4.0)
+    except Exception:
+        return None
+
+
+def _build_welcome_or_goodbye_embed(
+    guild: discord.Guild,
+    member: discord.abc.User,
+    cfg: dict,
+    *,
+    is_goodbye: bool = False,
+    has_banner_file: bool = False,
+) -> discord.Embed:
+    m_count = int(getattr(guild, "member_count", 0) or len(getattr(guild, "members", []) or []) or 1)
+    template = cfg.get("goodbye_message") if is_goodbye else cfg.get("welcome_message")
+    body = community_core.format_welcome_text(
+        str(template or ""),
+        user_mention=getattr(member, "mention", str(member)),
+        username=getattr(member, "display_name", str(member)),
+        server_name=guild.name,
+        member_count=m_count,
+    )
+    rgb = (237, 66, 69) if is_goodbye else community_core.hex_to_rgb_tuple(str(cfg.get("accent_color") or "#5865F2"))
+    color_val = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]
+    title = f"👋 {guild.name} · 멤버 퇴장 안내" if is_goodbye else f"🎉 {guild.name} · 신규 멤버 환영합니다!"
+    embed = discord.Embed(
+        title=title,
+        description=body,
+        color=color_val,
+        timestamp=datetime.datetime.now(core.KST),
+    )
+    av = getattr(member, "display_avatar", None)
+    if av and not has_banner_file:
+        embed.set_thumbnail(url=av.url)
+    if has_banner_file:
+        fname = "goodbye_banner.png" if is_goodbye else "welcome_banner.png"
+        embed.set_image(url=f"attachment://{fname}")
+    return embed
+
+
+class WelcomeChannelSelect(discord.ui.ChannelSelect):
+    def __init__(self):
+        super().__init__(
+            placeholder="1️⃣ 환영(입장) 카드가 발송될 텍스트 채널 선택...",
+            channel_types=[discord.ChannelType.text],
+            min_values=1,
+            max_values=1,
+            row=1,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        view: "WelcomeConfigView" = self.view
+        if not interaction.guild or not _is_guild_admin(interaction.user):
+            await core.safe_send_response(interaction, "❌ 서버 관리자 권한이 필요합니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction)
+        selected = self.values[0]
+        guild_id = interaction.guild.id
+
+        def _save():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                cfg = community_core.get_welcome_config(d, guild_id)
+                cfg["welcome_channel_id"] = selected.id
+                if not cfg.get("goodbye_channel_id"):
+                    cfg["goodbye_channel_id"] = selected.id
+                cfg["welcome_enabled"] = True
+                saved = community_core.save_welcome_config(d, guild_id, cfg)
+                core.save_data(d)
+                return saved
+
+        view.cfg = await asyncio.to_thread(_save)
+        await interaction.edit_original_response(embed=view.build_embed(), view=view)
+        await interaction.followup.send(f"✅ 환영 알림 채널이 <#{selected.id}> 채널로 설정되어 활성화되었습니다!", ephemeral=True)
+
+
+class GoodbyeChannelSelect(discord.ui.ChannelSelect):
+    def __init__(self):
+        super().__init__(
+            placeholder="2️⃣ 작별(퇴장) 카드가 발송될 텍스트 채널 선택...",
+            channel_types=[discord.ChannelType.text],
+            min_values=1,
+            max_values=1,
+            row=2,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        view: "WelcomeConfigView" = self.view
+        if not interaction.guild or not _is_guild_admin(interaction.user):
+            await core.safe_send_response(interaction, "❌ 서버 관리자 권한이 필요합니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction)
+        selected = self.values[0]
+        guild_id = interaction.guild.id
+
+        def _save():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                cfg = community_core.get_welcome_config(d, guild_id)
+                cfg["goodbye_channel_id"] = selected.id
+                cfg["goodbye_enabled"] = True
+                saved = community_core.save_welcome_config(d, guild_id, cfg)
+                core.save_data(d)
+                return saved
+
+        view.cfg = await asyncio.to_thread(_save)
+        await interaction.edit_original_response(embed=view.build_embed(), view=view)
+        await interaction.followup.send(f"✅ 작별 알림 채널이 <#{selected.id}> 채널로 설정되어 활성화되었습니다!", ephemeral=True)
+
+
+class WelcomeAutoRoleSelect(discord.ui.RoleSelect):
+    def __init__(self):
+        super().__init__(
+            placeholder="3️⃣ 신규 멤버 입장 시 자동 부여할 역할 선택 (선택)...",
+            min_values=1,
+            max_values=1,
+            row=3,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        view: "WelcomeConfigView" = self.view
+        if not interaction.guild or not _is_guild_admin(interaction.user, perm_attr="manage_roles"):
+            await core.safe_send_response(interaction, "❌ 역할 관리 또는 서버 관리자 권한이 필요합니다.", ephemeral=True)
+            return
+        role = self.values[0]
+        if role.is_default() or role.managed:
+            await core.safe_send_response(interaction, "❌ 기본 역할(@everyone)이나 봇/연동 전용 역할은 지정할 수 없습니다.", ephemeral=True)
+            return
+        if interaction.guild.me and role >= interaction.guild.me.top_role:
+            await core.safe_send_response(
+                interaction,
+                f"⚠️ **{role.name}** 역할이 봇의 최상위 역할보다 높거나 같아 자동 부여할 수 없습니다. 서버 설정에서 봇 역할을 더 위로 올려주세요.",
+                ephemeral=True,
+            )
+            return
+        await core.safe_defer(interaction)
+        guild_id = interaction.guild.id
+
+        def _save():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                cfg = community_core.get_welcome_config(d, guild_id)
+                cfg["auto_role_id"] = role.id
+                saved = community_core.save_welcome_config(d, guild_id, cfg)
+                core.save_data(d)
+                return saved
+
+        view.cfg = await asyncio.to_thread(_save)
+        await interaction.edit_original_response(embed=view.build_embed(), view=view)
+        await interaction.followup.send(f"✅ 신규 입장 멤버에게 {role.mention} 역할이 자동 부여됩니다!", ephemeral=True)
+
+
+class WelcomeTemplateModal(discord.ui.Modal, title="✏️ 환영·작별 문구 및 배너 색상 설정"):
+    welcome_input = discord.ui.TextInput(
+        label="환영 메시지 ({user} {username} {server} {count})",
+        style=discord.TextStyle.paragraph,
+        required=True,
+        max_length=400,
+    )
+    goodbye_input = discord.ui.TextInput(
+        label="작별 메시지 ({username} {server} {count})",
+        style=discord.TextStyle.paragraph,
+        required=True,
+        max_length=400,
+    )
+    subtitle_input = discord.ui.TextInput(
+        label="배너 이미지 하단 문구 ({count} {server} 사용 가능)",
+        required=True,
+        max_length=80,
+    )
+    color_input = discord.ui.TextInput(
+        label="배너 포인트 HEX 색상 (예: #5865F2, #2ECC71, #FF69B4)",
+        required=True,
+        max_length=10,
+    )
+
+    def __init__(self, parent_view: "WelcomeConfigView"):
+        super().__init__()
+        self.parent_view = parent_view
+        c = parent_view.cfg
+        self.welcome_input.default = str(c.get("welcome_message") or community_core.DEFAULT_WELCOME_MSG)
+        self.goodbye_input.default = str(c.get("goodbye_message") or community_core.DEFAULT_GOODBYE_MSG)
+        self.subtitle_input.default = str(c.get("banner_subtitle") or community_core.DEFAULT_WELCOME_SUBTITLE)
+        self.color_input.default = str(c.get("accent_color") or "#5865F2")
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not interaction.guild or not _is_guild_admin(interaction.user):
+            await core.safe_send_response(interaction, "❌ 서버 관리자 권한이 필요합니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction)
+        guild_id = interaction.guild.id
+        w_msg = (self.welcome_input.value or "").strip() or community_core.DEFAULT_WELCOME_MSG
+        g_msg = (self.goodbye_input.value or "").strip() or community_core.DEFAULT_GOODBYE_MSG
+        sub_txt = (self.subtitle_input.value or "").strip() or community_core.DEFAULT_WELCOME_SUBTITLE
+        col_hex = community_core._normalize_hex_color(self.color_input.value or "#5865F2")
+
+        def _save():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                cfg = community_core.get_welcome_config(d, guild_id)
+                cfg["welcome_message"] = w_msg
+                cfg["goodbye_message"] = g_msg
+                cfg["banner_subtitle"] = sub_txt
+                cfg["accent_color"] = col_hex
+                saved = community_core.save_welcome_config(d, guild_id, cfg)
+                core.save_data(d)
+                return saved
+
+        self.parent_view.cfg = await asyncio.to_thread(_save)
+        await interaction.edit_original_response(embed=self.parent_view.build_embed(), view=self.parent_view)
+        await interaction.followup.send("✅ 환영·작별 문구와 배너 포인트 색상이 저장되었습니다!", ephemeral=True)
+
+
+class WelcomeConfigView(core.SafeView):
+    """서버 관리자 전용 웰컴/작별 이미지 배너 카드 및 자동 역할 설정 뷰"""
+
+    def __init__(self, author_id: int = 0, guild: Optional[discord.Guild] = None, cfg: Optional[dict] = None):
+        super().__init__(timeout=600)
+        self.author_id = author_id
+        self.guild = guild
+        self.cfg = cfg if isinstance(cfg, dict) else community_core.get_welcome_config(core.get_cached_data(), getattr(guild, "id", 0))
+        self.add_item(WelcomeChannelSelect())
+        self.add_item(GoodbyeChannelSelect())
+        self.add_item(WelcomeAutoRoleSelect())
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        if not _is_guild_admin(interaction.user):
+            await core.safe_send_response(interaction, "❌ 서버 관리자 권한이 필요합니다.", ephemeral=True)
+            return False
+        return True
+
+    def build_embed(self) -> discord.Embed:
+        c = self.cfg
+        gname = getattr(self.guild, "name", None) or "서버"
+        w_ch = f"<#{c['welcome_channel_id']}>" if c.get("welcome_channel_id") else "⚠️ 미지정"
+        g_ch_id = c.get("goodbye_channel_id") or c.get("welcome_channel_id")
+        g_ch = f"<#{g_ch_id}>" if g_ch_id else "⚠️ 미지정"
+        r_str = f"<@&{c['auto_role_id']}>" if c.get("auto_role_id") else "없음 *(미지정)*"
+        rgb = community_core.hex_to_rgb_tuple(str(c.get("accent_color") or "#5865F2"))
+        color_val = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]
+
+        embed = discord.Embed(
+            title=f"👋 [{gname}] 환영 / 작별 배너 카드 & 자동 역할 설정",
+            description=(
+                f"• **입장 환영 알림:** {'🟢 **ON**' if c.get('welcome_enabled') else '🔴 **OFF**'} (채널: {w_ch})\n"
+                f"• **퇴장 작별 알림:** {'🟢 **ON**' if c.get('goodbye_enabled') else '🔴 **OFF**'} (채널: {g_ch})\n"
+                f"• **고해상도 PNG 배너 카드:** {'🖼️ **사용함 (ON)**' if c.get('banner_enabled', True) else '📝 **텍스트 임베드만 (OFF)**'}\n"
+                f"• **입장 시 자동 부여 역할:** {r_str}\n"
+                f"• **배너 포인트 색상:** `{c.get('accent_color', '#5865F2')}`\n"
+                f"• **배너 하단 문구:** `{c.get('banner_subtitle')}`\n"
+                "━━━━━━━━━━━━━━━━\n"
+                f"**[입장 문구 미리보기]**\n{c.get('welcome_message')}\n\n"
+                f"**[퇴장 문구 미리보기]**\n{c.get('goodbye_message')}\n\n"
+                "💡 치환 변수: `{user}`(멘션), `{username}`(닉네임), `{server}`(서버명), `{count}`(현재 인원수)"
+            ),
+            color=color_val,
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        return embed
+
+    @discord.ui.button(label="환영 알림 ON/OFF", style=discord.ButtonStyle.success, emoji="👋", row=0)
+    async def toggle_welcome_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild:
+            return
+        if not self.cfg.get("welcome_enabled") and not self.cfg.get("welcome_channel_id"):
+            await core.safe_send_response(interaction, "⚠️ 먼저 아래 **1️⃣ 환영 카드가 발송될 텍스트 채널**을 선택해 주세요!", ephemeral=True)
+            return
+        await core.safe_defer(interaction)
+        guild_id = interaction.guild.id
+
+        def _toggle():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                cfg = community_core.get_welcome_config(d, guild_id)
+                cfg["welcome_enabled"] = not cfg.get("welcome_enabled", False)
+                saved = community_core.save_welcome_config(d, guild_id, cfg)
+                core.save_data(d)
+                return saved
+
+        self.cfg = await asyncio.to_thread(_toggle)
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="작별 알림 ON/OFF", style=discord.ButtonStyle.primary, emoji="🚪", row=0)
+    async def toggle_goodbye_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild:
+            return
+        if not self.cfg.get("goodbye_enabled") and not (self.cfg.get("goodbye_channel_id") or self.cfg.get("welcome_channel_id")):
+            await core.safe_send_response(interaction, "⚠️ 먼저 아래 **2️⃣ 작별 카드가 발송될 텍스트 채널**을 선택해 주세요!", ephemeral=True)
+            return
+        await core.safe_defer(interaction)
+        guild_id = interaction.guild.id
+
+        def _toggle():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                cfg = community_core.get_welcome_config(d, guild_id)
+                cfg["goodbye_enabled"] = not cfg.get("goodbye_enabled", False)
+                saved = community_core.save_welcome_config(d, guild_id, cfg)
+                core.save_data(d)
+                return saved
+
+        self.cfg = await asyncio.to_thread(_toggle)
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="이미지 배너 ON/OFF", style=discord.ButtonStyle.secondary, emoji="🖼️", row=0)
+    async def toggle_banner_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild:
+            return
+        await core.safe_defer(interaction)
+        guild_id = interaction.guild.id
+
+        def _toggle():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                cfg = community_core.get_welcome_config(d, guild_id)
+                cfg["banner_enabled"] = not cfg.get("banner_enabled", True)
+                saved = community_core.save_welcome_config(d, guild_id, cfg)
+                core.save_data(d)
+                return saved
+
+        self.cfg = await asyncio.to_thread(_toggle)
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="문구·배너색 편집", style=discord.ButtonStyle.secondary, emoji="✏️", row=0)
+    async def edit_modal_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(WelcomeTemplateModal(self))
+
+    @discord.ui.button(label="테스트 미리보기", style=discord.ButtonStyle.secondary, emoji="🧪", row=0)
+    async def preview_test_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild:
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        guild = interaction.guild
+        member = interaction.user
+        av_bytes = await _fetch_member_avatar_bytes(member)
+        m_count = int(getattr(guild, "member_count", 0) or len(getattr(guild, "members", []) or []) or 1)
+        file_obj = None
+        if self.cfg.get("banner_enabled", True):
+            png_bytes = await asyncio.to_thread(
+                community_core.render_welcome_banner_png,
+                guild.name,
+                member.display_name,
+                m_count,
+                av_bytes,
+                is_goodbye=False,
+                accent_hex=str(self.cfg.get("accent_color") or "#5865F2"),
+                subtitle=str(self.cfg.get("banner_subtitle") or ""),
+            )
+            if png_bytes:
+                import io
+                file_obj = discord.File(io.BytesIO(png_bytes), filename="welcome_banner.png")
+        preview_embed = _build_welcome_or_goodbye_embed(
+            guild,
+            member,
+            self.cfg,
+            is_goodbye=False,
+            has_banner_file=(file_obj is not None),
+        )
+        if file_obj:
+            await interaction.followup.send(content="🧪 **실제 입장 시 발송될 환영 카드 미리보기입니다:**", embed=preview_embed, file=file_obj, ephemeral=True)
+        else:
+            await interaction.followup.send(content="🧪 **실제 입장 시 발송될 환영 카드 미리보기입니다:**", embed=preview_embed, ephemeral=True)
+
+    @discord.ui.button(label="작별채널=환영채널 통일", style=discord.ButtonStyle.secondary, emoji="🔗", row=4)
+    async def sync_channel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild:
+            return
+        w_ch = self.cfg.get("welcome_channel_id")
+        if not w_ch:
+            await core.safe_send_response(interaction, "⚠️ 먼저 환영 알림 채널을 지정해 주세요.", ephemeral=True)
+            return
+        await core.safe_defer(interaction)
+        guild_id = interaction.guild.id
+
+        def _sync():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                cfg = community_core.get_welcome_config(d, guild_id)
+                cfg["goodbye_channel_id"] = cfg.get("welcome_channel_id")
+                saved = community_core.save_welcome_config(d, guild_id, cfg)
+                core.save_data(d)
+                return saved
+
+        self.cfg = await asyncio.to_thread(_sync)
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await interaction.followup.send(f"🔗 작별 알림 채널도 <#{w_ch}> 채널로 통일했습니다.", ephemeral=True)
+
+    @discord.ui.button(label="자동 역할 해제", style=discord.ButtonStyle.danger, emoji="🗑️", row=4)
+    async def clear_role_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild:
+            return
+        await core.safe_defer(interaction)
+        guild_id = interaction.guild.id
+
+        def _clear():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                cfg = community_core.get_welcome_config(d, guild_id)
+                cfg["auto_role_id"] = None
+                saved = community_core.save_welcome_config(d, guild_id, cfg)
+                core.save_data(d)
+                return saved
+
+        self.cfg = await asyncio.to_thread(_clear)
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await interaction.followup.send("🗑️ 신규 멤버 자동 부여 역할을 해제했습니다.", ephemeral=True)
+
+
+# ==========================================
+# 8. ⏳ 실시간 카운트다운 타이머 임베드 (서버 관리자 전용)
+# ==========================================
+_COUNTDOWN_ID_FOOTER_RE = re.compile(r"ID:\s*(cd_[0-9a-f]{8})")
+
+
+def _build_countdown_card_embed(timer: dict) -> discord.Embed:
+    status = str(timer.get("status") or "active")
+    title_raw = str(timer.get("title") or "카운트다운 이벤트")
+    desc_raw = str(timer.get("description") or "").strip()
+    target_ts = int(timer.get("target_ts") or 0)
+    subs = community_core._normalize_uid_list(timer.get("subscribers"))
+    creator_id = int(timer.get("creator_id") or 0)
+
+    if status == "completed":
+        title = f"🚀 [시간 도달] {title_raw}"
+        color = 0x2ECC71
+        time_block = f"• **목표 시각:** <t:{target_ts}:F>\n• **상태:** 🎉 **카운트다운이 종료되어 지금 시작합니다!**"
+    elif status == "cancelled":
+        title = f"🛑 [취소됨] {title_raw}"
+        color = 0x95A5A6
+        time_block = f"• **목표 시각:** <t:{target_ts}:F>\n• **상태:** ⚪ 관리자에 의해 취소된 카운트다운입니다."
+    else:
+        title = f"⏳ {title_raw}"
+        color = 0x5865F2
+        time_block = (
+            f"• **남은 시간:** 🔥 **<t:{target_ts}:R>**\n"
+            f"• **목표 시각:** <t:{target_ts}:F>\n"
+            f"• **시작 알림 예약:** **`{len(subs)}명`** *(아래 [🔔 시작 알림 받기] 클릭)*"
+        )
+
+    lines: list[str] = []
+    if desc_raw:
+        lines.append(desc_raw)
+        lines.append("━━━━━━━━━━━━━━━━")
+    lines.append(time_block)
+    if creator_id:
+        lines.append(f"• **등록 관리자:** <@{creator_id}>")
+
+    embed = discord.Embed(
+        title=title,
+        description="\n".join(lines),
+        color=color,
+        timestamp=datetime.datetime.now(core.KST),
+    )
+    embed.set_footer(text=f"실시간 카운트다운 타이머  |  ID: {timer.get('timer_id', 'cd_00000000')}")
+    return embed
+
+
+class CountdownCardView(core.SafeView):
+    """채널에 게시된 실시간 카운트다운 카드 하단 버튼 (멤버 알림 구독 + 관리자 연장/종료)"""
+
+    def __init__(self, timer_id: str = "", disabled_all: bool = False):
+        super().__init__(timeout=None)
+        self.timer_id = timer_id
+        if disabled_all:
+            for item in self.children:
+                if isinstance(item, discord.ui.Button):
+                    item.disabled = True
+
+    def _resolve_timer_id(self, interaction: discord.Interaction) -> str:
+        if self.timer_id:
+            return self.timer_id
+        msg = interaction.message
+        if msg and msg.embeds:
+            ft = getattr(msg.embeds[0].footer, "text", "") or ""
+            m = _COUNTDOWN_ID_FOOTER_RE.search(ft)
+            if m:
+                return m.group(1)
+        return ""
+
+    @discord.ui.button(
+        label="시작 알림 받기",
+        emoji="🔔",
+        style=discord.ButtonStyle.primary,
+        custom_id="countdown:subscribe",
+        row=0,
+    )
+    async def subscribe_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild:
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        guild_id = interaction.guild.id
+        tid = self._resolve_timer_id(interaction)
+        msg_id = interaction.message.id if interaction.message else 0
+
+        def _toggle_sub():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                t = community_core.get_countdown_timer(d, guild_id, tid) if tid else community_core.find_countdown_timer_by_message(d, guild_id, msg_id)
+                if not t or str(t.get("status") or "active") != "active":
+                    return None, False, 0
+                added, cnt = community_core.toggle_countdown_subscriber(d, guild_id, t["timer_id"], interaction.user.id)
+                core.save_data(d)
+                return dict(t), added, cnt
+
+        timer_obj, added, cnt = await asyncio.to_thread(_toggle_sub)
+        if not timer_obj:
+            await interaction.followup.send("ℹ️ 이미 종료되었거나 취소된 카운트다운입니다.", ephemeral=True)
+            return
+        if interaction.message:
+            try:
+                await interaction.message.edit(embed=_build_countdown_card_embed(timer_obj), view=self)
+            except Exception:
+                pass
+        if added:
+            await interaction.followup.send(f"🔔 **시작 알림 예약 완료!** 카운트다운이 끝나면 멘션으로 알려드릴게요. (현재 `{cnt}명` 대기 중)", ephemeral=True)
+        else:
+            await interaction.followup.send(f"🔕 시작 알림 예약을 취소했습니다. (현재 `{cnt}명` 대기 중)", ephemeral=True)
+
+    @discord.ui.button(
+        label="+10분 연장 (관리자)",
+        emoji="⏰",
+        style=discord.ButtonStyle.secondary,
+        custom_id="countdown:extend10",
+        row=0,
+    )
+    async def extend_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild or not _is_guild_admin(interaction.user):
+            await core.safe_send_response(interaction, "❌ 카운트다운 시간 연장은 **서버 관리자**만 가능합니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        guild_id = interaction.guild.id
+        tid = self._resolve_timer_id(interaction)
+        msg_id = interaction.message.id if interaction.message else 0
+
+        def _extend():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                t = community_core.get_countdown_timer(d, guild_id, tid) if tid else community_core.find_countdown_timer_by_message(d, guild_id, msg_id)
+                if not t or str(t.get("status") or "active") != "active":
+                    return None
+                updated = community_core.extend_countdown_timer(d, guild_id, t["timer_id"], 600)
+                core.save_data(d)
+                return dict(updated) if updated else None
+
+        timer_obj = await asyncio.to_thread(_extend)
+        if not timer_obj:
+            await interaction.followup.send("ℹ️ 이미 종료되었거나 취소된 카운트다운입니다.", ephemeral=True)
+            return
+        if interaction.message:
+            try:
+                await interaction.message.edit(embed=_build_countdown_card_embed(timer_obj), view=self)
+            except Exception:
+                pass
+        await interaction.followup.send(f"⏰ 목표 시각을 **10분 연장**했습니다! (<t:{timer_obj['target_ts']}:R>)", ephemeral=True)
+
+    @discord.ui.button(
+        label="타이머 취소 (관리자)",
+        emoji="🛑",
+        style=discord.ButtonStyle.danger,
+        custom_id="countdown:cancel",
+        row=0,
+    )
+    async def cancel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild or not _is_guild_admin(interaction.user):
+            await core.safe_send_response(interaction, "❌ 카운트다운 취소는 **서버 관리자**만 가능합니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        guild_id = interaction.guild.id
+        tid = self._resolve_timer_id(interaction)
+        msg_id = interaction.message.id if interaction.message else 0
+
+        def _cancel():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                t = community_core.get_countdown_timer(d, guild_id, tid) if tid else community_core.find_countdown_timer_by_message(d, guild_id, msg_id)
+                if not t:
+                    return None
+                updated = community_core.cancel_countdown_timer(d, guild_id, t["timer_id"])
+                core.save_data(d)
+                return dict(updated) if updated else None
+
+        timer_obj = await asyncio.to_thread(_cancel)
+        if not timer_obj:
+            await interaction.followup.send("❌ 해당 카운트다운 정보를 찾을 수 없습니다.", ephemeral=True)
+            return
+        if interaction.message:
+            try:
+                await interaction.message.edit(
+                    embed=_build_countdown_card_embed(timer_obj),
+                    view=CountdownCardView(timer_obj["timer_id"], disabled_all=True),
+                )
+            except Exception:
+                pass
+        await interaction.followup.send("🛑 카운트다운 타이머를 취소했습니다.", ephemeral=True)
+
+
+class CountdownTargetChannelSelect(discord.ui.ChannelSelect):
+    def __init__(self):
+        super().__init__(
+            placeholder="📢 카운트다운 카드를 게시할 채널 선택 (기본: 현재 채널)...",
+            channel_types=[discord.ChannelType.text],
+            min_values=1,
+            max_values=1,
+            row=1,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        view: "CountdownStudioView" = self.view
+        if not interaction.guild or not _is_guild_admin(interaction.user):
+            await core.safe_send_response(interaction, "❌ 서버 관리자 권한이 필요합니다.", ephemeral=True)
+            return
+        view.target_channel_id = self.values[0].id
+        await core.safe_edit_response(interaction, embed=view.build_embed(), view=view)
+
+
+class CountdownMentionRoleSelect(discord.ui.RoleSelect):
+    def __init__(self):
+        super().__init__(
+            placeholder="🔔 카운트다운 종료 시 멘션할 역할 선택 (선택 사항)...",
+            min_values=1,
+            max_values=1,
+            row=2,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        view: "CountdownStudioView" = self.view
+        if not interaction.guild or not _is_guild_admin(interaction.user):
+            await core.safe_send_response(interaction, "❌ 서버 관리자 권한이 필요합니다.", ephemeral=True)
+            return
+        role = self.values[0]
+        view.mention_target = "@everyone" if role.is_default() else f"<@&{role.id}>"
+        await core.safe_edit_response(interaction, embed=view.build_embed(), view=view)
+
+
+class CountdownCreateModal(discord.ui.Modal, title="⏳ 실시간 카운트다운 타이머 발행"):
+    title_input = discord.ui.TextInput(
+        label="카운트다운 제목 (시험·방송·내전·점검 등)",
+        placeholder="예: 🎮 저녁 발로란트 5:5 내전 시작 / 📺 특별 라이브 방송",
+        required=True,
+        max_length=80,
+    )
+    time_input = discord.ui.TextInput(
+        label="목표 시간 (예: 30분, 1시간 30분, 21:00, 내일 20:00)",
+        placeholder="30분 / 2시간 / 21:30 / 내일 20:00 / 2026-11-27 20:00",
+        required=True,
+        max_length=40,
+    )
+    desc_input = discord.ui.TextInput(
+        label="상세 안내 문구 (선택)",
+        style=discord.TextStyle.paragraph,
+        placeholder="시간이 되면 알림 예약자 및 지정 역할에게 자동으로 시작 알림이 발송됩니다.",
+        required=False,
+        max_length=600,
+    )
+
+    def __init__(self, studio_view: "CountdownStudioView", default_time: str = ""):
+        super().__init__()
+        self.studio_view = studio_view
+        if default_time:
+            self.time_input.default = default_time
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not interaction.guild or not _is_guild_admin(interaction.user):
+            await core.safe_send_response(interaction, "❌ 카운트다운 발행은 **서버 관리자**만 가능합니다.", ephemeral=True)
+            return
+        target_ts = community_core.parse_countdown_time_spec(self.time_input.value)
+        if not target_ts:
+            await core.safe_send_response(
+                interaction,
+                "❌ 시간 형식을 인식하지 못했거나 이미 지난 시각입니다.\n"
+                "👉 입력 예시: `30분`, `1시간 30분`, `2시간`, `21:00`, `내일 20:00`, `2026-11-27 20:00`",
+                ephemeral=True,
+            )
+            return
+
+        guild = interaction.guild
+        ch_id = self.studio_view.target_channel_id or (interaction.channel.id if interaction.channel else 0)
+        target_ch = guild.get_channel(int(ch_id))
+        if not isinstance(target_ch, discord.TextChannel):
+            await core.safe_send_response(interaction, "❌ 카운트다운을 게시할 텍스트 채널을 찾을 수 없습니다.", ephemeral=True)
+            return
+
+        await core.safe_defer(interaction, ephemeral=True)
+        title_str = (self.title_input.value or "카운트다운 이벤트").strip()
+        desc_str = (self.desc_input.value or "").strip()
+        mention_target = self.studio_view.mention_target
+
+        def _create_record():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                rec = community_core.create_countdown_timer(
+                    d,
+                    guild.id,
+                    target_ch.id,
+                    interaction.user.id,
+                    title=title_str,
+                    target_ts=target_ts,
+                    description=desc_str,
+                    mention_target=mention_target,
+                )
+                core.save_data(d)
+                return dict(rec)
+
+        timer_rec = await asyncio.to_thread(_create_record)
+        card_view = CountdownCardView(timer_rec["timer_id"])
+        try:
+            sent_msg = await target_ch.send(embed=_build_countdown_card_embed(timer_rec), view=card_view)
+        except Exception as e:
+            await interaction.followup.send(f"❌ {target_ch.mention} 채널에 카운트다운 메시지를 보내지 못했습니다: `{e}`", ephemeral=True)
+            return
+
+        def _bind_msg_id():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                t = community_core.get_countdown_timer(d, guild.id, timer_rec["timer_id"])
+                if t:
+                    t["message_id"] = sent_msg.id
+                core.save_data(d)
+                return community_core.get_guild_countdown_timers(d, guild.id, active_only=True)
+
+        self.studio_view.active_timers = await asyncio.to_thread(_bind_msg_id)
+        try:
+            await interaction.edit_original_response(embed=self.studio_view.build_embed(), view=self.studio_view)
+        except Exception:
+            pass
+        await interaction.followup.send(
+            f"✅ {target_ch.mention} 채널에 **{title_str}** 실시간 카운트다운(<t:{target_ts}:R>)을 게시했습니다!",
+            ephemeral=True,
+        )
+
+
+class CountdownStudioView(core.SafeView):
+    """서버 관리자 전용 실시간 카운트다운 타이머 스튜디오 뷰"""
+
+    def __init__(
+        self,
+        author_id: int = 0,
+        guild: Optional[discord.Guild] = None,
+        target_channel_id: int = 0,
+        active_timers: Optional[list[dict]] = None,
+    ):
+        super().__init__(timeout=600)
+        self.author_id = author_id
+        self.guild = guild
+        self.target_channel_id = target_channel_id
+        self.mention_target = "none"
+        self.active_timers = (
+            active_timers
+            if isinstance(active_timers, list)
+            else community_core.get_guild_countdown_timers(core.get_cached_data(), getattr(guild, "id", 0), active_only=True)
+        )
+        self.add_item(CountdownTargetChannelSelect())
+        self.add_item(CountdownMentionRoleSelect())
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        if not _is_guild_admin(interaction.user):
+            await core.safe_send_response(interaction, "❌ 실시간 카운트다운 스튜디오는 **서버 관리자**만 사용할 수 있습니다.", ephemeral=True)
+            return False
+        return True
+
+    def build_embed(self) -> discord.Embed:
+        gname = getattr(self.guild, "name", None) or "서버"
+        ch_str = f"<#{self.target_channel_id}>" if self.target_channel_id else "현재 채널"
+        m_label_map = {
+            "none": "🔕 추가 역할 멘션 없음 *(알림 구독자만 멘션)*",
+            "here": "📢 `@here` (현재 접속 중인 멤버) + 알림 구독자",
+            "@everyone": "📣 `@everyone` (서버 전체) + 알림 구독자",
+        }
+        m_str = m_label_map.get(self.mention_target, f"🎭 {self.mention_target} 역할 + 알림 구독자")
+
+        if not self.active_timers:
+            timer_list_txt = "*(현재 진행 중인 카운트다운이 없습니다. 위 버튼으로 새 타이머를 발행해 보세요!)*"
+        else:
+            lines = []
+            for idx, t in enumerate(self.active_timers[:10], start=1):
+                ts = int(t.get("target_ts") or 0)
+                subs_cnt = len(community_core._normalize_uid_list(t.get("subscribers")))
+                lines.append(
+                    f"`{idx}.` **{t.get('title')}** — <t:{ts}:R> (<t:{ts}:t>)\n"
+                    f"　└ 채널: <#{t.get('channel_id')}> · 알림 대기 `{subs_cnt}명` · ID `{t.get('timer_id')}`"
+                )
+            timer_list_txt = "\n".join(lines)
+
+        embed = discord.Embed(
+            title=f"⏳ [{gname}] 실시간 카운트다운 타이머 스튜디오 (서버 관리자)",
+            description=(
+                f"• **발송 대상 채널:** {ch_str}\n"
+                f"• **종료 시 멘션 대상:** {m_str}\n"
+                f"• **진행 중 카운트다운:** **`{len(self.active_timers)}건`**\n"
+                "━━━━━━━━━━━━━━━━\n"
+                f"**[진행 중인 카운트다운 목록]**\n{timer_list_txt}\n\n"
+                "💡 **활용 팁:** 내전·방송·시험·이벤트 시작 전 카운트다운 임베드를 띄워두면 디스코드 화면에서 초 단위로 남은 시간이 실시간 표시되며, "
+                "시간이 되면 알림을 신청한 멤버들에게 자동으로 시작 알림을 보내줍니다."
+            ),
+            color=0x5865F2,
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        return embed
+
+    @discord.ui.button(label="새 카운트다운 발행", style=discord.ButtonStyle.success, emoji="⏳", row=0)
+    async def open_create_modal_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(CountdownCreateModal(self))
+
+    @discord.ui.button(label="10분 뒤", style=discord.ButtonStyle.primary, emoji="⚡", row=0)
+    async def preset_10m_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(CountdownCreateModal(self, default_time="10분"))
+
+    @discord.ui.button(label="30분 뒤", style=discord.ButtonStyle.primary, emoji="⚡", row=0)
+    async def preset_30m_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(CountdownCreateModal(self, default_time="30분"))
+
+    @discord.ui.button(label="1시간 뒤", style=discord.ButtonStyle.primary, emoji="⚡", row=0)
+    async def preset_1h_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(CountdownCreateModal(self, default_time="1시간"))
+
+    @discord.ui.button(label="2시간 뒤", style=discord.ButtonStyle.primary, emoji="⚡", row=0)
+    async def preset_2h_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(CountdownCreateModal(self, default_time="2시간"))
+
+    @discord.ui.button(label="종료 멘션 방식 전환", style=discord.ButtonStyle.secondary, emoji="🔔", row=3)
+    async def cycle_mention_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        order = ["none", "here", "@everyone"]
+        cur_idx = order.index(self.mention_target) if self.mention_target in order else -1
+        self.mention_target = order[(cur_idx + 1) % len(order)]
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="진행 중 타이머 전체 취소", style=discord.ButtonStyle.danger, emoji="🛑", row=3)
+    async def cancel_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild:
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        guild_id = interaction.guild.id
+
+        def _cancel_all():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                active = community_core.get_guild_countdown_timers(d, guild_id, active_only=True)
+                for t in active:
+                    community_core.cancel_countdown_timer(d, guild_id, t["timer_id"])
+                core.save_data(d)
+                return len(active)
+
+        cancelled_cnt = await asyncio.to_thread(_cancel_all)
+        self.active_timers = []
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        await interaction.followup.send(f"🛑 진행 중이던 카운트다운 `{cancelled_cnt}건`을 모두 취소했습니다.", ephemeral=True)
+
+    @discord.ui.button(label="새로고침", style=discord.ButtonStyle.secondary, emoji="🔄", row=3)
+    async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild:
+            return
+        await core.safe_defer(interaction)
+        data = await asyncio.to_thread(core.load_data)
+        self.active_timers = community_core.get_guild_countdown_timers(data, interaction.guild.id, active_only=True)
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+
+# ==========================================
 # 메인 CommunityCog
 # ==========================================
 class CommunityCog(commands.Cog):
-    """고정메시지(#8) · SNS 링크 보정(#12) · 레이드 비상방어(#42) · 릴레이 소설(#48) · 임시 음성방(#11) · 예약 이벤트 RSVP"""
+    """고정메시지(#8) · SNS 링크 보정(#12) · 레이드 비상방어(#42) · 릴레이 소설(#48) · 임시 음성방(#11) · 예약 이벤트 RSVP · 환영배너 · 카운트다운"""
 
     sticky_group = app_commands.Group(
         name="고정메시지",
@@ -2758,13 +3786,85 @@ class CommunityCog(commands.Cog):
     async def cog_load(self):
         if not self.event_reminder_loop.is_running():
             self.event_reminder_loop.start()
+        if not self.countdown_timer_loop.is_running():
+            self.countdown_timer_loop.start()
 
     def cog_unload(self):
         if self.event_reminder_loop.is_running():
             self.event_reminder_loop.cancel()
+        if self.countdown_timer_loop.is_running():
+            self.countdown_timer_loop.cancel()
         for t in list(self._sticky_delay_tasks.values()):
             t.cancel()
         self._sticky_delay_tasks.clear()
+
+    @tasks.loop(seconds=20)
+    async def countdown_timer_loop(self):
+        """실시간 카운트다운 타이머 종료 시각 도달 감지 및 시작 알림 발송 루프"""
+        try:
+            def _collect_due():
+                with core._DATA_LOCK:
+                    d = core.load_data()
+                    due = community_core.collect_due_countdown_timers(d)
+                    if due:
+                        core.save_data(d)
+                    return [dict(item) for item in due]
+
+            due_timers = await asyncio.to_thread(_collect_due)
+            for t in due_timers:
+                ch = self.bot.get_channel(int(t.get("channel_id") or 0))
+                if not isinstance(ch, discord.TextChannel):
+                    continue
+                msg_id = int(t.get("message_id") or 0)
+                if msg_id:
+                    try:
+                        orig_msg = await ch.fetch_message(msg_id)
+                        await orig_msg.edit(
+                            embed=_build_countdown_card_embed(t),
+                            view=CountdownCardView(t["timer_id"], disabled_all=True),
+                        )
+                    except Exception:
+                        pass
+
+                mention_parts: list[str] = []
+                m_target = str(t.get("mention_target") or "none").strip()
+                if m_target == "here":
+                    mention_parts.append("@here")
+                elif m_target == "@everyone":
+                    mention_parts.append("@everyone")
+                elif m_target.startswith("<@&"):
+                    mention_parts.append(m_target)
+
+                subs = community_core._normalize_uid_list(t.get("subscribers"))
+                for uid in subs[:30]:
+                    u_m = f"<@{uid}>"
+                    if u_m not in mention_parts:
+                        mention_parts.append(u_m)
+
+                ping_text = " ".join(mention_parts) if mention_parts else ""
+                done_embed = discord.Embed(
+                    title=f"🚀 카운트다운 종료! — {t.get('title')}",
+                    description=(
+                        (f"{t.get('description')}\n━━━━━━━━━━━━━━━━\n" if t.get("description") else "")
+                        + f"🕒 목표 시각(<t:{int(t.get('target_ts') or 0)}:F>)에 도달하여 지금 시작합니다!"
+                    ),
+                    color=0x2ECC71,
+                    timestamp=datetime.datetime.now(core.KST),
+                )
+                try:
+                    await ch.send(
+                        content=ping_text or None,
+                        embed=done_embed,
+                        allowed_mentions=discord.AllowedMentions(everyone=True, users=True, roles=True),
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    @countdown_timer_loop.before_loop
+    async def _before_countdown_timer_loop(self):
+        await self.bot.wait_until_ready()
 
     @tasks.loop(minutes=1)
     async def event_reminder_loop(self):
@@ -4089,8 +5189,125 @@ class CommunityCog(commands.Cog):
             pass
 
     # ------------------------------------------
-    # 리스너 2: on_member_join (#42 동시 입장 Raid 방어)
+    # 리스너 2: on_member_join (#42 동시 입장 Raid 방어 + 👋 환영 배너 카드 & 자동 역할)
     # ------------------------------------------
+    async def _handle_member_welcome(self, member: discord.Member):
+        if not member.guild or member.bot:
+            return
+        guild = member.guild
+        cached = core.get_cached_data()
+        w_cfg = community_core.get_welcome_config(cached, guild.id)
+
+        # 1) 입장 시 자동 역할 부여
+        role_id = w_cfg.get("auto_role_id")
+        if role_id and guild.me and guild.me.guild_permissions.manage_roles:
+            role_obj = guild.get_role(int(role_id))
+            if role_obj and not role_obj.is_default() and not role_obj.managed and role_obj < guild.me.top_role:
+                try:
+                    await member.add_roles(role_obj, reason="신규 멤버 입장 자동 역할 부여")
+                except Exception:
+                    pass
+
+        # 2) 환영 메시지 & PNG 배너 카드 발송
+        if not w_cfg.get("welcome_enabled"):
+            return
+        ch_id = w_cfg.get("welcome_channel_id")
+        if not ch_id:
+            return
+        ch = guild.get_channel(int(ch_id))
+        if not isinstance(ch, discord.TextChannel):
+            return
+        if guild.me and not ch.permissions_for(guild.me).send_messages:
+            return
+
+        file_obj = None
+        if w_cfg.get("banner_enabled", True):
+            av_bytes = await _fetch_member_avatar_bytes(member)
+            m_count = int(getattr(guild, "member_count", 0) or len(getattr(guild, "members", []) or []) or 1)
+            png_bytes = await asyncio.to_thread(
+                community_core.render_welcome_banner_png,
+                guild.name,
+                member.display_name,
+                m_count,
+                av_bytes,
+                is_goodbye=False,
+                accent_hex=str(w_cfg.get("accent_color") or "#5865F2"),
+                subtitle=str(w_cfg.get("banner_subtitle") or ""),
+            )
+            if png_bytes:
+                import io
+                file_obj = discord.File(io.BytesIO(png_bytes), filename="welcome_banner.png")
+
+        embed = _build_welcome_or_goodbye_embed(
+            guild,
+            member,
+            w_cfg,
+            is_goodbye=False,
+            has_banner_file=(file_obj is not None),
+        )
+        try:
+            if file_obj:
+                await ch.send(content=member.mention, embed=embed, file=file_obj)
+            else:
+                await ch.send(content=member.mention, embed=embed)
+        except Exception:
+            pass
+
+    async def _handle_member_goodbye(self, member: discord.Member):
+        if not member.guild or member.bot:
+            return
+        guild = member.guild
+        cached = core.get_cached_data()
+        w_cfg = community_core.get_welcome_config(cached, guild.id)
+        if not w_cfg.get("goodbye_enabled"):
+            return
+        ch_id = w_cfg.get("goodbye_channel_id") or w_cfg.get("welcome_channel_id")
+        if not ch_id:
+            return
+        ch = guild.get_channel(int(ch_id))
+        if not isinstance(ch, discord.TextChannel):
+            return
+        if guild.me and not ch.permissions_for(guild.me).send_messages:
+            return
+
+        file_obj = None
+        if w_cfg.get("banner_enabled", True):
+            av_bytes = await _fetch_member_avatar_bytes(member)
+            m_count = int(getattr(guild, "member_count", 0) or len(getattr(guild, "members", []) or []) or 1)
+            png_bytes = await asyncio.to_thread(
+                community_core.render_welcome_banner_png,
+                guild.name,
+                member.display_name,
+                m_count,
+                av_bytes,
+                is_goodbye=True,
+                accent_hex=str(w_cfg.get("accent_color") or "#5865F2"),
+            )
+            if png_bytes:
+                import io
+                file_obj = discord.File(io.BytesIO(png_bytes), filename="goodbye_banner.png")
+
+        embed = _build_welcome_or_goodbye_embed(
+            guild,
+            member,
+            w_cfg,
+            is_goodbye=True,
+            has_banner_file=(file_obj is not None),
+        )
+        try:
+            if file_obj:
+                await ch.send(embed=embed, file=file_obj)
+            else:
+                await ch.send(embed=embed)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member):
+        if not member.guild or member.bot:
+            return
+        await self._handle_member_goodbye(member)
+
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
         if not member.guild or member.bot:
@@ -4100,6 +5317,7 @@ class CommunityCog(commands.Cog):
         cached = core.get_cached_data()
         quick_cfg = community_core.get_raid_defense_config(cached, guild_id)
         if not quick_cfg["lockdown_active"] and not quick_cfg["enabled"] and quick_cfg["min_account_age_days"] <= 0:
+            await self._handle_member_welcome(member)
             return
 
         lock = self._get_raid_lock(guild_id)
@@ -4211,6 +5429,9 @@ class CommunityCog(commands.Cog):
                             await alert_ch.send(embed=warn_embed)
                         except Exception:
                             pass
+                    return
+
+        await self._handle_member_welcome(member)
 
     # ------------------------------------------
     # #11 임시 음성방 자동 생성기 (/임시음성방 & on_voice_state_update)
@@ -4224,7 +5445,7 @@ class CommunityCog(commands.Cog):
     )
     @app_commands.choices(메뉴=[
         app_commands.Choice(name="🎛️ 내 임시 음성방 리모컨 호출 (방장/멤버용)", value="remote"),
-        app_commands.Choice(name="⚙️ 생성기 채널 & 자동 생성 설정 (관리자용)", value="setup"),
+        app_commands.Choice(name="⚙️ 생성기 채널 & 자동 생성 설정 (서버 관리자 전용)", value="setup"),
     ])
     async def temp_voice_slash_cmd(
         self,
@@ -4246,7 +5467,7 @@ class CommunityCog(commands.Cog):
                 await core.safe_send_response(
                     interaction,
                     "ℹ️ 현재 자동 생성된 임시 음성방에 접속해 있지 않습니다.\n"
-                    + (f"👉 <#{cfg['generator_channel_id']}> 채널에 입장하면 나만의 음성방이 바로 만들어집니다!" if cfg.get("generator_channel_id") else "👉 관리자가 `/설정` (`⚙️ 고급` ➔ `🔊 임시 음성방 자동생성 설정`)으로 생성기 채널을 먼저 만들 수 있습니다."),
+                    + (f"👉 <#{cfg['generator_channel_id']}> 채널에 입장하면 나만의 음성방이 바로 만들어집니다!" if cfg.get("generator_channel_id") else "👉 서버 관리자가 `/설정` (`⚙️ 고급` ➔ `🔊 임시음성방 설정`)에서 카테고리와 자동생성 채널을 먼저 설정할 수 있습니다."),
                     ephemeral=True,
                 )
                 return
@@ -4258,13 +5479,13 @@ class CommunityCog(commands.Cog):
             )
             return
 
-        if not _is_guild_admin(interaction.user, perm_attr="manage_channels"):
+        if not _is_strict_server_admin(interaction.user):
             gen_ch_id = cfg.get("generator_channel_id")
             guide = (
                 f"🔊 <#{gen_ch_id}> 음성 채널에 입장하시면 자동으로 개인 음성방이 생성됩니다!\n"
                 "생성된 방 안에 들어간 상태에서 `/설정` (`🎛️ 내 임시음성방 리모컨`)을 누르면 **방장 리모컨**을 다시 띄울 수 있습니다."
                 if gen_ch_id and cfg.get("enabled")
-                else "ℹ️ 아직 서버 관리자가 임시 음성방 생성기 채널을 활성화하지 않았습니다. (`채널 관리` 권한 필요)"
+                else "ℹ️ 임시 음성방 카테고리 지정 및 자동생성 채널 추가는 **서버 관리자(Administrator)** 만 가능합니다."
             )
             await core.safe_send_response(interaction, guide, ephemeral=True)
             return
@@ -4298,7 +5519,7 @@ class CommunityCog(commands.Cog):
             not member.bot
             and bool(quick_cfg.get("enabled"))
             and after_id > 0
-            and after_id == int(quick_cfg.get("generator_channel_id") or 0)
+            and community_core.is_temp_voice_generator_channel(quick_cfg, after_id)
         )
 
         if not is_leaving_temp and not is_joining_gen:
@@ -4311,7 +5532,7 @@ class CommunityCog(commands.Cog):
                 old_vc = guild.get_channel(before_id)
                 if isinstance(old_vc, discord.VoiceChannel):
                     non_bot_members = [m for m in old_vc.members if not m.bot]
-                    if len(non_bot_members) == 0 and before_id != int(quick_cfg.get("generator_channel_id") or 0):
+                    if len(non_bot_members) == 0 and not community_core.is_temp_voice_generator_channel(quick_cfg, before_id):
                         def _pop_room():
                             with core._DATA_LOCK:
                                 d = core.load_data()
@@ -4349,14 +5570,17 @@ class CommunityCog(commands.Cog):
                         return community_core.get_temp_voice_config(d, guild_id)
 
                 fresh_cfg = await asyncio.to_thread(_read_fresh_cfg)
-                if not fresh_cfg.get("enabled") or after_id != int(fresh_cfg.get("generator_channel_id") or 0):
+                if not fresh_cfg.get("enabled") or not community_core.is_temp_voice_generator_channel(fresh_cfg, after_id):
                     return
 
-                target_category = after.channel.category
-                if target_category is None and fresh_cfg.get("category_id"):
+                # 관리자가 지정한 category_id를 최우선으로 사용하고, 없을 때만 생성기 채널의 카테고리로 폴백
+                target_category = None
+                if fresh_cfg.get("category_id"):
                     cat_obj = guild.get_channel(int(fresh_cfg["category_id"]))
                     if isinstance(cat_obj, discord.CategoryChannel):
                         target_category = cat_obj
+                if target_category is None:
+                    target_category = after.channel.category
 
                 room_idx = len(fresh_cfg.get("active_rooms") or {}) + 1
                 room_name = community_core.format_temp_voice_room_name(

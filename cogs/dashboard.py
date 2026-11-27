@@ -2654,7 +2654,7 @@ class MasterDashboardView(core.SafeView):
             # ==========================================
             "advanced": [
                 {
-                    "page_title": "🛡️ [서버 관리자] 역할 · 공지 · 1:1 티켓 관리",
+                    "page_title": "🛡️ [서버 관리자] 역할 · 공지 · 1:1 티켓 · 실시간 카운트다운",
                     "perm": PERM_ADMIN,
                     "items": [
                         {
@@ -2694,16 +2694,16 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "🎫",
                             "style": discord.ButtonStyle.primary,
                             "perm": PERM_ADMIN,
-                            "desc": "[🛡️서버관리자] 1:1 비공개 문의 티켓 패널 설치 및 담당자 역할 설정",
+                            "desc": "[🛡️서버관리자] 1:1 비공개 문의 티켓 패널 설치·담당자 역할 설정·내역 조회",
                             "cb": self._act_admin_ticket_hub,
                         },
                         {
-                            "label": "티켓 내역 조회",
-                            "emoji": "📋",
-                            "style": discord.ButtonStyle.secondary,
+                            "label": "실시간 카운트다운",
+                            "emoji": "⏳",
+                            "style": discord.ButtonStyle.success,
                             "perm": PERM_ADMIN,
-                            "desc": "[🛡️서버관리자] 서버의 진행 중 / 종료된 1:1 문의 티켓 전체 목록",
-                            "cb": self._act_admin_ticket_list,
+                            "desc": "[🛡️서버관리자] 시험·방송·내전 실시간 카운트다운 타이머 임베드 발행 및 종료 알림",
+                            "cb": self._act_admin_countdown,
                         },
                     ],
                 },
@@ -2716,7 +2716,7 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "🔊",
                             "style": discord.ButtonStyle.primary,
                             "perm": PERM_ADMIN,
-                            "desc": "[🛡️서버관리자] 입장 시 자동 생성·퇴장 시 삭제되는 임시 음성방 설정",
+                            "desc": "[🛡️서버관리자] 카테고리 지정 자동채널 생성 및 자동생성 트리거 채널 추가·관리",
                             "cb": self._act_admin_temp_voice,
                         },
                         {
@@ -2762,9 +2762,17 @@ class MasterDashboardView(core.SafeView):
                     ],
                 },
                 {
-                    "page_title": "🛡️ [서버 관리자] 메시지 청소 · 잠수 감사 · 스케줄 · 데이터 초기화",
+                    "page_title": "🛡️ [서버 관리자] 환영배너 · 메시지 청소 · 잠수 감사 · 스케줄 · 데이터 초기화",
                     "perm": PERM_ADMIN,
                     "items": [
+                        {
+                            "label": "환영/작별 배너 설정",
+                            "emoji": "👋",
+                            "style": discord.ButtonStyle.success,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] 신규 멤버 입장/퇴장 시 PNG 환영 배너 카드 & 자동 역할 설정",
+                            "cb": self._act_admin_welcome,
+                        },
                         {
                             "label": "채널 메시지청소",
                             "emoji": "🧹",
@@ -2796,14 +2804,6 @@ class MasterDashboardView(core.SafeView):
                             "perm": PERM_ADMIN,
                             "desc": "[🛡️서버관리자] 오전 7시 모닝 음악추천 채널·장르 및 맞춤 시간 음악알람 설정",
                             "cb": self._act_admin_music_sched_hub,
-                        },
-                        {
-                            "label": "[봇주인] GitHub 배포알림",
-                            "emoji": "🐙",
-                            "style": discord.ButtonStyle.danger,
-                            "perm": PERM_OWNER,
-                            "desc": "[👑봇주인 전용] GitHub Push 및 Actions 배포 알림 수신 채널 원클릭 연동",
-                            "cb": self._act_admin_github_webhook,
                         },
                         {
                             "label": "서버 데이터초기화",
@@ -4821,13 +4821,37 @@ class MasterDashboardView(core.SafeView):
             await core.safe_send_response(interaction, "❌ 티켓 모듈을 찾을 수 없습니다.", ephemeral=True)
 
     async def _act_admin_temp_voice(self, interaction: discord.Interaction):
-        if not await self.check_admin_permission(interaction, action_name="임시 음성방 설정", require_channels_perm=True):
+        if not await self.check_admin_permission(interaction, action_name="임시 음성방 설정", require_strict_admin=True):
             return
         await core.safe_defer(interaction, ephemeral=True)
         data = await asyncio.to_thread(core.load_data)
         cfg = community_core.get_temp_voice_config(data, interaction.guild.id)
         setup_view = community.TempVoiceSetupView(interaction.user.id, interaction.guild, cfg)
         await interaction.followup.send(embed=setup_view.build_embed(), view=setup_view, ephemeral=True, wait=True)
+
+    async def _act_admin_welcome(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="환영/작별 배너 설정"):
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        data = await asyncio.to_thread(core.load_data)
+        cfg = community_core.get_welcome_config(data, interaction.guild.id)
+        w_view = community.WelcomeConfigView(interaction.user.id, interaction.guild, cfg)
+        await interaction.followup.send(embed=w_view.build_embed(), view=w_view, ephemeral=True, wait=True)
+
+    async def _act_admin_countdown(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="실시간 카운트다운 스튜디오"):
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        data = await asyncio.to_thread(core.load_data)
+        active = community_core.get_guild_countdown_timers(data, interaction.guild.id, active_only=True)
+        default_ch_id = interaction.channel.id if isinstance(interaction.channel, discord.TextChannel) else 0
+        cd_view = community.CountdownStudioView(
+            author_id=interaction.user.id,
+            guild=interaction.guild,
+            target_channel_id=default_ch_id,
+            active_timers=active,
+        )
+        await interaction.followup.send(embed=cd_view.build_embed(), view=cd_view, ephemeral=True, wait=True)
 
     async def _act_admin_sticky_hub(self, interaction: discord.Interaction):
         if not await self.check_admin_permission(interaction, action_name="자동 고정메시지 관리", require_messages_perm=True):
