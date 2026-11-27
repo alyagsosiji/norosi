@@ -1243,6 +1243,7 @@ class StatsCog(commands.Cog):
             "ver_ytdlp": _pkg_ver("yt-dlp"),
             "has_orjson": bool(getattr(discord.utils, "HAS_ORJSON", False)),
             "firebase_active": bool(core.get_firebase_endpoint()),
+            "firebase_auth_mode": core.get_firebase_auth_mode(),
             "webhook_secret_set": bool((os.getenv("GITHUB_WEBHOOK_SECRET") or "").strip()),
             "signing_key_set": bool((os.getenv("SIGNING_KEY") or os.getenv("EMOTE_CDN_SIGNING_KEY") or "").strip()),
         }
@@ -1405,10 +1406,11 @@ class StatsCog(commands.Cog):
             inline=False,
         )
 
+        fb_label = f"Firebase 동기화 · {m['firebase_auth_mode']}" if m.get("firebase_auth_mode") else ("Firebase 동기화" if m["firebase_active"] else "로컬 전용")
         embed.add_field(
             name="🗄️ 데이터 & 캐시 현황",
             value=(
-                f"• **로컬 DB:** `{m['db_size_kb']} KB` (`{'Firebase 동기화' if m['firebase_active'] else '로컬 전용'}`)\n"
+                f"• **로컬 DB:** `{m['db_size_kb']} KB` (`{fb_label}`)\n"
                 f"• **유저 / 디데이:** `{m['profiles_cnt']:,}명` · `{m['ddays_cnt']:,}건`\n"
                 f"• **알림 / 음악예약:** `{m['reminders_cnt']:,}건` · `{m['schedules_cnt']:,}건`\n"
                 f"• **캐시:** 카드 `{m['proseka_cards_cnt']:,}` · 의상 `{m['proseka_costumes_cnt']:,}` · CDN `{m['emote_cache_cnt']:,}`"

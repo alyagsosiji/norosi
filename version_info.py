@@ -12,6 +12,20 @@ VERSION_HISTORY: list[dict[str, Any]] = [
     {
         "commit": "HEAD",
         "date": "2026-11-26",
+        "title": "Firebase 공식 서비스 계정(OAuth2) 인증 지원 · 종료 시 원격 즉시 동기화",
+        "added": [
+            "외부 패키지 설치 없이 Google 서비스 계정 비공개 키(`FIREBASE_CREDENTIALS`)로 OAuth2 토큰을 자동 발급·갱신하는 Firebase 공식 인증 지원",
+            "`.gitignore`에 Firebase 서비스 계정 키 패턴(`firebase-key.json`, `*-firebase-adminsdk-*.json`) 추가",
+            "`!봇상태`에 Firebase 인증 방식(`서비스 계정` / `시크릿`) 표시 추가",
+        ],
+        "changed": [
+            "봇 종료/재시작(`!업데이트 재시작`) 시 로컬뿐 아니라 Firebase에도 마지막 변경사항을 즉시 동기화하도록 보강",
+            "Firebase 읽기/쓰기 타임아웃을 `5초` ➔ `15초`로 여유화하고 `norosi-default-rtdb` URL 차단 조건 제거",
+        ],
+    },
+    {
+        "commit": "a0f2c1f",
+        "date": "2026-11-26",
         "title": "/설정 홈 하단 오늘 출석하기 버튼 제거",
         "changed": [
             "`/설정` 홈 화면 맨 아래에 표시되던 `[📅 오늘 출석하기]` 원클릭 버튼 제거",

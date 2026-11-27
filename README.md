@@ -218,7 +218,8 @@ SPOTIPY_CLIENT_SECRET=""
 # [선택] Firebase Realtime Database 연동 (원격 클라우드 백업용)
 # 로컬 디스크 환경에서는 비워두셔도 로컬 캐시(ddays_data.json)로 안전하게 작동합니다.
 FIREBASE_DB_URL=""
-FIREBASE_SECRET=""
+FIREBASE_CREDENTIALS=""   # 권장: 서비스 계정 비공개 키 JSON 경로 (예: firebase-key.json)
+FIREBASE_SECRET=""        # 호환: 레거시 데이터베이스 비밀번호
 ```
 
 ### 4. 사전 점검 및 봇 실행

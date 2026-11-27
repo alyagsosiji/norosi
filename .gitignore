@@ -22,4 +22,7 @@ hsr_kr_cache.json
 .norosi.pid
 .norosi_supervisor.pid
 .norosi_keepalive.sh
+firebase-key.json
+*-firebase-adminsdk-*.json
+service-account*.json
 

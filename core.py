@@ -275,15 +275,22 @@ PORT = int(os.getenv("PORT", "10000") or "10000")
 BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID", "0") or "0")
 
 # 🔥 Firebase Realtime Database 설정 (.env)
+# 권장: FIREBASE_CREDENTIALS (서비스 계정 JSON 경로 또는 JSON 문자열)
+# 호환: FIREBASE_SECRET (레거시 데이터베이스 비밀번호)
 FIREBASE_DB_URL = os.getenv("FIREBASE_DB_URL", "").strip().rstrip("/")
 FIREBASE_SECRET = os.getenv("FIREBASE_SECRET", "").strip()
+FIREBASE_CREDENTIALS = (
+    os.getenv("FIREBASE_CREDENTIALS")
+    or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    or ""
+).strip()
 
 # 🎵 Spotify API 키 설정 (.env)
 SPOTIPY_CLIENT_ID = os.getenv("SPOTIPY_CLIENT_ID", "").strip()
 SPOTIPY_CLIENT_SECRET = os.getenv("SPOTIPY_CLIENT_SECRET", "").strip()
 
 _SECRET_REDACT_PATTERNS = [
-    re.compile(r"(\?auth=)[^&\s'\"<>]+", re.IGNORECASE),
+    re.compile(r"([?&](?:auth|access_token)=)[^&\s'\"<>]+", re.IGNORECASE),
     re.compile(r"(https?://[^/\s:@]+:)[^@/\s]+(@)", re.IGNORECASE),
     re.compile(r"(Bearer\s+)[A-Za-z0-9._\-]+", re.IGNORECASE),
     re.compile(r"\b([MN][A-Za-z\d]{23,}\.[\w-]{6}\.[\w-]{27,})\b"),
@@ -299,6 +306,9 @@ def redact_secrets(text: str) -> str:
     out = str(text)
     if FIREBASE_SECRET and len(FIREBASE_SECRET) >= 6:
         out = out.replace(FIREBASE_SECRET, "***REDACTED***")
+    fb_oauth = globals().get("_FIREBASE_OAUTH_TOKEN")
+    if isinstance(fb_oauth, str) and len(fb_oauth) >= 12:
+        out = out.replace(fb_oauth, "***REDACTED***")
     if TOKEN and len(TOKEN) >= 8:
         out = out.replace(TOKEN, "***REDACTED_TOKEN***")
     if SPOTIPY_CLIENT_SECRET and len(SPOTIPY_CLIENT_SECRET) >= 6:
@@ -4023,15 +4033,225 @@ def get_partner_pair_key(u1_id: int | str, u2_id: int | str) -> str:
     return f"{min(s1, s2)}_{max(s1, s2)}"
 
 
+_FIREBASE_OAUTH_LOCK = threading.Lock()
+_FIREBASE_OAUTH_TOKEN: str = ""
+_FIREBASE_OAUTH_EXPIRY: float = 0.0
+_FIREBASE_SA_CACHE: dict | None = None
+_FIREBASE_SA_LOADED: bool = False
+_FIREBASE_OAUTH_SCOPES = (
+    "https://www.googleapis.com/auth/userinfo.email "
+    "https://www.googleapis.com/auth/firebase.database"
+)
+_SHA256_DER_PREFIX = bytes.fromhex("3031300d060960864801650304020105000420")
+
+
+def _der_read_tlv(data: bytes, offset: int) -> tuple[int, bytes, int]:
+    """최소 ASN.1 DER TLV(Tag-Length-Value) 리더."""
+    if offset >= len(data):
+        raise ValueError("Unexpected end of DER data")
+    tag = data[offset]
+    offset += 1
+    length = data[offset]
+    offset += 1
+    if length & 0x80:
+        n_bytes = length & 0x7F
+        length = int.from_bytes(data[offset:offset + n_bytes], "big")
+        offset += n_bytes
+    value = data[offset:offset + length]
+    return tag, value, offset + length
+
+
+def _parse_rsa_private_key_pem(pem_text: str) -> tuple[int, int]:
+    """PKCS#8(Google 서비스 계정 기본) 또는 PKCS#1 PEM에서 RSA (n, d) 추출."""
+    lines = [
+        ln.strip()
+        for ln in pem_text.strip().splitlines()
+        if ln.strip() and not ln.strip().startswith("-----")
+    ]
+    der = base64.b64decode("".join(lines))
+    tag, seq, _ = _der_read_tlv(der, 0)
+    if tag != 0x30:
+        raise ValueError("Invalid DER private key sequence")
+    pos = 0
+    t1, _, pos = _der_read_tlv(seq, pos)  # version INTEGER
+    if t1 != 0x02:
+        raise ValueError("Invalid private key version")
+    t2, v2, pos = _der_read_tlv(seq, pos)
+    if t2 == 0x30:
+        # PKCS#8: version, AlgorithmIdentifier(SEQ), privateKey(OCTET STRING)
+        t3, pkcs1_der, _ = _der_read_tlv(seq, pos)
+        if t3 != 0x04:
+            raise ValueError("Invalid PKCS#8 privateKey octet string")
+        _, seq, _ = _der_read_tlv(pkcs1_der, 0)
+        pos = 0
+        _, _, pos = _der_read_tlv(seq, pos)  # PKCS#1 version
+        t2, v2, pos = _der_read_tlv(seq, pos)
+    if t2 != 0x02:
+        raise ValueError("Invalid RSA modulus")
+    n = int.from_bytes(v2, "big")
+    _, _, pos = _der_read_tlv(seq, pos)  # publicExponent e
+    td, vd, _ = _der_read_tlv(seq, pos)  # privateExponent d
+    if td != 0x02:
+        raise ValueError("Invalid RSA private exponent")
+    d = int.from_bytes(vd, "big")
+    return n, d
+
+
+def _rs256_sign_pem(signing_input: bytes, pem_text: str) -> bytes:
+    """RFC 8017 RSASSA-PKCS1-v1_5 SHA-256 서명 생성 (외부 패키지 불필요)."""
+    import hashlib
+    n, d = _parse_rsa_private_key_pem(pem_text)
+    k = (n.bit_length() + 7) // 8
+    digest_info = _SHA256_DER_PREFIX + hashlib.sha256(signing_input).digest()
+    ps_len = k - len(digest_info) - 3
+    if ps_len < 8:
+        raise ValueError("RSA key too short for RS256")
+    em = b"\x00\x01" + (b"\xff" * ps_len) + b"\x00" + digest_info
+    sig_int = pow(int.from_bytes(em, "big"), d, n)
+    return sig_int.to_bytes(k, "big")
+
+
+def _b64url(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _load_firebase_service_account() -> dict | None:
+    """FIREBASE_CREDENTIALS(파일 경로 또는 JSON 문자열)에서 서비스 계정 정보를 로드합니다."""
+    global _FIREBASE_SA_CACHE, _FIREBASE_SA_LOADED
+    if _FIREBASE_SA_LOADED:
+        return _FIREBASE_SA_CACHE
+    _FIREBASE_SA_LOADED = True
+    if not FIREBASE_CREDENTIALS:
+        return None
+    try:
+        if FIREBASE_CREDENTIALS.startswith("{"):
+            raw_obj = json.loads(FIREBASE_CREDENTIALS)
+        else:
+            cred_path = FIREBASE_CREDENTIALS
+            if not os.path.isabs(cred_path):
+                cred_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), cred_path)
+            if not os.path.exists(cred_path):
+                print(f"⚠️ Firebase 서비스 계정 파일을 찾을 수 없습니다: {cred_path}", flush=True)
+                return None
+            with open(cred_path, "r", encoding="utf-8") as f:
+                raw_obj = json.load(f)
+        if not isinstance(raw_obj, dict):
+            return None
+        client_email = str(raw_obj.get("client_email") or "").strip()
+        private_key = str(raw_obj.get("private_key") or "").strip()
+        token_uri = str(raw_obj.get("token_uri") or "https://oauth2.googleapis.com/token").strip()
+        if not client_email or not private_key:
+            print("⚠️ Firebase 서비스 계정 JSON에 client_email 또는 private_key가 없습니다.", flush=True)
+            return None
+        _FIREBASE_SA_CACHE = {
+            "client_email": client_email,
+            "private_key": private_key,
+            "token_uri": token_uri,
+        }
+        return _FIREBASE_SA_CACHE
+    except Exception as e:
+        print(f"⚠️ Firebase 서비스 계정 JSON 로드 실패: {redact_secrets(str(e))}", flush=True)
+        return None
+
+
+def _get_firebase_oauth_token(force_refresh: bool = False) -> str | None:
+    """Google OAuth2 액세스 토큰을 발급/캐시합니다 (만료 2분 전 자동 갱신)."""
+    global _FIREBASE_OAUTH_TOKEN, _FIREBASE_OAUTH_EXPIRY
+    sa = _load_firebase_service_account()
+    if not sa:
+        return None
+    now = time.time()
+    with _FIREBASE_OAUTH_LOCK:
+        if not force_refresh and _FIREBASE_OAUTH_TOKEN and now < (_FIREBASE_OAUTH_EXPIRY - 120):
+            return _FIREBASE_OAUTH_TOKEN
+        try:
+            iat = int(now)
+            exp = iat + 3600
+            header_b64 = _b64url(json.dumps({"alg": "RS256", "typ": "JWT"}, separators=(",", ":")).encode("utf-8"))
+            claim_b64 = _b64url(
+                json.dumps(
+                    {
+                        "iss": sa["client_email"],
+                        "scope": _FIREBASE_OAUTH_SCOPES,
+                        "aud": sa["token_uri"],
+                        "iat": iat,
+                        "exp": exp,
+                    },
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            )
+            signing_input = f"{header_b64}.{claim_b64}".encode("ascii")
+            sig_b64 = _b64url(_rs256_sign_pem(signing_input, sa["private_key"]))
+            assertion = f"{header_b64}.{claim_b64}.{sig_b64}"
+            res = requests.post(
+                sa["token_uri"],
+                data={
+                    "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                    "assertion": assertion,
+                },
+                timeout=10,
+            )
+            if res.status_code == 200:
+                body = res.json()
+                token = str(body.get("access_token") or "").strip()
+                expires_in = int(body.get("expires_in") or 3600)
+                if token:
+                    _FIREBASE_OAUTH_TOKEN = token
+                    _FIREBASE_OAUTH_EXPIRY = now + max(300, expires_in)
+                    return _FIREBASE_OAUTH_TOKEN
+            print(f"⚠️ Firebase OAuth2 토큰 발급 실패 (HTTP {res.status_code})", flush=True)
+        except Exception as e:
+            print(f"⚠️ Firebase OAuth2 토큰 발급 오류: {redact_secrets(str(e))}", flush=True)
+        return None
+
+
+def _is_firebase_url_configured() -> bool:
+    if not FIREBASE_DB_URL or not FIREBASE_DB_URL.startswith("https://"):
+        return False
+    if "여기에_" in FIREBASE_DB_URL or "<프로젝트" in FIREBASE_DB_URL:
+        return False
+    return True
+
+
+def get_firebase_auth_mode() -> str | None:
+    """현재 활성화된 Firebase 인증 방식을 반환합니다 ('서비스 계정' / '시크릿' / '공개 URL' / None)."""
+    if not _is_firebase_url_configured() or time.time() < _FIREBASE_DISABLED_UNTIL:
+        return None
+    if _load_firebase_service_account():
+        return "서비스 계정"
+    if FIREBASE_SECRET:
+        return "시크릿"
+    return "공개 URL"
+
+
 def get_firebase_endpoint():
-    if not FIREBASE_DB_URL or not FIREBASE_DB_URL.startswith("https://") or "여기에_" in FIREBASE_DB_URL or "norosi-default-rtdb" in FIREBASE_DB_URL:
+    if not _is_firebase_url_configured():
         return None
     if time.time() < _FIREBASE_DISABLED_UNTIL:
         return None
     url = f"{FIREBASE_DB_URL}/norosi_bot.json"
-    if FIREBASE_SECRET:
+    if not _load_firebase_service_account() and FIREBASE_SECRET:
         url += f"?auth={FIREBASE_SECRET}"
     return url
+
+
+def get_firebase_request_target(force_refresh_token: bool = False) -> tuple[str | None, dict[str, str]]:
+    """Firebase REST API 요청용 (url, headers) 튜플을 반환합니다. 서비스 계정 JSON이 있으면 OAuth2 Bearer 헤더를 우선 사용합니다."""
+    if not _is_firebase_url_configured():
+        return None, {}
+    if time.time() < _FIREBASE_DISABLED_UNTIL:
+        return None, {}
+    base_url = f"{FIREBASE_DB_URL}/norosi_bot.json"
+    if _load_firebase_service_account():
+        token = _get_firebase_oauth_token(force_refresh=force_refresh_token)
+        if token:
+            return base_url, {"Authorization": f"Bearer {token}"}
+        if FIREBASE_SECRET:
+            return f"{base_url}?auth={FIREBASE_SECRET}", {}
+        return None, {}
+    if FIREBASE_SECRET:
+        return f"{base_url}?auth={FIREBASE_SECRET}", {}
+    return base_url, {}
 
 
 def coerce_dict_like(val) -> dict:
@@ -4621,6 +4841,32 @@ def get_cached_data() -> dict:
     return load_data()
 
 
+def _firebase_put_raw(raw_json: str, timeout: int = 15) -> bool:
+    """직렬화된 JSON 문자열을 Firebase RTDB에 업로드합니다 (OAuth2 401 시 1회 토큰 재발급 재시도)."""
+    global _FIREBASE_DISABLED_UNTIL
+    url, auth_headers = get_firebase_request_target()
+    if not url:
+        return False
+    headers = {"Content-Type": "application/json; charset=utf-8", **auth_headers}
+    payload = raw_json.encode("utf-8")
+    try:
+        res = requests.put(url, data=payload, headers=headers, timeout=timeout)
+        if res.status_code == 401 and "Authorization" in auth_headers:
+            url2, auth_headers2 = get_firebase_request_target(force_refresh_token=True)
+            if url2:
+                headers2 = {"Content-Type": "application/json; charset=utf-8", **auth_headers2}
+                res = requests.put(url2, data=payload, headers=headers2, timeout=timeout)
+        if res.status_code in (200, 204):
+            return True
+        if res.status_code in (401, 403, 404):
+            print(f"ℹ️ Firebase 저장 권한/경로 오류 (HTTP {res.status_code}) — 잠시 로컬 모드로 전환합니다.", flush=True)
+            _FIREBASE_DISABLED_UNTIL = time.time() + 3600
+    except Exception as e:
+        print(f"⚠️ Firebase 저장 오류 (로컬 백업에는 정상 저장됨): {redact_secrets(str(e))}", flush=True)
+        _FIREBASE_DISABLED_UNTIL = time.time() + 300
+    return False
+
+
 def load_data():
     """
     인메모리 캐시 + 로컬 파일 + Firebase RTDB 하이브리드 로더.
@@ -4633,11 +4879,15 @@ def load_data():
             return _DATA_CACHE
 
         local_data = _load_local_file_safely()
-        endpoint = get_firebase_endpoint()
+        fb_url, fb_headers = get_firebase_request_target()
 
-        if endpoint:
+        if fb_url:
             try:
-                res = requests.get(endpoint, timeout=5)
+                res = requests.get(fb_url, headers=fb_headers, timeout=15)
+                if res.status_code == 401 and "Authorization" in fb_headers:
+                    fb_url2, fb_headers2 = get_firebase_request_target(force_refresh_token=True)
+                    if fb_url2:
+                        res = requests.get(fb_url2, headers=fb_headers2, timeout=15)
                 if res.status_code == 200:
                     fb_data = res.json()
                     if isinstance(fb_data, dict):
@@ -4691,7 +4941,6 @@ def _persist_worker():
             except Exception as e:
                 print(f"⚠️ 데이터 직렬화 오류: {e}", flush=True)
                 continue
-            endpoint = get_firebase_endpoint()
 
         try:
             tmp_file = f"{DATA_FILE}.tmp"
@@ -4705,31 +4954,26 @@ def _persist_worker():
         except Exception as e:
             print(f"⚠️ 로컬 데이터 파일 저장 오류: {e}", flush=True)
 
-        if endpoint:
-            try:
-                res = requests.put(
-                    endpoint,
-                    data=raw_json.encode("utf-8"),
-                    headers={"Content-Type": "application/json; charset=utf-8"},
-                    timeout=5,
-                )
-                if res.status_code in (401, 403, 404):
-                    _FIREBASE_DISABLED_UNTIL = time.time() + 3600
-            except Exception as e:
-                print(f"⚠️ Firebase 저장 오류 (로컬 백업에는 정상 저장됨): {redact_secrets(str(e))}", flush=True)
-                _FIREBASE_DISABLED_UNTIL = time.time() + 300
+        _firebase_put_raw(raw_json, timeout=15)
 
 
 def flush_pending_saves():
-    """프로세스 종료 시 대기 중인 인메모리 변경사항을 즉시 로컬 파일에 동기 저장합니다."""
+    """프로세스 종료 시 대기 중인 인메모리 변경사항을 즉시 로컬 파일과 Firebase에 동기 저장합니다."""
     global _PERSIST_Dirty
     with _FIREBASE_SYNC_LOCK:
         was_dirty = _PERSIST_Dirty
         _PERSIST_Dirty = False
     if was_dirty:
+        raw_json = None
         with _DATA_LOCK:
             if _DATA_CACHE is not None:
                 _save_local_file_safely(_DATA_CACHE)
+                try:
+                    raw_json = json.dumps(_DATA_CACHE, ensure_ascii=False, separators=(",", ":"))
+                except Exception:
+                    raw_json = None
+        if raw_json:
+            _firebase_put_raw(raw_json, timeout=8)
 
 
 import atexit
