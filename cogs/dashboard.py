@@ -3515,20 +3515,6 @@ class MasterDashboardView(core.SafeView):
             ref_btn.callback = self._on_refresh_clicked
             self.add_item(ref_btn)
 
-            g_key_h = str(self.guild.id if self.guild else 0)
-            u_key_h = str(uid)
-            prof_h = core.as_dict(core.as_dict(self.data.get("user_profiles")).get(u_key_h))
-            g_att_h = core.safe_get_dict(self.data, "guild_attendance", g_key_h, u_key_h) if self.guild else core.as_dict(prof_h.get("attendance"))
-            if g_att_h.get("last_date") != core.get_today_str():
-                att_btn = discord.ui.Button(
-                    label="오늘 출석하기",
-                    emoji="📅",
-                    style=discord.ButtonStyle.success,
-                    row=4,
-                    custom_id="norosi:Settings:home_quick_attend",
-                )
-                att_btn.callback = self._on_home_quick_attend
-                self.add_item(att_btn)
             return
 
         # [2단계] 카테고리 내부 화면 (일반 / 고급 / 미니게임 / 개인)
@@ -3757,27 +3743,6 @@ class MasterDashboardView(core.SafeView):
             await handler(interaction)
         else:
             await core.safe_defer(interaction, ephemeral=True)
-
-    async def _on_home_quick_attend(self, interaction: discord.Interaction):
-        await core.safe_defer(interaction, ephemeral=True)
-        gid = interaction.guild.id if interaction.guild else 0
-        gname = interaction.guild.name if interaction.guild else "개인 메시지"
-        res = await asyncio.to_thread(
-            core.execute_daily_attendance,
-            gid,
-            gname,
-            interaction.user.id,
-            interaction.user.display_name,
-        )
-        self.data = await asyncio.to_thread(core.load_data)
-        self.refresh_components()
-        await core.safe_edit_response(interaction, embed=self.build_current_embed(), view=self)
-        if isinstance(res, dict) and res.get("already_checked"):
-            await interaction.followup.send("✅ 오늘 이미 출석체크를 완료했습니다!", ephemeral=True)
-        else:
-            added = res.get("added_crystals", 0) if isinstance(res, dict) else 0
-            streak = res.get("streak", 1) if isinstance(res, dict) else 1
-            await interaction.followup.send(f"📅 **오늘 출석 완료!** (`{streak}일` 연속 · `+{added:,}💎` 지급)", ephemeral=True)
 
     async def _on_refresh_clicked(self, interaction: discord.Interaction):
         try:
