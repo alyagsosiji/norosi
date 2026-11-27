@@ -6036,10 +6036,9 @@ class MasterRankView(core.SafeView):
         if self.selected_char_id is not None:
             cards = [c for c in cards if MyInventoryView._resolve_card_char_id(c) == self.selected_char_id]
         cards.sort(key=lambda c: (
-            -int(self._safe_int(c.get("master_rank", 0), 0) < 5),
+            -self._safe_int(c.get("master_rank", 0), 0),
             -self._card_star_num(c, 1),
             -int(self._safe_int(c.get("count", 1), 1) >= 2),
-            -self._safe_int(c.get("master_rank", 0), 0),
             -core.get_card_power(c),
             self._safe_int(c.get("char_id", 99), 99),
             self._safe_int(c.get("id", 0), 0),
@@ -6096,9 +6095,11 @@ class MasterRankView(core.SafeView):
             self.card_select.options = opts or [discord.SelectOption(label="표시할 카드 없음", value="NONE")]
             self.card_select.disabled = not bool(opts)
 
+        self.first_list_btn.disabled = (self.card_page <= 0)
         self.prev_list_btn.disabled = (self.card_page <= 0)
         self.list_page_btn.label = f"📄 {self.card_page + 1} / {max_page + 1} ({len(cards)}종)"
         self.next_list_btn.disabled = (self.card_page >= max_page)
+        self.last_list_btn.disabled = (self.card_page >= max_page)
 
         if not selected:
             self.btn_upgrade_dup.disabled = True
@@ -6420,7 +6421,15 @@ class MasterRankView(core.SafeView):
         data = await asyncio.to_thread(core.load_data)
         await self._commit_ui_update(interaction, data=data, sync_page_to_selected=True)
 
-    @discord.ui.button(label="◀ 카드 목록", style=discord.ButtonStyle.secondary, row=4)
+    @discord.ui.button(label="⏮️ 앞장", style=discord.ButtonStyle.secondary, row=4)
+    async def first_list_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        self.card_page = 0
+        self.status_notice = ""
+        data = await asyncio.to_thread(core.load_data)
+        await self._commit_ui_update(interaction, data=data, sync_page_to_selected=False)
+
+    @discord.ui.button(label="◀ 이전", style=discord.ButtonStyle.secondary, row=4)
     async def prev_list_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.card_page = max(0, self.card_page - 1)
@@ -6432,12 +6441,21 @@ class MasterRankView(core.SafeView):
     async def list_page_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
 
-    @discord.ui.button(label="카드 목록 ▶", style=discord.ButtonStyle.secondary, row=4)
+    @discord.ui.button(label="다음 ▶", style=discord.ButtonStyle.secondary, row=4)
     async def next_list_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await core.safe_defer(interaction)
         self.card_page += 1
         self.status_notice = ""
         data = await asyncio.to_thread(core.load_data)
+        await self._commit_ui_update(interaction, data=data, sync_page_to_selected=False)
+
+    @discord.ui.button(label="뒷장 ⏭️", style=discord.ButtonStyle.secondary, row=4)
+    async def last_list_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await core.safe_defer(interaction)
+        data = await asyncio.to_thread(core.load_data)
+        cards = self._get_sorted_cards(data)
+        self.card_page = max(0, (len(cards) - 1) // self.per_page) if cards else 0
+        self.status_notice = ""
         await self._commit_ui_update(interaction, data=data, sync_page_to_selected=False)
 
 

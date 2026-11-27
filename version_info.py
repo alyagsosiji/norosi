@@ -12,6 +12,15 @@ VERSION_HISTORY: list[dict[str, Any]] = [
     {
         "commit": "HEAD",
         "date": "2026-11-27",
+        "title": "프로세카 마스터 랭크 MAX 카드 앞장 우선 정렬 · 앞장/뒷장 바로가기 버튼 추가",
+        "changed": [
+            "`cogs/gacha.py` (`MasterRankView`): 마스터 랭크 `MAX(✦MR.5)` 달성 시 카드가 목록 맨 뒤(뒷장)로 밀려나지 않고 **마스터 랭크 높은 순(`✦MR.5 ➔ MR.0`)으로 맨 앞장**에 위치하도록 정렬 기준 개선",
+            "`cogs/gacha.py` (`MasterRankView`): 하단 페이지 이동 바에 **`[⏮️ 앞장]`** 과 **`[뒷장 ⏭️]`** 원클릭 이동 버튼 추가 (`[⏮️ 앞장] [◀ 이전] [📄 현재/전체] [다음 ▶] [뒷장 ⏭️]`)",
+        ],
+    },
+    {
+        "commit": "648a3ef",
+        "date": "2026-11-27",
         "title": "웹훅 아바타 자동 복구 시 채팅 두 개 생겼다 사라지는 깜빡임 현상 완벽 해결",
         "fixed": [
             "`cogs/emoji_upscale.py` (`send_webhook_with_verified_avatar`, `prewarm_webhook_avatar_cache`, `_sync_webhook_avatar_in_place`): Discord 웹훅이 `avatar_url`을 드롭(`meta_dropped(avatar=None)`)할 때 새 웹훅 메시지를 먼저 또 보내고 기존 메시지를 삭제하던 사후 재전송 방식을 제거하고, 항상 **단 1회만 전송**하며 백그라운드에서 조용히 `direct_upload` 전략 전환 및 웹훅 아바타 동기화를 수행하도록 개선 (채팅이 두 개로 보였다가 하나로 사라지는 깜빡임 및 경고 로그 스팸 원천 차단)",
