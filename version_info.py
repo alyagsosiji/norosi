@@ -12,6 +12,14 @@ VERSION_HISTORY: list[dict[str, Any]] = [
     {
         "commit": "HEAD",
         "date": "2026-11-27",
+        "title": "프로세카 드롭다운 캐릭터 이름 전체 표시 및 잘림 방지",
+        "changed": [
+            "`cogs/gacha.py` (`MasterRankView`, `MyInventoryView`, `CardTradeView`, `EncyclopediaView`, `WardrobeView`): 캐릭터·카드 선택 드롭다운에서 성을 생략(`.split()[-1]`)하거나 짧은 글자 수(`[:26]`, `[:32]`, `[:34]`, `[:36]`)로 잘라내던 처리를 제거하고, **풀네임(`요이사키 카나데`, `호시노 이치카` 등)을 앞쪽에 배치하여 최대 100자까지 온전히 표시**되도록 개선",
+        ],
+    },
+    {
+        "commit": "3ec1429",
+        "date": "2026-11-27",
         "title": "프로세카 마스터 랭크 MAX 카드 앞장 우선 정렬 · 앞장/뒷장 바로가기 버튼 추가",
         "changed": [
             "`cogs/gacha.py` (`MasterRankView`): 마스터 랭크 `MAX(✦MR.5)` 달성 시 카드가 목록 맨 뒤(뒷장)로 밀려나지 않고 **마스터 랭크 높은 순(`✦MR.5 ➔ MR.0`)으로 맨 앞장**에 위치하도록 정렬 기준 개선",
