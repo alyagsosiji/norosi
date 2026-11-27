@@ -844,6 +844,11 @@ class NorosiBot(commands.Bot):
             msg = interaction.message
             msg_id = msg.id if msg else None
 
+            def _is_stale_view_instance(v: discord.ui.View) -> bool:
+                cls_name = v.__class__.__name__
+                latest_cls = core.SAFE_VIEW_REGISTRY.get(cls_name)
+                return bool(latest_cls is not None and v.__class__ is not latest_cls)
+
             views = getattr(vs, "_views", None)
             if isinstance(views, dict):
                 if msg_id is not None:
@@ -852,6 +857,13 @@ class NorosiBot(commands.Bot):
                         item = msg_bucket.get(key)
                         item_view = getattr(item, "view", None)
                         if item_view is not None and not item_view.is_finished():
+                            if _is_stale_view_instance(item_view):
+                                try:
+                                    item_view.stop()
+                                except Exception:
+                                    pass
+                                msg_bucket.pop(key, None)
+                                return False
                             return True
                         # 종료되었거나 유실된 뷰 엔트리는 즉시 정리하여 폴백 복구 허용
                         msg_bucket.pop(key, None)
@@ -860,6 +872,13 @@ class NorosiBot(commands.Bot):
                     item = none_bucket.get(key)
                     item_view = getattr(item, "view", None)
                     if item_view is not None and not item_view.is_finished():
+                        if _is_stale_view_instance(item_view):
+                            try:
+                                item_view.stop()
+                            except Exception:
+                                pass
+                            none_bucket.pop(key, None)
+                            return False
                         return True
                     none_bucket.pop(key, None)
         except Exception:
@@ -2560,13 +2579,18 @@ async def execute_github_update(force_restart: bool = False) -> tuple[discord.Em
         _, commits_txt = _run(["git", "log", "--oneline", f"HEAD..origin/{branch}", "-n", "25"])
         _, total_behind_txt = _run(["git", "rev-list", "--count", f"HEAD..origin/{branch}"])
         behind_cnt = int(total_behind_txt) if total_behind_txt.isdigit() else 0
+        _, total_ahead_txt = _run(["git", "rev-list", "--count", f"origin/{branch}..HEAD"])
+        ahead_cnt = int(total_ahead_txt) if total_ahead_txt.isdigit() else 0
         _, changed_txt = _run(["git", "diff", "--name-only", f"HEAD..origin/{branch}"])
         changed_files = [ln.strip() for ln in changed_txt.splitlines() if ln.strip()]
 
-        if behind_cnt > 0:
-            rc_p, _ = _run(["git", "pull", "--ff-only", "origin", branch])
-            if rc_p != 0:
+        if behind_cnt > 0 or ahead_cnt > 0:
+            if ahead_cnt > 0:
                 _run(["git", "reset", "--hard", f"origin/{branch}"])
+            else:
+                rc_p, _ = _run(["git", "pull", "--ff-only", "origin", branch])
+                if rc_p != 0:
+                    _run(["git", "reset", "--hard", f"origin/{branch}"])
         _, new_sha = _run(["git", "rev-parse", "--short", "HEAD"])
         clean_repo_url = ""
         if remote_url:
@@ -2648,6 +2672,24 @@ async def execute_github_update(force_restart: bool = False) -> tuple[discord.Em
             reloaded_cogs.append(ext)
         except Exception as e:
             failed_cogs.append(f"`{ext}`: {e}")
+
+    # 핫리로드 후 기존에 열려 있던 구버전 View 인스턴스를 ViewStore에서 정리하여
+    # 기존 패널의 버튼/드롭다운을 눌러도 즉시 최신 코드의 View 클래스로 자동 업그레이드되도록 보장
+    try:
+        vs = getattr(getattr(bot, "_connection", None), "_view_store", None)
+        if vs is not None:
+            synced = getattr(vs, "_synced_message_views", None)
+            if isinstance(synced, dict):
+                for old_v in list(synced.values()):
+                    cls_n = old_v.__class__.__name__
+                    latest_c = core.SAFE_VIEW_REGISTRY.get(cls_n)
+                    if latest_c is not None and old_v.__class__ is not latest_c:
+                        try:
+                            old_v.stop()
+                        except Exception:
+                            pass
+    except Exception:
+        pass
 
     bot.prune_slash_tree_to_core()
 

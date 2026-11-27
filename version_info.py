@@ -12,9 +12,10 @@ VERSION_HISTORY: list[dict[str, Any]] = [
     {
         "commit": "HEAD",
         "date": "2026-11-27",
-        "title": "모바일·좁은 화면 드롭다운에서도 캐릭터·콜라보 이름이 절대 잘리지 않도록 라벨 구조 전면 최적화",
+        "title": "모바일 드롭다운 라벨 최적화 및 !업데이트 핫리로드 시 기존 열린 창 즉시 최신화",
         "fixed": [
             "`cogs/gacha.py` (`MasterRankView`, `MyInventoryView`, `CardPokedexView`, `DuplicateConvertConfirmView`, `CardTradeView`) & `core.py` (`owned_card_autocomplete`, `target_user_card_autocomplete`): 드롭다운 첫 줄(`label`) 앞쪽에 붙던 `👗[MR.5]`, `★★★★`, `[✨보유(N장)]`, `(N·MR5)` 등 긴 접두사·접미사 때문에 모바일 디스코드 화면 폭(약 25~28자)에서 뒷부분 이름(`카미시로 루이 [feat. 한교동]` ➔ `... [feat. 한교`)이 잘려 보이던 문제를 해결하기 위해, 첫 줄 라벨을 **`★2 카미시로 루이 [feat. 한교동]`** (22~27자 이내)으로 간결화하고 마스터 랭크·보유 장수·3D 의상·한정 여부는 모두 둘째 줄 설명(`description`)으로 이동",
+            "`bot.py` (`execute_github_update`, `is_component_handled_by_view_store`): `!업데이트`로 모듈을 핫리로드한 뒤에도 기존에 열어 두었던 메시지(마스터 랭크, 보관함 등)가 메모리의 구버전 View 인스턴스를 계속 실행하던 문제를 해결하여, 핫리로드 즉시 구버전 View 인스턴스를 정리하고 기존 창에서 버튼·드롭다운을 누르는 즉시 최신 코드의 UI로 자동 교체되도록 개선 (또한 GitHub 롤백 후 `ahead_cnt > 0` 상태에서도 `origin/master`로 즉시 동기화되도록 보강)",
         ],
     },
     {
