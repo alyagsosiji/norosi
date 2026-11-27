@@ -663,6 +663,20 @@ def consume_suppressed_delete_log(message_id: int) -> bool:
 
 SAFE_VIEW_REGISTRY: dict[str, type["SafeView"]] = {}
 
+_SAFE_VIEW_ALIASES: dict[str, str] = {
+    "MasterDashboardView": "Settings",
+    "AttendanceRankingView": "AttRank",
+    "DDayCategoryPickView": "DDayCategoryPick",
+    "DDayChannelSetupView": "DDayChannelSetup",
+    "ProsekaRatePaginationView": "ProsekaRate",
+    "GenshinInventoryView": "GenshinInv",
+    "HelpCategoryView": "Help",
+    "HSRInventoryView": "HSRInv",
+    "InactiveUserListView": "InactiveList",
+    "MusicLibraryPaginationView": "MusicLib",
+    "ReactionRoleListView": "RRoleList",
+}
+
 
 class SafeView(discord.ui.View):
     """'애플리케이션 응답 없음' 먹통 방지 및 봇 재시작/코드 반영 후에도 버튼이 영구 유지되는 커스텀 UI View 래퍼"""
@@ -670,6 +684,9 @@ class SafeView(discord.ui.View):
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         SAFE_VIEW_REGISTRY[cls.__name__] = cls
+        alias = _SAFE_VIEW_ALIASES.get(cls.__name__)
+        if alias:
+            SAFE_VIEW_REGISTRY[alias] = cls
 
         # 데코레이터(@discord.ui.button, @discord.ui.select 등)로 등록된 자식 요소들에
         # 봇 재시작 후에도 유실되지 않는 고유한 결정론적(Deterministic) custom_id 자동 부여
@@ -793,6 +810,10 @@ def sync_page_number_buttons(
     - 현재 페이지는 active_style + '● Np' 표시 + disabled=True로 한눈에 구분됩니다.
     - 기존 데코레이터 버튼/셀렉트는 건드리지 않고 _is_page_num_btn 마커가 붙은 버튼만 교체합니다.
     """
+    prefix = custom_id_prefix or f"norosi:{view.__class__.__name__}:pnum"
+    view._page_num_on_select = on_select
+    view._page_num_prefix = prefix
+
     for child in list(view.children):
         if getattr(child, "_is_page_num_btn", False):
             view.remove_item(child)
@@ -817,8 +838,6 @@ def sync_page_number_buttons(
         if end_0 > total_pages:
             end_0 = total_pages
             start_0 = max(0, end_0 - cap)
-
-    prefix = custom_id_prefix or f"norosi:{view.__class__.__name__}:pnum"
 
     def _make_cb(target_page: int):
         async def _cb(interaction: discord.Interaction):
@@ -851,7 +870,9 @@ def reconstruct_safe_view(view_cls_or_name: type[SafeView] | str, interaction: d
     else:
         view_cls = view_cls_or_name
 
-    if not view_cls or not issubclass(view_cls, SafeView):
+    if not view_cls or not isinstance(view_cls, type) or not issubclass(view_cls, discord.ui.View):
+        return None
+    if not (issubclass(view_cls, SafeView) or view_cls.__name__ in SAFE_VIEW_REGISTRY):
         return None
 
     try:
@@ -879,7 +900,7 @@ def reconstruct_safe_view(view_cls_or_name: type[SafeView] | str, interaction: d
                 kwargs[name] = interaction
             elif name in ("owner",):
                 kwargs[name] = orig_user
-            elif name in ("owner_id",):
+            elif name in ("owner_id", "author_id", "admin_id"):
                 kwargs[name] = getattr(orig_user, "id", 0)
             elif name in ("user", "caller", "member", "viewer", "target_user", "host_user", "author", "host"):
                 kwargs[name] = orig_user
@@ -889,10 +910,12 @@ def reconstruct_safe_view(view_cls_or_name: type[SafeView] | str, interaction: d
                 kwargs[name] = interaction.guild
             elif name in ("guild_id",):
                 kwargs[name] = interaction.guild.id if interaction.guild else 0
+            elif name in ("guild_name",):
+                kwargs[name] = getattr(interaction.guild, "name", "서버") if interaction.guild else "서버"
             elif name in ("channel", "target_channel", "default_channel"):
                 kwargs[name] = interaction.channel
-            elif name in ("channel_id",):
-                kwargs[name] = getattr(interaction, "channel_id", None)
+            elif name in ("channel_id", "target_channel_id"):
+                kwargs[name] = getattr(interaction, "channel_id", None) or 0
             elif name == "title" and view_cls.__name__ == "AnnouncementPreviewView":
                 kwargs[name] = "공지사항 안내"
             elif name == "content" and view_cls.__name__ == "AnnouncementPreviewView":
@@ -923,9 +946,15 @@ def reconstruct_safe_view(view_cls_or_name: type[SafeView] | str, interaction: d
                 uid_s = str(getattr(orig_user, "id", 0))
                 u_cards = safe_get_dict(_data(), "gacha_users", gid_s, uid_s, "cards")
                 kwargs[name] = [c for c in u_cards.values() if isinstance(c, dict)]
+            elif name in ("liked_music", "music_list"):
+                uid_s = str(getattr(orig_user, "id", 0))
+                lm = safe_get_dict(_data(), "user_profiles", uid_s).get("liked_music")
+                kwargs[name] = list(lm) if isinstance(lm, list) else []
+            elif name == "entries" and view_cls.__name__ == "OwnerVersionChangelogView":
+                kwargs[name] = None
             elif name in (
                 "card_list", "items", "options", "all_prob_cards", "stats_list",
-                "first_set", "initial_drawn", "liked_music", "music_list",
+                "first_set", "initial_drawn",
                 "matches", "inactive_list", "entries",
             ):
                 kwargs[name] = []
@@ -970,8 +999,13 @@ def reconstruct_safe_view(view_cls_or_name: type[SafeView] | str, interaction: d
                 kwargs[name] = as_dict(_data().get("music_prefs")) or DEFAULT_CONFIG["music_prefs"]
             elif name == "playlist_data":
                 kwargs[name] = {"id": "pl_1", "name": "공유 플레이리스트", "description": "", "tracks": []}
+            elif name == "profile":
+                uid_s = str(getattr(orig_user, "id", 0))
+                kwargs[name] = safe_get_dict(_data(), "user_profiles", uid_s)
+            elif name == "pickup_cfg":
+                kwargs[name] = as_dict(_data().get("gacha_pickup")) or copy.deepcopy(DEFAULT_CONFIG["gacha_pickup"])
             elif name in (
-                "profile", "user_cfg", "config", "card", "pickup_cfg",
+                "user_cfg", "config", "card",
                 "preview_info", "hall_of_fame", "req_card", "tgt_card", "req_cards", "tgt_cards",
             ):
                 kwargs[name] = {}

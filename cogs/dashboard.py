@@ -1768,6 +1768,10 @@ class DashboardSearchResultView(core.SafeView):
         self.matches = (matches or [])[:10]
         self.owner_id = owner_id
 
+        self._rebuild_items()
+
+    def _rebuild_items(self):
+        self.clear_items()
         for idx, m in enumerate(self.matches):
             item = m["item"]
             row = 0 if idx < 5 else 1
@@ -1804,6 +1808,26 @@ class DashboardSearchResultView(core.SafeView):
         )
         home_btn.callback = self._on_open_dashboard_home
         self.add_item(home_btn)
+
+    def _restore_from_message(self, interaction: discord.Interaction):
+        if self.matches:
+            return
+        if self.parent_view is None:
+            self.parent_view = MasterDashboardView(
+                bot=interaction.client,
+                user=interaction.user,
+                guild=interaction.guild,
+                data=core.get_cached_data(),
+            )
+        msg = getattr(interaction, "message", None)
+        if msg and msg.embeds:
+            title = getattr(msg.embeds[0], "title", "") or ""
+            m_kw = re.search(r"'([^']+)'\s*$", title)
+            if m_kw:
+                self.keyword = m_kw.group(1)
+                self.matches = search_dashboard_features(self.parent_view, self.keyword)[:10]
+                if self.matches:
+                    self._rebuild_items()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if not await super().interaction_check(interaction):
@@ -2333,9 +2357,27 @@ class MasterDashboardView(core.SafeView):
                 elif cid.startswith("norosi:Settings:nav_back:") and parsed_history is None:
                     parsed_history = _parse_nav_back_cid(cid)
 
-        if parsed_history is None and isinstance(getattr(interaction, "data", None), dict):
+        if isinstance(getattr(interaction, "data", None), dict):
             clicked_cid = interaction.data.get("custom_id") or ""
-            parsed_history = _parse_nav_back_cid(clicked_cid)
+            if parsed_history is None:
+                parsed_history = _parse_nav_back_cid(clicked_cid)
+            if restored_sub is None and clicked_cid.startswith("norosi:Settings:sub_"):
+                rest = clicked_cid[len("norosi:Settings:sub_"):]
+                if "_" in rest:
+                    sub_name, idx_s = rest.rsplit("_", 1)
+                    if idx_s.isdigit():
+                        restored_sub = sub_name
+            if restored_cat_page is None and clicked_cid.startswith("norosi:Settings:act_"):
+                rest = clicked_cid[len("norosi:Settings:act_"):]
+                parts = rest.rsplit("_", 2)
+                if len(parts) == 3 and parts[1].isdigit():
+                    restored_cat_page = (parts[0], int(parts[1]))
+            if restored_cat_page is None and clicked_cid.startswith("norosi:Settings:catpage_"):
+                rest = clicked_cid[len("norosi:Settings:catpage_"):]
+                if ":" in rest:
+                    cat, p_s = rest.split(":", 1)
+                    if p_s.isdigit():
+                        restored_cat_page = (cat, int(p_s))
 
         if is_home:
             self.current_category = "home"

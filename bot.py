@@ -931,7 +931,20 @@ class NorosiBot(commands.Bot):
             except Exception as e:
                 print(f"⚠️ [반응역할 폴백 예외] {e}", flush=True)
 
-        # 2. 결정론적 커스텀 ID 패턴: norosi:{ViewClassName}:{item_name}
+        # 2. 레거시/단축 프리픽스 정규화 및 결정론적 커스텀 ID 패턴: norosi:{ViewClassName}:{item_name}
+        orig_custom_id = custom_id
+        _LEGACY_PREFIX_VIEW_MAP = {
+            "countdown:": "CountdownCardView",
+            "link_preview:": "LinkCleanupView",
+            "raid_defense:": "RaidAlertControlView",
+            "relay_novel:": "RelayNovelView",
+            "temp_voice:": "TempVoiceControlView",
+        }
+        for pfx, v_cls_name in _LEGACY_PREFIX_VIEW_MAP.items():
+            if custom_id.startswith(pfx):
+                custom_id = f"norosi:{v_cls_name}:{custom_id.split(':', 1)[1]}"
+                break
+
         if custom_id.startswith("norosi:"):
             parts = custom_id.split(":", 2)
             if len(parts) >= 3:
@@ -944,7 +957,7 @@ class NorosiBot(commands.Bot):
                         if view:
                             target_item = None
                             for child in view.children:
-                                if getattr(child, "custom_id", None) == custom_id:
+                                if getattr(child, "custom_id", None) in (custom_id, orig_custom_id):
                                     target_item = child
                                     break
                             if not target_item:
@@ -987,6 +1000,19 @@ class NorosiBot(commands.Bot):
                                 ]
                                 if len(select_children) == 1:
                                     target_item = select_children[0]
+                            if not target_item and callable(getattr(view, "_page_num_on_select", None)):
+                                m_page = re.search(r":(?:pnum|p|catpage_[a-z]+):(\d+)$", custom_id)
+                                if m_page:
+                                    try:
+                                        allowed = await view.interaction_check(interaction)
+                                    except Exception:
+                                        allowed = True
+                                    if not allowed:
+                                        return
+                                    await view._page_num_on_select(interaction, int(m_page.group(1)))
+                                    if msg and not view.is_finished():
+                                        self.attach_view_to_message(view, message_id=msg.id)
+                                    return
                             if target_item and hasattr(target_item, "callback"):
                                 try:
                                     allowed = await view.interaction_check(interaction)
@@ -2303,7 +2329,10 @@ class SyncControlView(core.SafeView):
         await core.safe_defer(interaction)
         reloaded = []
         failed = []
-        for ext in list(bot.extensions.keys()):
+        ext_keys = [e for e in bot.extensions.keys() if e != "cogs.dashboard"]
+        if "cogs.dashboard" in bot.extensions:
+            ext_keys.append("cogs.dashboard")
+        for ext in ext_keys:
             try:
                 await bot.reload_extension(ext)
                 reloaded.append(ext)
@@ -2579,7 +2608,12 @@ async def execute_github_update(force_restart: bool = False) -> tuple[discord.Em
         "hsr_core",
         "fishing_core",
         "life_core",
+        "other_life_endings",
+        "other_life_narratives",
         "other_life_core",
+        "routine_core",
+        "sns_embed_core",
+        "ticket_core",
         "community_core",
         "version_info",
     ):
@@ -2588,11 +2622,14 @@ async def execute_github_update(force_restart: bool = False) -> tuple[discord.Em
                 if mod_name == "core":
                     saved_cache = getattr(core, "_DATA_CACHE", None)
                     saved_lock = getattr(core, "_DATA_LOCK", None)
+                    saved_registry = dict(getattr(core, "SAFE_VIEW_REGISTRY", {}))
                     importlib.reload(sys.modules[mod_name])
                     if saved_cache is not None:
                         core._DATA_CACHE = saved_cache
                     if saved_lock is not None:
                         core._DATA_LOCK = saved_lock
+                    if saved_registry:
+                        core.SAFE_VIEW_REGISTRY.update(saved_registry)
                 else:
                     importlib.reload(sys.modules[mod_name])
                 if f"{mod_name}.py" in changed_files:
@@ -2602,7 +2639,10 @@ async def execute_github_update(force_restart: bool = False) -> tuple[discord.Em
 
     reloaded_cogs: list[str] = []
     failed_cogs: list[str] = []
-    for ext in list(bot.extensions.keys()):
+    ext_keys = [e for e in bot.extensions.keys() if e != "cogs.dashboard"]
+    if "cogs.dashboard" in bot.extensions:
+        ext_keys.append("cogs.dashboard")
+    for ext in ext_keys:
         try:
             await bot.reload_extension(ext)
             reloaded_cogs.append(ext)
@@ -2674,6 +2714,7 @@ class OwnerVersionUpdateView(core.SafeView):
         self._sync_buttons()
         await core.safe_edit_response(interaction, embed=embed, view=self)
         if need_restart:
+            await asyncio.to_thread(core.flush_pending_saves)
             await asyncio.sleep(1.5)
             os.execv(sys.executable, [sys.executable] + sys.argv)
 
@@ -2753,13 +2794,24 @@ class OwnerVersionChangelogView(core.SafeView):
 
     def __init__(self, entries: list[dict] | None = None, head_sha: str = "", repo_url: str = "", index: int = 0):
         super().__init__(timeout=600)
-        if entries is None:
+        if not entries:
             entries, head_sha, repo_url = _resolve_version_entries_sync()
         self.entries = entries or []
         self.head_sha = head_sha or get_local_head_short_sha()
         self.repo_url = repo_url
         self.index = max(0, min(index, max(0, len(self.entries) - 1)))
         self._rebuild_items()
+
+    def _restore_from_message(self, interaction: discord.Interaction):
+        msg = getattr(interaction, "message", None)
+        if msg and msg.embeds:
+            title = getattr(msg.embeds[0], "title", "") or ""
+            for i, e in enumerate(self.entries):
+                sha = str(e.get("commit") or "")[:7]
+                if sha and f"[{sha}]" in title:
+                    self.index = i
+                    self._rebuild_items()
+                    break
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if not await super().interaction_check(interaction):
@@ -2926,6 +2978,7 @@ async def apply_github_updates_command(ctx: commands.Context, *args):
     embed, need_restart = await execute_github_update(force_restart=force_restart)
     await status_msg.edit(content=None, embed=embed)
     if need_restart:
+        await asyncio.to_thread(core.flush_pending_saves)
         await asyncio.sleep(1.5)
         os.execv(sys.executable, [sys.executable] + sys.argv)
 
@@ -2945,7 +2998,10 @@ async def sync_guild_command(ctx: commands.Context, *args):
     status_msg = await ctx.send(f"⏳ **[{g_name}]** 슬래시 명령어 동기화 처리 중...")
 
     if any(k in mode for k in ("리로드", "reload", "새로고침", "refresh")):
-        for ext in list(bot.extensions.keys()):
+        ext_keys = [e for e in bot.extensions.keys() if e != "cogs.dashboard"]
+        if "cogs.dashboard" in bot.extensions:
+            ext_keys.append("cogs.dashboard")
+        for ext in ext_keys:
             try:
                 await bot.reload_extension(ext)
             except Exception as e:

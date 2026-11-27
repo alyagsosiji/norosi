@@ -681,7 +681,7 @@ class LinkCleanupView(core.SafeView):
         label="링크 메시지 닫기",
         style=discord.ButtonStyle.secondary,
         emoji="🗑️",
-        custom_id="link_preview:delete",
+        custom_id="norosi:LinkCleanupView:delete",
         row=0,
     )
     async def delete_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -771,6 +771,10 @@ class LinkPreviewConfigView(core.SafeView):
         if interaction.user.id != self.author_id and not _is_guild_admin(interaction.user):
             await core.safe_send_response(interaction, "❌ 관리자만 설정 패널을 조작할 수 있습니다.", ephemeral=True)
             return False
+        if self.guild is None and interaction.guild:
+            self.guild = interaction.guild
+        if interaction.guild:
+            self.cfg = community_core.get_link_preview_config(core.get_cached_data(), interaction.guild.id)
         return True
 
     def build_embed(self) -> discord.Embed:
@@ -844,7 +848,7 @@ class RaidAlertControlView(core.SafeView):
         label="비상모드 즉시 해제",
         style=discord.ButtonStyle.success,
         emoji="🔓",
-        custom_id="raid_defense:unlock",
+        custom_id="norosi:RaidAlertControlView:unlock",
         row=0,
     )
     async def unlock_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -902,7 +906,7 @@ class RaidAlertControlView(core.SafeView):
         label="최근 차단 기록",
         style=discord.ButtonStyle.secondary,
         emoji="📋",
-        custom_id="raid_defense:logs",
+        custom_id="norosi:RaidAlertControlView:logs",
         row=0,
     )
     async def view_logs_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1102,6 +1106,10 @@ class RaidDefenseConfigView(core.SafeView):
         if not _is_guild_admin(interaction.user, need_admin=True):
             await core.safe_send_response(interaction, "❌ 서버 관리자(Administrator)만 비상 방어 설정을 변경할 수 있습니다.", ephemeral=True)
             return False
+        if self.guild is None and interaction.guild:
+            self.guild = interaction.guild
+        if interaction.guild:
+            self.cfg = community_core.get_raid_defense_config(core.get_cached_data(), interaction.guild.id)
         return True
 
     def build_embed(self) -> discord.Embed:
@@ -1298,7 +1306,7 @@ class RelayNovelView(core.SafeView):
         label="다음 줄 이어쓰기",
         style=discord.ButtonStyle.primary,
         emoji="✍️",
-        custom_id="relay_novel:write",
+        custom_id="norosi:RelayNovelView:write",
         row=0,
     )
     async def write_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1326,7 +1334,7 @@ class RelayNovelView(core.SafeView):
         label="줄거리 확인",
         style=discord.ButtonStyle.secondary,
         emoji="📖",
-        custom_id="relay_novel:preview",
+        custom_id="norosi:RelayNovelView:preview",
         row=0,
     )
     async def preview_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1361,7 +1369,7 @@ class RelayNovelView(core.SafeView):
         label="지금 완결하기",
         style=discord.ButtonStyle.success,
         emoji="🏁",
-        custom_id="relay_novel:finish",
+        custom_id="norosi:RelayNovelView:finish",
         row=0,
     )
     async def finish_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1741,7 +1749,7 @@ class TempVoiceControlView(core.SafeView):
         label="방 제목 변경",
         style=discord.ButtonStyle.primary,
         emoji="✏️",
-        custom_id="temp_voice:rename",
+        custom_id="norosi:TempVoiceControlView:rename",
         row=0,
     )
     async def rename_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1754,7 +1762,7 @@ class TempVoiceControlView(core.SafeView):
         label="인원 제한",
         style=discord.ButtonStyle.secondary,
         emoji="👥",
-        custom_id="temp_voice:limit",
+        custom_id="norosi:TempVoiceControlView:limit",
         row=0,
     )
     async def limit_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1767,7 +1775,7 @@ class TempVoiceControlView(core.SafeView):
         label="방 잠금 / 해제",
         style=discord.ButtonStyle.secondary,
         emoji="🔒",
-        custom_id="temp_voice:lock",
+        custom_id="norosi:TempVoiceControlView:lock",
         row=0,
     )
     async def lock_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1783,6 +1791,12 @@ class TempVoiceControlView(core.SafeView):
         ev_ow = overwrites.get(everyone_role, discord.PermissionOverwrite())
         ev_ow.connect = False if new_locked else None
         overwrites[everyone_role] = ev_ow
+        for cur_m in vc.members:
+            if not cur_m.bot:
+                m_ow = overwrites.get(cur_m, discord.PermissionOverwrite())
+                m_ow.connect = True
+                m_ow.view_channel = True
+                overwrites[cur_m] = m_ow
         if isinstance(interaction.user, discord.Member):
             owner_ow = overwrites.get(interaction.user, discord.PermissionOverwrite())
             owner_ow.connect = True
@@ -1821,7 +1835,7 @@ class TempVoiceControlView(core.SafeView):
         label="방 숨기기 / 해제",
         style=discord.ButtonStyle.secondary,
         emoji="👻",
-        custom_id="temp_voice:hide",
+        custom_id="norosi:TempVoiceControlView:hide",
         row=1,
     )
     async def hide_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1837,6 +1851,12 @@ class TempVoiceControlView(core.SafeView):
         ev_ow = overwrites.get(everyone_role, discord.PermissionOverwrite())
         ev_ow.view_channel = False if new_hidden else None
         overwrites[everyone_role] = ev_ow
+        for cur_m in vc.members:
+            if not cur_m.bot:
+                m_ow = overwrites.get(cur_m, discord.PermissionOverwrite())
+                m_ow.view_channel = True
+                m_ow.connect = True
+                overwrites[cur_m] = m_ow
         if isinstance(interaction.user, discord.Member):
             owner_ow = overwrites.get(interaction.user, discord.PermissionOverwrite())
             owner_ow.view_channel = True
@@ -1875,7 +1895,7 @@ class TempVoiceControlView(core.SafeView):
         label="방장 인계받기",
         style=discord.ButtonStyle.success,
         emoji="👑",
-        custom_id="temp_voice:claim",
+        custom_id="norosi:TempVoiceControlView:claim",
         row=1,
     )
     async def claim_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1912,6 +1932,12 @@ class TempVoiceControlView(core.SafeView):
             return
 
         overwrites = dict(vc.overwrites)
+        old_owner_member = interaction.guild.get_member(cur_owner_id) if cur_owner_id else None
+        if old_owner_member and old_owner_member in overwrites:
+            old_ow = overwrites[old_owner_member]
+            old_ow.manage_channels = None
+            old_ow.move_members = None
+            overwrites[old_owner_member] = old_ow
         new_ow = overwrites.get(interaction.user, discord.PermissionOverwrite())
         new_ow.connect = True
         new_ow.view_channel = True
@@ -2107,6 +2133,10 @@ class TempVoiceSetupView(core.SafeView):
         if not _is_strict_server_admin(interaction.user):
             await core.safe_send_response(interaction, "❌ 임시 음성방 설정 및 자동생성 채널 추가는 **서버 관리자(Administrator)** 만 가능합니다.", ephemeral=True)
             return False
+        if self.guild is None and interaction.guild:
+            self.guild = interaction.guild
+        if interaction.guild:
+            self.cfg = community_core.get_temp_voice_config(core.get_cached_data(), interaction.guild.id)
         return True
 
     def build_embed(self) -> discord.Embed:
@@ -3108,6 +3138,10 @@ class WelcomeConfigView(core.SafeView):
         if not _is_guild_admin(interaction.user):
             await core.safe_send_response(interaction, "❌ 서버 관리자 권한이 필요합니다.", ephemeral=True)
             return False
+        if self.guild is None and interaction.guild:
+            self.guild = interaction.guild
+        if interaction.guild:
+            self.cfg = community_core.get_welcome_config(core.get_cached_data(), interaction.guild.id)
         return True
 
     def build_embed(self) -> discord.Embed:
@@ -3362,7 +3396,7 @@ class CountdownCardView(core.SafeView):
         label="시작 알림 받기",
         emoji="🔔",
         style=discord.ButtonStyle.primary,
-        custom_id="countdown:subscribe",
+        custom_id="norosi:CountdownCardView:subscribe",
         row=0,
     )
     async def subscribe_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -3401,7 +3435,7 @@ class CountdownCardView(core.SafeView):
         label="+10분 연장 (관리자)",
         emoji="⏰",
         style=discord.ButtonStyle.secondary,
-        custom_id="countdown:extend10",
+        custom_id="norosi:CountdownCardView:extend10",
         row=0,
     )
     async def extend_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -3438,7 +3472,7 @@ class CountdownCardView(core.SafeView):
         label="타이머 취소 (관리자)",
         emoji="🛑",
         style=discord.ButtonStyle.danger,
-        custom_id="countdown:cancel",
+        custom_id="norosi:CountdownCardView:cancel",
         row=0,
     )
     async def cancel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -3633,12 +3667,35 @@ class CountdownStudioView(core.SafeView):
         self.add_item(CountdownTargetChannelSelect())
         self.add_item(CountdownMentionRoleSelect())
 
+    def _restore_from_message(self, interaction: discord.Interaction):
+        msg = getattr(interaction, "message", None)
+        if msg and msg.embeds:
+            desc = getattr(msg.embeds[0], "description", "") or ""
+            m_ch = re.search(r"발송 대상 채널:\*\*\s*<#(\d+)>", desc)
+            if m_ch:
+                self.target_channel_id = int(m_ch.group(1))
+            m_line = next((ln for ln in desc.splitlines() if "종료 시 멘션 대상:" in ln), "")
+            if "@here" in m_line:
+                self.mention_target = "here"
+            elif "@everyone" in m_line:
+                self.mention_target = "@everyone"
+            else:
+                m_role = re.search(r"<@&(\d+)>", m_line)
+                if m_role:
+                    self.mention_target = f"<@&{m_role.group(1)}>"
+
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if not await super().interaction_check(interaction):
             return False
         if not _is_guild_admin(interaction.user):
             await core.safe_send_response(interaction, "❌ 실시간 카운트다운 스튜디오는 **서버 관리자**만 사용할 수 있습니다.", ephemeral=True)
             return False
+        if self.guild is None and interaction.guild:
+            self.guild = interaction.guild
+        if not self.target_channel_id and isinstance(interaction.channel, discord.TextChannel):
+            self.target_channel_id = interaction.channel.id
+        if interaction.guild:
+            self.active_timers = community_core.get_guild_countdown_timers(core.get_cached_data(), interaction.guild.id, active_only=True)
         return True
 
     def build_embed(self) -> discord.Embed:
@@ -3718,15 +3775,30 @@ class CountdownStudioView(core.SafeView):
             with core._DATA_LOCK:
                 d = core.load_data()
                 active = community_core.get_guild_countdown_timers(d, guild_id, active_only=True)
+                cancelled_list = []
                 for t in active:
-                    community_core.cancel_countdown_timer(d, guild_id, t["timer_id"])
+                    updated = community_core.cancel_countdown_timer(d, guild_id, t["timer_id"])
+                    if updated:
+                        cancelled_list.append(dict(updated))
                 core.save_data(d)
-                return len(active)
+                return cancelled_list
 
-        cancelled_cnt = await asyncio.to_thread(_cancel_all)
+        cancelled_timers = await asyncio.to_thread(_cancel_all)
+        for t in cancelled_timers:
+            ch = interaction.guild.get_channel(int(t.get("channel_id") or 0))
+            msg_id = int(t.get("message_id") or 0)
+            if isinstance(ch, discord.TextChannel) and msg_id:
+                try:
+                    orig_msg = await ch.fetch_message(msg_id)
+                    await orig_msg.edit(
+                        embed=_build_countdown_card_embed(t),
+                        view=CountdownCardView(t["timer_id"], disabled_all=True),
+                    )
+                except Exception:
+                    pass
         self.active_timers = []
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
-        await interaction.followup.send(f"🛑 진행 중이던 카운트다운 `{cancelled_cnt}건`을 모두 취소했습니다.", ephemeral=True)
+        await interaction.followup.send(f"🛑 진행 중이던 카운트다운 `{len(cancelled_timers)}건`을 모두 취소했습니다.", ephemeral=True)
 
     @discord.ui.button(label="새로고침", style=discord.ButtonStyle.secondary, emoji="🔄", row=3)
     async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):

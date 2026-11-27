@@ -12,6 +12,18 @@ VERSION_HISTORY: list[dict[str, Any]] = [
     {
         "commit": "HEAD",
         "date": "2026-11-26",
+        "title": "전 기능 UI 상호작용 · 영구 버튼 복구 · 핫리로드 무결성 전면 점검 및 수정",
+        "changed": [
+            "`core.py` & `bot.py`: 154개 전체 `SafeView`의 890여 개 버튼·드롭다운 전수 검증 — 단축 별칭 10종(`Help`, `AttRank`, `DDayChannelSetup`, `ProsekaRate`, `GenshinInv`, `HSRInv` 등) 및 커뮤니티 뷰 5종(`TempVoiceControlView`, `CountdownCardView`, `RelayNovelView`, `RaidAlertControlView`, `LinkCleanupView`)의 재시작 후 버튼 복구 100% 보장",
+            "`bot.py`: `!업데이트` 핫리로드 시 14개 전체 코어 모듈 갱신, `core` 리로드 시 `SAFE_VIEW_REGISTRY` 보존, `cogs.dashboard` 최후순위 리로드 및 프로세스 재기동(`os.execv`) 직전 로컬·Firebase 대기 데이터 즉시 플러시 적용",
+            "`cogs/community.py`: 임시 음성방 잠금·숨김 시 현재 방 안에 접속 중인 멤버들의 음성·채팅 권한이 차단되지 않도록 보호하고, 방장 인계 시 이전 방장의 채널 관리 권한을 회수하도록 개선",
+            "`cogs/community.py`: 카운트다운 스튜디오에서 `[🛑 진행 중 타이머 전체 취소]` 실행 시 채널에 게시된 카운트다운 카드 메시지도 즉시 `[취소됨]` 상태로 갱신·비활성화되도록 개선",
+            "`cogs/dashboard.py` & `bot.py`: `/설정` 통합 검색 결과 뷰(`DashboardSearchResultView`), 카운트다운 스튜디오(`CountdownStudioView`), `!버전` 변경기록 뷰(`OwnerVersionChangelogView`)의 메시지 기반 상태 복원(`_restore_from_message`) 보강",
+        ],
+    },
+    {
+        "commit": "176bf3d",
+        "date": "2026-11-26",
         "title": "서버 관리자 기능 3종 추가·강화 (환영/작별 배너 · 임시음성방 카테고리 지정 · 실시간 카운트다운)",
         "added": [
             "`👋 환영/작별 배너 설정` (`/설정` ➔ `⚙️ 고급 3p`): 신규 멤버 입장·퇴장 시 800×260 PNG 배너 카드 자동 생성·발송, 입장 자동 역할 부여, 문구·색상 커스텀 및 실시간 미리보기 테스트 추가",
