@@ -11,6 +11,14 @@ from typing import Any
 VERSION_HISTORY: list[dict[str, Any]] = [
     {
         "commit": "HEAD",
+        "date": "2026-11-27",
+        "title": "웹훅 아바타 자동 복구 시 채팅 두 개 생겼다 사라지는 깜빡임 현상 완벽 해결",
+        "fixed": [
+            "`cogs/emoji_upscale.py` (`send_webhook_with_verified_avatar`, `prewarm_webhook_avatar_cache`, `_sync_webhook_avatar_in_place`): Discord 웹훅이 `avatar_url`을 드롭(`meta_dropped(avatar=None)`)할 때 새 웹훅 메시지를 먼저 또 보내고 기존 메시지를 삭제하던 사후 재전송 방식을 제거하고, 항상 **단 1회만 전송**하며 백그라운드에서 조용히 `direct_upload` 전략 전환 및 웹훅 아바타 동기화를 수행하도록 개선 (채팅이 두 개로 보였다가 하나로 사라지는 깜빡임 및 경고 로그 스팸 원천 차단)",
+        ],
+    },
+    {
+        "commit": "82da301",
         "date": "2026-11-26",
         "title": "프로세카 전역 픽업 배너 설정 영구 보존 · 봇주인 전용 권한 통일 · 수동 픽업 개선",
         "fixed": [

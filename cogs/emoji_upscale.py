@@ -1338,12 +1338,9 @@ async def prewarm_webhook_avatar_cache(
     *,
     session: Optional[aiohttp.ClientSession] = None,
 ) -> None:
-    """직접 업로드 전략이 활성화된 경우 원본 메시지 삭제 전에 아바타 PNG를 미리 예열해 지연/깜빡임을 없앱니다."""
+    """원본 메시지 삭제 전에 아바타 PNG 바이트를 인메모리 캐시에 미리 예열해 지연 및 Clyde 폴백을 방지합니다."""
     avatar_sig = _get_author_avatar_sig(author)
     if not avatar_sig:
-        return
-    author_id = getattr(author, "id", None)
-    if _get_preferred_avatar_strategy(author_id, avatar_sig) != "direct_upload":
         return
     cached = _AVATAR_PNG_CACHE.get(avatar_sig)
     if cached is not None and time.monotonic() < cached[0]:
@@ -1352,6 +1349,57 @@ async def prewarm_webhook_avatar_cache(
         await _get_cached_avatar_png_bytes(author, avatar_sig, session=session)
     except Exception:
         pass
+
+
+async def _sync_webhook_avatar_in_place(
+    webhook: discord.Webhook,
+    author: object,
+    author_id: Optional[int],
+    avatar_sig: str,
+    *,
+    session: Optional[aiohttp.ClientSession] = None,
+    on_webhook_updated: Optional[Callable[[discord.Webhook], None]] = None,
+) -> bool:
+    """
+    메시지를 삭제하거나 재전송하지 않고 웹훅 자체의 기본 아바타만 작성자의 PNG로 동기화합니다.
+    (직전 다른 유저의 웹훅 아바타가 남아 있거나 avatar_url이 드롭될 때도 추가 메시지 없이 프사를 보장합니다.)
+    """
+    if not hasattr(webhook, "edit") or not avatar_sig:
+        return False
+    wh_id = int(getattr(webhook, "id", 0) or 0)
+    if wh_id and author_id is not None:
+        prev = _WEBHOOK_UPLOADED_AVATAR_STATE.get(wh_id)
+        if prev is not None and prev[0] == int(author_id) and prev[1] == avatar_sig:
+            return True
+
+    png_bytes = await _get_cached_avatar_png_bytes(author, avatar_sig, session=session)
+    if not png_bytes:
+        return False
+
+    if len(_WEBHOOK_AVATAR_EDIT_LOCKS) > 500:
+        for k in list(_WEBHOOK_AVATAR_EDIT_LOCKS.keys())[:100]:
+            if not _WEBHOOK_AVATAR_EDIT_LOCKS[k].locked():
+                _WEBHOOK_AVATAR_EDIT_LOCKS.pop(k, None)
+    lock = _WEBHOOK_AVATAR_EDIT_LOCKS.setdefault(wh_id, asyncio.Lock())
+    async with lock:
+        if wh_id and author_id is not None:
+            prev = _WEBHOOK_UPLOADED_AVATAR_STATE.get(wh_id)
+            if prev is not None and prev[0] == int(author_id) and prev[1] == avatar_sig:
+                return True
+        try:
+            edited_wh = await webhook.edit(avatar=png_bytes)
+            active_wh = edited_wh if edited_wh is not None else webhook
+            if on_webhook_updated is not None and edited_wh is not None:
+                try:
+                    on_webhook_updated(edited_wh)
+                except Exception:
+                    pass
+            edited_key = str(getattr(getattr(active_wh, "avatar", None), "key", "") or "")
+            if wh_id and author_id is not None:
+                _WEBHOOK_UPLOADED_AVATAR_STATE[wh_id] = (int(author_id), avatar_sig, edited_key)
+            return True
+        except Exception:
+            return False
 
 
 def _is_webhook_avatar_dropped(
@@ -1567,12 +1615,12 @@ async def send_webhook_with_verified_avatar(
     on_webhook_updated: Optional[Callable[[discord.Webhook], None]] = None,
 ) -> Optional[discord.Message]:
     """
-    웹훅 전송 시 Clyde/깨진 프사 및 다중 재전송 깜빡임을 방지합니다.
-      - 기본 URL은 Discord 공식 규격에 맞는 쿼리 없는 정적 `.png` CDN URL을 사용합니다.
-      - 이전에 `wsrv` 또는 `direct_upload`가 성공한 경우 즉시 해당 전략으로 단 1회 전송해
-        메시지가 삭제·재전송되며 왔다갔다하는 현상을 완전히 없앱니다.
-      - 최초 1회 드롭 감지 시에도 채널에 여러 후보를 연달아 쏘지 않고 즉시 확실한 복구 경로
-        (변경된 해시 1회 -> 사전 검증된 wsrv 1회 -> webhook.edit 직접 업로드)로 전환 후 전략을 학습·저장합니다.
+    웹훅 전송 시 메시지가 두 개로 보였다가 하나로 사라지는 재전송 깜빡임을 원천 차단합니다.
+      - 채널에 웹훅 메시지를 **항상 단 1회만 전송**하며, 이미 전송된 메시지를 삭제 후 재전송하지 않습니다.
+      - 이전에 `direct_upload` 전략이 학습된 경우 전송 전에 웹훅 아바타를 먼저 동기화한 뒤 단 1회 전송합니다.
+      - 최초 전송에서 Discord가 `avatar_url`을 드롭(`avatar=None`)한 것이 감지되면,
+        메시지를 삭제·재전송하지 않고 백그라운드에서 해당 유저와 전역 전략을 `direct_upload`로 전환 및
+        웹훅 기본 아바타를 즉시 동기화하여 채팅 깜빡임이 전혀 발생하지 않도록 처리합니다.
     """
     candidates, has_custom_avatar = build_webhook_avatar_candidates(author)
     if not has_custom_avatar:
@@ -1582,7 +1630,7 @@ async def send_webhook_with_verified_avatar(
     avatar_sig = _get_author_avatar_sig(author)
     strategy = _get_preferred_avatar_strategy(author_id, avatar_sig)
 
-    # 0단계 빠른 경로: 이미 직접 업로드 전략이 학습된 경우 단 1회 전송으로 즉시 완료 (깜빡임 0)
+    # 1) direct_upload 전략이 활성화된 경우: 전송 전에 웹훅 아바타를 동기화하고 단 1회만 전송 (깜빡임 0)
     if strategy == "direct_upload" and avatar_sig and hasattr(webhook, "edit"):
         direct_msg = await _send_via_direct_upload(
             webhook,
@@ -1596,7 +1644,21 @@ async def send_webhook_with_verified_avatar(
         if direct_msg is not None:
             return direct_msg
 
-    # 1단계: 현재 전략에 맞는 최적 URL 1개로 최초 전송
+    # 2) 웹훅에 직전 다른 유저의 기본 아바타가 남아 있는 경우, avatar_url이 드롭되더라도 타 유저 프사가 뜨지 않도록 사전 동기화
+    wh_id = int(getattr(webhook, "id", 0) or 0)
+    if wh_id and author_id is not None and avatar_sig:
+        prev_st = _WEBHOOK_UPLOADED_AVATAR_STATE.get(wh_id)
+        if prev_st is not None and prev_st[0] != int(author_id):
+            await _sync_webhook_avatar_in_place(
+                webhook,
+                author,
+                author_id,
+                avatar_sig,
+                session=session,
+                on_webhook_updated=on_webhook_updated,
+            )
+
+    # 3) 현재 전략에 맞는 최적 URL 1개로 단 1회 전송 (절대 삭제 후 재전송하지 않음)
     clean_url = avatar_sig or (candidates[0] if candidates else None)
     wsrv_url = _build_wsrv_avatar_url(clean_url) if (clean_url and "/embed/avatars/" not in clean_url) else None
     if strategy == "wsrv" and wsrv_url:
@@ -1608,91 +1670,29 @@ async def send_webhook_with_verified_avatar(
     if sent_msg is None:
         return None
 
-    broken, reason = await _is_webhook_avatar_broken_live(
-        sent_msg, webhook, author_id, session=session
-    )
-    if not broken:
-        return sent_msg
+    # 4) 전송된 메시지의 avatar_url 드롭 여부를 확인하되, 드롭 시 메시지를 재전송하지 않고 조용히 direct_upload 전략으로 전환
+    if _is_webhook_avatar_dropped(sent_msg, webhook, author_id):
+        async def _quiet_learn_and_sync() -> None:
+            try:
+                fresh_author = await resolve_fresh_author(guild, author, force_refresh=True) if guild is not None else author
+                fresh_sig = _get_author_avatar_sig(fresh_author) or avatar_sig
+                if fresh_sig:
+                    _record_avatar_strategy("direct_upload", author_id, fresh_sig, promote_global=True)
+                    await _sync_webhook_avatar_in_place(
+                        webhook,
+                        fresh_author,
+                        author_id,
+                        fresh_sig,
+                        session=session,
+                        on_webhook_updated=on_webhook_updated,
+                    )
+            except Exception:
+                pass
 
-    print(
-        f"⚠️ [webhook_avatar] Clyde/깨진 프사 감지 (user={author_id}, reason={reason}, url={first_url}) -> 자동 복구 시도",
-        flush=True,
-    )
-
-    async def _delete_bad_msg(msg: object) -> None:
-        msg_id = getattr(msg, "id", None)
-        if msg_id:
-            core.mark_suppressed_delete_log(int(msg_id))
         try:
-            if msg_id and hasattr(webhook, "delete_message"):
-                if thread is not None:
-                    await webhook.delete_message(int(msg_id), thread=thread)
-                else:
-                    await webhook.delete_message(int(msg_id))
-                return
-        except Exception:
+            asyncio.get_running_loop().create_task(_quiet_learn_and_sync())
+        except RuntimeError:
             pass
-        try:
-            if hasattr(msg, "delete"):
-                await msg.delete()
-        except Exception:
-            pass
-
-    # 2단계: 최신 서버/전역 아바타 해시 강제 갱신
-    fresh_author = await resolve_fresh_author(guild, author, force_refresh=True) if guild is not None else author
-    fresh_sig = _get_author_avatar_sig(fresh_author)
-    if not fresh_sig:
-        return sent_msg
-
-    # 2-A. 아바타 해시가 실제로 바뀐 경우에만 새 순수 PNG URL을 1회 시도
-    if fresh_sig != avatar_sig:
-        try:
-            retry_msg = await send_fn(webhook, fresh_sig)
-            if retry_msg is not None:
-                retry_broken, _ = await _is_webhook_avatar_broken_live(
-                    retry_msg, webhook, author_id, session=session
-                )
-                if not retry_broken:
-                    await _delete_bad_msg(sent_msg)
-                    print(f"✅ [webhook_avatar] 갱신 아바타 복구 성공 (user={author_id}, url={fresh_sig})", flush=True)
-                    return retry_msg
-                await _delete_bad_msg(retry_msg)
-        except Exception:
-            pass
-
-    # 2-B. 기존 시도가 wsrv가 아니었고 wsrv 프록시가 200 OK를 반환하는 경우 1회만 시도
-    fresh_wsrv = _build_wsrv_avatar_url(fresh_sig)
-    if first_url != fresh_wsrv and await _check_external_image_url_ok(fresh_wsrv, session=session):
-        try:
-            retry_msg = await send_fn(webhook, fresh_wsrv)
-            if retry_msg is not None:
-                retry_broken, _ = await _is_webhook_avatar_broken_live(
-                    retry_msg, webhook, author_id, session=session
-                )
-                if not retry_broken:
-                    await _delete_bad_msg(sent_msg)
-                    _record_avatar_strategy("wsrv", author_id, fresh_sig, promote_global=True)
-                    print(f"✅ [webhook_avatar] 대체 URL 복구 성공 및 기본 전략 전환 (user={author_id}, mode=wsrv)", flush=True)
-                    return retry_msg
-                await _delete_bad_msg(retry_msg)
-        except Exception:
-            pass
-
-    # 2-C. 최종 보장 복구: 작성자 PNG 바이트 직접 업로드(webhook.edit) -> avatar_url=None 전송 후 전략 영구 학습
-    direct_msg = await _send_via_direct_upload(
-        webhook,
-        fresh_author,
-        author_id,
-        fresh_sig,
-        send_fn,
-        session=session,
-        on_webhook_updated=on_webhook_updated,
-    )
-    if direct_msg is not None:
-        await _delete_bad_msg(sent_msg)
-        _record_avatar_strategy("direct_upload", author_id, fresh_sig, promote_global=True)
-        print(f"✅ [webhook_avatar] webhook.edit 직접 업로드 복구 성공 및 기본 전략 전환 (user={author_id}, mode=direct_upload)", flush=True)
-        return direct_msg
 
     return sent_msg
 
