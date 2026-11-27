@@ -3629,6 +3629,7 @@ DEFAULT_CONFIG = {
         "pickup_card_labels": [],
         "include_limited": True,
         "banner_type": "normal",
+        "updated_at": None,
     },
     "gacha_users": {},
     "gacha_hall_of_fame": {},
@@ -4792,10 +4793,19 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
                         if isinstance(l_m, dict) and (not isinstance(r_m, dict) or float(l_m.get("val", 0) or 0) > float(r_m.get("val", 0) or 0)):
                             rem_rec[fid][metric_k] = copy.deepcopy(l_m)
 
-    for p_key in ("genshin_pickup", "hsr_pickup"):
-        l_ts = str(as_dict(local_norm.get(p_key)).get("updated_at") or "")
-        r_ts = str(as_dict(merged.get(p_key)).get("updated_at") or "")
+    for p_key in ("gacha_pickup", "genshin_pickup", "hsr_pickup"):
+        l_obj = as_dict(local_norm.get(p_key))
+        r_obj = as_dict(merged.get(p_key))
+        l_ts = str(l_obj.get("updated_at") or l_obj.get("synced_at") or "")
+        r_ts = str(r_obj.get("updated_at") or r_obj.get("synced_at") or "")
         if l_ts and l_ts > r_ts:
+            merged[p_key] = copy.deepcopy(local_norm[p_key])
+        elif p_key == "gacha_pickup" and not r_ts and (
+            l_obj.get("banner_type", "normal") != "normal"
+            or l_obj.get("event_id")
+            or l_obj.get("unit")
+            or l_obj.get("character")
+        ):
             merged[p_key] = copy.deepcopy(local_norm[p_key])
 
     for g_key, local_g_log in as_dict(local_norm.get("server_logs")).items():
@@ -5653,6 +5663,37 @@ def get_todo_galaxy_grass(profile: dict) -> tuple[str, str]:
 # ==========================================
 # 4. 프로세카 확률 계산, 가챠(뽑기), 잠금, 중복 변환, 카드 교환 및 선물 엔진
 # ==========================================
+def resolve_proseka_character_names(raw_char: str | None) -> str | None:
+    """
+    입력된 캐릭터 이름(단일 또는 쉼표 구분, 성 생략 약칭 예: '카나데', '미쿠, 루카')을
+    공식 캐릭터 전체 이름(CHARACTER_MAP 기준)으로 정규화합니다.
+    """
+    s = str(raw_char or "").strip()
+    if not s or s.upper() in ("NONE", "해제", "초기화", "전체"):
+        return None
+    parts = [p.strip() for p in s.replace("/", ",").split(",") if p.strip()]
+    resolved: list[str] = []
+    all_names = [info["name"] for info in CHARACTER_MAP.values() if isinstance(info, dict) and info.get("name")]
+    for p in parts:
+        p_low = p.lower()
+        exact = next((nm for nm in all_names if nm.lower() == p_low), None)
+        if exact:
+            if exact not in resolved:
+                resolved.append(exact)
+            continue
+        partial = next(
+            (
+                nm for nm in all_names
+                if p_low in nm.lower() or p_low == nm.split()[-1].lower()
+            ),
+            None,
+        )
+        target = partial or p
+        if target not in resolved:
+            resolved.append(target)
+    return ", ".join(resolved) if resolved else None
+
+
 def is_card_pickup(card, pickup_cfg):
     cfg = as_dict(pickup_cfg)
     p_card_ids = cfg.get("card_ids") or []
@@ -5673,7 +5714,14 @@ def is_card_pickup(card, pickup_cfg):
     if p_unit:
         unit_match = (card["unit"] == p_unit or card.get("support_unit") == p_unit)
     if p_char:
-        char_match = (card["char_name"] == p_char)
+        c_name = str(card.get("char_name") or "").strip()
+        c_low = c_name.lower()
+        c_short = c_name.split()[-1].lower() if c_name else ""
+        targets = [t.strip() for t in str(p_char).replace("/", ",").split(",") if t.strip()]
+        char_match = any(
+            t.lower() == c_low or t.lower() == c_short or t.lower() in c_low
+            for t in targets
+        )
     return unit_match and char_match
 
 
@@ -5748,6 +5796,7 @@ def sync_gacha_pickup_to_live_event() -> tuple[bool, str, dict]:
         for cid in matched_ids if cid in card_map
     ]
 
+    now_dt = datetime.datetime.now(KST)
     pickup_obj = {
         "unit": None if matched_ids else ev_unit,
         "character": None,
@@ -5757,7 +5806,8 @@ def sync_gacha_pickup_to_live_event() -> tuple[bool, str, dict]:
         "event_status": info.get("event_status", "진행 중"),
         "pickup_card_labels": labels,
         "include_limited": True,
-        "synced_at": datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M"),
+        "synced_at": now_dt.strftime("%Y-%m-%d %H:%M"),
+        "updated_at": now_dt.isoformat(),
     }
 
     with _DATA_LOCK:

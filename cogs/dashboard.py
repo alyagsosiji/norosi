@@ -816,27 +816,28 @@ class DashboardHSRProfileModal(core.SafeModal, title="✏️ 스타레일 개척
 
 class DashboardSekaiOwnerPickupModal(core.SafeModal, title="🎛️ [봇주인] 프로세카 수동 픽업 배너 설정"):
     mode_input = discord.ui.TextInput(
-        label="배너 모드 (normal / fes / birthday / auto_event)",
-        placeholder="normal(일반), fes(페스 ★4 2배), birthday(생일), auto_event",
+        label="배너 모드 (일반/normal · 페스/fes · 생일/birthday · 자동)",
+        placeholder="normal(일반), fes(페스 ★4 2배), birthday(생일), auto_event, reset",
         default="normal",
         required=True,
         max_length=20,
     )
     unit_input = discord.ui.TextInput(
-        label="픽업 유닛 선택 (선택, 예: 25시, 나이트 코드에서.)",
-        placeholder="버츄얼 싱어 / Leo/need / MORE MORE JUMP! / Vivid BAD SQUAD 등",
+        label="픽업 유닛 (선택, 비우면 기존 유지 / '해제' 입력 시 해제)",
+        placeholder="25시 / 원더쇼 / 비배스 / 모모점 / 레오니 / 버싱 / 해제",
         required=False,
         max_length=40,
     )
     chars_input = discord.ui.TextInput(
-        label="픽업 대상 캐릭터 이름 (선택)",
-        placeholder="예: 요이사키 카나데",
+        label="픽업 캐릭터 이름 (선택, 쉼표로 여러 명 가능 / '해제')",
+        placeholder="예: 카나데, 마후유 (성 생략 가능, 비우면 기존 유지)",
         required=False,
         max_length=120,
     )
     limited_and_title = discord.ui.TextInput(
-        label="한정카드 포함 여부 ('한정포함' 또는 '한정제외', 선택)",
+        label="한정카드 포함 여부 ('한정포함' 또는 '한정제외')",
         placeholder="예: 한정포함",
+        default="한정포함",
         required=False,
         max_length=100,
     )
@@ -844,44 +845,101 @@ class DashboardSekaiOwnerPickupModal(core.SafeModal, title="🎛️ [봇주인] 
     def __init__(self, bot: commands.Bot):
         super().__init__()
         self.bot = bot
+        gp = core.as_dict(core.get_cached_data().get("gacha_pickup"))
+        cur_b = core.get_active_proseka_banner(gp)
+        self.mode_input.default = cur_b
+        if gp.get("unit"):
+            self.unit_input.default = str(gp.get("unit"))
+        if gp.get("character"):
+            self.chars_input.default = str(gp.get("character"))
+        self.limited_and_title.default = "한정포함" if gp.get("include_limited", True) else "한정제외"
 
     async def on_submit(self, interaction: discord.Interaction):
+        if not await gacha._is_interaction_bot_owner(interaction, self.bot):
+            await core.safe_send_response(
+                interaction,
+                "❌ 프로세카 픽업 배너 설정은 **봇주인(Bot Owner)** 만 사용할 수 있습니다.",
+                ephemeral=True,
+            )
+            return
         gacha_cog = next((c for c in self.bot.cogs.values() if hasattr(c, "set_pickup_cmd")), None)
         if not gacha_cog:
             await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
             return
         m_raw = (self.mode_input.value or "normal").strip().lower()
+        mode_alias_map = {
+            "일반": "normal",
+            "통상": "normal",
+            "상시": "normal",
+            "normal": "normal",
+            "페스": "fes",
+            "컬페": "fes",
+            "컬러풀페스": "fes",
+            "페스티벌": "fes",
+            "fes": "fes",
+            "생일": "birthday",
+            "기념일": "birthday",
+            "bday": "birthday",
+            "birthday": "birthday",
+            "자동": "event_sync",
+            "이벤트": "event_sync",
+            "한섭": "event_sync",
+            "auto": "event_sync",
+            "auto_event": "event_sync",
+            "event_sync": "event_sync",
+            "초기화": "reset",
+            "해제": "reset",
+            "reset": "reset",
+        }
+        m_norm = mode_alias_map.get(m_raw, m_raw)
         mode_choice = None
         banner_choice = None
-        if m_raw in ("auto_event", "event_sync"):
+        if m_norm == "event_sync":
             mode_choice = app_commands.Choice(name="🎯 현재 한섭 이벤트에 자동 맞추기 (실시간 DB)", value="event_sync")
-        elif m_raw == "reset":
+        elif m_norm == "reset":
             mode_choice = app_commands.Choice(name="🧹 픽업 초기화 (전체 해제)", value="reset")
         else:
-            if m_raw not in ("normal", "fes", "birthday"):
-                m_raw = "normal"
-            banner_choice = app_commands.Choice(name=m_raw, value=m_raw)
+            if m_norm not in ("normal", "fes", "birthday"):
+                m_norm = "normal"
+            banner_choice = app_commands.Choice(name=m_norm, value=m_norm)
             mode_choice = app_commands.Choice(name="🎛️ 수동 설정 (유닛 / 캐릭터 직접 선택)", value="manual")
 
         u_raw = (self.unit_input.value or "").strip()
         unit_choice = None
         if u_raw:
-            unit_list = getattr(core, "UNIT_ORDER", [
-                "버츄얼 싱어", "Leo/need", "MORE MORE JUMP!", "Vivid BAD SQUAD", "원더랜즈×쇼타임", "25시, 나이트 코드에서."
-            ])
-            matched_u = next((u for u in unit_list if u_raw.lower() in u.lower() or u.lower() in u_raw.lower()), u_raw)
-            unit_choice = app_commands.Choice(name=matched_u, value=matched_u)
+            if u_raw.lower() in ("해제", "초기화", "없음", "전체", "none", "clear"):
+                unit_choice = app_commands.Choice(name="해제 (유닛 픽업 안 함)", value="NONE")
+            else:
+                unit_aliases = {
+                    "레오니": "Leo/need",
+                    "레오니드": "Leo/need",
+                    "모모점": "MORE MORE JUMP!",
+                    "비배스": "Vivid BAD SQUAD",
+                    "원더쇼": "원더랜즈×쇼타임",
+                    "25시": "25시, 나이트 코드에서.",
+                    "니고": "25시, 나이트 코드에서.",
+                    "버싱": "버츄얼 싱어",
+                    "버츄얼": "버츄얼 싱어",
+                }
+                unit_list = getattr(core, "UNIT_ORDER", [
+                    "버츄얼 싱어", "Leo/need", "MORE MORE JUMP!", "Vivid BAD SQUAD", "원더랜즈×쇼타임", "25시, 나이트 코드에서."
+                ])
+                matched_u = unit_aliases.get(u_raw) or next(
+                    (u for u in unit_list if u_raw.lower() in u.lower() or u.lower() in u_raw.lower()),
+                    u_raw,
+                )
+                unit_choice = app_commands.Choice(name=matched_u, value=matched_u)
 
         lt_raw = (self.limited_and_title.value or "").strip()
         inc_lim: bool = True
         if lt_raw:
             left = lt_raw.split("|", 1)[0].strip().lower()
-            if left in ("한정제외", "상시만", "false", "no", "0"):
+            if left in ("한정제외", "통상만", "상시만", "false", "no", "0"):
                 inc_lim = False
 
         raw_char = (self.chars_input.value or "").strip()
-        if "," in raw_char:
-            raw_char = raw_char.split(",", 1)[0].strip()
+        if raw_char.lower() in ("해제", "초기화", "없음", "전체", "none", "clear"):
+            raw_char = "NONE"
 
         await gacha_cog.set_pickup_cmd.callback(
             gacha_cog,
@@ -3924,10 +3982,11 @@ class MasterDashboardView(core.SafeView):
             },
             "owner_sekai_pickup": {
                 "title": "🎯 [봇 주인 전용] 프로세카 글로벌 픽업 & 셀렉트 티켓 제어판",
-                "desc": "프로세카 한섭 실시간 이벤트 자동 연동, 페스/생일 전환, 수동 픽업 및 유저별 셀렉트 리스트 특수 티켓을 지급·관리합니다.",
+                "desc": "프로세카 한섭 실시간 이벤트 자동 연동, 일반/페스/생일 전역 배너 전환, 수동 픽업 및 유저별 셀렉트 리스트 특수 티켓을 지급·관리합니다.",
                 "perm": PERM_OWNER,
                 "buttons": [
                     ("한섭 실시간 이벤트 자동맞춤", "🎯", discord.ButtonStyle.success, self._sub_owner_sekai_auto),
+                    ("일반 픽업 배너 (★4 3%)", "🌟", discord.ButtonStyle.primary, self._sub_owner_sekai_normal),
                     ("컬러풀 페스 (★4 6% 2배)", "🎊", discord.ButtonStyle.primary, self._sub_owner_sekai_fes),
                     ("생일 기념 배너 전환", "🎂", discord.ButtonStyle.primary, self._sub_owner_sekai_bday),
                     ("셀렉트 티켓 지급·관리", "🎟️", discord.ButtonStyle.success, self._sub_owner_sekai_select_tickets),
@@ -6201,6 +6260,24 @@ class MasterDashboardView(core.SafeView):
         if not await self.check_admin_permission(interaction, action_name="모닝 음악 추천 상세 설정"):
             return
         await interaction.response.send_modal(DashboardMorningMusicPrefsModal(self.bot or interaction.client))
+
+    async def _sub_owner_sekai_normal(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="프로세카 일반 픽업 배너 전환"):
+            return
+        gacha_cog = self._find_cog_with_attr("set_pickup_cmd")
+        if gacha_cog:
+            choice_norm = app_commands.Choice(name="🌟 일반 / 현재 픽업 가챠 (★4 3.0%)", value="normal")
+            await gacha_cog.set_pickup_cmd.callback(
+                gacha_cog,
+                interaction,
+                모드=None,
+                유닛=None,
+                캐릭터=None,
+                한정포함=True,
+                배너=choice_norm,
+            )
+        else:
+            await core.safe_send_response(interaction, "❌ 가챠 모듈을 찾을 수 없습니다.", ephemeral=True)
 
     async def _sub_owner_sekai_fes(self, interaction: discord.Interaction):
         if not await self.check_bot_owner_permission(interaction, action_name="프로세카 컬러풀 페스 전환"):

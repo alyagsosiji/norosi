@@ -12,6 +12,22 @@ VERSION_HISTORY: list[dict[str, Any]] = [
     {
         "commit": "HEAD",
         "date": "2026-11-26",
+        "title": "프로세카 전역 픽업 배너 설정 영구 보존 · 봇주인 전용 권한 통일 · 수동 픽업 개선",
+        "fixed": [
+            "`core.py` (`_merge_local_and_remote` & `DEFAULT_CONFIG`): 로컬↔Firebase 병합 대상에 `gacha_pickup`(`updated_at` 타임스탬프 기준)을 추가하여 봇주인이 설정한 프로세카 전역 픽업 배너(`normal`/`fes`/`birthday`), 이벤트 연동, 유닛·캐릭터 픽업이 원격 DB 병합 시 초기화되던 현상 해결",
+            "`cogs/gacha.py`: 가챠 결과창(`GachaPullAgainView`), 리세마라 연습창(`RerollSimulatorView`), 확률표(`ProsekaRatePaginationView`)의 배너 드롭다운을 **봇주인 전용 전역 배너 변경**으로 통일하여 드롭다운 변경 시에도 `gacha_pickup['banner_type']`에 즉시 영구 저장되고 재뽑기 시 이전 뷰의 배너 상태로 되돌아가지 않도록 수정",
+            "`core.py` & `cogs/dashboard.py`: 수동 픽업 모달(`DashboardSekaiOwnerPickupModal`)에서 캐릭터 약칭(`카나데` ➔ `요이사키 카나데`) 및 다중 캐릭터(`카나데, 마후유`) 자동 매칭을 지원하고, 유닛/캐릭터를 비운 채 배너만 변경할 때 기존 이벤트·유닛·캐릭터 픽업이 증발하지 않고 유지되도록 개선",
+        ],
+        "added": [
+            "`/설정` (`⚙️ 고급 4p` ➔ `🎯 [봇주인] 프로세카 글로벌 픽업 제어판`): 페스/생일 배너에서 일반 배너로 기존 픽업을 유지한 채 즉시 돌아올 수 있는 **`[🌟 일반 픽업 배너 (★4 3%)]`** 원클릭 버튼 추가",
+        ],
+        "security": [
+            "`cogs/gacha.py` & `cogs/dashboard.py`: 프로세카 픽업 및 배너 변경·선택의 모든 경로(`set_pickup_cmd`, `DashboardSekaiOwnerPickupModal`, `GachaPullAgainView.banner_select`, `RerollSimulatorView.sim_banner_select`, `ProsekaRatePaginationView.banner_select`, `proseka_rate_list_cmd`)를 **봇주인(Bot Owner) 전용**으로 엄격히 제한",
+        ],
+    },
+    {
+        "commit": "8db19a9",
+        "date": "2026-11-26",
         "title": "다중 자동역할 지급 · Firebase 즉시동기화 · 채널/역할 삭제 자동정리 등 11대 기능·안정성 업그레이드",
         "added": [
             "`👋 환영/작별 배너 설정`: 신규 멤버 입장 시 **여러 개의 역할(최대 10개) 동시 자동 지급** 지원, `[🚪 작별 카드 미리보기]` 버튼 및 한글/영문 색상 프리셋(`블루·그린·골드·핑크·퍼플·레드·민트·하늘·주황`) 입력 지원",
