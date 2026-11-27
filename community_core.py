@@ -1193,9 +1193,30 @@ def collect_due_event_reminders(data: dict, now_ts: Optional[int] = None) -> lis
 # ==========================================
 # 7. 👋 웰컴 / 작별 이미지 카드 & 메시지 설정 (서버 관리자 전용)
 # ==========================================
+DEFAULT_WELCOME_TITLE = "🎉 {server} · 신규 멤버 환영합니다!"
+DEFAULT_GOODBYE_TITLE = "👋 {server} · 멤버 퇴장 안내"
 DEFAULT_WELCOME_MSG = "🎉 {user}님, **{server}** 서버에 오신 것을 환영합니다! (`{count}번째` 멤버)"
 DEFAULT_GOODBYE_MSG = "👋 **{username}님**이 **{server}** 서버에서 퇴장하셨습니다. (현재 `{count}명`)"
 DEFAULT_WELCOME_SUBTITLE = "{count}번째 멤버로 함께하게 되었어요!"
+DEFAULT_GOODBYE_SUBTITLE = "{server} 서버와 함께해 주셔서 감사합니다."
+DEFAULT_WELCOME_BADGE = "WELCOME · 서버 신규 멤버 입장"
+DEFAULT_GOODBYE_BADGE = "GOODBYE · 다음에 또 만나요"
+
+_HIDE_TITLE_KEYWORDS = {"없음", "숨김", "삭제", "지움", "비움", "none", "hide", "off", "-"}
+
+
+def normalize_welcome_embed_title(raw_val: object, default_title: str) -> str:
+    """
+    임베드 제목 설정값을 정규화합니다.
+    - None이면 기본 제목(default_title) 반환
+    - 빈 문자열("") 또는 '없음', '숨김', 'none', 'off', '-' 입력 시 ""(제목 숨김) 반환
+    """
+    if raw_val is None:
+        return default_title
+    s = str(raw_val).strip()[:200]
+    if not s or s.lower() in _HIDE_TITLE_KEYWORDS:
+        return ""
+    return s
 
 WELCOME_COLOR_PRESETS: dict[str, str] = {
     "블루": "#5865F2",
@@ -1333,6 +1354,10 @@ def get_welcome_config(data: dict, guild_id: int) -> dict:
     w_ch = raw.get("welcome_channel_id")
     g_ch = raw.get("goodbye_channel_id")
     role_ids = _normalize_welcome_auto_role_ids(raw)
+    w_sub = str(raw.get("welcome_card_subtitle") or raw.get("banner_subtitle") or DEFAULT_WELCOME_SUBTITLE).strip()[:100] or DEFAULT_WELCOME_SUBTITLE
+    g_sub = str(raw.get("goodbye_card_subtitle") or DEFAULT_GOODBYE_SUBTITLE).strip()[:100] or DEFAULT_GOODBYE_SUBTITLE
+    w_badge = str(raw.get("welcome_card_badge") or DEFAULT_WELCOME_BADGE).strip()[:60] or DEFAULT_WELCOME_BADGE
+    g_badge = str(raw.get("goodbye_card_badge") or DEFAULT_GOODBYE_BADGE).strip()[:60] or DEFAULT_GOODBYE_BADGE
     return {
         "welcome_enabled": bool(raw.get("welcome_enabled", False)),
         "goodbye_enabled": bool(raw.get("goodbye_enabled", False)),
@@ -1341,9 +1366,15 @@ def get_welcome_config(data: dict, guild_id: int) -> dict:
         "goodbye_channel_id": int(g_ch) if str(g_ch or "").isdigit() else None,
         "auto_role_id": role_ids[0] if role_ids else None,
         "auto_role_ids": role_ids,
+        "welcome_title": normalize_welcome_embed_title(raw.get("welcome_title"), DEFAULT_WELCOME_TITLE),
+        "goodbye_title": normalize_welcome_embed_title(raw.get("goodbye_title"), DEFAULT_GOODBYE_TITLE),
         "welcome_message": (str(raw.get("welcome_message") or DEFAULT_WELCOME_MSG).strip()[:500] or DEFAULT_WELCOME_MSG),
         "goodbye_message": (str(raw.get("goodbye_message") or DEFAULT_GOODBYE_MSG).strip()[:500] or DEFAULT_GOODBYE_MSG),
-        "banner_subtitle": (str(raw.get("banner_subtitle") or DEFAULT_WELCOME_SUBTITLE).strip()[:100] or DEFAULT_WELCOME_SUBTITLE),
+        "banner_subtitle": w_sub,
+        "welcome_card_subtitle": w_sub,
+        "goodbye_card_subtitle": g_sub,
+        "welcome_card_badge": w_badge,
+        "goodbye_card_badge": g_badge,
         "accent_color": _normalize_hex_color(str(raw.get("accent_color") or "#5865F2")),
         "updated_at": raw.get("updated_at"),
     }
@@ -1354,6 +1385,10 @@ def save_welcome_config(data: dict, guild_id: int, cfg: dict) -> dict:
     w_ch = cfg.get("welcome_channel_id")
     g_ch = cfg.get("goodbye_channel_id")
     role_ids = _normalize_welcome_auto_role_ids(cfg)
+    w_sub = str(cfg.get("welcome_card_subtitle") or cfg.get("banner_subtitle") or DEFAULT_WELCOME_SUBTITLE).strip()[:100] or DEFAULT_WELCOME_SUBTITLE
+    g_sub = str(cfg.get("goodbye_card_subtitle") or DEFAULT_GOODBYE_SUBTITLE).strip()[:100] or DEFAULT_GOODBYE_SUBTITLE
+    w_badge = str(cfg.get("welcome_card_badge") or DEFAULT_WELCOME_BADGE).strip()[:60] or DEFAULT_WELCOME_BADGE
+    g_badge = str(cfg.get("goodbye_card_badge") or DEFAULT_GOODBYE_BADGE).strip()[:60] or DEFAULT_GOODBYE_BADGE
     entry = {
         "welcome_enabled": bool(cfg.get("welcome_enabled", False)),
         "goodbye_enabled": bool(cfg.get("goodbye_enabled", False)),
@@ -1362,9 +1397,15 @@ def save_welcome_config(data: dict, guild_id: int, cfg: dict) -> dict:
         "goodbye_channel_id": int(g_ch) if str(g_ch or "").isdigit() else None,
         "auto_role_id": role_ids[0] if role_ids else None,
         "auto_role_ids": role_ids,
+        "welcome_title": normalize_welcome_embed_title(cfg.get("welcome_title"), DEFAULT_WELCOME_TITLE),
+        "goodbye_title": normalize_welcome_embed_title(cfg.get("goodbye_title"), DEFAULT_GOODBYE_TITLE),
         "welcome_message": (str(cfg.get("welcome_message") or DEFAULT_WELCOME_MSG).strip()[:500] or DEFAULT_WELCOME_MSG),
         "goodbye_message": (str(cfg.get("goodbye_message") or DEFAULT_GOODBYE_MSG).strip()[:500] or DEFAULT_GOODBYE_MSG),
-        "banner_subtitle": (str(cfg.get("banner_subtitle") or DEFAULT_WELCOME_SUBTITLE).strip()[:100] or DEFAULT_WELCOME_SUBTITLE),
+        "banner_subtitle": w_sub,
+        "welcome_card_subtitle": w_sub,
+        "goodbye_card_subtitle": g_sub,
+        "welcome_card_badge": w_badge,
+        "goodbye_card_badge": g_badge,
         "accent_color": _normalize_hex_color(str(cfg.get("accent_color") or "#5865F2")),
         "updated_at": datetime.datetime.now(core.KST).isoformat(),
     }
@@ -1403,6 +1444,8 @@ def render_welcome_banner_png(
     is_goodbye: bool = False,
     accent_hex: str = "#5865F2",
     subtitle: str = "",
+    goodbye_subtitle: str = "",
+    badge_text: str = "",
 ) -> Optional[bytes]:
     """신규 입장 또는 퇴장 멤버용 800x260 고해상도 PNG 환영/작별 배너 카드를 생성합니다."""
     import io
@@ -1463,24 +1506,36 @@ def render_welcome_banner_png(
     f_sub = core._get_grid_font(20, bold=False)
     f_meta = core._get_grid_font(16, bold=True)
 
-    badge_txt = "GOODBYE · 다음에 또 만나요" if is_goodbye else "WELCOME · 서버 신규 멤버 입장"
-    draw.rounded_rectangle((tx, 44, tx + 275, 76), radius=10, fill=(*accent_rgb, 45), outline=(*accent_rgb, 190), width=1)
+    disp_name = str(member_name or "신규 멤버").strip()[:22]
+    raw_badge = badge_text.strip() if badge_text and badge_text.strip() else (DEFAULT_GOODBYE_BADGE if is_goodbye else DEFAULT_WELCOME_BADGE)
+    badge_txt = format_welcome_text(
+        raw_badge,
+        user_mention=disp_name,
+        username=disp_name,
+        server_name=str(guild_name or "서버"),
+        member_count=member_count,
+    )[:36]
+    try:
+        bbox = draw.textbbox((0, 0), badge_txt, font=f_badge)
+        badge_w = max(180, min(520, (bbox[2] - bbox[0]) + 32))
+    except Exception:
+        badge_w = 290
+    draw.rounded_rectangle((tx, 44, tx + badge_w, 76), radius=10, fill=(*accent_rgb, 45), outline=(*accent_rgb, 190), width=1)
     draw.text((tx + 14, 60), badge_txt, fill=(*accent_rgb, 255), font=f_badge, anchor="lm")
 
-    disp_name = str(member_name or "신규 멤버").strip()[:22]
     draw.text((tx, 114), disp_name, fill=(255, 255, 255, 255), font=f_name, anchor="lm")
 
     if is_goodbye:
-        sub_line = f"{str(guild_name or '서버')[:22]} 서버와 함께해 주셔서 감사합니다."
+        raw_sub = goodbye_subtitle or subtitle or DEFAULT_GOODBYE_SUBTITLE
     else:
         raw_sub = subtitle or DEFAULT_WELCOME_SUBTITLE
-        sub_line = format_welcome_text(
-            raw_sub,
-            user_mention=disp_name,
-            username=disp_name,
-            server_name=str(guild_name or "서버"),
-            member_count=member_count,
-        )[:40]
+    sub_line = format_welcome_text(
+        raw_sub,
+        user_mention=disp_name,
+        username=disp_name,
+        server_name=str(guild_name or "서버"),
+        member_count=member_count,
+    )[:44]
     draw.text((tx, 162), sub_line, fill=(200, 206, 224, 255), font=f_sub, anchor="lm")
 
     now_str = datetime.datetime.now(core.KST).strftime("%Y.%m.%d %H:%M KST")

@@ -12,6 +12,14 @@ VERSION_HISTORY: list[dict[str, Any]] = [
     {
         "commit": "HEAD",
         "date": "2026-11-27",
+        "title": "환영·작별 임베드 제목 커스텀·숨김(삭제) 및 카드 이미지 안 환영·작별 멘트 개별 편집 지원",
+        "added": [
+            "`community_core.py` (`get_welcome_config`, `save_welcome_config`, `render_welcome_banner_png`, `normalize_welcome_embed_title`) & `cogs/community.py` (`WelcomeTemplateModal`, `WelcomeBannerCardModal`, `WelcomeConfigView`, `_build_welcome_or_goodbye_embed`): 환영·작별 카드의 **임베드 제목(`welcome_title`, `goodbye_title`)을 자유롭게 변경하거나 비움/`없음` 입력 시 제목을 아예 지울 수 있도록** 지원하고, **PNG 카드 이미지 안의 환영 멘트·배지(`welcome_card_subtitle`, `welcome_card_badge`)와 작별 멘트·배지(`goodbye_card_subtitle`, `goodbye_card_badge`)를 둘 다 개별 수정**할 수 있도록 업그레이드",
+        ],
+    },
+    {
+        "commit": "66b41be",
+        "date": "2026-11-27",
         "title": "!업데이트 및 !현재버전 결과 화면 하단에 [🔁 전체 재시작] 원클릭 버튼 추가",
         "added": [
             "`bot.py` (`OwnerVersionUpdateView`, `apply_github_updates_command`): `!업데이트` 완료 메시지 및 `!현재버전` 화면 하단에 **`[🔄 모듈 다시 불러오기]`**, **`[🔄 버전 새로고침]`**, **`[🔁 전체 재시작]`** 버튼을 부착하여 언제든 원클릭으로 데이터 안전 저장(`flush_pending_saves`) 후 봇 프로세스 전체를 깔끔하게 재기동(`os.execv`)할 수 있도록 개선",

@@ -2996,19 +2996,36 @@ def _build_welcome_or_goodbye_embed(
     has_banner_file: bool = False,
 ) -> discord.Embed:
     m_count = int(getattr(guild, "member_count", 0) or len(getattr(guild, "members", []) or []) or 1)
+    u_mention = getattr(member, "mention", str(member))
+    u_name = getattr(member, "display_name", str(member))
     template = cfg.get("goodbye_message") if is_goodbye else cfg.get("welcome_message")
     body = community_core.format_welcome_text(
         str(template or ""),
-        user_mention=getattr(member, "mention", str(member)),
-        username=getattr(member, "display_name", str(member)),
+        user_mention=u_mention,
+        username=u_name,
         server_name=guild.name,
         member_count=m_count,
     )
     rgb = (237, 66, 69) if is_goodbye else community_core.hex_to_rgb_tuple(str(cfg.get("accent_color") or "#5865F2"))
     color_val = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]
-    title = f"👋 {guild.name} · 멤버 퇴장 안내" if is_goodbye else f"🎉 {guild.name} · 신규 멤버 환영합니다!"
+
+    raw_title_key = "goodbye_title" if is_goodbye else "welcome_title"
+    default_title = community_core.DEFAULT_GOODBYE_TITLE if is_goodbye else community_core.DEFAULT_WELCOME_TITLE
+    norm_title = community_core.normalize_welcome_embed_title(cfg.get(raw_title_key), default_title)
+    title_str = (
+        community_core.format_welcome_text(
+            norm_title,
+            user_mention=u_name,
+            username=u_name,
+            server_name=guild.name,
+            member_count=m_count,
+        )[:256]
+        if norm_title
+        else None
+    )
+
     embed = discord.Embed(
-        title=title,
+        title=title_str or None,
         description=body,
         color=color_val,
         timestamp=datetime.datetime.now(core.KST),
@@ -3161,23 +3178,101 @@ class WelcomeAutoRoleSelect(discord.ui.RoleSelect):
         await interaction.followup.send("\n".join(notes), ephemeral=True)
 
 
-class WelcomeTemplateModal(discord.ui.Modal, title="✏️ 환영·작별 문구 및 배너 색상 설정"):
+class WelcomeTemplateModal(discord.ui.Modal, title="✏️ 임베드 제목(비움=숨김) 및 본문 멘트 설정"):
+    welcome_title_input = discord.ui.TextInput(
+        label="환영 임베드 제목 (비우거나 '없음' 입력 시 숨김)",
+        placeholder="예: 🎉 {server} · 신규 멤버 환영합니다! (비우면 제목 삭제)",
+        required=False,
+        max_length=150,
+    )
     welcome_input = discord.ui.TextInput(
-        label="환영 메시지 ({user} {username} {server} {count})",
+        label="환영 본문 멘트 ({user} {username} {server} {count})",
         style=discord.TextStyle.paragraph,
         required=True,
         max_length=400,
+    )
+    goodbye_title_input = discord.ui.TextInput(
+        label="작별 임베드 제목 (비우거나 '없음' 입력 시 숨김)",
+        placeholder="예: 👋 {server} · 멤버 퇴장 안내 (비우면 제목 삭제)",
+        required=False,
+        max_length=150,
     )
     goodbye_input = discord.ui.TextInput(
-        label="작별 메시지 ({username} {server} {count})",
+        label="작별 본문 멘트 ({username} {server} {count})",
         style=discord.TextStyle.paragraph,
         required=True,
         max_length=400,
     )
-    subtitle_input = discord.ui.TextInput(
-        label="배너 이미지 하단 문구 ({count} {server} 사용 가능)",
+
+    def __init__(self, parent_view: "WelcomeConfigView"):
+        super().__init__()
+        self.parent_view = parent_view
+        c = parent_view.cfg
+        w_t = c.get("welcome_title")
+        g_t = c.get("goodbye_title")
+        self.welcome_title_input.default = community_core.DEFAULT_WELCOME_TITLE if w_t is None else str(w_t)
+        self.welcome_input.default = str(c.get("welcome_message") or community_core.DEFAULT_WELCOME_MSG)
+        self.goodbye_title_input.default = community_core.DEFAULT_GOODBYE_TITLE if g_t is None else str(g_t)
+        self.goodbye_input.default = str(c.get("goodbye_message") or community_core.DEFAULT_GOODBYE_MSG)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not interaction.guild or not _is_guild_admin(interaction.user):
+            await core.safe_send_response(interaction, "❌ 서버 관리자 권한이 필요합니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction)
+        guild_id = interaction.guild.id
+        w_title = community_core.normalize_welcome_embed_title(self.welcome_title_input.value or "", community_core.DEFAULT_WELCOME_TITLE)
+        g_title = community_core.normalize_welcome_embed_title(self.goodbye_title_input.value or "", community_core.DEFAULT_GOODBYE_TITLE)
+        w_msg = (self.welcome_input.value or "").strip() or community_core.DEFAULT_WELCOME_MSG
+        g_msg = (self.goodbye_input.value or "").strip() or community_core.DEFAULT_GOODBYE_MSG
+
+        def _save():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                cfg = community_core.get_welcome_config(d, guild_id)
+                cfg["welcome_title"] = w_title
+                cfg["goodbye_title"] = g_title
+                cfg["welcome_message"] = w_msg
+                cfg["goodbye_message"] = g_msg
+                saved = community_core.save_welcome_config(d, guild_id, cfg)
+                core.save_data(d)
+                return saved
+
+        self.parent_view.cfg = await asyncio.to_thread(_save)
+        await core.safe_edit_response(interaction, embed=self.parent_view.build_embed(), view=self.parent_view)
+        w_t_disp = f"`{w_title}`" if w_title else "**`숨김(제목 없음)`**"
+        g_t_disp = f"`{g_title}`" if g_title else "**`숨김(제목 없음)`**"
+        await core.safe_send_response(
+            interaction,
+            f"✅ 임베드 제목 및 본문 멘트가 저장되었습니다!\n• **환영 제목:** {w_t_disp}\n• **작별 제목:** {g_t_disp}",
+            ephemeral=True,
+        )
+
+
+class WelcomeBannerCardModal(discord.ui.Modal, title="🎨 카드 안 환영·작별 멘트 및 배너 색상 설정"):
+    welcome_sub_input = discord.ui.TextInput(
+        label="카드 안 환영 멘트 ({username} {server} {count})",
+        placeholder="예: {count}번째 멤버로 함께하게 되었어요!",
         required=True,
         max_length=80,
+    )
+    goodbye_sub_input = discord.ui.TextInput(
+        label="카드 안 작별 멘트 ({username} {server} {count})",
+        placeholder="예: {server} 서버와 함께해 주셔서 감사합니다.",
+        required=True,
+        max_length=80,
+    )
+    welcome_badge_input = discord.ui.TextInput(
+        label="카드 안 환영 상단 배지 문구",
+        placeholder="예: WELCOME · 서버 신규 멤버 입장",
+        required=True,
+        max_length=50,
+    )
+    goodbye_badge_input = discord.ui.TextInput(
+        label="카드 안 작별 상단 배지 문구",
+        placeholder="예: GOODBYE · 다음에 또 만나요",
+        required=True,
+        max_length=50,
     )
     color_input = discord.ui.TextInput(
         label="배너 색상 (블루·그린·골드·핑크·퍼플·레드·민트·하늘·주황 또는 #HEX)",
@@ -3189,9 +3284,10 @@ class WelcomeTemplateModal(discord.ui.Modal, title="✏️ 환영·작별 문구
         super().__init__()
         self.parent_view = parent_view
         c = parent_view.cfg
-        self.welcome_input.default = str(c.get("welcome_message") or community_core.DEFAULT_WELCOME_MSG)
-        self.goodbye_input.default = str(c.get("goodbye_message") or community_core.DEFAULT_GOODBYE_MSG)
-        self.subtitle_input.default = str(c.get("banner_subtitle") or community_core.DEFAULT_WELCOME_SUBTITLE)
+        self.welcome_sub_input.default = str(c.get("welcome_card_subtitle") or c.get("banner_subtitle") or community_core.DEFAULT_WELCOME_SUBTITLE)
+        self.goodbye_sub_input.default = str(c.get("goodbye_card_subtitle") or community_core.DEFAULT_GOODBYE_SUBTITLE)
+        self.welcome_badge_input.default = str(c.get("welcome_card_badge") or community_core.DEFAULT_WELCOME_BADGE)
+        self.goodbye_badge_input.default = str(c.get("goodbye_card_badge") or community_core.DEFAULT_GOODBYE_BADGE)
         self.color_input.default = str(c.get("accent_color") or "#5865F2")
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -3200,26 +3296,37 @@ class WelcomeTemplateModal(discord.ui.Modal, title="✏️ 환영·작별 문구
             return
         await core.safe_defer(interaction)
         guild_id = interaction.guild.id
-        w_msg = (self.welcome_input.value or "").strip() or community_core.DEFAULT_WELCOME_MSG
-        g_msg = (self.goodbye_input.value or "").strip() or community_core.DEFAULT_GOODBYE_MSG
-        sub_txt = (self.subtitle_input.value or "").strip() or community_core.DEFAULT_WELCOME_SUBTITLE
+        w_sub = (self.welcome_sub_input.value or "").strip() or community_core.DEFAULT_WELCOME_SUBTITLE
+        g_sub = (self.goodbye_sub_input.value or "").strip() or community_core.DEFAULT_GOODBYE_SUBTITLE
+        w_badge = (self.welcome_badge_input.value or "").strip() or community_core.DEFAULT_WELCOME_BADGE
+        g_badge = (self.goodbye_badge_input.value or "").strip() or community_core.DEFAULT_GOODBYE_BADGE
         col_hex = community_core._normalize_hex_color(self.color_input.value or "#5865F2")
 
         def _save():
             with core._DATA_LOCK:
                 d = core.load_data()
                 cfg = community_core.get_welcome_config(d, guild_id)
-                cfg["welcome_message"] = w_msg
-                cfg["goodbye_message"] = g_msg
-                cfg["banner_subtitle"] = sub_txt
+                cfg["banner_subtitle"] = w_sub
+                cfg["welcome_card_subtitle"] = w_sub
+                cfg["goodbye_card_subtitle"] = g_sub
+                cfg["welcome_card_badge"] = w_badge
+                cfg["goodbye_card_badge"] = g_badge
                 cfg["accent_color"] = col_hex
                 saved = community_core.save_welcome_config(d, guild_id, cfg)
                 core.save_data(d)
                 return saved
 
         self.parent_view.cfg = await asyncio.to_thread(_save)
-        await interaction.edit_original_response(embed=self.parent_view.build_embed(), view=self.parent_view)
-        await interaction.followup.send(f"✅ 환영·작별 문구와 배너 포인트 색상(`{col_hex}`)이 저장되었습니다!", ephemeral=True)
+        await core.safe_edit_response(interaction, embed=self.parent_view.build_embed(), view=self.parent_view)
+        await core.safe_send_response(
+            interaction,
+            (
+                f"✅ **카드 이미지 안 환영·작별 멘트**와 포인트 색상(`{col_hex}`)이 저장되었습니다!\n"
+                f"• **카드 안 환영 멘트:** `{w_sub}` (배지: `{w_badge}`)\n"
+                f"• **카드 안 작별 멘트:** `{g_sub}` (배지: `{g_badge}`)"
+            ),
+            ephemeral=True,
+        )
 
 
 class WelcomeConfigView(core.SafeView):
@@ -3261,6 +3368,15 @@ class WelcomeConfigView(core.SafeView):
         rgb = community_core.hex_to_rgb_tuple(str(c.get("accent_color") or "#5865F2"))
         color_val = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]
 
+        w_title_raw = c.get("welcome_title")
+        g_title_raw = c.get("goodbye_title")
+        w_title_disp = f"`{w_title_raw}`" if w_title_raw else "**`숨김 (제목 없음)`**"
+        g_title_disp = f"`{g_title_raw}`" if g_title_raw else "**`숨김 (제목 없음)`**"
+        w_sub_disp = c.get("welcome_card_subtitle") or c.get("banner_subtitle") or community_core.DEFAULT_WELCOME_SUBTITLE
+        g_sub_disp = c.get("goodbye_card_subtitle") or community_core.DEFAULT_GOODBYE_SUBTITLE
+        w_badge_disp = c.get("welcome_card_badge") or community_core.DEFAULT_WELCOME_BADGE
+        g_badge_disp = c.get("goodbye_card_badge") or community_core.DEFAULT_GOODBYE_BADGE
+
         embed = discord.Embed(
             title=f"👋 [{gname}] 환영 / 작별 배너 카드 & 자동 역할 설정",
             description=(
@@ -3269,10 +3385,16 @@ class WelcomeConfigView(core.SafeView):
                 f"• **고해상도 PNG 배너 카드:** {'🖼️ **사용함 (ON)**' if c.get('banner_enabled', True) else '📝 **텍스트 임베드만 (OFF)**'}\n"
                 f"• **입장 시 자동 부여 역할:** {r_str}\n"
                 f"• **배너 포인트 색상:** `{c.get('accent_color', '#5865F2')}` *(프리셋: 블루·그린·골드·핑크·퍼플·레드·민트·하늘·주황)*\n"
-                f"• **배너 하단 문구:** `{c.get('banner_subtitle')}`\n"
                 "━━━━━━━━━━━━━━━━\n"
-                f"**[입장 문구 미리보기]**\n{c.get('welcome_message')}\n\n"
-                f"**[퇴장 문구 미리보기]**\n{c.get('goodbye_message')}\n\n"
+                f"📌 **[임베드 제목 설정]** *(비우거나 `없음` 입력 시 제목 제거)*\n"
+                f"• **환영 임베드 제목:** {w_title_disp}\n"
+                f"• **작별 임베드 제목:** {g_title_disp}\n\n"
+                f"🖼️ **[카드 이미지 안 텍스트]** *(`[🎨 카드 안 멘트·색상]` 버튼으로 변경)*\n"
+                f"• **카드 안 환영 멘트:** `{w_sub_disp}` *(배지: `{w_badge_disp}`)*\n"
+                f"• **카드 안 작별 멘트:** `{g_sub_disp}` *(배지: `{g_badge_disp}`)*\n\n"
+                f"💬 **[임베드 본문 멘트 미리보기]** *(`[✏️ 제목·본문 편집]` 버튼으로 변경)*\n"
+                f"• **환영 본문:** {c.get('welcome_message')}\n"
+                f"• **작별 본문:** {c.get('goodbye_message')}\n\n"
                 "💡 치환 변수: `{user}`(멘션), `{username}`(닉네임), `{server}`(서버명), `{count}`(현재 인원수)\n"
                 "💡 **다중 자동 역할 팁:** 3️⃣번 드롭다운에서 여러 역할을 한 번에 선택하거나 추가로 더할 수 있으며, 이미 등록된 역할 1개만 다시 선택하면 해당 역할만 개별 해제됩니다."
             ),
@@ -3344,11 +3466,15 @@ class WelcomeConfigView(core.SafeView):
         self.cfg = await asyncio.to_thread(_toggle)
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="문구·배너색 편집", style=discord.ButtonStyle.secondary, emoji="✏️", row=0)
+    @discord.ui.button(label="제목·본문 편집", style=discord.ButtonStyle.secondary, emoji="✏️", row=0)
     async def edit_modal_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(WelcomeTemplateModal(self))
 
-    @discord.ui.button(label="환영 카드 미리보기", style=discord.ButtonStyle.secondary, emoji="🧪", row=0)
+    @discord.ui.button(label="카드 안 멘트·색상", style=discord.ButtonStyle.secondary, emoji="🎨", row=0)
+    async def edit_banner_card_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(WelcomeBannerCardModal(self))
+
+    @discord.ui.button(label="환영 미리보기", style=discord.ButtonStyle.secondary, emoji="🧪", row=4)
     async def preview_test_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.guild:
             return
@@ -3367,7 +3493,8 @@ class WelcomeConfigView(core.SafeView):
                 av_bytes,
                 is_goodbye=False,
                 accent_hex=str(self.cfg.get("accent_color") or "#5865F2"),
-                subtitle=str(self.cfg.get("banner_subtitle") or ""),
+                subtitle=str(self.cfg.get("welcome_card_subtitle") or self.cfg.get("banner_subtitle") or ""),
+                badge_text=str(self.cfg.get("welcome_card_badge") or ""),
             )
             if png_bytes:
                 import io
@@ -3384,7 +3511,7 @@ class WelcomeConfigView(core.SafeView):
         else:
             await interaction.followup.send(content="🧪 **실제 입장 시 발송될 환영 카드 미리보기입니다:**", embed=preview_embed, ephemeral=True)
 
-    @discord.ui.button(label="작별 카드 미리보기", style=discord.ButtonStyle.secondary, emoji="🚪", row=4)
+    @discord.ui.button(label="작별 미리보기", style=discord.ButtonStyle.secondary, emoji="🚪", row=4)
     async def preview_goodbye_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.guild:
             return
@@ -3403,7 +3530,9 @@ class WelcomeConfigView(core.SafeView):
                 av_bytes,
                 is_goodbye=True,
                 accent_hex="#ED4245",
-                subtitle=str(self.cfg.get("banner_subtitle") or ""),
+                subtitle=str(self.cfg.get("welcome_card_subtitle") or self.cfg.get("banner_subtitle") or ""),
+                goodbye_subtitle=str(self.cfg.get("goodbye_card_subtitle") or ""),
+                badge_text=str(self.cfg.get("goodbye_card_badge") or ""),
             )
             if png_bytes:
                 import io
@@ -3420,7 +3549,7 @@ class WelcomeConfigView(core.SafeView):
         else:
             await interaction.followup.send(content="🚪 **실제 퇴장 시 발송될 작별 카드 미리보기입니다:**", embed=preview_embed, ephemeral=True)
 
-    @discord.ui.button(label="작별채널=환영채널 통일", style=discord.ButtonStyle.secondary, emoji="🔗", row=4)
+    @discord.ui.button(label="작별=환영채널 통일", style=discord.ButtonStyle.secondary, emoji="🔗", row=4)
     async def sync_channel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.guild:
             return
@@ -3444,7 +3573,7 @@ class WelcomeConfigView(core.SafeView):
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
         await interaction.followup.send(f"🔗 작별 알림 채널도 <#{w_ch}> 채널로 통일했습니다.", ephemeral=True)
 
-    @discord.ui.button(label="자동 역할 전체 해제", style=discord.ButtonStyle.danger, emoji="🗑️", row=4)
+    @discord.ui.button(label="자동 역할 해제", style=discord.ButtonStyle.danger, emoji="🗑️", row=4)
     async def clear_role_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.guild:
             return
@@ -5647,7 +5776,8 @@ class CommunityCog(commands.Cog):
                 av_bytes,
                 is_goodbye=False,
                 accent_hex=str(w_cfg.get("accent_color") or "#5865F2"),
-                subtitle=str(w_cfg.get("banner_subtitle") or ""),
+                subtitle=str(w_cfg.get("welcome_card_subtitle") or w_cfg.get("banner_subtitle") or ""),
+                badge_text=str(w_cfg.get("welcome_card_badge") or ""),
             )
             if png_bytes:
                 import io
@@ -5697,6 +5827,9 @@ class CommunityCog(commands.Cog):
                 av_bytes,
                 is_goodbye=True,
                 accent_hex=str(w_cfg.get("accent_color") or "#5865F2"),
+                subtitle=str(w_cfg.get("welcome_card_subtitle") or w_cfg.get("banner_subtitle") or ""),
+                goodbye_subtitle=str(w_cfg.get("goodbye_card_subtitle") or ""),
+                badge_text=str(w_cfg.get("goodbye_card_badge") or ""),
             )
             if png_bytes:
                 import io
