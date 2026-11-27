@@ -12,6 +12,22 @@ VERSION_HISTORY: list[dict[str, Any]] = [
     {
         "commit": "HEAD",
         "date": "2026-11-26",
+        "title": "다중 자동역할 지급 · Firebase 즉시동기화 · 채널/역할 삭제 자동정리 등 11대 기능·안정성 업그레이드",
+        "added": [
+            "`👋 환영/작별 배너 설정`: 신규 멤버 입장 시 **여러 개의 역할(최대 10개) 동시 자동 지급** 지원, `[🚪 작별 카드 미리보기]` 버튼 및 한글/영문 색상 프리셋(`블루·그린·골드·핑크·퍼플·레드·민트·하늘·주황`) 입력 지원",
+            "`⏳ 카운트다운 스튜디오 & 카드`: 스튜디오 내 **개별 타이머 선택 관리(`+10분 연장` / `즉시 취소`) 드롭다운**, 카운트다운 카드 **`[👥 알림 대기 명단]` 버튼** 및 **시각적 진행률 게이지 바(`████░░░░░░ 40%`)** 추가",
+            "`🔊 임시 음성방`: 등록된 자동생성(트리거) 채널 **개별 제거 드롭다운**, **봇 필수 권한(`채널 관리` · `멤버 이동`) 실시간 진단**, 방장 퇴장 시 남은 멤버에게 **`[👑 방장 인계받기]` 안내 자동 발송** 추가",
+            "`/설정` (`⚙️ 고급 4p` ➔ `💾 백업 & 동기화`): **`[🔥 Firebase 연결점검 & 즉시동기화]`** 원클릭 진단·푸시 버튼 추가",
+        ],
+        "changed": [
+            "`/설정` 통합 기능 검색(`search_dashboard_features`): 3단계 세부 제어판(`sub_mode` 24종, 약 150개 하위 버튼)까지 검색 범위 확장",
+            "`cogs/community.py` & `cogs/tickets.py`: 디스코드에서 채널·카테고리·스레드·역할 직접 삭제 시 1:1 티켓, 임시음성방, 고정메시지, 카운트다운, 릴레이소설, 환영/작별, 비상방어 DB 유령 설정 자동 정리(`on_guild_channel_delete` / `on_raw_thread_delete` / `on_guild_role_delete`)",
+            "`core.py` & `community_core.py`: 로컬↔Firebase 병합 시 최신 수정 시각(`updated_at`) 우선 보존 및 종료 후 7일이 경과한 카운트다운·예약 이벤트 자동 청소(GC), 고정메시지 목록 조회 시 삭제된 채널 유령 데이터 자동 정리 적용",
+        ],
+    },
+    {
+        "commit": "5c6263a",
+        "date": "2026-11-26",
         "title": "전 기능 UI 상호작용 · 영구 버튼 복구 · 핫리로드 무결성 전면 점검 및 수정",
         "changed": [
             "`core.py` & `bot.py`: 154개 전체 `SafeView`의 890여 개 버튼·드롭다운 전수 검증 — 단축 별칭 10종(`Help`, `AttRank`, `DDayChannelSetup`, `ProsekaRate`, `GenshinInv`, `HSRInv` 등) 및 커뮤니티 뷰 5종(`TempVoiceControlView`, `CountdownCardView`, `RelayNovelView`, `RaidAlertControlView`, `LinkCleanupView`)의 재시작 후 버튼 복구 100% 보장",

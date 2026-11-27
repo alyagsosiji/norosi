@@ -1133,10 +1133,57 @@ class TicketGroupCog(commands.GroupCog, name="티켓", description="🎫 1:1 비
 
 
 class TicketStandaloneCog(commands.Cog):
-    """티켓 보조 Cog"""
+    """티켓 보조 Cog (우클릭 채널/스레드/역할 직접 삭제 시 유령 티켓 자동 정리)"""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
+        guild = getattr(channel, "guild", None)
+        if not guild:
+            return
+        guild_id = guild.id
+        ch_id = channel.id
+
+        def _clean_ticket_channel():
+            ticket_core.mark_ticket_deleted(guild_id, ch_id)
+            cfg = ticket_core.get_ticket_config(guild_id)
+            updates: Dict[str, Any] = {}
+            if int(cfg.get("panel_channel_id") or 0) == ch_id:
+                updates["panel_channel_id"] = None
+            if int(cfg.get("category_id") or 0) == ch_id:
+                updates["category_id"] = None
+            if int(cfg.get("log_channel_id") or 0) == ch_id:
+                updates["log_channel_id"] = None
+            if updates:
+                ticket_core.update_ticket_config(guild_id, **updates)
+
+        await asyncio.to_thread(_clean_ticket_channel)
+
+    @commands.Cog.listener()
+    async def on_raw_thread_delete(self, payload: discord.RawThreadDeleteEvent):
+        guild_id = getattr(payload, "guild_id", None)
+        thread_id = getattr(payload, "thread_id", None)
+        if not guild_id or not thread_id:
+            return
+        await asyncio.to_thread(ticket_core.mark_ticket_deleted, int(guild_id), int(thread_id))
+
+    @commands.Cog.listener()
+    async def on_guild_role_delete(self, role: discord.Role):
+        guild = getattr(role, "guild", None)
+        if not guild:
+            return
+        guild_id = guild.id
+        role_id = role.id
+
+        def _clean_ticket_role():
+            cfg = ticket_core.get_ticket_config(guild_id)
+            if int(cfg.get("staff_role_id") or 0) == role_id:
+                ticket_core.update_ticket_config(guild_id, staff_role_id=None)
+
+        await asyncio.to_thread(_clean_ticket_role)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(TicketGroupCog(bot))

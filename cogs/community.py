@@ -2050,6 +2050,56 @@ class TempVoiceGeneratorSelect(discord.ui.ChannelSelect):
         )
 
 
+class TempVoiceGeneratorRemoveSelect(discord.ui.Select):
+    def __init__(self, guild: Optional[discord.Guild], gen_ids: list[int]):
+        options: list[discord.SelectOption] = []
+        for gid in gen_ids[:10]:
+            ch = guild.get_channel(int(gid)) if guild else None
+            ch_name = f"#{ch.name}" if ch else f"삭제된 채널 ({gid})"
+            options.append(
+                discord.SelectOption(
+                    label=f"제거: {ch_name}"[:100],
+                    value=str(gid),
+                    description="선택 시 자동생성(트리거) 채널 목록에서 제외합니다.",
+                    emoji="➖",
+                )
+            )
+        super().__init__(
+            placeholder="3️⃣ 등록된 자동생성(트리거) 채널 개별 제거 (서버 관리자)...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            row=4,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        view: "TempVoiceSetupView" = self.view
+        if not interaction.guild or not _is_strict_server_admin(interaction.user):
+            await core.safe_send_response(interaction, "❌ 자동생성 채널 관리는 **서버 관리자**만 가능합니다.", ephemeral=True)
+            return
+        await core.safe_defer(interaction)
+        target_cid = int(self.values[0])
+        guild_id = interaction.guild.id
+
+        def _remove_one():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                cfg = community_core.get_temp_voice_config(d, guild_id)
+                rem = community_core.remove_temp_voice_generator_channel(cfg, target_cid)
+                if not rem:
+                    cfg["enabled"] = False
+                saved = community_core.save_temp_voice_config(d, guild_id, cfg)
+                core.save_data(d)
+                return saved
+
+        view.cfg = await asyncio.to_thread(_remove_one)
+        await interaction.edit_original_response(embed=view.build_embed(), view=view)
+        await interaction.followup.send(
+            f"➖ <#{target_cid}> 채널을 임시 음성방 자동생성 목록에서 제외했습니다.",
+            ephemeral=True,
+        )
+
+
 class TempVoiceCategoryChannelModal(discord.ui.Modal, title="📁 새 카테고리 & 자동생성 채널 만들기"):
     cat_name_input = discord.ui.TextInput(
         label="생성할 카테고리 이름",
@@ -2124,8 +2174,23 @@ class TempVoiceSetupView(core.SafeView):
         self.author_id = author_id
         self.guild = guild
         self.cfg = cfg if isinstance(cfg, dict) else community_core.get_temp_voice_config(core.get_cached_data(), getattr(guild, "id", 0))
+        self._remove_select: Optional[TempVoiceGeneratorRemoveSelect] = None
         self.add_item(TempVoiceCategorySelect())
         self.add_item(TempVoiceGeneratorSelect())
+        self._refresh_remove_select()
+
+    def _refresh_remove_select(self) -> None:
+        if self._remove_select is not None:
+            try:
+                self.remove_item(self._remove_select)
+            except Exception:
+                pass
+            self._remove_select = None
+        c = self.cfg if isinstance(self.cfg, dict) else {}
+        gen_ids = c.get("generator_channel_ids") or ([c["generator_channel_id"]] if c.get("generator_channel_id") else [])
+        if gen_ids:
+            self._remove_select = TempVoiceGeneratorRemoveSelect(self.guild, [int(x) for x in gen_ids if str(x).isdigit()])
+            self.add_item(self._remove_select)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if not await super().interaction_check(interaction):
@@ -2140,6 +2205,7 @@ class TempVoiceSetupView(core.SafeView):
         return True
 
     def build_embed(self) -> discord.Embed:
+        self._refresh_remove_select()
         c = self.cfg
         gname = getattr(self.guild, "name", None) or "서버"
         gen_ids = c.get("generator_channel_ids") or ([c["generator_channel_id"]] if c.get("generator_channel_id") else [])
@@ -2151,6 +2217,14 @@ class TempVoiceSetupView(core.SafeView):
         active_cnt = len(c.get("active_rooms") or {})
         example_name = community_core.format_temp_voice_room_name(c.get("name_template", ""), "홍길동", 1)
 
+        me = getattr(self.guild, "me", None)
+        if me is not None:
+            p_ch = "✅ 채널 관리" if me.guild_permissions.manage_channels else "❌ 채널 관리(부족)"
+            p_mv = "✅ 멤버 이동" if me.guild_permissions.move_members else "❌ 멤버 이동(부족)"
+            perm_diag_str = f"{p_ch} · {p_mv}"
+        else:
+            perm_diag_str = "ℹ️ 서버에서 실행 시 자동 진단"
+
         embed = discord.Embed(
             title=f"🔊 [{gname}] 임시 음성방 자동 생성기 (서버 관리자 전용)",
             description=(
@@ -2159,11 +2233,12 @@ class TempVoiceSetupView(core.SafeView):
                 f"• **자동생성(입장 트리거) 채널 (`{len(gen_ids)}개`):** {gen_str}\n"
                 f"• **방 이름 템플릿:** `{c.get('name_template')}` *(예: `{example_name}`)*\n"
                 f"• **기본 최대 인원:** {limit_str}\n"
-                f"• **현재 활성 임시방:** **`{active_cnt}개`**\n\n"
+                f"• **현재 활성 임시방:** **`{active_cnt}개`**\n"
+                f"• **봇 필수 권한 진단:** {perm_diag_str}\n\n"
                 "💡 **설정 순서:**\n"
                 "1️⃣ 아래 드롭다운에서 **카테고리를 지정**한 뒤 **[➕ 지정 카테고리에 자동채널 생성]** 버튼을 누르거나,\n"
                 "2️⃣ **[📁 새 카테고리+자동채널 생성]** 버튼으로 카테고리부터 한 번에 만들 수 있습니다.\n"
-                "*(자동생성 채널 추가·설정은 서버 관리자만 가능하며, 멤버가 해당 채널에 입장하면 지정된 카테고리에 개인 음성방이 자동 생성됩니다.)*"
+                "*(자동생성 채널 추가·제거·설정은 서버 관리자만 가능하며, 멤버가 해당 채널에 입장하면 지정된 카테고리에 개인 음성방이 자동 생성됩니다.)*"
             ),
             color=discord.Color.green() if c.get("enabled") else discord.Color.dark_grey(),
             timestamp=datetime.datetime.now(core.KST),
@@ -3020,9 +3095,9 @@ class GoodbyeChannelSelect(discord.ui.ChannelSelect):
 class WelcomeAutoRoleSelect(discord.ui.RoleSelect):
     def __init__(self):
         super().__init__(
-            placeholder="3️⃣ 신규 멤버 입장 시 자동 부여할 역할 선택 (선택)...",
+            placeholder="3️⃣ 입장 시 자동 부여할 역할 선택 (여러 개 선택·추가 가능, 최대 10개)...",
             min_values=1,
-            max_values=1,
+            max_values=10,
             row=3,
         )
 
@@ -3031,32 +3106,59 @@ class WelcomeAutoRoleSelect(discord.ui.RoleSelect):
         if not interaction.guild or not _is_guild_admin(interaction.user, perm_attr="manage_roles"):
             await core.safe_send_response(interaction, "❌ 역할 관리 또는 서버 관리자 권한이 필요합니다.", ephemeral=True)
             return
-        role = self.values[0]
-        if role.is_default() or role.managed:
-            await core.safe_send_response(interaction, "❌ 기본 역할(@everyone)이나 봇/연동 전용 역할은 지정할 수 없습니다.", ephemeral=True)
+        valid_roles: list[discord.Role] = []
+        skipped_default_or_managed: list[str] = []
+        skipped_high: list[str] = []
+        for role in self.values:
+            if role.is_default() or role.managed:
+                skipped_default_or_managed.append(role.name)
+                continue
+            if interaction.guild.me and role >= interaction.guild.me.top_role:
+                skipped_high.append(role.name)
+                continue
+            valid_roles.append(role)
+
+        if not valid_roles:
+            reasons: list[str] = []
+            if skipped_default_or_managed:
+                reasons.append("기본 역할(`@everyone`)이나 봇·연동 전용 역할은 지정할 수 없습니다.")
+            if skipped_high:
+                reasons.append(f"**{', '.join(skipped_high)}** 역할이 봇의 최상위 역할보다 높거나 같아 자동 부여할 수 없습니다. 서버 설정에서 봇 역할을 더 위로 올려주세요.")
+            await core.safe_send_response(interaction, "❌ " + "\n⚠️ ".join(reasons), ephemeral=True)
             return
-        if interaction.guild.me and role >= interaction.guild.me.top_role:
-            await core.safe_send_response(
-                interaction,
-                f"⚠️ **{role.name}** 역할이 봇의 최상위 역할보다 높거나 같아 자동 부여할 수 없습니다. 서버 설정에서 봇 역할을 더 위로 올려주세요.",
-                ephemeral=True,
-            )
-            return
+
         await core.safe_defer(interaction)
         guild_id = interaction.guild.id
+        selected_ids = [r.id for r in valid_roles]
 
         def _save():
             with core._DATA_LOCK:
                 d = core.load_data()
                 cfg = community_core.get_welcome_config(d, guild_id)
-                cfg["auto_role_id"] = role.id
+                all_ids, added_ids, removed_ids = community_core.update_welcome_auto_roles(cfg, selected_ids)
                 saved = community_core.save_welcome_config(d, guild_id, cfg)
                 core.save_data(d)
-                return saved
+                return saved, all_ids, added_ids, removed_ids
 
-        view.cfg = await asyncio.to_thread(_save)
+        view.cfg, all_ids, added_ids, removed_ids = await asyncio.to_thread(_save)
         await interaction.edit_original_response(embed=view.build_embed(), view=view)
-        await interaction.followup.send(f"✅ 신규 입장 멤버에게 {role.mention} 역할이 자동 부여됩니다!", ephemeral=True)
+
+        notes: list[str] = []
+        if added_ids:
+            mentions = " · ".join(f"<@&{rid}>" for rid in added_ids)
+            notes.append(f"✅ 자동 부여 역할 추가: {mentions}")
+        if removed_ids:
+            mentions = " · ".join(f"<@&{rid}>" for rid in removed_ids)
+            notes.append(f"➖ 자동 부여 역할 개별 해제: {mentions}")
+        if not added_ids and not removed_ids:
+            notes.append("ℹ️ 선택한 역할이 이미 목록에 등록되어 있거나 최대 개수(10개)에 도달했습니다.")
+        total_mentions = " · ".join(f"<@&{rid}>" for rid in all_ids) if all_ids else "없음"
+        notes.append(f"📌 **현재 자동 부여 역할 (`{len(all_ids)}개`):** {total_mentions}")
+        if skipped_high:
+            notes.append(f"⚠️ 봇 역할보다 높은 역할 제외됨: `{', '.join(skipped_high)}`")
+        if skipped_default_or_managed:
+            notes.append(f"⚠️ 기본/연동 전용 역할 제외됨: `{', '.join(skipped_default_or_managed)}`")
+        await interaction.followup.send("\n".join(notes), ephemeral=True)
 
 
 class WelcomeTemplateModal(discord.ui.Modal, title="✏️ 환영·작별 문구 및 배너 색상 설정"):
@@ -3078,9 +3180,9 @@ class WelcomeTemplateModal(discord.ui.Modal, title="✏️ 환영·작별 문구
         max_length=80,
     )
     color_input = discord.ui.TextInput(
-        label="배너 포인트 HEX 색상 (예: #5865F2, #2ECC71, #FF69B4)",
+        label="배너 색상 (블루·그린·골드·핑크·퍼플·레드·민트·하늘·주황 또는 #HEX)",
         required=True,
-        max_length=10,
+        max_length=16,
     )
 
     def __init__(self, parent_view: "WelcomeConfigView"):
@@ -3117,7 +3219,7 @@ class WelcomeTemplateModal(discord.ui.Modal, title="✏️ 환영·작별 문구
 
         self.parent_view.cfg = await asyncio.to_thread(_save)
         await interaction.edit_original_response(embed=self.parent_view.build_embed(), view=self.parent_view)
-        await interaction.followup.send("✅ 환영·작별 문구와 배너 포인트 색상이 저장되었습니다!", ephemeral=True)
+        await interaction.followup.send(f"✅ 환영·작별 문구와 배너 포인트 색상(`{col_hex}`)이 저장되었습니다!", ephemeral=True)
 
 
 class WelcomeConfigView(core.SafeView):
@@ -3150,7 +3252,12 @@ class WelcomeConfigView(core.SafeView):
         w_ch = f"<#{c['welcome_channel_id']}>" if c.get("welcome_channel_id") else "⚠️ 미지정"
         g_ch_id = c.get("goodbye_channel_id") or c.get("welcome_channel_id")
         g_ch = f"<#{g_ch_id}>" if g_ch_id else "⚠️ 미지정"
-        r_str = f"<@&{c['auto_role_id']}>" if c.get("auto_role_id") else "없음 *(미지정)*"
+        role_ids = c.get("auto_role_ids") or ([c["auto_role_id"]] if c.get("auto_role_id") else [])
+        r_str = (
+            f"(`{len(role_ids)}개`) " + " · ".join(f"<@&{rid}>" for rid in role_ids)
+            if role_ids
+            else "없음 *(아래 3️⃣번 드롭다운에서 최대 10개까지 다중 선택 가능)*"
+        )
         rgb = community_core.hex_to_rgb_tuple(str(c.get("accent_color") or "#5865F2"))
         color_val = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]
 
@@ -3161,12 +3268,13 @@ class WelcomeConfigView(core.SafeView):
                 f"• **퇴장 작별 알림:** {'🟢 **ON**' if c.get('goodbye_enabled') else '🔴 **OFF**'} (채널: {g_ch})\n"
                 f"• **고해상도 PNG 배너 카드:** {'🖼️ **사용함 (ON)**' if c.get('banner_enabled', True) else '📝 **텍스트 임베드만 (OFF)**'}\n"
                 f"• **입장 시 자동 부여 역할:** {r_str}\n"
-                f"• **배너 포인트 색상:** `{c.get('accent_color', '#5865F2')}`\n"
+                f"• **배너 포인트 색상:** `{c.get('accent_color', '#5865F2')}` *(프리셋: 블루·그린·골드·핑크·퍼플·레드·민트·하늘·주황)*\n"
                 f"• **배너 하단 문구:** `{c.get('banner_subtitle')}`\n"
                 "━━━━━━━━━━━━━━━━\n"
                 f"**[입장 문구 미리보기]**\n{c.get('welcome_message')}\n\n"
                 f"**[퇴장 문구 미리보기]**\n{c.get('goodbye_message')}\n\n"
-                "💡 치환 변수: `{user}`(멘션), `{username}`(닉네임), `{server}`(서버명), `{count}`(현재 인원수)"
+                "💡 치환 변수: `{user}`(멘션), `{username}`(닉네임), `{server}`(서버명), `{count}`(현재 인원수)\n"
+                "💡 **다중 자동 역할 팁:** 3️⃣번 드롭다운에서 여러 역할을 한 번에 선택하거나 추가로 더할 수 있으며, 이미 등록된 역할 1개만 다시 선택하면 해당 역할만 개별 해제됩니다."
             ),
             color=color_val,
             timestamp=datetime.datetime.now(core.KST),
@@ -3240,7 +3348,7 @@ class WelcomeConfigView(core.SafeView):
     async def edit_modal_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(WelcomeTemplateModal(self))
 
-    @discord.ui.button(label="테스트 미리보기", style=discord.ButtonStyle.secondary, emoji="🧪", row=0)
+    @discord.ui.button(label="환영 카드 미리보기", style=discord.ButtonStyle.secondary, emoji="🧪", row=0)
     async def preview_test_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.guild:
             return
@@ -3276,6 +3384,42 @@ class WelcomeConfigView(core.SafeView):
         else:
             await interaction.followup.send(content="🧪 **실제 입장 시 발송될 환영 카드 미리보기입니다:**", embed=preview_embed, ephemeral=True)
 
+    @discord.ui.button(label="작별 카드 미리보기", style=discord.ButtonStyle.secondary, emoji="🚪", row=4)
+    async def preview_goodbye_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild:
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        guild = interaction.guild
+        member = interaction.user
+        av_bytes = await _fetch_member_avatar_bytes(member)
+        m_count = int(getattr(guild, "member_count", 0) or len(getattr(guild, "members", []) or []) or 1)
+        file_obj = None
+        if self.cfg.get("banner_enabled", True):
+            png_bytes = await asyncio.to_thread(
+                community_core.render_welcome_banner_png,
+                guild.name,
+                member.display_name,
+                m_count,
+                av_bytes,
+                is_goodbye=True,
+                accent_hex="#ED4245",
+                subtitle=str(self.cfg.get("banner_subtitle") or ""),
+            )
+            if png_bytes:
+                import io
+                file_obj = discord.File(io.BytesIO(png_bytes), filename="goodbye_banner.png")
+        preview_embed = _build_welcome_or_goodbye_embed(
+            guild,
+            member,
+            self.cfg,
+            is_goodbye=True,
+            has_banner_file=(file_obj is not None),
+        )
+        if file_obj:
+            await interaction.followup.send(content="🚪 **실제 퇴장 시 발송될 작별 카드 미리보기입니다:**", embed=preview_embed, file=file_obj, ephemeral=True)
+        else:
+            await interaction.followup.send(content="🚪 **실제 퇴장 시 발송될 작별 카드 미리보기입니다:**", embed=preview_embed, ephemeral=True)
+
     @discord.ui.button(label="작별채널=환영채널 통일", style=discord.ButtonStyle.secondary, emoji="🔗", row=4)
     async def sync_channel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.guild:
@@ -3300,7 +3444,7 @@ class WelcomeConfigView(core.SafeView):
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
         await interaction.followup.send(f"🔗 작별 알림 채널도 <#{w_ch}> 채널로 통일했습니다.", ephemeral=True)
 
-    @discord.ui.button(label="자동 역할 해제", style=discord.ButtonStyle.danger, emoji="🗑️", row=4)
+    @discord.ui.button(label="자동 역할 전체 해제", style=discord.ButtonStyle.danger, emoji="🗑️", row=4)
     async def clear_role_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.guild:
             return
@@ -3311,14 +3455,14 @@ class WelcomeConfigView(core.SafeView):
             with core._DATA_LOCK:
                 d = core.load_data()
                 cfg = community_core.get_welcome_config(d, guild_id)
-                cfg["auto_role_id"] = None
+                community_core.clear_welcome_auto_roles(cfg)
                 saved = community_core.save_welcome_config(d, guild_id, cfg)
                 core.save_data(d)
                 return saved
 
         self.cfg = await asyncio.to_thread(_clear)
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
-        await interaction.followup.send("🗑️ 신규 멤버 자동 부여 역할을 해제했습니다.", ephemeral=True)
+        await interaction.followup.send("🗑️ 신규 멤버 자동 부여 역할 목록을 모두 해제했습니다.", ephemeral=True)
 
 
 # ==========================================
@@ -3338,7 +3482,11 @@ def _build_countdown_card_embed(timer: dict) -> discord.Embed:
     if status == "completed":
         title = f"🚀 [시간 도달] {title_raw}"
         color = 0x2ECC71
-        time_block = f"• **목표 시각:** <t:{target_ts}:F>\n• **상태:** 🎉 **카운트다운이 종료되어 지금 시작합니다!**"
+        time_block = (
+            f"• **목표 시각:** <t:{target_ts}:F>\n"
+            f"• **진행률:** `[██████████] 100%`\n"
+            f"• **상태:** 🎉 **카운트다운이 종료되어 지금 시작합니다!**"
+        )
     elif status == "cancelled":
         title = f"🛑 [취소됨] {title_raw}"
         color = 0x95A5A6
@@ -3346,9 +3494,25 @@ def _build_countdown_card_embed(timer: dict) -> discord.Embed:
     else:
         title = f"⏳ {title_raw}"
         color = 0x5865F2
+        now_ts = int(time.time())
+        start_ts = 0
+        raw_created = str(timer.get("created_at") or "")
+        if raw_created:
+            try:
+                start_ts = int(datetime.datetime.fromisoformat(raw_created).timestamp())
+            except Exception:
+                start_ts = 0
+        if start_ts <= 0 or start_ts >= target_ts:
+            start_ts = max(1, target_ts - 3600)
+        total_span = max(1, target_ts - start_ts)
+        elapsed = max(0, min(total_span, now_ts - start_ts))
+        pct = int(round((elapsed / total_span) * 100))
+        filled = max(0, min(10, int(round(pct / 10))))
+        bar_str = "█" * filled + "░" * (10 - filled)
         time_block = (
             f"• **남은 시간:** 🔥 **<t:{target_ts}:R>**\n"
             f"• **목표 시각:** <t:{target_ts}:F>\n"
+            f"• **진행률:** `[{bar_str}] {pct}%`\n"
             f"• **시작 알림 예약:** **`{len(subs)}명`** *(아래 [🔔 시작 알림 받기] 클릭)*"
         )
 
@@ -3371,14 +3535,14 @@ def _build_countdown_card_embed(timer: dict) -> discord.Embed:
 
 
 class CountdownCardView(core.SafeView):
-    """채널에 게시된 실시간 카운트다운 카드 하단 버튼 (멤버 알림 구독 + 관리자 연장/종료)"""
+    """채널에 게시된 실시간 카운트다운 카드 하단 버튼 (멤버 알림 구독 + 대기 명단 + 관리자 연장/종료)"""
 
     def __init__(self, timer_id: str = "", disabled_all: bool = False):
         super().__init__(timeout=None)
         self.timer_id = timer_id
         if disabled_all:
             for item in self.children:
-                if isinstance(item, discord.ui.Button):
+                if isinstance(item, discord.ui.Button) and getattr(item, "custom_id", "") != "norosi:CountdownCardView:subscribers":
                     item.disabled = True
 
     def _resolve_timer_id(self, interaction: discord.Interaction) -> str:
@@ -3430,6 +3594,41 @@ class CountdownCardView(core.SafeView):
             await interaction.followup.send(f"🔔 **시작 알림 예약 완료!** 카운트다운이 끝나면 멘션으로 알려드릴게요. (현재 `{cnt}명` 대기 중)", ephemeral=True)
         else:
             await interaction.followup.send(f"🔕 시작 알림 예약을 취소했습니다. (현재 `{cnt}명` 대기 중)", ephemeral=True)
+
+    @discord.ui.button(
+        label="알림 대기 명단",
+        emoji="👥",
+        style=discord.ButtonStyle.secondary,
+        custom_id="norosi:CountdownCardView:subscribers",
+        row=0,
+    )
+    async def subscribers_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild:
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        guild_id = interaction.guild.id
+        tid = self._resolve_timer_id(interaction)
+        msg_id = interaction.message.id if interaction.message else 0
+
+        def _read_subs():
+            d = core.load_data()
+            t = community_core.get_countdown_timer(d, guild_id, tid) if tid else community_core.find_countdown_timer_by_message(d, guild_id, msg_id)
+            return dict(t) if t else None
+
+        timer_obj = await asyncio.to_thread(_read_subs)
+        if not timer_obj:
+            await interaction.followup.send("❌ 해당 카운트다운 정보를 찾을 수 없습니다.", ephemeral=True)
+            return
+        subs = community_core._normalize_uid_list(timer_obj.get("subscribers"))
+        if not subs:
+            await interaction.followup.send("📭 아직 시작 알림을 신청한 멤버가 없습니다. **[🔔 시작 알림 받기]** 버튼을 눌러 첫 번째로 예약해 보세요!", ephemeral=True)
+            return
+        mentions = " · ".join(f"<@{u}>" for u in subs[:40])
+        extra = f" 외 `{len(subs) - 40}명`" if len(subs) > 40 else ""
+        await interaction.followup.send(
+            f"👥 **[{timer_obj.get('title', '카운트다운')}] 시작 알림 대기 명단 (`{len(subs)}명`):**\n{mentions}{extra}",
+            ephemeral=True,
+        )
 
     @discord.ui.button(
         label="+10분 연장 (관리자)",
@@ -3545,6 +3744,95 @@ class CountdownMentionRoleSelect(discord.ui.RoleSelect):
         role = self.values[0]
         view.mention_target = "@everyone" if role.is_default() else f"<@&{role.id}>"
         await core.safe_edit_response(interaction, embed=view.build_embed(), view=view)
+
+
+class CountdownTimerManageSelect(discord.ui.Select):
+    """스튜디오 내에서 개별 진행 중 타이머를 선택해 +10분 연장하거나 즉시 취소하는 드롭다운"""
+
+    def __init__(self, active_timers: list[dict]):
+        options: list[discord.SelectOption] = []
+        for t in active_timers[:12]:
+            tid = str(t.get("timer_id") or "")
+            if not tid:
+                continue
+            title_s = str(t.get("title") or "카운트다운")[:45]
+            options.append(
+                discord.SelectOption(
+                    label=f"[+10분 연장] {title_s}"[:100],
+                    value=f"extend:{tid}",
+                    description=f"ID: {tid} · 목표 시각을 10분 뒤로 연장합니다.",
+                    emoji="⏰",
+                )
+            )
+            options.append(
+                discord.SelectOption(
+                    label=f"[즉시 취소] {title_s}"[:100],
+                    value=f"cancel:{tid}",
+                    description=f"ID: {tid} · 해당 카운트다운 타이머만 즉시 취소합니다.",
+                    emoji="🛑",
+                )
+            )
+        super().__init__(
+            placeholder="🎛️ 개별 카운트다운 선택 관리 (+10분 연장 / 즉시 취소)...",
+            min_values=1,
+            max_values=1,
+            options=options[:25],
+            row=4,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        view: "CountdownStudioView" = self.view
+        if not interaction.guild or not _is_guild_admin(interaction.user):
+            await core.safe_send_response(interaction, "❌ 서버 관리자 권한이 필요합니다.", ephemeral=True)
+            return
+        raw_val = str(self.values[0] or "")
+        if ":" not in raw_val:
+            return
+        action, tid = raw_val.split(":", 1)
+        await core.safe_defer(interaction, ephemeral=True)
+        guild_id = interaction.guild.id
+
+        def _apply_one():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                t = community_core.get_countdown_timer(d, guild_id, tid)
+                if not t or str(t.get("status") or "active") != "active":
+                    return None, community_core.get_guild_countdown_timers(d, guild_id, active_only=True)
+                if action == "extend":
+                    updated = community_core.extend_countdown_timer(d, guild_id, tid, 600)
+                else:
+                    updated = community_core.cancel_countdown_timer(d, guild_id, tid)
+                core.save_data(d)
+                fresh_list = community_core.get_guild_countdown_timers(d, guild_id, active_only=True)
+                return (dict(updated) if updated else None), fresh_list
+
+        target_timer, fresh_active = await asyncio.to_thread(_apply_one)
+        view.active_timers = fresh_active
+        if target_timer:
+            ch = interaction.guild.get_channel(int(target_timer.get("channel_id") or 0))
+            msg_id = int(target_timer.get("message_id") or 0)
+            if isinstance(ch, discord.TextChannel) and msg_id:
+                try:
+                    orig_msg = await ch.fetch_message(msg_id)
+                    await orig_msg.edit(
+                        embed=_build_countdown_card_embed(target_timer),
+                        view=CountdownCardView(target_timer["timer_id"], disabled_all=(action == "cancel")),
+                    )
+                except Exception:
+                    pass
+        await interaction.edit_original_response(embed=view.build_embed(), view=view)
+        if not target_timer:
+            await interaction.followup.send("ℹ️ 해당 타이머는 이미 종료되었거나 취소되었습니다.", ephemeral=True)
+        elif action == "extend":
+            await interaction.followup.send(
+                f"⏰ **{target_timer.get('title')}** 타이머를 **+10분 연장**했습니다! (<t:{target_timer.get('target_ts')}:R>)",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                f"🛑 **{target_timer.get('title')}** 타이머를 즉시 취소했습니다.",
+                ephemeral=True,
+            )
 
 
 class CountdownCreateModal(discord.ui.Modal, title="⏳ 실시간 카운트다운 타이머 발행"):
@@ -3664,8 +3952,22 @@ class CountdownStudioView(core.SafeView):
             if isinstance(active_timers, list)
             else community_core.get_guild_countdown_timers(core.get_cached_data(), getattr(guild, "id", 0), active_only=True)
         )
+        self._manage_select: Optional[CountdownTimerManageSelect] = None
         self.add_item(CountdownTargetChannelSelect())
         self.add_item(CountdownMentionRoleSelect())
+        self._refresh_manage_select()
+
+    def _refresh_manage_select(self) -> None:
+        if self._manage_select is not None:
+            try:
+                self.remove_item(self._manage_select)
+            except Exception:
+                pass
+            self._manage_select = None
+        valid_timers = [t for t in (self.active_timers or []) if isinstance(t, dict) and t.get("timer_id")]
+        if valid_timers:
+            self._manage_select = CountdownTimerManageSelect(valid_timers)
+            self.add_item(self._manage_select)
 
     def _restore_from_message(self, interaction: discord.Interaction):
         msg = getattr(interaction, "message", None)
@@ -3699,6 +4001,7 @@ class CountdownStudioView(core.SafeView):
         return True
 
     def build_embed(self) -> discord.Embed:
+        self._refresh_manage_select()
         gname = getattr(self.guild, "name", None) or "서버"
         ch_str = f"<#{self.target_channel_id}>" if self.target_channel_id else "현재 채널"
         m_label_map = {
@@ -4267,25 +4570,53 @@ class CommunityCog(commands.Cog):
             await core.safe_send_response(interaction, "❌ 메시지 관리 또는 관리자 권한이 필요합니다.", ephemeral=True)
             return
         await core.safe_defer(interaction, ephemeral=True)
-        data = await asyncio.to_thread(core.load_data)
-        g_stickies = community_core.get_guild_stickies(data, interaction.guild.id)
+        guild = interaction.guild
+        guild_id = guild.id
+
+        def _load_and_clean_stickies():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                raw_stickies = dict(community_core.get_guild_stickies(d, guild_id))
+                ghost_cids: list[int] = []
+                for ch_id_s in list(raw_stickies.keys()):
+                    if not str(ch_id_s).isdigit() or guild.get_channel(int(ch_id_s)) is None:
+                        if str(ch_id_s).isdigit():
+                            ghost_cids.append(int(ch_id_s))
+                        raw_stickies.pop(ch_id_s, None)
+                if ghost_cids:
+                    for gcid in ghost_cids:
+                        community_core.remove_sticky_config(d, guild_id, gcid)
+                    core.save_data(d)
+                return raw_stickies, len(ghost_cids)
+
+        g_stickies, cleaned_cnt = await asyncio.to_thread(_load_and_clean_stickies)
         if not g_stickies:
-            await interaction.followup.send("📭 이 서버에 등록된 자동 고정 메시지가 없습니다. `/설정` (`⚙️ 고급` ➔ `📌 자동 고정메시지 관리`)에서 추가해 보세요!", ephemeral=True)
+            clean_note = f" *(삭제된 채널의 유령 설정 `{cleaned_cnt}건` 자동 정리됨)*" if cleaned_cnt else ""
+            await interaction.followup.send(
+                f"📭 이 서버에 등록된 자동 고정 메시지가 없습니다.{clean_note} `/설정` (`⚙️ 고급` ➔ `📌 자동 고정메시지 관리`)에서 추가해 보세요!",
+                ephemeral=True,
+            )
             return
         lines = []
         for ch_id_s, cfg in g_stickies.items():
             if not isinstance(cfg, dict):
                 continue
             status = "🟢" if cfg.get("enabled", True) else "🔴"
+            color_badge = community_core.STICKY_COLOR_LABELS.get(str(cfg.get("color") or "gold"), "🟡 골드")
+            trig_summary = community_core.format_sticky_trigger_summary(cfg)
             lines.append(
-                f"{status} <#{ch_id_s}> — **{cfg.get('title') or '(제목 없음)'}** ({community_core.format_sticky_trigger_summary(cfg)})\n"
+                f"{status} <#{ch_id_s}> — **{cfg.get('title') or '(제목 없음)'}** (`{trig_summary}` · {color_badge})\n"
                 f"└ *{str(cfg.get('content', ''))[:60]}*"
             )
+        footer_note = f"총 {len(lines)}개 채널 운영 중"
+        if cleaned_cnt:
+            footer_note += f" · 삭제된 채널 유령 데이터 {cleaned_cnt}건 자동 청소됨"
         embed = discord.Embed(
-            title=f"📌 [{interaction.guild.name}] 자동 고정 메시지 목록",
+            title=f"📌 [{guild.name}] 자동 고정 메시지 목록",
             description="\n\n".join(lines[:20]),
             color=discord.Color.gold(),
         )
+        embed.set_footer(text=footer_note)
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ------------------------------------------
@@ -5270,13 +5601,25 @@ class CommunityCog(commands.Cog):
         cached = core.get_cached_data()
         w_cfg = community_core.get_welcome_config(cached, guild.id)
 
-        # 1) 입장 시 자동 역할 부여
-        role_id = w_cfg.get("auto_role_id")
-        if role_id and guild.me and guild.me.guild_permissions.manage_roles:
-            role_obj = guild.get_role(int(role_id))
-            if role_obj and not role_obj.is_default() and not role_obj.managed and role_obj < guild.me.top_role:
+        # 1) 입장 시 자동 역할 부여 (다중 역할 지원)
+        role_ids = w_cfg.get("auto_role_ids") or ([w_cfg["auto_role_id"]] if w_cfg.get("auto_role_id") else [])
+        if role_ids and guild.me and guild.me.guild_permissions.manage_roles:
+            roles_to_add: list[discord.Role] = []
+            for rid in role_ids:
+                if not str(rid or "").isdigit():
+                    continue
+                role_obj = guild.get_role(int(rid))
+                if (
+                    role_obj
+                    and not role_obj.is_default()
+                    and not role_obj.managed
+                    and role_obj < guild.me.top_role
+                    and role_obj not in roles_to_add
+                ):
+                    roles_to_add.append(role_obj)
+            if roles_to_add:
                 try:
-                    await member.add_roles(role_obj, reason="신규 멤버 입장 자동 역할 부여")
+                    await member.add_roles(*roles_to_add, reason="신규 멤버 입장 자동 역할 부여")
                 except Exception:
                     pass
 
@@ -5599,7 +5942,7 @@ class CommunityCog(commands.Cog):
 
         lock = self._get_temp_voice_lock(guild_id)
         async with lock:
-            # 1) 기존 임시 음성방에서 퇴장 시 빈 방 자동 삭제
+            # 1) 기존 임시 음성방에서 퇴장 시 빈 방 자동 삭제 또는 방장 퇴장 시 인계 안내
             if is_leaving_temp and isinstance(before.channel, discord.VoiceChannel):
                 old_vc = guild.get_channel(before_id)
                 if isinstance(old_vc, discord.VoiceChannel):
@@ -5616,6 +5959,19 @@ class CommunityCog(commands.Cog):
                             await old_vc.delete(reason="임시 음성방 전원 퇴장으로 자동 삭제")
                         except Exception:
                             pass
+                    elif len(non_bot_members) > 0:
+                        room_info = (quick_cfg.get("active_rooms") or {}).get(str(before_id))
+                        if isinstance(room_info, dict) and int(room_info.get("owner_id") or 0) == member.id:
+                            try:
+                                await old_vc.send(
+                                    content=(
+                                        f"👑 방장({member.mention})님이 퇴장했습니다! "
+                                        "방에 남아 계신 멤버 중 누구든 아래 **[👑 방장 인계받기]** 버튼을 누르면 새 방장이 될 수 있습니다."
+                                    ),
+                                    view=TempVoiceControlView(old_vc.id),
+                                )
+                            except Exception:
+                                pass
                 else:
                     def _pop_missing():
                         with core._DATA_LOCK:
@@ -5744,6 +6100,147 @@ class CommunityCog(commands.Cog):
                         await asyncio.to_thread(_save_panel_msg_id)
                 except Exception:
                     pass
+
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
+        """디스코드에서 채널·카테고리가 직접 삭제되었을 때 연관된 유령 DB 설정을 자동 정리합니다."""
+        guild = getattr(channel, "guild", None)
+        if not guild:
+            return
+        guild_id = guild.id
+        ch_id = channel.id
+        ch_id_s = str(ch_id)
+
+        prev_t = self._sticky_delay_tasks.pop(ch_id, None)
+        if prev_t and not prev_t.done():
+            prev_t.cancel()
+
+        def _cleanup_deleted_channel():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                changed = False
+
+                # 1) 임시 음성방 (활성 임시방 / 생성기 채널 / 지정 카테고리)
+                tv_root = core.as_dict(d.get("temp_voice_configs"))
+                tv_raw = tv_root.get(str(guild_id))
+                if isinstance(tv_raw, dict):
+                    tv_cfg = community_core.get_temp_voice_config(d, guild_id)
+                    tv_mod = False
+                    if ch_id_s in (tv_cfg.get("active_rooms") or {}):
+                        community_core.remove_temp_voice_room(d, guild_id, ch_id)
+                        tv_cfg = community_core.get_temp_voice_config(d, guild_id)
+                        tv_mod = True
+                    if community_core.is_temp_voice_generator_channel(tv_cfg, ch_id):
+                        rem = community_core.remove_temp_voice_generator_channel(tv_cfg, ch_id)
+                        if not rem:
+                            tv_cfg["enabled"] = False
+                        tv_mod = True
+                    if int(tv_cfg.get("category_id") or 0) == ch_id:
+                        tv_cfg["category_id"] = None
+                        tv_mod = True
+                    if tv_mod:
+                        community_core.save_temp_voice_config(d, guild_id, tv_cfg)
+                        changed = True
+
+                # 2) 자동 고정 메시지(Sticky)
+                if community_core.remove_sticky_config(d, guild_id, ch_id):
+                    changed = True
+
+                # 3) 실시간 카운트다운 타이머
+                cd_root = core.as_dict(d.get("countdown_timers"))
+                cd_g = cd_root.get(str(guild_id))
+                if isinstance(cd_g, dict):
+                    for t in cd_g.values():
+                        if isinstance(t, dict) and int(t.get("channel_id") or 0) == ch_id and t.get("status") == "active":
+                            t["status"] = "cancelled"
+                            changed = True
+
+                # 4) 진행 중인 릴레이 소설
+                if community_core.get_active_relay_novel(d, guild_id, ch_id):
+                    community_core.cancel_relay_novel(d, guild_id, ch_id)
+                    changed = True
+
+                # 5) 환영 / 작별 배너 설정 채널
+                w_root = core.as_dict(d.get("welcome_configs"))
+                w_raw = w_root.get(str(guild_id))
+                if isinstance(w_raw, dict):
+                    w_cfg = community_core.get_welcome_config(d, guild_id)
+                    w_mod = False
+                    if int(w_cfg.get("welcome_channel_id") or 0) == ch_id:
+                        w_cfg["welcome_channel_id"] = None
+                        w_cfg["welcome_enabled"] = False
+                        w_mod = True
+                    if int(w_cfg.get("goodbye_channel_id") or 0) == ch_id:
+                        w_cfg["goodbye_channel_id"] = None
+                        if not w_cfg.get("welcome_channel_id"):
+                            w_cfg["goodbye_enabled"] = False
+                        w_mod = True
+                    if w_mod:
+                        community_core.save_welcome_config(d, guild_id, w_cfg)
+                        changed = True
+
+                # 6) 링크 미리보기 제외 채널
+                lp_root = core.as_dict(d.get("link_preview_configs"))
+                lp_raw = lp_root.get(str(guild_id))
+                if isinstance(lp_raw, dict):
+                    lp_cfg = community_core.get_link_preview_config(d, guild_id)
+                    if ch_id in (lp_cfg.get("ignored_channels") or []):
+                        lp_cfg["ignored_channels"] = [x for x in lp_cfg["ignored_channels"] if x != ch_id]
+                        community_core.save_link_preview_config(d, guild_id, lp_cfg)
+                        changed = True
+
+                # 7) 레이드 비상 방어 알림 채널
+                rd_root = core.as_dict(d.get("raid_defense_configs"))
+                rd_raw = rd_root.get(str(guild_id))
+                if isinstance(rd_raw, dict):
+                    rd_cfg = community_core.get_raid_defense_config(d, guild_id)
+                    if int(rd_cfg.get("alert_channel_id") or 0) == ch_id:
+                        rd_cfg["alert_channel_id"] = None
+                        community_core.save_raid_defense_config(d, guild_id, rd_cfg)
+                        changed = True
+
+                if changed:
+                    core.save_data(d)
+
+        await asyncio.to_thread(_cleanup_deleted_channel)
+
+    @commands.Cog.listener()
+    async def on_guild_role_delete(self, role: discord.Role):
+        """디스코드에서 역할이 삭제되었을 때 환영 자동 역할 목록 및 비상방어 격리 역할을 자동 정리합니다."""
+        guild = getattr(role, "guild", None)
+        if not guild:
+            return
+        guild_id = guild.id
+        role_id = role.id
+
+        def _cleanup_deleted_role():
+            with core._DATA_LOCK:
+                d = core.load_data()
+                changed = False
+
+                # 1) 환영 자동 부여 역할 (다중 역할 목록 포함)
+                w_root = core.as_dict(d.get("welcome_configs"))
+                if isinstance(w_root.get(str(guild_id)), dict):
+                    w_cfg = community_core.get_welcome_config(d, guild_id)
+                    r_ids = list(w_cfg.get("auto_role_ids") or [])
+                    if role_id in r_ids or int(w_cfg.get("auto_role_id") or 0) == role_id:
+                        community_core.remove_welcome_auto_role(w_cfg, role_id)
+                        community_core.save_welcome_config(d, guild_id, w_cfg)
+                        changed = True
+
+                # 2) 레이드 비상 방어 격리 역할
+                rd_root = core.as_dict(d.get("raid_defense_configs"))
+                if isinstance(rd_root.get(str(guild_id)), dict):
+                    rd_cfg = community_core.get_raid_defense_config(d, guild_id)
+                    if int(rd_cfg.get("quarantine_role_id") or 0) == role_id:
+                        rd_cfg["quarantine_role_id"] = None
+                        community_core.save_raid_defense_config(d, guild_id, rd_cfg)
+                        changed = True
+
+                if changed:
+                    core.save_data(d)
+
+        await asyncio.to_thread(_cleanup_deleted_role)
 
 
 async def setup(bot: commands.Bot):

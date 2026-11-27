@@ -770,6 +770,16 @@ def add_temp_voice_generator_channel(cfg: dict, channel_id: int) -> list[int]:
     return ids
 
 
+def remove_temp_voice_generator_channel(cfg: dict, channel_id: int) -> list[int]:
+    ids = _normalize_generator_channel_ids(cfg)
+    cid = int(channel_id)
+    if cid in ids:
+        ids.remove(cid)
+    cfg["generator_channel_ids"] = ids
+    cfg["generator_channel_id"] = ids[0] if ids else None
+    return ids
+
+
 def clear_temp_voice_generator_channels(cfg: dict) -> None:
     cfg["generator_channel_ids"] = []
     cfg["generator_channel_id"] = None
@@ -1143,7 +1153,7 @@ def set_guild_event_status(data: dict, guild_id: int, event_id: str, status: str
 def collect_due_event_reminders(data: dict, now_ts: Optional[int] = None) -> list[tuple[dict, str]]:
     """
     15분 전 자동 리마인드 및 시작 시각 알림 대상 이벤트를 수집하고 플래그를 표시합니다.
-    24시간이 지난 오픈 이벤트는 자동으로 closed 처리합니다.
+    24시간이 지난 오픈 이벤트는 자동으로 closed 처리하며, 종료 후 7일이 경과한 이벤트는 자동 정리합니다.
     """
     ts = int(now_ts if now_ts is not None else time.time())
     root = core.as_dict(data.get("guild_events"))
@@ -1151,13 +1161,17 @@ def collect_due_event_reminders(data: dict, now_ts: Optional[int] = None) -> lis
     for g_map in root.values():
         if not isinstance(g_map, dict):
             continue
-        for ev in g_map.values():
+        stale_eids: list[str] = []
+        for eid, ev in g_map.items():
             if not isinstance(ev, dict):
                 continue
-            if str(ev.get("status") or "open") != "open":
-                continue
+            status = str(ev.get("status") or "open")
             start_ts = int(ev.get("start_ts") or 0)
-            if start_ts <= 0:
+            if status in ("closed", "cancelled"):
+                if start_ts > 0 and (ts - start_ts) > 7 * 86400:
+                    stale_eids.append(str(eid))
+                continue
+            if status != "open" or start_ts <= 0:
                 continue
             diff = start_ts - ts
             # 15분 전 (0 < diff <= 900)
@@ -1171,6 +1185,8 @@ def collect_due_event_reminders(data: dict, now_ts: Optional[int] = None) -> lis
             # 시작 후 24시간 경과 시 자동 마감
             elif diff < -86400:
                 ev["status"] = "closed"
+        for eid in stale_eids:
+            g_map.pop(eid, None)
     return due
 
 
@@ -1181,9 +1197,55 @@ DEFAULT_WELCOME_MSG = "🎉 {user}님, **{server}** 서버에 오신 것을 환�
 DEFAULT_GOODBYE_MSG = "👋 **{username}님**이 **{server}** 서버에서 퇴장하셨습니다. (현재 `{count}명`)"
 DEFAULT_WELCOME_SUBTITLE = "{count}번째 멤버로 함께하게 되었어요!"
 
+WELCOME_COLOR_PRESETS: dict[str, str] = {
+    "블루": "#5865F2",
+    "파랑": "#5865F2",
+    "디스코드": "#5865F2",
+    "blue": "#5865F2",
+    "blurple": "#5865F2",
+    "그린": "#2ECC71",
+    "초록": "#2ECC71",
+    "에메랄드": "#2ECC71",
+    "green": "#2ECC71",
+    "골드": "#F1C40F",
+    "노랑": "#F1C40F",
+    "황금": "#F1C40F",
+    "gold": "#F1C40F",
+    "yellow": "#F1C40F",
+    "핑크": "#FF69B4",
+    "분홍": "#FF69B4",
+    "pink": "#FF69B4",
+    "퍼플": "#9B59B6",
+    "보라": "#9B59B6",
+    "purple": "#9B59B6",
+    "레드": "#E74C3C",
+    "빨강": "#E74C3C",
+    "red": "#E74C3C",
+    "민트": "#1ABC9C",
+    "청록": "#1ABC9C",
+    "mint": "#1ABC9C",
+    "teal": "#1ABC9C",
+    "하늘": "#00CCDD",
+    "스카이": "#00CCDD",
+    "시안": "#00CCDD",
+    "sky": "#00CCDD",
+    "cyan": "#00CCDD",
+    "주황": "#E67E22",
+    "오렌지": "#E67E22",
+    "orange": "#E67E22",
+    "화이트": "#FFFFFF",
+    "흰색": "#FFFFFF",
+    "white": "#FFFFFF",
+}
+
 
 def _normalize_hex_color(raw_hex: str, default_hex: str = "#5865F2") -> str:
     s = str(raw_hex or "").strip()
+    if not s:
+        return default_hex
+    preset = WELCOME_COLOR_PRESETS.get(s.lower()) or WELCOME_COLOR_PRESETS.get(s.lstrip("#").lower())
+    if preset:
+        return preset
     if not s.startswith("#"):
         s = "#" + s
     if re.fullmatch(r"#[0-9A-Fa-f]{6}", s):
@@ -1201,19 +1263,84 @@ def hex_to_rgb_tuple(raw_hex: str, default_rgb: tuple[int, int, int] = (88, 101,
     return default_rgb
 
 
+def _normalize_welcome_auto_role_ids(raw: dict) -> list[int]:
+    result: list[int] = []
+    raw_list = raw.get("auto_role_ids")
+    if isinstance(raw_list, list):
+        for item in raw_list:
+            if str(item or "").isdigit():
+                val = int(item)
+                if val > 0 and val not in result:
+                    result.append(val)
+    single = raw.get("auto_role_id")
+    if not result and str(single or "").isdigit():
+        val = int(single)
+        if val > 0:
+            result.append(val)
+    return result[:10]
+
+
+def update_welcome_auto_roles(cfg: dict, selected_role_ids: list[int]) -> tuple[list[int], list[int], list[int]]:
+    """
+    선택된 역할들을 자동 부여 역할 목록에 반영합니다.
+    - 이미 등록된 역할 1개만 다시 선택한 경우: 해당 역할을 목록에서 해제(토글)합니다.
+    - 그 외(신규 역할 선택 또는 다중 선택): 기존 목록에 새로운 역할들을 추가(최대 10개)합니다.
+    반환값: (전체_역할_ID_목록, 추가된_ID_목록, 제거된_ID_목록)
+    """
+    current = _normalize_welcome_auto_role_ids(cfg)
+    incoming: list[int] = []
+    for r in selected_role_ids:
+        if str(r or "").isdigit():
+            val = int(r)
+            if val > 0 and val not in incoming:
+                incoming.append(val)
+    added: list[int] = []
+    removed: list[int] = []
+    if len(incoming) == 1 and incoming[0] in current:
+        target = incoming[0]
+        current.remove(target)
+        removed.append(target)
+    else:
+        for rid in incoming:
+            if rid not in current:
+                if len(current) >= 10:
+                    break
+                current.append(rid)
+                added.append(rid)
+    cfg["auto_role_ids"] = current[:10]
+    cfg["auto_role_id"] = cfg["auto_role_ids"][0] if cfg["auto_role_ids"] else None
+    return cfg["auto_role_ids"], added, removed
+
+
+def remove_welcome_auto_role(cfg: dict, role_id: int) -> list[int]:
+    current = _normalize_welcome_auto_role_ids(cfg)
+    rid = int(role_id)
+    if rid in current:
+        current.remove(rid)
+    cfg["auto_role_ids"] = current
+    cfg["auto_role_id"] = current[0] if current else None
+    return current
+
+
+def clear_welcome_auto_roles(cfg: dict) -> None:
+    cfg["auto_role_ids"] = []
+    cfg["auto_role_id"] = None
+
+
 def get_welcome_config(data: dict, guild_id: int) -> dict:
     root = core.as_dict(data.get("welcome_configs"))
     raw = core.as_dict(root.get(str(guild_id)))
     w_ch = raw.get("welcome_channel_id")
     g_ch = raw.get("goodbye_channel_id")
-    r_id = raw.get("auto_role_id")
+    role_ids = _normalize_welcome_auto_role_ids(raw)
     return {
         "welcome_enabled": bool(raw.get("welcome_enabled", False)),
         "goodbye_enabled": bool(raw.get("goodbye_enabled", False)),
         "banner_enabled": bool(raw.get("banner_enabled", True)),
         "welcome_channel_id": int(w_ch) if str(w_ch or "").isdigit() else None,
         "goodbye_channel_id": int(g_ch) if str(g_ch or "").isdigit() else None,
-        "auto_role_id": int(r_id) if str(r_id or "").isdigit() else None,
+        "auto_role_id": role_ids[0] if role_ids else None,
+        "auto_role_ids": role_ids,
         "welcome_message": (str(raw.get("welcome_message") or DEFAULT_WELCOME_MSG).strip()[:500] or DEFAULT_WELCOME_MSG),
         "goodbye_message": (str(raw.get("goodbye_message") or DEFAULT_GOODBYE_MSG).strip()[:500] or DEFAULT_GOODBYE_MSG),
         "banner_subtitle": (str(raw.get("banner_subtitle") or DEFAULT_WELCOME_SUBTITLE).strip()[:100] or DEFAULT_WELCOME_SUBTITLE),
@@ -1226,14 +1353,15 @@ def save_welcome_config(data: dict, guild_id: int, cfg: dict) -> dict:
     root = core.ensure_dict_path(data, "welcome_configs")
     w_ch = cfg.get("welcome_channel_id")
     g_ch = cfg.get("goodbye_channel_id")
-    r_id = cfg.get("auto_role_id")
+    role_ids = _normalize_welcome_auto_role_ids(cfg)
     entry = {
         "welcome_enabled": bool(cfg.get("welcome_enabled", False)),
         "goodbye_enabled": bool(cfg.get("goodbye_enabled", False)),
         "banner_enabled": bool(cfg.get("banner_enabled", True)),
         "welcome_channel_id": int(w_ch) if str(w_ch or "").isdigit() else None,
         "goodbye_channel_id": int(g_ch) if str(g_ch or "").isdigit() else None,
-        "auto_role_id": int(r_id) if str(r_id or "").isdigit() else None,
+        "auto_role_id": role_ids[0] if role_ids else None,
+        "auto_role_ids": role_ids,
         "welcome_message": (str(cfg.get("welcome_message") or DEFAULT_WELCOME_MSG).strip()[:500] or DEFAULT_WELCOME_MSG),
         "goodbye_message": (str(cfg.get("goodbye_message") or DEFAULT_GOODBYE_MSG).strip()[:500] or DEFAULT_GOODBYE_MSG),
         "banner_subtitle": (str(cfg.get("banner_subtitle") or DEFAULT_WELCOME_SUBTITLE).strip()[:100] or DEFAULT_WELCOME_SUBTITLE),
@@ -1540,24 +1668,30 @@ def cancel_countdown_timer(data: dict, guild_id: int, timer_id: str) -> Optional
 
 
 def collect_due_countdown_timers(data: dict, now_ts: Optional[int] = None) -> list[dict]:
-    """목표 시각에 도달한 활성 카운트다운 타이머를 수집하고 completed 상태로 전환합니다."""
+    """목표 시각에 도달한 활성 카운트다운 타이머를 수집하고 completed 상태로 전환하며, 종료 후 7일이 지난 타이머는 자동 정리합니다."""
     ts = int(now_ts if now_ts is not None else time.time())
     root = core.as_dict(data.get("countdown_timers"))
     due: list[dict] = []
     for g_map in root.values():
         if not isinstance(g_map, dict):
             continue
-        for t in g_map.values():
+        stale_tids: list[str] = []
+        for tid, t in g_map.items():
             if not isinstance(t, dict):
                 continue
-            if str(t.get("status") or "active") != "active":
-                continue
+            status = str(t.get("status") or "active")
             target_ts = int(t.get("target_ts") or 0)
-            if target_ts <= 0:
+            if status in ("completed", "cancelled"):
+                if target_ts > 0 and (ts - target_ts) > 7 * 86400:
+                    stale_tids.append(str(tid))
+                continue
+            if status != "active" or target_ts <= 0:
                 continue
             if target_ts <= ts:
                 t["status"] = "completed"
                 due.append(t)
+        for tid in stale_tids:
+            g_map.pop(tid, None)
     return due
 
 

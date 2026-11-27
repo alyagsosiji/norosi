@@ -4830,7 +4830,7 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
         if s_v is not None and not merged_settings.get(s_k):
             merged_settings[s_k] = copy.deepcopy(s_v)
 
-    # 반응역할(reaction_roles) 및 신규 커뮤니티/티켓/생활/전생 데이터 로컬 백업 보존
+    # 반응역할(reaction_roles) 및 신규 커뮤니티/티켓/생활/전생 데이터 로컬 백업 보존 (updated_at 최신 우선)
     for preserve_key in (
         "reaction_roles",
         "sticky_messages",
@@ -4849,8 +4849,28 @@ def _merge_local_and_remote(local_data: dict, remote_data: dict) -> dict:
     ):
         merged_sub = ensure_dict_path(merged, preserve_key)
         for k_s, v_cfg in as_dict(local_norm.get(preserve_key)).items():
-            if k_s not in merged_sub:
+            if not isinstance(v_cfg, dict):
+                continue
+            rem_cfg = merged_sub.get(k_s)
+            if not isinstance(rem_cfg, dict):
                 merged_sub[k_s] = copy.deepcopy(v_cfg)
+                continue
+            l_up = str(v_cfg.get("updated_at") or "")
+            r_up = str(rem_cfg.get("updated_at") or "")
+            if l_up and l_up > r_up:
+                merged_sub[k_s] = copy.deepcopy(v_cfg)
+            else:
+                for sub_k, sub_v in v_cfg.items():
+                    if not isinstance(sub_v, dict):
+                        continue
+                    rem_sub_v = rem_cfg.get(sub_k)
+                    if not isinstance(rem_sub_v, dict):
+                        rem_cfg[sub_k] = copy.deepcopy(sub_v)
+                    else:
+                        ls_up = str(sub_v.get("updated_at") or "")
+                        rs_up = str(rem_sub_v.get("updated_at") or "")
+                        if ls_up and ls_up > rs_up:
+                            rem_cfg[sub_k] = copy.deepcopy(sub_v)
 
     l_lot = as_dict(local_norm.get("lottery_state"))
     r_lot = ensure_dict_path(merged, "lottery_state")
@@ -4911,6 +4931,55 @@ def _firebase_put_raw(raw_json: str, timeout: int = 15) -> bool:
         print(f"⚠️ Firebase 저장 오류 (로컬 백업에는 정상 저장됨): {redact_secrets(str(e))}", flush=True)
         _FIREBASE_DISABLED_UNTIL = time.time() + 300
     return False
+
+
+def test_and_sync_firebase_now() -> dict:
+    """
+    봇 주인 전용: Firebase 연결 및 인증 상태를 실시간 점검하고 현재 인메모리 DB를 즉시 원격에 동기화합니다.
+    """
+    global _FIREBASE_DISABLED_UNTIL, _FIREBASE_SA_LOADED
+    _FIREBASE_DISABLED_UNTIL = 0.0
+    _FIREBASE_SA_LOADED = False
+    if not _is_firebase_url_configured():
+        return {
+            "ok": False,
+            "auth_mode": "미설정",
+            "latency_ms": 0.0,
+            "size_kb": 0.0,
+            "message": "`.env` 파일에 `FIREBASE_DB_URL`이 설정되어 있지 않습니다.",
+        }
+
+    t0 = time.perf_counter()
+    auth_mode = get_firebase_auth_mode() or "미인증"
+    url, auth_headers = get_firebase_request_target(force_refresh_token=True)
+    if not url:
+        return {
+            "ok": False,
+            "auth_mode": auth_mode,
+            "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
+            "size_kb": 0.0,
+            "message": "서비스 계정(`FIREBASE_CREDENTIALS`) 토큰 발급 또는 엔드포인트 생성에 실패했습니다.",
+        }
+
+    with _DATA_LOCK:
+        data_obj = _DATA_CACHE if _DATA_CACHE is not None else load_data()
+        raw_json = json.dumps(data_obj, ensure_ascii=False, separators=(",", ":"))
+        _save_local_file_safely(data_obj)
+
+    size_kb = round(len(raw_json.encode("utf-8")) / 1024, 1)
+    ok = _firebase_put_raw(raw_json, timeout=15)
+    latency_ms = round((time.perf_counter() - t0) * 1000, 1)
+    return {
+        "ok": ok,
+        "auth_mode": auth_mode,
+        "latency_ms": latency_ms,
+        "size_kb": size_kb,
+        "message": (
+            f"Firebase 원격 DB에 `{size_kb} KB` 데이터를 즉시 동기화했습니다!"
+            if ok
+            else "Firebase 업로드에 실패했습니다. DB 주소(`FIREBASE_DB_URL`) 또는 서비스 계정 권한을 확인해 주세요."
+        ),
+    }
 
 
 def load_data():

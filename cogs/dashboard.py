@@ -1749,6 +1749,33 @@ def search_dashboard_features(dashboard_view: "MasterDashboardView", kw: str) ->
                         "cb": cb,
                     },
                 })
+    # 3단계 세부 제어판(sub_mode 24종, 약 150개 하위 버튼)까지 검색 범위 확장
+    for sub_key, (p_cat, p_page) in SUB_MODE_PARENT_MAP.items():
+        sub_def = dashboard_view._get_sub_mode_definition(sub_key)
+        if not sub_def:
+            continue
+        sub_title = str(sub_def.get("title") or "")
+        sub_desc = str(sub_def.get("desc") or "")
+        sub_perm = sub_def.get("perm", PERM_USER)
+        for b_lbl, b_em, b_style, b_cb in sub_def.get("buttons", []):
+            lbl_s = str(b_lbl or "")
+            if not lbl_s or lbl_s in seen_labels:
+                continue
+            haystack = f"{lbl_s} {sub_title} {sub_desc}".lower()
+            if all(tok in haystack for tok in tokens):
+                seen_labels.add(lbl_s)
+                matches.append({
+                    "cat_label": f"{cat_labels.get(p_cat, p_cat)} ▸ 세부패널",
+                    "page_num": int(p_page) + 1,
+                    "item": {
+                        "label": lbl_s,
+                        "emoji": b_em,
+                        "style": b_style,
+                        "perm": sub_perm,
+                        "desc": sub_title[:90],
+                        "cb": b_cb,
+                    },
+                })
     return matches
 
 
@@ -3798,7 +3825,7 @@ class MasterDashboardView(core.SafeView):
     # ----------------------------------------------------
     # 🧩 3단계 세부 제어판(Sub-Mode) 버튼 구성
     # ----------------------------------------------------
-    def _get_sub_mode_definition(self) -> Dict[str, Any]:
+    def _get_sub_mode_definition(self, sub_key: Optional[str] = None) -> Dict[str, Any]:
         defs: Dict[str, Dict[str, Any]] = {
             "sekai_schedule": {
                 "title": "🔭 프로세카 미래시 & 실시간 이벤트 제어판",
@@ -3944,12 +3971,13 @@ class MasterDashboardView(core.SafeView):
                 ],
             },
             "owner_backup_sync": {
-                "title": "💾 [봇 주인 전용] 서버/DB 백업 · 슬래시 동기화 · 봇 배너",
-                "desc": "현재 서버 구조 또는 봇 전체 DB를 JSON으로 백업하고 슬래시 명령어 동기화 및 봇 프로필 배너를 제어합니다.",
+                "title": "💾 [봇 주인 전용] 서버/DB 백업 · Firebase 동기화 · 슬래시 동기화 · 봇 배너",
+                "desc": "현재 서버 구조 또는 봇 전체 DB를 JSON으로 백업하고, Firebase 실시간 연결점검·즉시동기화, 슬래시 명령어 동기화, 봇 프로필 배너를 제어합니다.",
                 "perm": PERM_OWNER,
                 "buttons": [
                     ("현재 서버 구조 JSON 백업", "🏢", discord.ButtonStyle.primary, self._sub_owner_backup_guild),
                     ("봇 전체 DB JSON 백업", "🗄️", discord.ButtonStyle.success, self._sub_owner_backup_db),
+                    ("Firebase 연결점검 & 즉시동기화", "🔥", discord.ButtonStyle.success, self._sub_owner_firebase_sync),
                     ("슬래시 명령어 즉시 동기화 패널", "⚡", discord.ButtonStyle.secondary, self._sub_owner_sync_panel),
                     ("봇 프로필 배너 변경/초기화", "🖼️", discord.ButtonStyle.secondary, self._sub_owner_bot_banner),
                 ],
@@ -4119,7 +4147,8 @@ class MasterDashboardView(core.SafeView):
                 ],
             },
         }
-        return defs.get(self.sub_mode or "", defs["pokedex_hub"])
+        target_key = sub_key if sub_key is not None else (self.sub_mode or "")
+        return defs.get(target_key, defs["pokedex_hub"])
 
     def _build_sub_mode_components(self, caller_tier: str):
         sub_def = self._get_sub_mode_definition()
@@ -5339,6 +5368,26 @@ class MasterDashboardView(core.SafeView):
         if not await self.check_bot_owner_permission(interaction, action_name="봇 프로필 배너 변경/초기화"):
             return
         await interaction.response.send_modal(BotBannerModal())
+
+    async def _sub_owner_firebase_sync(self, interaction: discord.Interaction):
+        if not await self.check_bot_owner_permission(interaction, action_name="Firebase 연결점검 & 즉시동기화"):
+            return
+        await core.safe_defer(interaction, ephemeral=True)
+        res = await asyncio.to_thread(core.test_and_sync_firebase_now)
+        ok = bool(res.get("ok"))
+        embed = discord.Embed(
+            title="🔥 Firebase Realtime DB 연결 점검 & 즉시 동기화 리포트",
+            description=(
+                f"• **점검 및 동기화 결과:** {'🟢 **정상 동기화 완료**' if ok else '🔴 **연결 또는 동기화 실패**'}\n"
+                f"• **인증 방식:** `{res.get('auth_mode', '-')}`\n"
+                f"• **응답 지연 시간(Latency):** `{res.get('latency_ms', 0)}ms`\n"
+                f"• **동기화된 최상위 컬렉션:** `{res.get('top_keys', 0)}개`\n"
+                f"• **상세 메시지:** {res.get('message', '-')}"
+            ),
+            color=discord.Color.green() if ok else discord.Color.red(),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def _act_bot_host_status(self, interaction: discord.Interaction):
         if not await self.check_bot_owner_permission(interaction, action_name="봇 상태(호스트 시스템 리소스) 진단"):
