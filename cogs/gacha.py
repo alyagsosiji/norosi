@@ -840,9 +840,10 @@ class DuplicateConvertConfirmView(core.SafeView):
                 is_sel = cid_str in self.selected_ids
                 mark = "✅" if is_sel else "☐"
                 mr = int(c.get("master_rank", 0))
-                mr_tag = f"[MR.{mr}] " if mr > 0 else ""
-                lbl = f"{mark} {mr_tag}{c['rarity_label']} {c['char_name']} [{c['prefix']}]"[:100]
-                desc = f"초과 {c['excess']}장 ➔ +{c['crystals']:,}💎 (총 {c['count']}장 보유 · {c.get('limit_label', '통상')})"[:100]
+                mr_tag = f" · MR.{mr}" if mr > 0 else ""
+                r_short = c.get("rarity_short") or core.get_card_rarity_short_label(c)
+                lbl = f"{mark} {r_short} {c['char_name']} [{c['prefix']}]"[:100]
+                desc = f"초과 {c['excess']}장 ➔ +{c['crystals']:,}💎 (총 {c['count']}장{mr_tag} · {c.get('limit_label', '통상')})"[:100]
                 card_opts.append(
                     discord.SelectOption(
                         label=lbl,
@@ -3725,7 +3726,8 @@ class InteractiveCardTradeStudioView(core.SafeView):
                     continue
                 seen1.add(cid_s)
                 dup_tag = f"중복 {c.get('count', 1)}장" if c.get("count", 1) > 1 else "1장"
-                label = f"{c['rarity_label']} {c['char_name']} [{c['prefix']}]"[:100]
+                r_short = core.get_card_rarity_short_label(c)
+                label = f"{r_short} {c['char_name']} [{c['prefix']}]"[:100]
                 desc = f"{dup_tag} · {c.get('limit_label', '통상')} (ID:{cid_s})"[:100]
                 opts1.append(discord.SelectOption(label=label, value=cid_s, description=desc, default=(cid_s == self.selected_my_cid)))
                 if len(opts1) >= 10:
@@ -3747,7 +3749,8 @@ class InteractiveCardTradeStudioView(core.SafeView):
                     continue
                 seen2.add(cid_s)
                 dup_tag = f"중복 {c.get('count', 1)}장" if c.get("count", 1) > 1 else "1장"
-                label = f"{c['rarity_label']} {c['char_name']} [{c['prefix']}]"[:100]
+                r_short = core.get_card_rarity_short_label(c)
+                label = f"{r_short} {c['char_name']} [{c['prefix']}]"[:100]
                 desc = f"{dup_tag} · {c.get('limit_label', '통상')} (ID:{cid_s})"[:100]
                 opts2.append(discord.SelectOption(label=label, value=cid_s, description=desc, default=(cid_s == self.selected_tgt_cid)))
                 if len(opts2) >= 10:
@@ -5108,18 +5111,15 @@ class MyInventoryView(core.SafeView):
                 if cid_val in seen_vals:
                     continue
                 seen_vals.add(cid_val)
-                lock_icon = "🔒" if c.get("locked", False) else ""
+                lock_icon = "🔒 " if c.get("locked", False) else ""
                 mr = int(c.get("master_rank", 0))
-                mr_desc = f"·MR{mr}" if mr > 0 else ""
+                mr_desc = f" · MR.{mr}" if mr > 0 else ""
                 r_short = core.get_card_rarity_short_label(c)
                 full_cn = str(c.get("char_name") or "캐릭터")
                 prefix_str = str(c.get("prefix") or "카드")
-                label = f"{idx}.{lock_icon}{r_short} {full_cn} [{prefix_str}] ({c.get('count', 1)}{mr_desc})"[:100]
-                desc = (
-                    "🌸특훈 전(기본) · ✨특훈 후 버튼 전환 및 잠금 관리"
-                    if core.can_card_awaken(c)
-                    else "🖼️ 카드 일러스트 감상 및 잠금 관리"
-                )
+                label = f"{idx}. {r_short} {full_cn} [{prefix_str}]"[:100]
+                stage_hint = "특훈 전·후 전환" if core.can_card_awaken(c) else "일러스트 감상"
+                desc = f"{lock_icon}보유 {c.get('count', 1)}장{mr_desc} · {c.get('limit_label', '통상')} · {stage_hint}"[:100]
                 opts.append(discord.SelectOption(label=label, value=cid_val[:100], description=desc))
             self.illust_select.options = opts[:25] or [discord.SelectOption(label="표시할 카드가 없습니다", value="NONE")]
             self.illust_select.disabled = not bool(opts)
@@ -5487,9 +5487,10 @@ class CardPokedexView(core.SafeView):
         else:
             opts = []
             for idx, c in enumerate(page_items, start=start_idx + 1):
-                status_tag = "🔒미획득" if self.active_tab == "unowned" else f"✨보유({c.get('count', 1)}장)"
-                label = f"{idx}. [{status_tag}] {c['rarity_label']} {c['char_name']} [{c['prefix']}]"[:100]
-                desc = f"[{c.get('limit_label', '통상')}] {c.get('unit', '')} · 클릭하여 카드 일러스트 확인"[:100]
+                status_tag = "🔒 미획득" if self.active_tab == "unowned" else f"✨ 보유 {c.get('count', 1)}장"
+                r_short = core.get_card_rarity_short_label(c)
+                label = f"{idx}. {r_short} {c['char_name']} [{c['prefix']}]"[:100]
+                desc = f"{status_tag} · [{c.get('limit_label', '통상')}] {c.get('unit', '')} · 일러스트 확인"[:100]
                 opts.append(discord.SelectOption(label=label, value=str(c["id"]), description=desc))
             self.preview_select.options = opts
             self.preview_select.disabled = False
@@ -6421,12 +6422,12 @@ class MasterRankView(core.SafeView):
                 cnt = self._safe_int(c.get("count", 1), 1)
                 dup_txt = f"중복 {cnt - 1}장" if cnt >= 2 else "1장"
                 cos = core.get_costume_for_card(c.get("id"))
-                cos_badge = "👗" if cos else ""
-                r_lbl = core.get_card_rarity_label(c)
+                cos_badge = " · 👗3D의상" if cos else ""
+                r_short = core.get_card_rarity_short_label(c)
                 prefix = c.get("prefix") or "카드"
                 cname = c.get("char_name") or "캐릭터"
-                label = f"{cos_badge}[MR.{mr}] {r_lbl} {cname} [{prefix}]"[:100]
-                desc = f"보유 {cnt}장 ({dup_txt}) · {c.get('limit_label', '통상')} (ID:{cid_val})"[:100]
+                label = f"{r_short} {cname} [{prefix}]"[:100]
+                desc = f"✦MR.{mr}/5 · 보유 {cnt}장 ({dup_txt}) · {c.get('limit_label', '통상')}{cos_badge}"[:100]
                 opts.append(discord.SelectOption(
                     label=label,
                     value=cid_val[:100],

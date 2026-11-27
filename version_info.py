@@ -12,6 +12,14 @@ VERSION_HISTORY: list[dict[str, Any]] = [
     {
         "commit": "HEAD",
         "date": "2026-11-27",
+        "title": "모바일·좁은 화면 드롭다운에서도 캐릭터·콜라보 이름이 절대 잘리지 않도록 라벨 구조 전면 최적화",
+        "fixed": [
+            "`cogs/gacha.py` (`MasterRankView`, `MyInventoryView`, `CardPokedexView`, `DuplicateConvertConfirmView`, `CardTradeView`) & `core.py` (`owned_card_autocomplete`, `target_user_card_autocomplete`): 드롭다운 첫 줄(`label`) 앞쪽에 붙던 `👗[MR.5]`, `★★★★`, `[✨보유(N장)]`, `(N·MR5)` 등 긴 접두사·접미사 때문에 모바일 디스코드 화면 폭(약 25~28자)에서 뒷부분 이름(`카미시로 루이 [feat. 한교동]` ➔ `... [feat. 한교`)이 잘려 보이던 문제를 해결하기 위해, 첫 줄 라벨을 **`★2 카미시로 루이 [feat. 한교동]`** (22~27자 이내)으로 간결화하고 마스터 랭크·보유 장수·3D 의상·한정 여부는 모두 둘째 줄 설명(`description`)으로 이동",
+        ],
+    },
+    {
+        "commit": "41eb239",
+        "date": "2026-11-27",
         "title": "Discord 10062 Unknown Interaction 경고 로그 스팸 차단 및 자동 메시지 폴백 보강",
         "fixed": [
             "`core.py` (`safe_defer`, `safe_send_response`, `safe_edit_response`, `reconstruct_safe_view`): 디스코드 게이트웨이·네트워크 지연으로 3초 인터랙션 토큰이 만료(`404 Not Found / 10062: Unknown interaction`)되었을 때 경고 로그 스팸을 남기지 않고 만료 플래그(`_norosi_expired_10062`)를 기록한 뒤, 후속 `safe_edit_response` / `safe_send_response`에서 실패할 인터랙션 웹훅 호출을 건너뛰고 즉시 채널 메시지 직접 수정(`message.edit`) 또는 채널 전송으로 폴백하도록 개선",

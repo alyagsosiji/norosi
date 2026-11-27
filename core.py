@@ -9582,10 +9582,9 @@ async def owned_card_autocomplete(interaction: discord.Interaction, current: str
     cmd_name = getattr(getattr(interaction, "command", None), "name", "") or ""
     if cmd_name == "마스터랭크":
         cards.sort(key=lambda pair: (
-            -int(_safe_card_int(pair[1].get("master_rank"), 0) < 5),
+            -_safe_card_int(pair[1].get("master_rank"), 0),
             -_safe_card_int(pair[1].get("star_num") if pair[1].get("star_num") is not None else pair[1].get("rarity"), 1),
             -int(_safe_card_int(pair[1].get("count"), 1) >= 2),
-            -_safe_card_int(pair[1].get("master_rank"), 0),
             _safe_card_int(pair[1].get("char_id"), 99),
         ))
     else:
@@ -9600,9 +9599,10 @@ async def owned_card_autocomplete(interaction: discord.Interaction, current: str
     for cid_str, c in cards:
         cnt = _safe_card_int(c.get("count"), 1)
         mr = _safe_card_int(c.get("master_rank"), 0)
-        lock_prefix = "🔒 " if c.get("locked", False) else ""
-        mr_tag = f"[✦MR.{mr}/5] " if (cmd_name == "마스터랭크" or mr > 0) else ""
-        label = f"{lock_prefix}{mr_tag}{c.get('rarity_label') or ''} [{c.get('prefix') or '카드'}] {c.get('char_name') or ''} (보유:{cnt}장 | ID:{cid_str})"[:100]
+        lock_suffix = " · 🔒" if c.get("locked", False) else ""
+        mr_suffix = f" · MR.{mr}" if (cmd_name == "마스터랭크" or mr > 0) else ""
+        r_short = get_card_rarity_short_label(c)
+        label = f"{r_short} {c.get('char_name') or '캐릭터'} [{c.get('prefix') or '카드'}] ({cnt}장{mr_suffix}{lock_suffix})"[:100]
         if not cur_low or cur_low in label.lower() or cur_low == cid_str.lower():
             choices.append(app_commands.Choice(name=label, value=cid_str[:100]))
         if len(choices) >= 25:
@@ -9641,8 +9641,9 @@ async def target_user_card_autocomplete(interaction: discord.Interaction, curren
     cur_low = (current or "").lower()
     for cid_str, c in cards:
         cnt = c.get("count", 1)
-        lock_prefix = "🔒 " if c.get("locked", False) else ""
-        label = f"{lock_prefix}{c.get('rarity_label', '')} [{c.get('prefix', '')}] {c.get('char_name', '')} (보유:{cnt}장 | ID:{cid_str})"[:100]
+        lock_suffix = " · 🔒" if c.get("locked", False) else ""
+        r_short = get_card_rarity_short_label(c)
+        label = f"{r_short} {c.get('char_name', '')} [{c.get('prefix', '')}] ({cnt}장{lock_suffix})"[:100]
         if not cur_low or cur_low in label.lower() or cur_low == cid_str.lower():
             choices.append(app_commands.Choice(name=label, value=cid_str[:100]))
         if len(choices) >= 25:
