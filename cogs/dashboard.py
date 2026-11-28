@@ -1857,20 +1857,29 @@ class DashboardSearchResultView(core.SafeView):
 
     def _rebuild_items(self):
         self.clear_items()
+        gid = (self.parent_view.guild.id if (self.parent_view and self.parent_view.guild) else 0)
+        d = (self.parent_view.data if (self.parent_view and isinstance(self.parent_view.data, dict)) else core.get_cached_data_ro())
         for idx, m in enumerate(self.matches):
             item = m["item"]
             row = 0 if idx < 5 else 1
+            cb = item.get("cb")
+            cb_name = getattr(cb, "_feat_cb_name", None) or getattr(cb, "__name__", "")
+            is_on = core.is_guild_feature_enabled(gid, cb_name, d) if cb_name else True
+            raw_lbl = str(item.get("label") or "실행")
+            eff_lbl = raw_lbl if is_on else f"[OFF] {raw_lbl}"
+            eff_style = (item.get("style") or discord.ButtonStyle.secondary) if is_on else discord.ButtonStyle.secondary
             btn = discord.ui.Button(
-                label=str(item.get("label") or "실행")[:40],
+                label=eff_lbl[:40],
                 emoji=item.get("emoji") or "▶️",
-                style=item.get("style") or discord.ButtonStyle.secondary,
+                style=eff_style,
                 row=row,
             )
-            cb = item.get("cb")
 
-            async def _on_click(inter: discord.Interaction, _cb=cb):
+            async def _on_click(inter: discord.Interaction, _cb=cb, _lbl=raw_lbl):
                 if callable(_cb):
-                    await _cb(inter)
+                    pv = await self._ensure_parent_view(inter)
+                    guarded = pv._wrap_feature_guard(_cb, _lbl)
+                    await guarded(inter)
                 else:
                     await core.safe_send_response(inter, "❌ 실행할 수 없는 항목입니다.", ephemeral=True)
 
@@ -1967,16 +1976,22 @@ class DashboardSearchResultView(core.SafeView):
             )
         num_icons = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
         lines = []
+        gid = (self.parent_view.guild.id if (self.parent_view and self.parent_view.guild) else 0)
+        d = (self.parent_view.data if (self.parent_view and isinstance(self.parent_view.data, dict)) else core.get_cached_data_ro())
         for idx, m in enumerate(self.matches, start=1):
             it = m["item"]
             nb = num_icons[idx - 1] if idx <= 10 else f"`{idx:02d}.`"
             perm_tag = " `👑봇주`" if it.get("perm") == PERM_OWNER else (" `🛡️관리자`" if it.get("perm") == PERM_ADMIN else "")
+            cb = it.get("cb")
+            cb_name = getattr(cb, "_feat_cb_name", None) or getattr(cb, "__name__", "")
+            is_on = core.is_guild_feature_enabled(gid, cb_name, d) if cb_name else True
+            off_tag = "" if is_on else " `🔴OFF`"
             lbl_clean = re.sub(r"^\[(?:봇주인|서버관리자)\]\s*", "", str(it.get("label") or "-")).strip()
             desc_clean = re.sub(r"^\[[^\]]+\]\s*", "", str(it.get("desc") or "")).strip()
             if len(desc_clean) > 65:
                 desc_clean = desc_clean[:64].rstrip() + "…"
             lines.append(
-                f"{nb} {it.get('emoji', '•')} **{lbl_clean}**{perm_tag}  ·  `{m['cat_label']} {m['page_num']}p`\n"
+                f"{nb} {it.get('emoji', '•')} **{lbl_clean}**{perm_tag}{off_tag}  ·  `{m['cat_label']} {m['page_num']}p`\n"
                 f"　└ {desc_clean}"
             )
         embed = discord.Embed(
@@ -2233,6 +2248,640 @@ class HomeShortcutEditView(core.SafeView):
             initial_tab="home",
         )
         await core.safe_edit_response(interaction, embed=view.build_current_embed(), view=view)
+
+
+# ==========================================
+# 🎛️ 서버 관리자 전용 봇 기능 ON/OFF 제어판 & 비활성 기능 안내 뷰
+# ==========================================
+CATEGORY_PAGE_TO_MODULE_MAP: Dict[Tuple[str, int], str] = {
+    ("general", 0): "mod_general",
+    ("general", 1): "mod_music",
+    ("general", 2): "mod_community",
+    ("advanced", 0): "mod_admin_tools",
+    ("advanced", 1): "mod_admin_auto_off",
+    ("advanced", 2): "mod_admin_tools",
+    ("minigame", 0): "mod_sekai",
+    ("minigame", 1): "mod_genshin",
+    ("minigame", 2): "mod_fishing",
+    ("minigame", 3): "mod_minigame_etc",
+    ("personal", 0): "mod_personal_eco",
+    ("personal", 1): "mod_sekai",
+    ("personal", 2): "mod_routine_study",
+    ("personal", 3): "mod_routine_study",
+}
+
+
+def build_feature_disabled_embed(
+    guild: Optional[discord.Guild],
+    feat_key: str,
+    clicked_label: str,
+    caller_tier: str,
+) -> discord.Embed:
+    """비활성화(OFF)된 기능 버튼을 클릭했을 때 표시되는 안내 임베드"""
+    feat_meta = core.GUILD_FEATURE_MAP.get(feat_key, {})
+    mod_key = feat_meta.get("module", "mod_general")
+    mod_meta = core.GUILD_FEATURE_MODULE_MAP.get(mod_key, {})
+    feat_label = feat_meta.get("label") or clicked_label or "해당 기능"
+    feat_emoji = feat_meta.get("emoji") or "⛔"
+    mod_label = mod_meta.get("label") or "모듈"
+    mod_emoji = mod_meta.get("emoji") or "🗂️"
+    g_name = getattr(guild, "name", "현재 서버") if guild else "현재 서버"
+    is_default_off = (feat_key in core.DEFAULT_OFF_FEATURE_KEYS)
+    reason_line = (
+        "🔒 **사유:** 기본 OFF로 설정된 서버 자동화 기능입니다. (서버 관리자가 켜기 전까지 비활성)"
+        if is_default_off
+        else "🛡️ **사유:** 서버 관리자가 이 서버에서 해당 기능(또는 상위 모듈)을 **OFF(비활성)** 상태로 설정했습니다."
+    )
+
+    if caller_tier in (PERM_ADMIN, PERM_OWNER):
+        guide_line = (
+            "💡 **관리자 빠른 제어:** 아래 **`[🟢 이 기능 즉시 켜기]`** 또는 **`[▶️ 켜고 바로 실행하기]`** 버튼을 누르면 즉시 활성화할 수 있습니다!"
+        )
+    else:
+        guide_line = (
+            "💡 **이용 안내:** 서버 관리자가 **`/설정` ➔ `⚙️ 고급` ➔ `🎛️ 서버 기능 ON/OFF`** 에서 언제든 다시 켤 수 있습니다."
+        )
+
+    embed = discord.Embed(
+        title=f"⛔ [{g_name}] 비활성화(OFF)된 기능 안내",
+        description=(
+            f"선택하신 {feat_emoji} **`{feat_label}`** 기능은 현재 이 서버에서 **`🔴 OFF (비활성)`** 상태입니다.\n\n"
+            f"• **소속 모듈:** {mod_emoji} `{mod_label}`\n"
+            f"• {reason_line}\n\n"
+            f"{guide_line}"
+        ),
+        color=discord.Color.orange(),
+        timestamp=datetime.datetime.now(core.KST),
+    )
+    return embed
+
+
+class FeatureDisabledQuickAdminView(core.SafeView):
+    """비활성화(OFF) 안내 메시지에서 서버 관리자가 원클릭으로 즉시 기능을 켜거나 ON/OFF 제어판을 열 수 있는 뷰"""
+
+    def __init__(
+        self,
+        feat_key: str = "feat_attendance",
+        parent_view: Optional["MasterDashboardView"] = None,
+        original_cb: Optional[Callable[[discord.Interaction], Awaitable[None]]] = None,
+    ):
+        super().__init__(timeout=300)
+        self.feat_key = feat_key if feat_key in core.GUILD_FEATURE_MAP else "feat_attendance"
+        self.parent_view = parent_view
+        self.original_cb = original_cb
+        self._rebuild_buttons()
+
+    def _rebuild_buttons(self):
+        self.clear_items()
+        feat_meta = core.GUILD_FEATURE_MAP.get(self.feat_key, {})
+        feat_lbl = feat_meta.get("label", "기능")
+
+        btn_on = discord.ui.Button(
+            label=f"이 기능 즉시 켜기 ({feat_lbl})"[:80],
+            emoji="🟢",
+            style=discord.ButtonStyle.success,
+            row=0,
+            custom_id=f"norosi:FeatureDisabledQuickAdminView:on:{self.feat_key}",
+        )
+        btn_on.callback = self._on_enable_only
+        self.add_item(btn_on)
+
+        if callable(self.original_cb):
+            btn_run = discord.ui.Button(
+                label="켜고 바로 실행/설정 열기",
+                emoji="▶️",
+                style=discord.ButtonStyle.primary,
+                row=0,
+                custom_id=f"norosi:FeatureDisabledQuickAdminView:run:{self.feat_key}",
+            )
+            btn_run.callback = self._on_enable_and_run
+            self.add_item(btn_run)
+
+        btn_hub = discord.ui.Button(
+            label="서버 기능 ON/OFF 제어판",
+            emoji="🎛️",
+            style=discord.ButtonStyle.secondary,
+            row=0,
+            custom_id=f"norosi:FeatureDisabledQuickAdminView:hub:{self.feat_key}",
+        )
+        btn_hub.callback = self._on_open_toggle_hub
+        self.add_item(btn_hub)
+
+    def _restore_from_message(self, interaction: discord.Interaction):
+        if isinstance(getattr(interaction, "data", None), dict):
+            cid = interaction.data.get("custom_id") or ""
+            parts = cid.split(":")
+            if len(parts) >= 4 and parts[-1] in core.GUILD_FEATURE_MAP:
+                self.feat_key = parts[-1]
+                self._rebuild_buttons()
+
+    async def _check_admin(self, interaction: discord.Interaction) -> bool:
+        tier = detect_user_perm_tier_sync(interaction.user, interaction.guild)
+        if tier not in (PERM_ADMIN, PERM_OWNER):
+            await core.safe_send_response(
+                interaction,
+                "❌ 서버 기능 ON/OFF 설정은 **서버 관리자**만 변경할 수 있습니다.",
+                ephemeral=True,
+            )
+            return False
+        if not interaction.guild:
+            await core.safe_send_response(
+                interaction,
+                "❌ 서버 채널 내에서만 기능 ON/OFF를 변경할 수 있습니다.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    async def _refresh_parent_dashboard(self, new_data: dict):
+        if self.parent_view is not None:
+            self.parent_view.data = new_data
+            self.parent_view.refresh_components()
+            if self.parent_view.message:
+                try:
+                    await self.parent_view.message.edit(
+                        embed=self.parent_view.build_current_embed(),
+                        view=self.parent_view,
+                    )
+                except Exception:
+                    pass
+
+    async def _on_enable_only(self, interaction: discord.Interaction):
+        if not await self._check_admin(interaction):
+            return
+        new_data = await asyncio.to_thread(
+            core.set_guild_feature_enabled, interaction.guild.id, self.feat_key, True
+        )
+        await self._refresh_parent_dashboard(new_data)
+        feat_meta = core.GUILD_FEATURE_MAP.get(self.feat_key, {})
+        embed = discord.Embed(
+            title="🟢 기능 즉시 활성화(ON) 완료",
+            description=(
+                f"{feat_meta.get('emoji', '✅')} **`{feat_meta.get('label', self.feat_key)}`** 기능이 **`🟢 ON (활성)`** 상태로 전환되었습니다!\n"
+                "이제 모든 멤버가 `/설정` 대시보드에서 이 기능을 정상적으로 이용할 수 있습니다."
+            ),
+            color=discord.Color.green(),
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        await core.safe_edit_response(interaction, embed=embed, view=None)
+
+    async def _on_enable_and_run(self, interaction: discord.Interaction):
+        if not await self._check_admin(interaction):
+            return
+        new_data = await asyncio.to_thread(
+            core.set_guild_feature_enabled, interaction.guild.id, self.feat_key, True
+        )
+        await self._refresh_parent_dashboard(new_data)
+        if callable(self.original_cb):
+            await self.original_cb(interaction)
+        else:
+            await self._on_enable_only(interaction)
+
+    async def _on_open_toggle_hub(self, interaction: discord.Interaction):
+        if not await self._check_admin(interaction):
+            return
+        feat_meta = core.GUILD_FEATURE_MAP.get(self.feat_key, {})
+        mod_key = feat_meta.get("module", "mod_general")
+        data = await asyncio.to_thread(core.load_data)
+        t_view = GuildFeatureToggleView(
+            bot=interaction.client,
+            user=interaction.user,
+            guild=interaction.guild,
+            data=data,
+            parent_view=self.parent_view,
+            initial_module_key=mod_key,
+        )
+        await core.safe_edit_response(interaction, embed=t_view.build_embed(), view=t_view)
+
+
+class GuildFeatureToggleView(core.SafeView):
+    """
+    서버 관리자 전용 봇 기능 ON/OFF 통합 제어판 (대시보드 인플레이스 토글):
+    - 모듈 단위(13개 모듈) 일괄 ON/OFF 및 개별 세부 기능(78종) 원클릭 ON/OFF 모두 지원
+    - 기본 OFF인 서버 자동화 6종을 제외한 모든 기능은 기본 ON으로 동작하며, [🔄 기본값 복원] 원클릭 지원
+    - 봇 주인 전용(PERM_OWNER) 기능은 목록에서 완전히 제외되어 절대 비활성화되지 않음
+    """
+
+    def __init__(
+        self,
+        bot: Optional[commands.Bot] = None,
+        user: Optional[discord.abc.User] = None,
+        guild: Optional[discord.Guild] = None,
+        data: Optional[dict] = None,
+        parent_view: Optional["MasterDashboardView"] = None,
+        initial_module_key: Optional[str] = None,
+    ):
+        super().__init__(timeout=900)
+        self.bot = bot
+        self.user = user
+        self.guild = guild
+        self.data = data if isinstance(data, dict) else core.get_cached_data()
+        self.parent_view = parent_view
+        self.overview_mode: bool = False
+        self.current_module_idx: int = 0
+        if initial_module_key:
+            for idx, m in enumerate(core.GUILD_FEATURE_MODULES):
+                if m["key"] == initial_module_key:
+                    self.current_module_idx = idx
+                    break
+        self._rebuild_items()
+
+    def _hydrate_context(self, interaction: discord.Interaction):
+        if self.bot is None:
+            self.bot = interaction.client
+        if self.user is None:
+            self.user = interaction.user
+        if self.guild is None and interaction.guild is not None:
+            self.guild = interaction.guild
+        if not isinstance(self.data, dict) or not self.data:
+            self.data = core.get_cached_data()
+
+    def _restore_from_message(self, interaction: discord.Interaction):
+        self._hydrate_context(interaction)
+        msg = getattr(interaction, "message", None)
+        if msg:
+            for row in getattr(msg, "components", []) or []:
+                for comp in getattr(row, "children", []):
+                    cid = getattr(comp, "custom_id", "") or ""
+                    if cid.startswith("norosi:GuildFeatureToggleView:mod_on:"):
+                        mod_k = cid.split(":")[-1]
+                        for idx, m in enumerate(core.GUILD_FEATURE_MODULES):
+                            if m["key"] == mod_k:
+                                self.current_module_idx = idx
+                                break
+        if isinstance(getattr(interaction, "data", None), dict):
+            clicked_cid = interaction.data.get("custom_id") or ""
+            if clicked_cid.startswith("norosi:GuildFeatureToggleView:feat:"):
+                fk = clicked_cid.split(":")[-1]
+                f_meta = core.GUILD_FEATURE_MAP.get(fk)
+                if f_meta:
+                    for idx, m in enumerate(core.GUILD_FEATURE_MODULES):
+                        if m["key"] == f_meta["module"]:
+                            self.current_module_idx = idx
+                            break
+        self._rebuild_items()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        self._hydrate_context(interaction)
+        if not interaction.guild:
+            await core.safe_send_response(
+                interaction,
+                "❌ 서버 기능 ON/OFF 제어판은 디스코드 서버 채널 내에서만 사용할 수 있습니다.",
+                ephemeral=True,
+            )
+            return False
+        tier = detect_user_perm_tier_sync(interaction.user, interaction.guild)
+        if tier not in (PERM_ADMIN, PERM_OWNER):
+            await core.safe_send_response(
+                interaction,
+                "🛡️ **`서버 기능 ON/OFF 제어판`** 은 **서버 관리자(Administrator / 서버 관리)** 권한을 보유한 관리자만 조작할 수 있습니다.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    def _current_module(self) -> dict:
+        mods = core.GUILD_FEATURE_MODULES
+        self.current_module_idx = max(0, min(self.current_module_idx, len(mods) - 1))
+        return mods[self.current_module_idx]
+
+    def _rebuild_items(self):
+        self.clear_items()
+        gid = self.guild.id if self.guild else 0
+        summary = core.get_guild_feature_status_summary(gid, self.data)
+        mod_summaries = summary["modules"]
+        cur_mod = self._current_module()
+        cur_mod_key = cur_mod["key"]
+        cur_mod_sum = next((m for m in mod_summaries if m["key"] == cur_mod_key), mod_summaries[0])
+
+        # Row 0: 13개 모듈 선택 드롭다운
+        opts: List[discord.SelectOption] = []
+        for idx, m_sum in enumerate(mod_summaries[:25]):
+            on_c = m_sum["enabled_count"]
+            tot_c = m_sum["total_count"]
+            if on_c == tot_c:
+                st_badge = "🟢전체ON"
+            elif on_c == 0:
+                st_badge = "🔴전체OFF"
+            else:
+                st_badge = f"🟡일부ON({on_c}/{tot_c})"
+            def_tag = "기본OFF" if not m_sum["default_on"] else "기본ON"
+            opts.append(
+                discord.SelectOption(
+                    label=f"{idx + 1}. {m_sum['label']} [{on_c}/{tot_c}]"[:100],
+                    value=m_sum["key"],
+                    description=f"{st_badge} · {def_tag} | {core.GUILD_FEATURE_MODULE_MAP[m_sum['key']]['desc']}"[:100],
+                    emoji=m_sum["emoji"],
+                    default=(not self.overview_mode and idx == self.current_module_idx),
+                )
+            )
+        sel = discord.ui.Select(
+            placeholder="🎛️ ON/OFF를 제어할 기능 모듈을 선택하세요 (13개 모듈)...",
+            min_values=1,
+            max_values=1,
+            options=opts,
+            row=0,
+            custom_id="norosi:GuildFeatureToggleView:mod_select",
+        )
+        sel.callback = self._on_module_selected
+        self.add_item(sel)
+
+        # Row 1 & Row 2: 현재 선택된 모듈의 개별 세부 기능 토글 버튼들 (최대 8개, 각 줄 4개씩)
+        feats = cur_mod_sum["features"]
+        for f_idx, f_info in enumerate(feats[:8]):
+            row_num = 1 if f_idx < 4 else 2
+            is_on = bool(f_info["enabled"])
+            f_key = f_info["key"]
+            btn_lbl = f"{'🟢' if is_on else '🔴'} {f_info['label']} [{'ON' if is_on else 'OFF'}]"
+            btn = discord.ui.Button(
+                label=btn_lbl[:80],
+                style=discord.ButtonStyle.success if is_on else discord.ButtonStyle.secondary,
+                row=row_num,
+                custom_id=f"norosi:GuildFeatureToggleView:feat:{f_key}",
+            )
+            btn.callback = self._make_feature_toggle_cb(f_key)
+            self.add_item(btn)
+
+        # Row 3: 모듈 일괄 ON / 일괄 OFF / 기본값 복원 / 전체 요약 토글
+        btn_mod_on = discord.ui.Button(
+            label="이 모듈 전체 ON",
+            emoji="🟢",
+            style=discord.ButtonStyle.success,
+            disabled=(cur_mod_sum["enabled_count"] == cur_mod_sum["total_count"]),
+            row=3,
+            custom_id=f"norosi:GuildFeatureToggleView:mod_on:{cur_mod_key}",
+        )
+        btn_mod_on.callback = self._on_module_all_on
+        self.add_item(btn_mod_on)
+
+        btn_mod_off = discord.ui.Button(
+            label="이 모듈 전체 OFF",
+            emoji="🔴",
+            style=discord.ButtonStyle.danger,
+            disabled=(cur_mod_sum["enabled_count"] == 0),
+            row=3,
+            custom_id=f"norosi:GuildFeatureToggleView:mod_off:{cur_mod_key}",
+        )
+        btn_mod_off.callback = self._on_module_all_off
+        self.add_item(btn_mod_off)
+
+        btn_reset = discord.ui.Button(
+            label="기본값 복원 (기본OFF 제외 전체ON)",
+            emoji="🔄",
+            style=discord.ButtonStyle.primary,
+            row=3,
+            custom_id="norosi:GuildFeatureToggleView:reset_default",
+        )
+        btn_reset.callback = self._on_reset_defaults
+        self.add_item(btn_reset)
+
+        btn_ov = discord.ui.Button(
+            label="모듈 상세보기" if self.overview_mode else "전체 모듈 현황판",
+            emoji="🎛️" if self.overview_mode else "📊",
+            style=discord.ButtonStyle.secondary,
+            row=3,
+            custom_id="norosi:GuildFeatureToggleView:toggle_overview",
+        )
+        btn_ov.callback = self._on_toggle_overview
+        self.add_item(btn_ov)
+
+        # Row 4: 이전 모듈 / 현재 모듈 위치 / 다음 모듈 / 설정 대시보드로 복귀
+        btn_prev = discord.ui.Button(
+            label="◀ 이전 모듈",
+            style=discord.ButtonStyle.secondary,
+            row=4,
+            custom_id="norosi:GuildFeatureToggleView:prev_mod",
+        )
+        btn_prev.callback = self._on_prev_module
+        self.add_item(btn_prev)
+
+        btn_ind = discord.ui.Button(
+            label=f"📄 {self.current_module_idx + 1}/{len(core.GUILD_FEATURE_MODULES)} 모듈",
+            style=discord.ButtonStyle.secondary,
+            disabled=True,
+            row=4,
+            custom_id="norosi:GuildFeatureToggleView:ind_mod",
+        )
+        self.add_item(btn_ind)
+
+        btn_next = discord.ui.Button(
+            label="다음 모듈 ▶",
+            style=discord.ButtonStyle.secondary,
+            row=4,
+            custom_id="norosi:GuildFeatureToggleView:next_mod",
+        )
+        btn_next.callback = self._on_next_module
+        self.add_item(btn_next)
+
+        btn_back = discord.ui.Button(
+            label="/설정 대시보드로",
+            emoji="⬅️",
+            style=discord.ButtonStyle.primary,
+            row=4,
+            custom_id="norosi:GuildFeatureToggleView:back_dash",
+        )
+        btn_back.callback = self._on_back_to_dashboard
+        self.add_item(btn_back)
+
+    def build_embed(self) -> discord.Embed:
+        gid = self.guild.id if self.guild else 0
+        g_name = getattr(self.guild, "name", "서버") if self.guild else "서버"
+        summary = core.get_guild_feature_status_summary(gid, self.data)
+        tot_f = summary["total_features"]
+        en_f = summary["enabled_features"]
+        def_on_en = summary["default_on_enabled"]
+        def_on_tot = summary["default_on_total"]
+        def_off_en = summary["default_off_enabled"]
+        def_off_tot = summary["default_off_total"]
+
+        header_block = (
+            f"📊 **현재 서버 기능 활성 현황:** 전체 **`{en_f}/{tot_f}개 ON`**\n"
+            f"• 🟢 **기본 ON 기능 (`{def_on_tot}종`):** 현재 **`{def_on_en}/{def_on_tot}개 켜짐`**\n"
+            f"• 🔒 **기본 OFF 자동화 기능 (`{def_off_tot}종`):** 현재 **`{def_off_en}/{def_off_tot}개 켜짐`**\n"
+            f"• 👑 **봇 주인 전용 기능 (`⚙️ 고급 4p`):** 서버 설정과 무관하게 **항상 보호 (절대 비활성화 불가)**"
+        )
+
+        if self.overview_mode:
+            mod_lines: List[str] = []
+            for idx, m_sum in enumerate(summary["modules"], start=1):
+                on_c = m_sum["enabled_count"]
+                tot_c = m_sum["total_count"]
+                if on_c == tot_c:
+                    badge = "`🟢 전체 ON`"
+                elif on_c == 0:
+                    badge = "`🔴 전체 OFF`"
+                else:
+                    badge = f"`🟡 {on_c}/{tot_c} ON`"
+                def_note = " *(기본 OFF)*" if not m_sum["default_on"] else ""
+                mod_lines.append(
+                    f"`{idx:02d}.` {m_sum['emoji']} **{m_sum['label']}**{def_note} — {badge} (`{on_c}/{tot_c}`)"
+                )
+            embed = discord.Embed(
+                title=f"🎛️ [{g_name}] 서버 기능 ON/OFF 전체 모듈 현황판",
+                description=(
+                    f"{header_block}\n\n"
+                    "### 🗂️ 13대 기능 모듈 활성 요약\n"
+                    + "\n".join(mod_lines)
+                    + "\n\n💡 위 드롭다운에서 모듈을 선택하거나 하단 버튼을 눌러 모듈별·개별 세부 기능을 즉시 켜고 끌 수 있습니다."
+                ),
+                color=discord.Color.from_rgb(0, 204, 221),
+                timestamp=datetime.datetime.now(core.KST),
+            )
+            embed.set_footer(text="꺼진(OFF) 기능은 /설정 대시보드 버튼에 [OFF]가 표시되며 클릭 시 비활성 안내가 전송됩니다.")
+            return embed
+
+        cur_mod = self._current_module()
+        cur_mod_key = cur_mod["key"]
+        cur_mod_sum = next((m for m in summary["modules"] if m["key"] == cur_mod_key), summary["modules"][0])
+        on_c = cur_mod_sum["enabled_count"]
+        tot_c = cur_mod_sum["total_count"]
+
+        if on_c == tot_c:
+            mod_status_txt = "🟢 **모듈 전체 켜짐 (ON)**"
+            embed_color = discord.Color.from_rgb(46, 204, 113)
+        elif on_c == 0:
+            mod_status_txt = "🔴 **모듈 전체 꺼짐 (OFF)**"
+            embed_color = discord.Color.from_rgb(231, 76, 60)
+        else:
+            mod_status_txt = f"🟡 **일부 기능 켜짐 (`{on_c}/{tot_c}` ON)**"
+            embed_color = discord.Color.from_rgb(241, 196, 15)
+
+        feat_lines: List[str] = []
+        for f_idx, f_info in enumerate(cur_mod_sum["features"], start=1):
+            is_on = bool(f_info["enabled"])
+            st_chip = "`🟢 ON (활성)`" if is_on else "`🔴 OFF (비활성)`"
+            def_chip = " `🔒기본OFF`" if not f_info["default_on"] else " `기본ON`"
+            feat_lines.append(
+                f"`{f_idx}.` {f_info['emoji']} **{f_info['label']}**{def_chip}  ➔  {st_chip}"
+            )
+
+        embed = discord.Embed(
+            title=f"🎛️ [{g_name}] 서버 기능 ON/OFF 제어판 ({self.current_module_idx + 1}/{len(core.GUILD_FEATURE_MODULES)})",
+            description=(
+                f"{header_block}\n\n"
+                f"### {cur_mod['emoji']} 현재 선택 모듈: {cur_mod['label']}\n"
+                f"> • **모듈 상태:** {mod_status_txt} (`{on_c}/{tot_c}`)\n"
+                f"> • **포함 범위:** {cur_mod['desc']}\n\n"
+                "### 🧩 개별 세부 기능 ON/OFF 상태 (아래 버튼 클릭 시 즉시 토글)\n"
+                + "\n".join(feat_lines)
+            ),
+            color=embed_color,
+            timestamp=datetime.datetime.now(core.KST),
+        )
+        embed.set_footer(
+            text="초록(🟢)/회색(🔴) 버튼 클릭: 개별 기능 토글  ·  [이 모듈 전체 ON/OFF]: 모듈 단위 일괄 제어"
+        )
+        return embed
+
+    async def _sync_parent_view(self, new_data: dict):
+        self.data = new_data
+        if self.parent_view is not None:
+            self.parent_view.data = new_data
+            self.parent_view.refresh_components()
+
+    async def _on_module_selected(self, interaction: discord.Interaction):
+        val = (interaction.data.get("values") or [None])[0] if isinstance(interaction.data, dict) else None
+        if val:
+            for idx, m in enumerate(core.GUILD_FEATURE_MODULES):
+                if m["key"] == val:
+                    self.current_module_idx = idx
+                    self.overview_mode = False
+                    break
+        self._rebuild_items()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    def _make_feature_toggle_cb(self, feat_key: str) -> Callable[[discord.Interaction], Awaitable[None]]:
+        async def _cb(interaction: discord.Interaction):
+            if not interaction.guild:
+                return
+            cur_on = core.is_guild_feature_enabled(interaction.guild.id, feat_key, self.data)
+            next_on = not cur_on
+            new_data = await asyncio.to_thread(
+                core.set_guild_feature_enabled, interaction.guild.id, feat_key, next_on
+            )
+            await self._sync_parent_view(new_data)
+            self._rebuild_items()
+            await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+        return _cb
+
+    async def _on_module_all_on(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            return
+        cur_mod = self._current_module()
+        new_data = await asyncio.to_thread(
+            core.set_guild_module_enabled, interaction.guild.id, cur_mod["key"], True
+        )
+        await self._sync_parent_view(new_data)
+        self._rebuild_items()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    async def _on_module_all_off(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            return
+        cur_mod = self._current_module()
+        new_data = await asyncio.to_thread(
+            core.set_guild_module_enabled, interaction.guild.id, cur_mod["key"], False
+        )
+        await self._sync_parent_view(new_data)
+        self._rebuild_items()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    async def _on_reset_defaults(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            return
+        new_data = await asyncio.to_thread(
+            core.reset_guild_feature_toggles_to_default, interaction.guild.id
+        )
+        await self._sync_parent_view(new_data)
+        self._rebuild_items()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+        await interaction.followup.send(
+            "✅ **서버 기능 ON/OFF 설정이 표준 기본값으로 복원되었습니다!**\n"
+            "• 🔒 기본 OFF 자동화 기능 6종(`임시음성방`, `SNS 링크보정`, `레이드 비상방어`, `이모지 업스케일`, `실시간 감사로그`, `환영/작별 배너`) ➔ **`🔴 OFF`**\n"
+            "• 🟢 그 외 모든 일반 · 미니게임 · 개인 · 관리 도구 기능 ➔ **`🟢 ON`**\n"
+            "• 👑 봇 주인 전용 기능 ➔ **변경 없음 (항상 활성)**",
+            ephemeral=True,
+        )
+
+    async def _on_toggle_overview(self, interaction: discord.Interaction):
+        self.overview_mode = not self.overview_mode
+        self._rebuild_items()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    async def _on_prev_module(self, interaction: discord.Interaction):
+        self.overview_mode = False
+        self.current_module_idx = (self.current_module_idx - 1) % len(core.GUILD_FEATURE_MODULES)
+        self._rebuild_items()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    async def _on_next_module(self, interaction: discord.Interaction):
+        self.overview_mode = False
+        self.current_module_idx = (self.current_module_idx + 1) % len(core.GUILD_FEATURE_MODULES)
+        self._rebuild_items()
+        await core.safe_edit_response(interaction, embed=self.build_embed(), view=self)
+
+    async def _on_back_to_dashboard(self, interaction: discord.Interaction):
+        data = await asyncio.to_thread(core.load_data)
+        if self.parent_view is not None:
+            self.parent_view.data = data
+            self.parent_view.refresh_components()
+            await core.safe_edit_response(
+                interaction,
+                embed=self.parent_view.build_current_embed(),
+                view=self.parent_view,
+            )
+            return
+        dash = MasterDashboardView(
+            bot=self.bot or interaction.client,
+            user=interaction.user,
+            guild=interaction.guild,
+            data=data,
+            initial_tab="advanced",
+            initial_page=0,
+        )
+        await core.safe_edit_response(interaction, embed=dash.build_current_embed(), view=dash)
 
 
 # 🎛️ 통합 설정 허브 뷰 (MasterDashboardView / SettingsHubView)
@@ -2602,6 +3251,66 @@ class MasterDashboardView(core.SafeView):
         return True
 
     # ----------------------------------------------------
+    # 🎛️ 서버별 기능 ON/OFF 상태 판별 & 실행 차단 가드
+    # ----------------------------------------------------
+    @staticmethod
+    def _extract_callback_name(cb: Any) -> str:
+        if cb is None:
+            return ""
+        tagged = getattr(cb, "_feat_cb_name", None)
+        if tagged:
+            return str(tagged)
+        return str(getattr(cb, "__name__", "") or "")
+
+    def _is_callback_enabled_in_guild(self, cb: Any) -> Tuple[bool, Optional[str]]:
+        cb_name = self._extract_callback_name(cb)
+        if not cb_name or cb_name in core.OWNER_IMMUNE_CALLBACK_NAMES or cb_name in core.SYSTEM_ALWAYS_ON_CALLBACK_NAMES:
+            return True, None
+        feat_key = core.resolve_guild_feature_key(cb_name)
+        if not feat_key:
+            return True, None
+        gid = self.guild.id if self.guild else 0
+        is_on = core.is_guild_feature_enabled(gid, feat_key, self.data)
+        return is_on, feat_key
+
+    def _wrap_feature_guard(
+        self,
+        cb: Callable[[discord.Interaction], Awaitable[None]],
+        label: str = "",
+    ) -> Callable[[discord.Interaction], Awaitable[None]]:
+        cb_name = self._extract_callback_name(cb)
+        if not cb_name or cb_name in core.OWNER_IMMUNE_CALLBACK_NAMES or cb_name in core.SYSTEM_ALWAYS_ON_CALLBACK_NAMES:
+            return cb
+
+        async def _guarded(interaction: discord.Interaction):
+            gid = interaction.guild_id or (self.guild.id if self.guild else 0)
+            feat_key = core.resolve_guild_feature_key(cb_name)
+            if feat_key and gid:
+                fresh_data = core.get_cached_data_ro()
+                if not core.is_guild_feature_enabled(gid, feat_key, fresh_data):
+                    caller_tier = detect_user_perm_tier_sync(interaction.user, interaction.guild or self.guild)
+                    embed = build_feature_disabled_embed(
+                        interaction.guild or self.guild,
+                        feat_key,
+                        label,
+                        caller_tier,
+                    )
+                    if caller_tier in (PERM_ADMIN, PERM_OWNER):
+                        q_view = FeatureDisabledQuickAdminView(
+                            feat_key=feat_key,
+                            parent_view=self,
+                            original_cb=cb,
+                        )
+                        await core.safe_send_response(interaction, embed=embed, view=q_view, ephemeral=True)
+                    else:
+                        await core.safe_send_response(interaction, embed=embed, ephemeral=True)
+                    return
+            await cb(interaction)
+
+        _guarded._feat_cb_name = cb_name
+        return _guarded
+
+    # ----------------------------------------------------
     # 🗂️ 4대 카테고리 × 15페이지 (총 90개 기능) 통합 카탈로그
     # ----------------------------------------------------
     def _build_catalog_pages(self) -> Dict[str, List[Dict[str, Any]]]:
@@ -2781,13 +3490,21 @@ class MasterDashboardView(core.SafeView):
             # ==========================================
             "advanced": [
                 {
-                    "page_title": "🛡️ [서버 관리자] 역할 · 공지 · 1:1 티켓 · 실시간 카운트다운",
+                    "page_title": "🛡️ [서버 관리자] 기능 ON/OFF · 역할 · 공지 · 1:1 티켓 · 카운트다운",
                     "perm": PERM_ADMIN,
                     "items": [
                         {
+                            "label": "서버 기능 ON/OFF",
+                            "emoji": "🎛️",
+                            "style": discord.ButtonStyle.success,
+                            "perm": PERM_ADMIN,
+                            "desc": "[🛡️서버관리자] 모듈별·세부 기능별 봇 기능 ON/OFF 토글 제어판 (기본OFF 제외 전체 ON · 봇주 기능 제외)",
+                            "cb": self._act_admin_feature_toggle,
+                        },
+                        {
                             "label": "역할버튼 빠른제작",
                             "emoji": "🚀",
-                            "style": discord.ButtonStyle.success,
+                            "style": discord.ButtonStyle.primary,
                             "perm": PERM_ADMIN,
                             "desc": "[🛡️서버관리자] 팝업 모달로 사진 스타일 역할 부여 버튼 즉시 발행",
                             "cb": self._act_admin_quick_role,
@@ -2797,16 +3514,8 @@ class MasterDashboardView(core.SafeView):
                             "emoji": "🎭",
                             "style": discord.ButtonStyle.primary,
                             "perm": PERM_ADMIN,
-                            "desc": "[🛡️서버관리자] 이모지/버튼 반응역할 생성, 기존 메시지 바인딩 및 관리",
+                            "desc": "[🛡️서버관리자] 이모지/버튼 반응역할 생성, 기존 메시지 바인딩 및 전체목록 조회·해제",
                             "cb": self._act_admin_role_studio,
-                        },
-                        {
-                            "label": "반응역할 전체목록",
-                            "emoji": "📜",
-                            "style": discord.ButtonStyle.secondary,
-                            "perm": PERM_ADMIN,
-                            "desc": "[🛡️서버관리자] 서버에 등록된 모든 반응역할 패널 조회 및 해제",
-                            "cb": self._act_admin_role_list,
                         },
                         {
                             "label": "스마트 공지발송",
@@ -3546,14 +4255,17 @@ class MasterDashboardView(core.SafeView):
                 q_cb = getattr(self, s_meta["cb_name"], None)
                 if not q_cb:
                     continue
+                is_sc_on, _ = self._is_callback_enabled_in_guild(q_cb)
+                sc_label = s_meta["label"] if is_sc_on else f"[OFF] {s_meta['label']}"
+                sc_style = s_meta["style"] if is_sc_on else discord.ButtonStyle.secondary
                 qb = discord.ui.Button(
-                    label=s_meta["label"],
+                    label=sc_label[:80],
                     emoji=s_meta["emoji"],
-                    style=s_meta["style"],
+                    style=sc_style,
                     row=1,
                     custom_id=f"norosi:Settings:q_{s_key}",
                 )
-                qb.callback = q_cb
+                qb.callback = self._wrap_feature_guard(q_cb, s_meta["label"])
                 self.add_item(qb)
 
             # Row 2: 올인원 빠른 실행 · 즐겨찾기 편집 · 라디오 · 이벤트 · 랭킹 · 도감 셀렉터
@@ -3563,6 +4275,7 @@ class MasterDashboardView(core.SafeView):
                 row=2,
                 options=[
                     discord.SelectOption(label="🔍 통합 기능 검색 (키워드 점프)", value="feature_search", description="키워드로 130+ 기능 즉시 실행"),
+                    discord.SelectOption(label="🎛️ [관리자] 서버 기능 ON/OFF 제어판", value="admin_feature_toggle", description="모듈·세부 기능 ON/OFF (기본OFF 제외 전체ON)"),
                     discord.SelectOption(label="⭐ 홈 즐겨찾기 단축바 편집", value="home_shortcuts", description="홈 버튼 5개 커스텀"),
                     discord.SelectOption(label="🏅 내 업적 & 뱃지 (12종)", value="achievements", description="크로스 기능 업적 달성 현황"),
                     discord.SelectOption(label="📅 D-Day 채널·알림 설정", value="admin_dday", description="전광판 채널·카테고리·9시 알림"),
@@ -3585,7 +4298,6 @@ class MasterDashboardView(core.SafeView):
                     discord.SelectOption(label="💿 플레이리스트 스튜디오", value="music_pl"),
                     discord.SelectOption(label="🌤️ 실시간 기상청 날씨", value="weather"),
                     discord.SelectOption(label="🔤 끝말잇기 대결", value="wordchain"),
-                    discord.SelectOption(label="🔫 러시안 룰렛", value="roulette"),
                     discord.SelectOption(label="💖 팀 봉화 후원하기", value="sponsor", description="소유주 : 아시 · 봇 운영 지원"),
                 ],
             )
@@ -3661,13 +4373,17 @@ class MasterDashboardView(core.SafeView):
             btn_label = item["label"]
             btn_emoji = item["emoji"]
             btn_style = item["style"]
+            is_feat_on, _ = self._is_callback_enabled_in_guild(item.get("cb"))
 
-            # 권한 시각적 구분: 권한이 부족한 항목은 🔒 아이콘과 회색 스타일로 명확히 표시 (클릭 시 친절한 권한 안내)
+            # 권한 시각적 구분 및 비활성화(OFF) 상태 표시
             if req_perm == PERM_OWNER and caller_tier != PERM_OWNER:
                 btn_label = f"🔒 {btn_label}"
                 btn_style = discord.ButtonStyle.secondary
             elif req_perm == PERM_ADMIN and caller_tier == PERM_USER:
                 btn_label = f"🔒 {btn_label}"
+                btn_style = discord.ButtonStyle.secondary
+            elif not is_feat_on:
+                btn_label = f"[OFF] {btn_label}"
                 btn_style = discord.ButtonStyle.secondary
 
             b = discord.ui.Button(
@@ -3677,10 +4393,10 @@ class MasterDashboardView(core.SafeView):
                 row=row_num,
                 custom_id=f"norosi:Settings:act_{self.current_category}_{self.current_page}_{idx}",
             )
-            b.callback = item["cb"]
+            b.callback = self._wrap_feature_guard(item["cb"], item["label"])
             self.add_item(b)
 
-        # Row 2: 4대 카테고리 빠른 전환 바 (일반 · 고급 · 미니게임 · 개인)
+        # Row 2: 4대 카테고리 빠른 전환 바 (일반 · 고급 · 미니게임 · 개인) + 관리자 전용 [🎛️ 기능ON/OFF]
         for cat_key in CATEGORY_ORDER:
             c_meta = CATEGORY_INFO[cat_key]
             c_pages_cnt = len(self._pages_cache.get(cat_key, []))
@@ -3694,6 +4410,17 @@ class MasterDashboardView(core.SafeView):
             )
             c_btn.callback = self._make_cat_enter_cb(cat_key)
             self.add_item(c_btn)
+
+        if caller_tier in (PERM_ADMIN, PERM_OWNER) and not (self.current_category == "advanced" and self.current_page == 3):
+            toggle_quick_btn = discord.ui.Button(
+                label="기능ON/OFF",
+                emoji="🎛️",
+                style=discord.ButtonStyle.success,
+                row=2,
+                custom_id="norosi:Settings:open_feat_toggle",
+            )
+            toggle_quick_btn.callback = self._act_admin_feature_toggle
+            self.add_item(toggle_quick_btn)
 
         # Row 3: [⬅️ 뒤로] + 통합 페이지네이션 [◀] [📄 N/M · G/T] [▶] + [🔄 새로고침]
         back_btn = discord.ui.Button(
@@ -3840,6 +4567,7 @@ class MasterDashboardView(core.SafeView):
             return
         jump_map = {
             "feature_search": self._act_feature_search,
+            "admin_feature_toggle": self._act_admin_feature_toggle,
             "home_shortcuts": self._act_home_shortcuts,
             "achievements": self._act_achievements,
             "admin_dday": self._sub_dday_setup_board,
@@ -3867,7 +4595,8 @@ class MasterDashboardView(core.SafeView):
         }
         handler = jump_map.get(val)
         if handler:
-            await handler(interaction)
+            guarded = self._wrap_feature_guard(handler, val)
+            await guarded(interaction)
         else:
             await core.safe_defer(interaction, ephemeral=True)
 
@@ -4220,11 +4949,15 @@ class MasterDashboardView(core.SafeView):
             row_num = idx // per_row
             eff_label = b_label
             eff_style = b_style
+            is_sub_on, _ = self._is_callback_enabled_in_guild(b_cb)
             if req_perm == PERM_OWNER and caller_tier != PERM_OWNER:
                 eff_label = f"🔒 {b_label}"
                 eff_style = discord.ButtonStyle.secondary
             elif req_perm == PERM_ADMIN and caller_tier == PERM_USER:
                 eff_label = f"🔒 {b_label}"
+                eff_style = discord.ButtonStyle.secondary
+            elif not is_sub_on:
+                eff_label = f"[OFF] {b_label}"
                 eff_style = discord.ButtonStyle.secondary
 
             btn = discord.ui.Button(
@@ -4234,7 +4967,7 @@ class MasterDashboardView(core.SafeView):
                 row=row_num,
                 custom_id=f"norosi:Settings:sub_{self.sub_mode}_{idx}",
             )
-            btn.callback = b_cb
+            btn.callback = self._wrap_feature_guard(b_cb, b_label)
             self.add_item(btn)
 
         nav_row = min(4, ((len(capped_buttons) - 1) // per_row + 1) if capped_buttons else 1)
@@ -4448,10 +5181,17 @@ class MasterDashboardView(core.SafeView):
                 " `👑봇주`" if it_perm == PERM_OWNER
                 else (" `🛡️관리자`" if it_perm == PERM_ADMIN else "")
             )
+            is_it_on, it_fk = self._is_callback_enabled_in_guild(it.get("cb"))
+            if not is_it_on:
+                state_suffix = " `🔴OFF`"
+            elif it_fk in core.DEFAULT_OFF_FEATURE_KEYS:
+                state_suffix = " `🟢ON`"
+            else:
+                state_suffix = ""
             lbl_clean = re.sub(r"^\[(?:봇주인|서버관리자)\]\s*", "", str(it.get("label") or "")).strip()
             desc_clean = re.sub(r"^\[[^\]]+\]\s*", "", str(it.get("desc") or "")).strip()
             item_lines.append(
-                f"{nb} {it['emoji']} **{lbl_clean}**{perm_suffix}\n"
+                f"{nb} {it['emoji']} **{lbl_clean}**{perm_suffix}{state_suffix}\n"
                 f"　└ {desc_clean}"
             )
 
@@ -4492,10 +5232,11 @@ class MasterDashboardView(core.SafeView):
         req_perm = sub_def.get("perm", PERM_USER)
         perm_txt = PERM_BADGES.get(req_perm, "👤 일반 이용자")
 
-        btn_lines = [
-            f"• {b_emoji} **{b_label}**"
-            for b_label, b_emoji, _, _ in sub_def.get("buttons", [])
-        ]
+        btn_lines = []
+        for b_label, b_emoji, _, b_cb in sub_def.get("buttons", []):
+            is_b_on, _ = self._is_callback_enabled_in_guild(b_cb)
+            off_tag = "" if is_b_on else " `🔴OFF`"
+            btn_lines.append(f"• {b_emoji} **{b_label}**{off_tag}")
 
         desc_lines = [
             breadcrumb,
@@ -4721,6 +5462,7 @@ class MasterDashboardView(core.SafeView):
                     await core.safe_send_response(interaction, "❌ 음악 모듈을 찾을 수 없습니다.", ephemeral=True)
             except Exception as e:
                 await core.safe_send_response(interaction, f"❌ 배속 변경 오류: {e}", ephemeral=True)
+        _cb._feat_cb_name = "_sub_music_speed"
         return _cb
 
     async def _act_music_headset_toggle(self, interaction: discord.Interaction):
@@ -4858,6 +5600,24 @@ class MasterDashboardView(core.SafeView):
     # ==========================================================
     # ⚙️ 2. 고급 (Advanced) 콜백 구현부 (서버 관리자 vs 봇 주인 엄격 분리)
     # ==========================================================
+    async def _act_admin_feature_toggle(self, interaction: discord.Interaction):
+        if not await self.check_admin_permission(interaction, action_name="서버 기능 ON/OFF 제어판"):
+            return
+        data = await asyncio.to_thread(core.load_data)
+        self.data = data
+        init_mod = CATEGORY_PAGE_TO_MODULE_MAP.get(
+            (self.current_category, self.current_page), "mod_general"
+        )
+        t_view = GuildFeatureToggleView(
+            bot=self.bot or interaction.client,
+            user=interaction.user,
+            guild=interaction.guild,
+            data=data,
+            parent_view=self,
+            initial_module_key=init_mod,
+        )
+        await core.safe_edit_response(interaction, embed=t_view.build_embed(), view=t_view)
+
     async def _act_admin_quick_role(self, interaction: discord.Interaction):
         if not await self.check_admin_permission(interaction, action_name="사진 스타일 역할버튼 제작", require_roles_perm=True):
             return
@@ -6416,6 +7176,7 @@ class MasterDashboardView(core.SafeView):
                 await pv._run_repull_with_cooldown(interaction, count)
             except Exception as e:
                 await core.safe_send_response(interaction, f"❌ 원신 기원 실행 오류: {e}", ephemeral=True)
+        _cb._feat_cb_name = "_sub_gi_banner_pull"
         return _cb
 
     async def _act_hsr_banner_hub(self, interaction: discord.Interaction):
@@ -6434,6 +7195,7 @@ class MasterDashboardView(core.SafeView):
                 await wv._run_rewarp_with_cooldown(interaction, count)
             except Exception as e:
                 await core.safe_send_response(interaction, f"❌ 스타레일 워프 실행 오류: {e}", ephemeral=True)
+        _cb._feat_cb_name = "_sub_hsr_banner_warp"
         return _cb
 
     async def _act_life_personal_hub(self, interaction: discord.Interaction):
@@ -6587,6 +7349,8 @@ class MasterDashboardView(core.SafeView):
 # 외부 참조용 별칭
 SettingsHubView = MasterDashboardView
 core.SAFE_VIEW_REGISTRY["Settings"] = MasterDashboardView
+core.SAFE_VIEW_REGISTRY["GuildFeatureToggleView"] = GuildFeatureToggleView
+core.SAFE_VIEW_REGISTRY["FeatureDisabledQuickAdminView"] = FeatureDisabledQuickAdminView
 
 
 # ==========================================

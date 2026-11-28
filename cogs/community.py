@@ -5678,7 +5678,7 @@ class CommunityCog(commands.Cog):
         # 2) #8 자동 고정 메시지 (Sticky Message)
         try:
             sticky_cfg = community_core.get_sticky_config(cached, message.guild.id, message.channel.id)
-            if sticky_cfg and sticky_cfg.get("enabled", True):
+            if sticky_cfg and sticky_cfg.get("enabled", True) and core.is_guild_feature_enabled(message.guild.id, "feat_admin_sticky", cached):
                 guild_id = message.guild.id
                 channel_id = message.channel.id
                 msg_id = message.id

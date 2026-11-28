@@ -10328,3 +10328,1179 @@ def remove_reaction_role_entry(data: dict, message_id: int) -> bool:
         del rr_map[mid_str]
         return True
     return False
+
+
+# ==========================================
+# 29. 서버 관리자 전용 봇 기능 ON/OFF 제어 엔진 (Guild Feature Toggle Engine)
+#     - 기본 OFF인 서버 자동화 6종(임시음성방·SNS링크보정·레이드방어·이모지업스케일·감사로그·환영배너)을 제외한 모든 기능은 기본 ON
+#     - 봇 주인(PERM_OWNER) 전용 기능 및 시스템 필수 네비게이션은 절대 비활성화 불가 (항상 ON 보장)
+# ==========================================
+
+# 👑 봇 주인 전용 콜백 (서버 관리자가 절대 건드리거나 끌 수 없는 영구 면역 목록)
+OWNER_IMMUNE_CALLBACK_NAMES: frozenset[str] = frozenset({
+    "_act_owner_sekai_pickup_hub",
+    "_sub_owner_sekai_auto",
+    "_sub_owner_sekai_normal",
+    "_sub_owner_sekai_fes",
+    "_sub_owner_sekai_bday",
+    "_sub_owner_sekai_select_tickets",
+    "_sub_owner_sekai_custom_modal",
+    "_sub_owner_sekai_reset",
+    "_act_owner_gi_pickup_hub",
+    "_sub_owner_gi_auto",
+    "_sub_owner_gi_custom_modal",
+    "_sub_owner_gi_reset",
+    "_act_owner_hsr_pickup_hub",
+    "_sub_owner_hsr_auto",
+    "_sub_owner_hsr_custom_modal",
+    "_sub_owner_hsr_reset",
+    "_act_owner_terminal_hub",
+    "_sub_owner_term_bind_detailed",
+    "_sub_owner_term_bind_summary",
+    "_sub_owner_term_bind",
+    "_sub_owner_term_unbind",
+    "_act_admin_github_webhook",
+    "_sub_owner_github_unbind",
+    "_act_owner_backup_sync_hub",
+    "_sub_owner_backup_guild",
+    "_sub_owner_backup_db",
+    "_sub_owner_firebase_sync",
+    "_sub_owner_sync_panel",
+    "_sub_owner_bot_banner",
+    "_act_bot_host_status",
+})
+
+# ⚙️ 시스템 코어 네비게이션 콜백 (대시보드 탐색 및 기능 ON/OFF 제어판 자체는 항상 활성)
+SYSTEM_ALWAYS_ON_CALLBACK_NAMES: frozenset[str] = frozenset({
+    "_act_admin_feature_toggle",
+    "_act_open_help",
+    "_act_feature_search",
+    "_act_home_shortcuts",
+    "_act_sponsor",
+})
+
+# 🔒 기본 OFF 서버 자동화 기능 키 6종 (관리자가 명시적으로 켜기 전까지 기본 OFF 유지)
+DEFAULT_OFF_FEATURE_KEYS: frozenset[str] = frozenset({
+    "feat_temp_voice",
+    "feat_link_fix",
+    "feat_raid_def",
+    "feat_emoji_upscale",
+    "feat_audit_log",
+    "feat_welcome",
+})
+
+# 🗂️ 모듈 단위 카탈로그 (총 13개 모듈: 12개 기본 ON 모듈 + 1개 기본 OFF 자동화 모듈)
+GUILD_FEATURE_MODULES: list[dict] = [
+    {
+        "key": "mod_general",
+        "label": "출석 · D-Day · 생일 · 일정",
+        "emoji": "📅",
+        "category": "general",
+        "default_on": True,
+        "desc": "출석체크, 월간 출석달력, 출석 랭킹, D-Day 전광판, 생일 전광판, 프로세카 미래시/실시간 이벤트",
+    },
+    {
+        "key": "mod_music",
+        "label": "음악 · 플리 · 무드라디오 · 음성",
+        "emoji": "🎵",
+        "category": "general",
+        "default_on": True,
+        "desc": "플레이리스트 스튜디오, 무드 음성 라디오, 지금 음악추천, 애청곡 보관함, 배속/헤드셋, 오디오 진단",
+    },
+    {
+        "key": "mod_community",
+        "label": "서버통계 · 파티 · 예약 · 날씨 · 소설",
+        "emoji": "📊",
+        "category": "general",
+        "default_on": True,
+        "desc": "실시간 서버통계, 게임 파티모집, 예약 이벤트 RSVP, 실시간 날씨, 협동 릴레이소설, 건의/피드백",
+    },
+    {
+        "key": "mod_sekai",
+        "label": "프로세카 가챠 · 라이브 · 의상 · 덱",
+        "emoji": "🎤",
+        "category": "minigame",
+        "default_on": True,
+        "desc": "프로세카 뽑기/천장/셀렉트, 세카이 라이브, 마스터 랭크, 3D 의상실, 마이세카이, 보관함/5인 덱, 도감/랭킹",
+    },
+    {
+        "key": "mod_genshin",
+        "label": "원신 기원 · 상점 · 보관함 · 파티",
+        "emoji": "🌠",
+        "category": "minigame",
+        "default_on": True,
+        "desc": "원신 10회 기원/배너 허브, 운명의 궤도, 페이몬 상점, 원신 보관함/4인 파티/프로필, 티바트 도감/랭킹",
+    },
+    {
+        "key": "mod_hsr",
+        "label": "스타레일 워프 · 상점 · 보관함 · 편대",
+        "emoji": "🚄",
+        "category": "minigame",
+        "default_on": True,
+        "desc": "스타레일 10회 워프/배너 허브, 상시 300회 선택, 스타레일 상점, 보관함/4인 편대/프로필, 아카이브 도감/랭킹",
+    },
+    {
+        "key": "mod_fishing",
+        "label": "통합 낚시 · 수족관 · 대회 · 어시장",
+        "emoji": "🎣",
+        "category": "minigame",
+        "default_on": True,
+        "desc": "3대수역 낚시 출조, 주말/제철 낚시대회, 프라이빗 수족관, 낚시 상점/강화 공방, 가방/시세/보스레이드, 어류도감/랭킹",
+    },
+    {
+        "key": "mod_life",
+        "label": "농장 · 공동농장 · 펫 · 요리 생활",
+        "emoji": "🌾",
+        "category": "minigame",
+        "default_on": True,
+        "desc": "생활 통합 대시보드, 개인 농장/파트너 물주기, 서버 공동농장, 6종 펫 육성, 생선 요리/활성 버프",
+    },
+    {
+        "key": "mod_minigame_etc",
+        "label": "타인의삶 · 끝말잇기 · 룰렛 · 도감/랭킹",
+        "emoji": "🎲",
+        "category": "minigame",
+        "default_on": True,
+        "desc": "타인의 삶 인생 시뮬레이션/엔딩도감, 실시간 끝말잇기, 스릴 러시안룰렛, 즉석 미니 대전, 통합 도감/랭킹 허브",
+    },
+    {
+        "key": "mod_personal_eco",
+        "label": "프로필 · 오시 · 칭호 · 송금 · 환전",
+        "emoji": "🪪",
+        "category": "personal",
+        "default_on": True,
+        "desc": "통합 PNG 프로필카드, 프로세카 프로필/오시 설정, 칭호 상점/쇼케이스/업적, 크리스탈 송금, 골드⇄크리스탈 환전",
+    },
+    {
+        "key": "mod_routine_study",
+        "label": "일일루틴 · 주간미션 · 잔디 · 스터디 · 파트너",
+        "emoji": "☀️",
+        "category": "personal",
+        "default_on": True,
+        "desc": "오늘의 일일 루틴, 통합 주간 미션, 오늘목표 은하수잔디, 뽀모도로/하드코어 스터디, 개인 알림예약/비밀 D-Day, 파트너",
+    },
+    {
+        "key": "mod_admin_tools",
+        "label": "서버 관리 도구 (역할·공지·티켓·청소)",
+        "emoji": "🛡️",
+        "category": "advanced",
+        "default_on": True,
+        "desc": "역할버튼/반응역할 스튜디오, 스마트 공지발송, 1:1 문의티켓, 실시간 카운트다운, 자동 고정메시지, 메시지청소/스케줄",
+    },
+    {
+        "key": "mod_admin_auto_off",
+        "label": "서버 자동화 6종 (기본 OFF 기능 모음)",
+        "emoji": "🔒",
+        "category": "advanced",
+        "default_on": False,
+        "desc": "임시음성방 자동생성, SNS 링크보정, 레이드 비상방어, 커스텀 이모지 업스케일, 실시간 감사로그, 환영/작별 배너",
+    },
+]
+
+GUILD_FEATURE_MODULE_MAP: dict[str, dict] = {m["key"]: m for m in GUILD_FEATURE_MODULES}
+
+# 🧩 개별 세부 기능 카탈로그 (모듈 소속, 기본 ON/OFF 여부, 연결된 대시보드 콜백 목록)
+GUILD_FEATURE_CATALOG: list[dict] = [
+    # 1. mod_general (기본 ON)
+    {
+        "key": "feat_attendance",
+        "module": "mod_general",
+        "label": "오늘 출석체크",
+        "emoji": "📅",
+        "default_on": True,
+        "callbacks": ["_act_attendance"],
+    },
+    {
+        "key": "feat_att_calendar",
+        "module": "mod_general",
+        "label": "월간 출석달력",
+        "emoji": "🗓️",
+        "default_on": True,
+        "callbacks": ["_act_att_calendar"],
+    },
+    {
+        "key": "feat_att_ranking",
+        "module": "mod_general",
+        "label": "출석체크 랭킹",
+        "emoji": "🏆",
+        "default_on": True,
+        "callbacks": ["_act_att_ranking"],
+    },
+    {
+        "key": "feat_dday_board",
+        "module": "mod_general",
+        "label": "D-Day 전광판 · 보관소",
+        "emoji": "📋",
+        "default_on": True,
+        "callbacks": ["_act_dday_list", "_sub_dday_past"],
+    },
+    {
+        "key": "feat_birthday_board",
+        "module": "mod_general",
+        "label": "생일 전광판",
+        "emoji": "🎂",
+        "default_on": True,
+        "callbacks": ["_act_birthday_board"],
+    },
+    {
+        "key": "feat_sekai_schedule",
+        "module": "mod_general",
+        "label": "프로세카 미래시 · 실시간 이벤트",
+        "emoji": "🔭",
+        "default_on": True,
+        "callbacks": ["_act_sekai_schedule_hub", "_sub_sekai_forecast_cal", "_sub_sekai_live_kr", "_sub_sekai_live_jp"],
+    },
+
+    # 2. mod_music (기본 ON)
+    {
+        "key": "feat_playlist_studio",
+        "module": "mod_music",
+        "label": "플리 스튜디오",
+        "emoji": "💿",
+        "default_on": True,
+        "callbacks": ["_act_playlist_studio"],
+    },
+    {
+        "key": "feat_mood_radio",
+        "module": "mod_music",
+        "label": "무드 음성 라디오",
+        "emoji": "📻",
+        "default_on": True,
+        "callbacks": ["_act_mood_radio"],
+    },
+    {
+        "key": "feat_music_now",
+        "module": "mod_music",
+        "label": "지금 음악추천",
+        "emoji": "🎧",
+        "default_on": True,
+        "callbacks": ["_act_music_now"],
+    },
+    {
+        "key": "feat_music_vault",
+        "module": "mod_music",
+        "label": "내 애청곡 보관함",
+        "emoji": "❤️",
+        "default_on": True,
+        "callbacks": ["_act_music_vault"],
+    },
+    {
+        "key": "feat_music_voice",
+        "module": "mod_music",
+        "label": "배속 · 헤드셋 제어",
+        "emoji": "⏩",
+        "default_on": True,
+        "callbacks": ["_act_music_voice_hub", "_act_music_headset_toggle", "_sub_music_speed"],
+    },
+    {
+        "key": "feat_audio_test",
+        "module": "mod_music",
+        "label": "440Hz 오디오 진단",
+        "emoji": "🔊",
+        "default_on": True,
+        "callbacks": ["_act_audio_test"],
+    },
+
+    # 3. mod_community (기본 ON)
+    {
+        "key": "feat_server_stats",
+        "module": "mod_community",
+        "label": "실시간 서버통계",
+        "emoji": "📊",
+        "default_on": True,
+        "callbacks": ["_act_server_stats"],
+    },
+    {
+        "key": "feat_recruit",
+        "module": "mod_community",
+        "label": "게임 파티모집",
+        "emoji": "🎮",
+        "default_on": True,
+        "callbacks": ["_act_recruit"],
+    },
+    {
+        "key": "feat_guild_events",
+        "module": "mod_community",
+        "label": "예약 이벤트 RSVP",
+        "emoji": "🗓️",
+        "default_on": True,
+        "callbacks": ["_act_guild_events"],
+    },
+    {
+        "key": "feat_weather",
+        "module": "mod_community",
+        "label": "실시간 날씨",
+        "emoji": "🌤️",
+        "default_on": True,
+        "callbacks": ["_act_weather"],
+    },
+    {
+        "key": "feat_relay_novel",
+        "module": "mod_community",
+        "label": "협동 릴레이소설",
+        "emoji": "✍️",
+        "default_on": True,
+        "callbacks": ["_act_relay_novel_hub", "_sub_relay_start", "_sub_relay_status", "_sub_relay_archive", "_sub_relay_cancel"],
+    },
+    {
+        "key": "feat_suggestion",
+        "module": "mod_community",
+        "label": "봇 건의 & 피드백",
+        "emoji": "📬",
+        "default_on": True,
+        "callbacks": ["_act_suggestion"],
+    },
+
+    # 4. mod_sekai (기본 ON)
+    {
+        "key": "feat_sekai_pull",
+        "module": "mod_sekai",
+        "label": "프로세카 뽑기 · 천장 · 셀렉트",
+        "emoji": "🌈",
+        "default_on": True,
+        "callbacks": [
+            "_act_sekai_pull_10",
+            "_act_sekai_pull_1",
+            "_act_sekai_pull_hub",
+            "_act_sekai_register",
+            "_sub_sekai_ceiling_exchange",
+            "_sub_sekai_select_list",
+            "_sub_sekai_destiny_reroll",
+            "_sub_sekai_reroll_sim",
+            "_sub_sekai_bday_free",
+        ],
+    },
+    {
+        "key": "feat_sekai_live",
+        "module": "mod_sekai",
+        "label": "세카이 협동 라이브",
+        "emoji": "⚔️",
+        "default_on": True,
+        "callbacks": ["_act_sekai_live"],
+    },
+    {
+        "key": "feat_sekai_master_rank",
+        "module": "mod_sekai",
+        "label": "마스터 랭크 & 캐랭 깃발",
+        "emoji": "🏆",
+        "default_on": True,
+        "callbacks": ["_act_sekai_master_rank", "_act_sekai_char_rank"],
+    },
+    {
+        "key": "feat_sekai_wardrobe",
+        "module": "mod_sekai",
+        "label": "3D 의상실 & 헤어",
+        "emoji": "👗",
+        "default_on": True,
+        "callbacks": ["_act_sekai_wardrobe"],
+    },
+    {
+        "key": "feat_sekai_myroom",
+        "module": "mod_sekai",
+        "label": "마이세카이 미니룸",
+        "emoji": "🏠",
+        "default_on": True,
+        "callbacks": ["_act_sekai_myroom"],
+    },
+    {
+        "key": "feat_sekai_inv_deck",
+        "module": "mod_sekai",
+        "label": "프로세카 보관함 · 5인 덱 · 교환",
+        "emoji": "🎒",
+        "default_on": True,
+        "callbacks": [
+            "_act_sekai_inv",
+            "_act_sekai_dup_convert",
+            "_act_sekai_deck_hub",
+            "_sub_sekai_deck_view",
+            "_sub_sekai_card_enhance",
+            "_sub_sekai_card_trade",
+            "_sub_sekai_card_gift",
+            "_sub_sekai_card_search",
+        ],
+    },
+    {
+        "key": "feat_sekai_dex_rank",
+        "module": "mod_sekai",
+        "label": "프로세카 도감 · 확률표 · 랭킹",
+        "emoji": "📖",
+        "default_on": True,
+        "callbacks": ["_act_sekai_pokedex", "_sub_sekai_rates", "_act_sekai_rank"],
+    },
+
+    # 5. mod_genshin (기본 ON)
+    {
+        "key": "feat_gi_pull",
+        "module": "mod_genshin",
+        "label": "원신 기원 & 배너 허브",
+        "emoji": "🌠",
+        "default_on": True,
+        "callbacks": ["_act_gi_pull_10", "_act_gi_banner_hub", "_sub_gi_banner_pull"],
+    },
+    {
+        "key": "feat_gi_fate",
+        "module": "mod_genshin",
+        "label": "원신 운명의 궤도",
+        "emoji": "🧭",
+        "default_on": True,
+        "callbacks": ["_act_gi_fate"],
+    },
+    {
+        "key": "feat_gi_shop",
+        "module": "mod_genshin",
+        "label": "원신 페이몬 상점",
+        "emoji": "🧚",
+        "default_on": True,
+        "callbacks": ["_act_gi_shop"],
+    },
+    {
+        "key": "feat_gi_personal",
+        "module": "mod_genshin",
+        "label": "원신 보관함 · 4인 파티 · 프로필",
+        "emoji": "🎒",
+        "default_on": True,
+        "callbacks": ["_act_gi_personal_hub", "_act_gi_inv", "_act_gi_party", "_sub_gi_profile", "_sub_gi_profile_edit"],
+    },
+    {
+        "key": "feat_gi_dex_rank",
+        "module": "mod_genshin",
+        "label": "원신 도감 · 확률표 · 랭킹",
+        "emoji": "📖",
+        "default_on": True,
+        "callbacks": ["_act_gi_pokedex", "_sub_gi_rates", "_act_gi_rank"],
+    },
+
+    # 6. mod_hsr (기본 ON)
+    {
+        "key": "feat_hsr_warp",
+        "module": "mod_hsr",
+        "label": "스타레일 워프 & 배너 허브",
+        "emoji": "🚆",
+        "default_on": True,
+        "callbacks": ["_act_hsr_warp_10", "_act_hsr_banner_hub", "_sub_hsr_banner_warp"],
+    },
+    {
+        "key": "feat_hsr_300",
+        "module": "mod_hsr",
+        "label": "스타레일 상시 300회 선택권",
+        "emoji": "🎁",
+        "default_on": True,
+        "callbacks": ["_act_hsr_300"],
+    },
+    {
+        "key": "feat_hsr_shop",
+        "module": "mod_hsr",
+        "label": "스타레일 상점",
+        "emoji": "🛍️",
+        "default_on": True,
+        "callbacks": ["_act_hsr_shop"],
+    },
+    {
+        "key": "feat_hsr_personal",
+        "module": "mod_hsr",
+        "label": "스타레일 보관함 · 4인 편대 · 프로필",
+        "emoji": "🎒",
+        "default_on": True,
+        "callbacks": ["_act_hsr_personal_hub", "_act_hsr_inv", "_act_hsr_party", "_sub_hsr_profile", "_sub_hsr_profile_edit"],
+    },
+    {
+        "key": "feat_hsr_dex_rank",
+        "module": "mod_hsr",
+        "label": "스타레일 도감 · 확률표 · 랭킹",
+        "emoji": "📖",
+        "default_on": True,
+        "callbacks": ["_act_hsr_pokedex", "_sub_hsr_rates", "_act_hsr_rank"],
+    },
+
+    # 7. mod_fishing (기본 ON)
+    {
+        "key": "feat_fishing_cast",
+        "module": "mod_fishing",
+        "label": "낚시 출조 (3대수역)",
+        "emoji": "🎣",
+        "default_on": True,
+        "callbacks": ["_act_fishing_cast"],
+    },
+    {
+        "key": "feat_fishing_tourney",
+        "module": "mod_fishing",
+        "label": "주말 · 제철 낚시대회",
+        "emoji": "🏅",
+        "default_on": True,
+        "callbacks": ["_act_fishing_tourney"],
+    },
+    {
+        "key": "feat_fishing_aquarium",
+        "module": "mod_fishing",
+        "label": "내 프라이빗 수족관",
+        "emoji": "🐠",
+        "default_on": True,
+        "callbacks": ["_act_fishing_aquarium"],
+    },
+    {
+        "key": "feat_fishing_shop",
+        "module": "mod_fishing",
+        "label": "낚시 상점 · 강화 공방",
+        "emoji": "🛒",
+        "default_on": True,
+        "callbacks": ["_act_fishing_shop", "_sub_fishing_workshop"],
+    },
+    {
+        "key": "feat_fishing_personal",
+        "module": "mod_fishing",
+        "label": "낚시 가방 · 시세 · 레이드 · 퀘스트",
+        "emoji": "👜",
+        "default_on": True,
+        "callbacks": [
+            "_act_fishing_personal_hub",
+            "_sub_fishing_bag",
+            "_sub_fishing_market",
+            "_sub_fishing_raid",
+            "_sub_fishing_quest",
+            "_sub_fishing_profile",
+            "_sub_fishing_env",
+        ],
+    },
+    {
+        "key": "feat_fishing_dex_rank",
+        "module": "mod_fishing",
+        "label": "낚시 어류도감 & 대물 랭킹",
+        "emoji": "📖",
+        "default_on": True,
+        "callbacks": ["_act_fishing_pokedex", "_act_fishing_rank"],
+    },
+
+    # 8. mod_life (기본 ON)
+    {
+        "key": "feat_life_dashboard",
+        "module": "mod_life",
+        "label": "생활 통합 대시보드",
+        "emoji": "🌿",
+        "default_on": True,
+        "callbacks": ["_act_life_dashboard", "_act_life_personal_hub"],
+    },
+    {
+        "key": "feat_life_farm",
+        "module": "mod_life",
+        "label": "개인 농장 & 파트너 물주기",
+        "emoji": "🌾",
+        "default_on": True,
+        "callbacks": ["_act_life_farm", "_act_partner_farm_water"],
+    },
+    {
+        "key": "feat_life_coop_farm",
+        "module": "mod_life",
+        "label": "서버 공동농장",
+        "emoji": "🏡",
+        "default_on": True,
+        "callbacks": ["_sub_life_coop_farm"],
+    },
+    {
+        "key": "feat_life_pet",
+        "module": "mod_life",
+        "label": "펫 입양 & 돌보기 (6종)",
+        "emoji": "🐾",
+        "default_on": True,
+        "callbacks": ["_sub_life_pet"],
+    },
+    {
+        "key": "feat_life_cook",
+        "module": "mod_life",
+        "label": "생선 요리 & 활성 버프",
+        "emoji": "🍳",
+        "default_on": True,
+        "callbacks": ["_sub_life_cook", "_sub_life_buffs"],
+    },
+
+    # 9. mod_minigame_etc (기본 ON)
+    {
+        "key": "feat_other_life",
+        "module": "mod_minigame_etc",
+        "label": "타인의 삶 플레이 · 도감 · 랭킹",
+        "emoji": "👶",
+        "default_on": True,
+        "callbacks": ["_act_other_life_play", "_act_other_life_codex", "_act_other_life_rank"],
+    },
+    {
+        "key": "feat_word_chain",
+        "module": "mod_minigame_etc",
+        "label": "실시간 끝말잇기",
+        "emoji": "🔤",
+        "default_on": True,
+        "callbacks": ["_act_word_chain"],
+    },
+    {
+        "key": "feat_roulette",
+        "module": "mod_minigame_etc",
+        "label": "스릴 러시안룰렛",
+        "emoji": "🔫",
+        "default_on": True,
+        "callbacks": ["_act_roulette"],
+    },
+    {
+        "key": "feat_mini_battle",
+        "module": "mod_minigame_etc",
+        "label": "즉석 미니 대전 (주사위·초성)",
+        "emoji": "🎲",
+        "default_on": True,
+        "callbacks": ["_act_mini_battle_hub"],
+    },
+    {
+        "key": "feat_pokedex_hub",
+        "module": "mod_minigame_etc",
+        "label": "5대 통합 도감 & 확률표 허브",
+        "emoji": "📖",
+        "default_on": True,
+        "callbacks": ["_act_pokedex_hub"],
+    },
+    {
+        "key": "feat_ranking_hub",
+        "module": "mod_minigame_etc",
+        "label": "전 분야 통합 랭킹 보드",
+        "emoji": "🏆",
+        "default_on": True,
+        "callbacks": ["_act_ranking_hub"],
+    },
+
+    # 10. mod_personal_eco (기본 ON)
+    {
+        "key": "feat_profile_card",
+        "module": "mod_personal_eco",
+        "label": "통합 PNG 프로필카드",
+        "emoji": "🪪",
+        "default_on": True,
+        "callbacks": ["_act_profile_card_png"],
+    },
+    {
+        "key": "feat_sekai_profile",
+        "module": "mod_personal_eco",
+        "label": "프로세카 내 프로필 & 오시 설정",
+        "emoji": "🎸",
+        "default_on": True,
+        "callbacks": ["_act_sekai_profile", "_act_oshi_setup"],
+    },
+    {
+        "key": "feat_title_shop",
+        "module": "mod_personal_eco",
+        "label": "칭호 상점 · 쇼케이스 · 업적",
+        "emoji": "🏷️",
+        "default_on": True,
+        "callbacks": ["_act_title_shop", "_act_showcase", "_act_achievements"],
+    },
+    {
+        "key": "feat_crystal_transfer",
+        "module": "mod_personal_eco",
+        "label": "크리스탈 송금",
+        "emoji": "💸",
+        "default_on": True,
+        "callbacks": ["_act_crystal_transfer"],
+    },
+    {
+        "key": "feat_currency_exchange",
+        "module": "mod_personal_eco",
+        "label": "골드⇄크리스탈 환전 & 순자산 랭킹",
+        "emoji": "💱",
+        "default_on": True,
+        "callbacks": ["_act_currency_exchange", "_act_economy_rank"],
+    },
+    {
+        "key": "feat_user_info",
+        "module": "mod_personal_eco",
+        "label": "내 디스코드 정보",
+        "emoji": "📊",
+        "default_on": True,
+        "callbacks": ["_act_user_info"],
+    },
+
+    # 11. mod_routine_study (기본 ON)
+    {
+        "key": "feat_daily_routine",
+        "module": "mod_routine_study",
+        "label": "오늘의 일일 루틴",
+        "emoji": "☀️",
+        "default_on": True,
+        "callbacks": ["_act_daily_routine"],
+    },
+    {
+        "key": "feat_weekly_missions",
+        "module": "mod_routine_study",
+        "label": "통합 주간 미션",
+        "emoji": "🎯",
+        "default_on": True,
+        "callbacks": ["_act_weekly_missions"],
+    },
+    {
+        "key": "feat_todo_grass",
+        "module": "mod_routine_study",
+        "label": "오늘목표 & 은하수잔디",
+        "emoji": "🌱",
+        "default_on": True,
+        "callbacks": ["_act_todo_grass"],
+    },
+    {
+        "key": "feat_study_timer",
+        "module": "mod_routine_study",
+        "label": "뽀모도로 & 하드코어 스터디",
+        "emoji": "⏳",
+        "default_on": True,
+        "callbacks": ["_act_pomodoro", "_act_hardcore_study"],
+    },
+    {
+        "key": "feat_reminder_secret",
+        "module": "mod_routine_study",
+        "label": "개인 알림예약 & 비밀 D-Day",
+        "emoji": "⏰",
+        "default_on": True,
+        "callbacks": ["_act_reminder_hub", "_act_secret_dday"],
+    },
+    {
+        "key": "feat_partner_studio",
+        "module": "mod_routine_study",
+        "label": "내 생일 & 파트너 스튜디오",
+        "emoji": "💑",
+        "default_on": True,
+        "callbacks": ["_act_bday_partner_hub", "_act_partner_studio", "_sub_partner_propose", "_sub_partner_break"],
+    },
+
+    # 12. mod_admin_tools (기본 ON)
+    {
+        "key": "feat_admin_roles",
+        "module": "mod_admin_tools",
+        "label": "역할버튼 빠른제작 & 반응역할",
+        "emoji": "🎭",
+        "default_on": True,
+        "callbacks": ["_act_admin_quick_role", "_act_admin_role_studio", "_act_admin_role_list"],
+    },
+    {
+        "key": "feat_admin_announce",
+        "module": "mod_admin_tools",
+        "label": "스마트 공지발송",
+        "emoji": "📢",
+        "default_on": True,
+        "callbacks": ["_act_admin_announce"],
+    },
+    {
+        "key": "feat_admin_ticket",
+        "module": "mod_admin_tools",
+        "label": "1:1 문의티켓 시스템",
+        "emoji": "🎫",
+        "default_on": True,
+        "callbacks": [
+            "_act_admin_ticket_hub",
+            "_sub_ticket_create_panel",
+            "_sub_ticket_custom_panel",
+            "_sub_ticket_role_config",
+            "_act_admin_ticket_list",
+            "_sub_ticket_member_modal",
+            "_sub_ticket_close_current",
+        ],
+    },
+    {
+        "key": "feat_admin_countdown",
+        "module": "mod_admin_tools",
+        "label": "실시간 카운트다운",
+        "emoji": "⏳",
+        "default_on": True,
+        "callbacks": ["_act_admin_countdown"],
+    },
+    {
+        "key": "feat_admin_sticky",
+        "module": "mod_admin_tools",
+        "label": "자동 고정메시지 (Sticky)",
+        "emoji": "📌",
+        "default_on": True,
+        "callbacks": [
+            "_act_admin_sticky_hub",
+            "_sub_sticky_detail_panel",
+            "_sub_sticky_set",
+            "_sub_sticky_toggle",
+            "_sub_sticky_list",
+            "_sub_sticky_remove",
+        ],
+    },
+    {
+        "key": "feat_admin_purge_audit",
+        "module": "mod_admin_tools",
+        "label": "채널 메시지청소 & 잠수감사",
+        "emoji": "🧹",
+        "default_on": True,
+        "callbacks": ["_act_admin_purge", "_act_admin_inactive"],
+    },
+    {
+        "key": "feat_admin_sched_reset",
+        "module": "mod_admin_tools",
+        "label": "D-Day/음악 스케줄러 & 초기화",
+        "emoji": "📅",
+        "default_on": True,
+        "callbacks": [
+            "_act_admin_dday_hub",
+            "_act_add_dday_modal",
+            "_sub_dday_setup_board",
+            "_sub_dday_set_alert_ch",
+            "_sub_dday_set_default_cat",
+            "_act_admin_music_sched_hub",
+            "_sub_music_set_morning_ch",
+            "_sub_music_prefs_modal",
+            "_sub_music_custom_sched",
+            "_act_admin_reset_hub",
+            "_sub_reset_dday",
+            "_sub_reset_sekai",
+            "_sub_reset_genshin",
+            "_sub_reset_hsr",
+        ],
+    },
+
+    # 13. mod_admin_auto_off (기본 OFF 6종 — 서버 자동화 기능)
+    {
+        "key": "feat_temp_voice",
+        "module": "mod_admin_auto_off",
+        "label": "임시음성방 자동생성",
+        "emoji": "🔊",
+        "default_on": False,
+        "callbacks": ["_act_admin_temp_voice", "_act_my_temp_voice_remote"],
+    },
+    {
+        "key": "feat_link_fix",
+        "module": "mod_admin_auto_off",
+        "label": "SNS 링크보정",
+        "emoji": "🔗",
+        "default_on": False,
+        "callbacks": ["_act_admin_link_fix"],
+    },
+    {
+        "key": "feat_raid_def",
+        "module": "mod_admin_auto_off",
+        "label": "레이드 비상방어",
+        "emoji": "🚨",
+        "default_on": False,
+        "callbacks": ["_act_admin_raid_def"],
+    },
+    {
+        "key": "feat_emoji_upscale",
+        "module": "mod_admin_auto_off",
+        "label": "이모지 업스케일",
+        "emoji": "🔍",
+        "default_on": False,
+        "callbacks": ["_act_admin_emoji_upscale"],
+    },
+    {
+        "key": "feat_audit_log",
+        "module": "mod_admin_auto_off",
+        "label": "실시간 감사로그",
+        "emoji": "📜",
+        "default_on": False,
+        "callbacks": ["_act_admin_audit_log"],
+    },
+    {
+        "key": "feat_welcome",
+        "module": "mod_admin_auto_off",
+        "label": "환영/작별 배너",
+        "emoji": "👋",
+        "default_on": False,
+        "callbacks": ["_act_admin_welcome"],
+    },
+]
+
+GUILD_FEATURE_MAP: dict[str, dict] = {f["key"]: f for f in GUILD_FEATURE_CATALOG}
+
+# 콜백 함수명 -> 기능 메타데이터 역매핑
+CALLBACK_TO_FEATURE_KEY: dict[str, str] = {}
+for _feat_obj in GUILD_FEATURE_CATALOG:
+    for _cb_n in _feat_obj.get("callbacks", []):
+        CALLBACK_TO_FEATURE_KEY[_cb_n] = _feat_obj["key"]
+
+
+def resolve_guild_feature_key(feature_or_cb_name: str) -> Optional[str]:
+    """기능 키(`feat_*`) 또는 대시보드 콜백 이름(`_act_*`, `_sub_*`)을 표준 기능 키로 변환합니다."""
+    raw = str(feature_or_cb_name or "").strip()
+    if not raw:
+        return None
+    if raw in OWNER_IMMUNE_CALLBACK_NAMES or raw in SYSTEM_ALWAYS_ON_CALLBACK_NAMES:
+        return None
+    if raw in GUILD_FEATURE_MAP:
+        return raw
+    if raw in CALLBACK_TO_FEATURE_KEY:
+        return CALLBACK_TO_FEATURE_KEY[raw]
+    return None
+
+
+def _get_native_default_off_feature_state(data: dict, guild_id: int, feat_key: str) -> bool:
+    """기본 OFF인 서버 자동화 기능 6종의 실제 길드 설정 활성화 여부를 읽습니다."""
+    if not guild_id:
+        return False
+    g_key = str(guild_id)
+    if feat_key == "feat_emoji_upscale":
+        return is_emoji_upscale_enabled(guild_id, data)
+    if feat_key == "feat_link_fix":
+        cfg = safe_get_dict(data, "link_preview_configs", g_key)
+        return bool(cfg.get("enabled", False))
+    if feat_key == "feat_raid_def":
+        cfg = safe_get_dict(data, "raid_defense_configs", g_key)
+        return bool(cfg.get("enabled", False))
+    if feat_key == "feat_temp_voice":
+        cfg = safe_get_dict(data, "temp_voice_configs", g_key)
+        return bool(cfg.get("enabled", False))
+    if feat_key == "feat_audit_log":
+        cfg = safe_get_dict(data, "server_logs", g_key)
+        return bool(cfg.get("enabled", False))
+    if feat_key == "feat_welcome":
+        cfg = safe_get_dict(data, "welcome_configs", g_key)
+        return bool(cfg.get("welcome_enabled", False) or cfg.get("goodbye_enabled", False))
+    return False
+
+
+def _set_native_default_off_feature_state(data: dict, guild_id: int, feat_key: str, enabled: bool) -> None:
+    """기본 OFF인 서버 자동화 기능 6종의 길드 설정 활성화 플래그를 동기화합니다."""
+    if not guild_id:
+        return
+    g_key = str(guild_id)
+    flag = bool(enabled)
+    if feat_key == "feat_emoji_upscale":
+        g_map = ensure_dict_path(data, "settings", "emoji_upscale_guilds")
+        g_map[g_key] = flag
+        return
+    if feat_key == "feat_link_fix":
+        import community_core
+        cfg = community_core.get_link_preview_config(data, guild_id)
+        cfg["enabled"] = flag
+        community_core.save_link_preview_config(data, guild_id, cfg)
+        return
+    if feat_key == "feat_raid_def":
+        import community_core
+        cfg = community_core.get_raid_defense_config(data, guild_id)
+        cfg["enabled"] = flag
+        community_core.save_raid_defense_config(data, guild_id, cfg)
+        return
+    if feat_key == "feat_temp_voice":
+        import community_core
+        cfg = community_core.get_temp_voice_config(data, guild_id)
+        cfg["enabled"] = flag
+        community_core.save_temp_voice_config(data, guild_id, cfg)
+        return
+    if feat_key == "feat_audit_log":
+        logs_map = ensure_dict_path(data, "server_logs")
+        cur_cfg = logs_map.get(g_key)
+        if not isinstance(cur_cfg, dict):
+            cur_cfg = {"channel_id": None, "enabled": flag, "events": {}}
+        else:
+            cur_cfg["enabled"] = flag
+        logs_map[g_key] = cur_cfg
+        return
+    if feat_key == "feat_welcome":
+        import community_core
+        cfg = community_core.get_welcome_config(data, guild_id)
+        cfg["welcome_enabled"] = flag
+        if not flag:
+            cfg["goodbye_enabled"] = False
+        community_core.save_welcome_config(data, guild_id, cfg)
+        return
+
+
+def _get_guild_toggle_store(data: dict, guild_id: int, create: bool = False) -> dict:
+    """data['guild_feature_toggles'][str(guild_id)] 설정 딕셔너리를 반환합니다."""
+    if not isinstance(data, dict) or not guild_id:
+        return {}
+    g_key = str(guild_id)
+    if create:
+        root = ensure_dict_path(data, "guild_feature_toggles")
+        entry = root.get(g_key)
+        if not isinstance(entry, dict):
+            entry = {"modules": {}, "features": {}}
+            root[g_key] = entry
+        if not isinstance(entry.get("modules"), dict):
+            entry["modules"] = {}
+        if not isinstance(entry.get("features"), dict):
+            entry["features"] = {}
+        return entry
+    return safe_get_dict(data, "guild_feature_toggles", g_key)
+
+
+def is_guild_module_enabled(guild_id: Optional[int], module_key: str, data: Optional[dict] = None) -> bool:
+    """
+    특정 길드에서 모듈이 활성화(ON) 상태인지 확인합니다.
+    - 기본 ON 모듈(12종): 관리자가 명시적으로 OFF 하지 않았으면 True
+    - 기본 OFF 모듈(mod_admin_auto_off): 소속된 6종 자동화 기능 중 하나라도 ON이면 True, 모두 OFF이면 False
+    """
+    mod_meta = GUILD_FEATURE_MODULE_MAP.get(str(module_key or ""))
+    if not mod_meta:
+        return True
+    if not guild_id:
+        return bool(mod_meta.get("default_on", True))
+    d = data if isinstance(data, dict) else get_cached_data_ro()
+    if mod_meta["key"] == "mod_admin_auto_off":
+        mod_feats = [f for f in GUILD_FEATURE_CATALOG if f["module"] == "mod_admin_auto_off"]
+        return any(_get_native_default_off_feature_state(d, int(guild_id), f["key"]) for f in mod_feats)
+    store = _get_guild_toggle_store(d, int(guild_id), create=False)
+    mod_overrides = as_dict(store.get("modules"))
+    if module_key in mod_overrides:
+        return bool(mod_overrides[module_key])
+    return bool(mod_meta.get("default_on", True))
+
+
+def is_guild_feature_enabled(guild_id: Optional[int], feature_or_cb_name: str, data: Optional[dict] = None) -> bool:
+    """
+    특정 길드에서 개별 기능(또는 대시보드 콜백)이 활성화(ON) 상태인지 확인합니다.
+    - 봇 주인 전용(OWNER_IMMUNE_CALLBACK_NAMES) 및 시스템 필수 콜백은 항상 True 반환
+    - 기본 OFF 6종 기능은 해당 길드의 실제 설정(enabled) 상태를 반환
+    - 그 외 모든 기능은 상위 모듈이 ON이고 개별 기능이 OFF로 지정되지 않았으면 기본 True 반환
+    """
+    raw = str(feature_or_cb_name or "").strip()
+    if not raw or raw in OWNER_IMMUNE_CALLBACK_NAMES or raw in SYSTEM_ALWAYS_ON_CALLBACK_NAMES:
+        return True
+    feat_key = resolve_guild_feature_key(raw)
+    if not feat_key:
+        return True
+    feat_meta = GUILD_FEATURE_MAP.get(feat_key)
+    if not feat_meta:
+        return True
+    if not guild_id:
+        return bool(feat_meta.get("default_on", True))
+
+    d = data if isinstance(data, dict) else get_cached_data_ro()
+    gid = int(guild_id)
+
+    # 기본 OFF 6종 자동화 기능은 네이티브 설정과 100% 동기화
+    if feat_key in DEFAULT_OFF_FEATURE_KEYS:
+        return _get_native_default_off_feature_state(d, gid, feat_key)
+
+    mod_key = feat_meta["module"]
+    if not is_guild_module_enabled(gid, mod_key, d):
+        return False
+
+    store = _get_guild_toggle_store(d, gid, create=False)
+    feat_overrides = as_dict(store.get("features"))
+    if feat_key in feat_overrides:
+        return bool(feat_overrides[feat_key])
+    return bool(feat_meta.get("default_on", True))
+
+
+def set_guild_feature_enabled(guild_id: int, feature_or_cb_name: str, enabled: bool) -> dict:
+    """
+    특정 길드의 개별 기능을 ON 또는 OFF로 설정하고 저장합니다. (봇 주인 기능은 변경 불가)
+    """
+    feat_key = resolve_guild_feature_key(feature_or_cb_name)
+    if not feat_key or feat_key not in GUILD_FEATURE_MAP:
+        return get_cached_data()
+    feat_meta = GUILD_FEATURE_MAP[feat_key]
+    mod_key = feat_meta["module"]
+    flag = bool(enabled)
+
+    with _DATA_LOCK:
+        data = load_data()
+        if feat_key in DEFAULT_OFF_FEATURE_KEYS:
+            _set_native_default_off_feature_state(data, int(guild_id), feat_key, flag)
+        else:
+            store = _get_guild_toggle_store(data, int(guild_id), create=True)
+            store["features"][feat_key] = flag
+            # 만약 상위 모듈이 OFF인 상태에서 개별 기능을 ON으로 켰다면 상위 모듈도 자동 ON으로 활성화
+            if flag and store["modules"].get(mod_key) is False:
+                store["modules"][mod_key] = True
+                for sibling in GUILD_FEATURE_CATALOG:
+                    if sibling["module"] == mod_key and sibling["key"] != feat_key:
+                        if sibling["key"] not in store["features"]:
+                            store["features"][sibling["key"]] = False
+        save_data(data)
+        return data
+
+
+def set_guild_module_enabled(guild_id: int, module_key: str, enabled: bool) -> dict:
+    """
+    특정 길드의 모듈 전체(및 소속된 모든 세부 기능)를 일괄 ON 또는 OFF로 설정하고 저장합니다.
+    """
+    mod_meta = GUILD_FEATURE_MODULE_MAP.get(str(module_key or ""))
+    if not mod_meta:
+        return get_cached_data()
+    flag = bool(enabled)
+
+    with _DATA_LOCK:
+        data = load_data()
+        if module_key == "mod_admin_auto_off":
+            for feat in GUILD_FEATURE_CATALOG:
+                if feat["module"] == "mod_admin_auto_off":
+                    _set_native_default_off_feature_state(data, int(guild_id), feat["key"], flag)
+        else:
+            store = _get_guild_toggle_store(data, int(guild_id), create=True)
+            store["modules"][module_key] = flag
+            for feat in GUILD_FEATURE_CATALOG:
+                if feat["module"] == module_key:
+                    store["features"][feat["key"]] = flag
+        save_data(data)
+        return data
+
+
+def reset_guild_feature_toggles_to_default(guild_id: int) -> dict:
+    """
+    특정 길드의 모든 기능 ON/OFF 상태를 표준 기본값(기본 OFF 6종은 OFF, 나머지 모든 기능은 ON)으로 복원합니다.
+    """
+    with _DATA_LOCK:
+        data = load_data()
+        root = ensure_dict_path(data, "guild_feature_toggles")
+        root.pop(str(guild_id), None)
+        for feat_k in DEFAULT_OFF_FEATURE_KEYS:
+            _set_native_default_off_feature_state(data, int(guild_id), feat_k, False)
+        save_data(data)
+        return data
+
+
+def get_guild_feature_status_summary(guild_id: Optional[int], data: Optional[dict] = None) -> dict:
+    """
+    특정 길드의 전체 모듈 및 세부 기능 ON/OFF 통계 요약을 반환합니다.
+    """
+    d = data if isinstance(data, dict) else get_cached_data_ro()
+    gid = int(guild_id or 0)
+    total_features = len(GUILD_FEATURE_CATALOG)
+    enabled_features = 0
+    default_on_total = 0
+    default_on_enabled = 0
+    default_off_total = 0
+    default_off_enabled = 0
+
+    module_summaries: list[dict] = []
+    for mod in GUILD_FEATURE_MODULES:
+        m_key = mod["key"]
+        m_feats = [f for f in GUILD_FEATURE_CATALOG if f["module"] == m_key]
+        m_on_cnt = 0
+        feat_states: list[dict] = []
+        for f in m_feats:
+            is_on = is_guild_feature_enabled(gid, f["key"], d)
+            if is_on:
+                m_on_cnt += 1
+                enabled_features += 1
+            if f.get("default_on", True):
+                default_on_total += 1
+                if is_on:
+                    default_on_enabled += 1
+            else:
+                default_off_total += 1
+                if is_on:
+                    default_off_enabled += 1
+            feat_states.append({
+                "key": f["key"],
+                "label": f["label"],
+                "emoji": f["emoji"],
+                "default_on": bool(f.get("default_on", True)),
+                "enabled": is_on,
+            })
+        module_summaries.append({
+            "key": m_key,
+            "label": mod["label"],
+            "emoji": mod["emoji"],
+            "category": mod["category"],
+            "default_on": bool(mod.get("default_on", True)),
+            "module_enabled": (m_on_cnt > 0) if m_key == "mod_admin_auto_off" else (is_guild_module_enabled(gid, m_key, d) and m_on_cnt > 0),
+            "enabled_count": m_on_cnt,
+            "total_count": len(m_feats),
+            "features": feat_states,
+        })
+
+    return {
+        "total_features": total_features,
+        "enabled_features": enabled_features,
+        "disabled_features": total_features - enabled_features,
+        "default_on_total": default_on_total,
+        "default_on_enabled": default_on_enabled,
+        "default_off_total": default_off_total,
+        "default_off_enabled": default_off_enabled,
+        "modules": module_summaries,
+    }
+

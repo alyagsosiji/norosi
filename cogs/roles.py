@@ -144,6 +144,13 @@ class PersistentRoleButton(discord.ui.Button):
             return
 
         guild = interaction.guild
+        if not core.is_guild_feature_enabled(guild.id, "feat_admin_roles"):
+            await core.safe_send_response(
+                interaction,
+                "⛔ 현재 서버 관리자에 의해 **역할버튼 & 반응역할** 기능이 비활성화(OFF)되어 있습니다.",
+                ephemeral=True,
+            )
+            return
         member = interaction.user
         role = guild.get_role(self.role_id)
         if not role:
@@ -1639,6 +1646,8 @@ class Roles(commands.Cog, name="역할"):
             return
 
         data = core.get_cached_data_ro()
+        if not core.is_guild_feature_enabled(guild.id, "feat_admin_roles", data):
+            return
         rr_map = core.safe_get_dict(data, "reaction_roles")
         mid_str = str(payload.message_id)
 
@@ -1733,6 +1742,8 @@ class Roles(commands.Cog, name="역할"):
             return
 
         data = core.get_cached_data_ro()
+        if not core.is_guild_feature_enabled(guild.id, "feat_admin_roles", data):
+            return
         rr_map = core.safe_get_dict(data, "reaction_roles")
         mid_str = str(payload.message_id)
 
